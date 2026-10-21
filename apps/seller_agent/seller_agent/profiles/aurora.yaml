@@ -1,0 +1,18 @@
+seller_id: aurora-supply
+name: Aurora Supply
+tagline: Balanced sourcing with sustainable packaging
+categories: [audio, consumer-electronics]
+list_unit_price_cents: 30900
+floor_unit_price_cents: 28100
+initial_unit_price_cents: 30900
+concession_ladder_cents: [30900, 29600, 28333]
+base_warranty_months: 24
+warranty_addons_cents: {24: 0, 36: 1200}
+returns_days: 30
+delivery_days: 10
+stock_on_hand: 8
+incoming_stock: 4
+incoming_days: 10
+split_shipment: true
+sustainability_certified: true
+rating: 4.6

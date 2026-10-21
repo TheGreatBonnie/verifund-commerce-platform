@@ -1,0 +1,15 @@
+seller_id: northwind-audio
+name: Northwind Audio
+tagline: Premium audio, fastest delivery
+categories: [audio, consumer-electronics]
+list_unit_price_cents: 31900
+floor_unit_price_cents: 27900
+initial_unit_price_cents: 30300
+concession_ladder_cents: [30300, 29200, 28100]
+base_warranty_months: 36
+warranty_addons_cents: {36: 0}
+returns_days: 45
+delivery_days: 3
+stock_on_hand: 40
+sustainability_certified: true
+rating: 4.8

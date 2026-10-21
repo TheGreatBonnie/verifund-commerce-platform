@@ -1,0 +1,15 @@
+seller_id: circuitforge
+name: CircuitForge
+tagline: Value electronics with configurable coverage
+categories: [audio, consumer-electronics]
+list_unit_price_cents: 27900
+floor_unit_price_cents: 25900
+initial_unit_price_cents: 26312
+concession_ladder_cents: [26312, 26312, 26312]
+base_warranty_months: 12
+warranty_addons_cents: {12: 0, 24: 600, 36: 1200}
+returns_days: 30
+delivery_days: 7
+stock_on_hand: 25
+sustainability_certified: false
+rating: 4.4
