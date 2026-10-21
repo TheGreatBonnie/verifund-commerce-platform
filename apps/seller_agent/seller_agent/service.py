@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from a2a.types.a2a_pb2 import Artifact, Message, TaskState
 
 from commerce_core.a2a_parts import first_envelope, make_artifact
-from commerce_core.contracts import CommerceErrorCode, Offer
+from commerce_core.contracts import CommerceErrorCode, Offer, Order
 from commerce_core.extension import wrap_payload
 from commerce_core.pricing import SellerPolicy
 
@@ -15,6 +15,7 @@ from seller_agent.graph import (
     error_artifact,
     kind_from_envelope,
 )
+from seller_agent.order_service import OrderService
 from seller_agent.planner import SellerPlanner
 from seller_agent.store import SellerStore
 
@@ -45,6 +46,7 @@ class SellerService:
         self.store = store
         self.policy = policy
         self.planner = planner
+        self.order_service = OrderService(store)
         self.graph = build_graph()
 
     async def handle_turn(
@@ -117,6 +119,18 @@ class SellerService:
                     make_artifact("offer", wrap_payload("offer", offer))
                 ],
                 message=result.get("message", "Structured offer available."),
+            )
+        if result.get("order"):
+            order = Order.model_validate(result["order"])
+            return SellerTurn(
+                task_state=TASK_STATES.get(
+                    result.get("task_state", "completed"),
+                    TaskState.TASK_STATE_COMPLETED,
+                ),
+                artifacts=[
+                    make_artifact("order", wrap_payload("order", order))
+                ],
+                message=result.get("message", "Order confirmed."),
             )
         error = {
             "code": CommerceErrorCode.INVALID_REQUEST.value,

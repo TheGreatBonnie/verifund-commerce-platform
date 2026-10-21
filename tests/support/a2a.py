@@ -16,7 +16,9 @@ from a2a.types.a2a_pb2 import (
 )
 
 from commerce_core.a2a_parts import part_value
-from commerce_core.extension import SCHEMA_FILES
+from commerce_core.extension import SCHEMA_FILES, wrap_payload
+from commerce_core.a2a_parts import make_message
+from a2a.types.a2a_pb2 import Role, SendMessageRequest
 
 
 class StaticCredentialService(CredentialService):
@@ -95,3 +97,35 @@ def last_error(events: list[StreamResponse]) -> dict:
                 found = value["payload"]
     assert found is not None, "no commerce-error artifact"
     return found
+
+
+def last_order(events: list[StreamResponse]) -> dict:
+    found = None
+    for event in events:
+        if event_kind(event) != "artifact_update":
+            continue
+        artifact = event.artifact_update.artifact
+        for part in artifact.parts:
+            value = part_value(part)
+            if value and value.get("schema", "").endswith(
+                f"/{SCHEMA_FILES['order']}"
+            ):
+                found = value["payload"]
+    assert found is not None, "no order artifact"
+    return found
+
+
+async def send_purchase_order(session, po, *, context_id: str = "order-run"):
+    message = make_message(
+        role=Role.ROLE_USER,
+        text="Human-approved purchase order.",
+        context_id=context_id,
+        envelope=wrap_payload("purchase_order", po),
+    )
+    events = await collect_stream(
+        session.client, SendMessageRequest(message=message)
+    )
+    try:
+        return last_order(events)
+    except AssertionError:
+        return last_error(events)

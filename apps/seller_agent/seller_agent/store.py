@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -15,7 +15,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from commerce_core.contracts import Offer, Order
 from commerce_core.db import configure_sqlite
@@ -27,6 +27,80 @@ class Stock:
     on_hand: int
     incoming: int
     incoming_days: int | None = None
+
+
+
+@dataclass(frozen=True)
+class Reservation:
+    split_shipment: bool
+
+
+class SellerTransaction:
+    def __init__(self, store: "SellerStore", conn: AsyncConnection) -> None:
+        self.store = store
+        self.conn = conn
+
+    async def get_offer(self, offer_id: str) -> Offer | None:
+        result = await self.conn.execute(
+            select(self.store.offers).where(
+                self.store.offers.c.offer_id == offer_id
+            )
+        )
+        row = result.first()
+        return Offer.model_validate(row.offer_json) if row else None
+
+    async def get_order_by_idempotency(self, key: str) -> Order | None:
+        result = await self.conn.execute(
+            select(self.store.orders).where(
+                self.store.orders.c.idempotency_key == key
+            )
+        )
+        row = result.first()
+        return Order.model_validate(row.order_json) if row else None
+
+    async def reserve(
+        self, sku: str, quantity: int, *, allow_split: bool
+    ) -> Reservation:
+        result = await self.conn.execute(
+            select(self.store.inventory).where(
+                self.store.inventory.c.sku == sku
+            )
+        )
+        row = result.first()
+        if row is None:
+            raise ValueError("unknown sku")
+        if row.on_hand >= quantity:
+            await self.conn.execute(
+                self.store.inventory.update()
+                .where(self.store.inventory.c.sku == sku)
+                .values(on_hand=row.on_hand - quantity)
+            )
+            return Reservation(split_shipment=False)
+        if (
+            allow_split
+            and row.on_hand + row.incoming >= quantity
+            and (row.incoming_days is None or row.incoming_days <= 14)
+        ):
+            remaining = row.on_hand + row.incoming - quantity
+            await self.conn.execute(
+                self.store.inventory.update()
+                .where(self.store.inventory.c.sku == sku)
+                .values(on_hand=0, incoming=remaining)
+            )
+            return Reservation(split_shipment=True)
+        raise ValueError("out_of_stock")
+
+    async def save_order(self, order: Order, *, idempotency_key: str) -> None:
+        await self.conn.execute(
+            self.store.orders.insert().values(
+                order_id=order.order_id,
+                offer_id=order.offer_id,
+                seller_id=order.seller_id,
+                idempotency_key=idempotency_key,
+                order_json=order.model_dump(mode="json"),
+                created_at=datetime.now(UTC).isoformat(),
+            )
+        )
 
 
 class SellerStore:
@@ -79,6 +153,11 @@ class SellerStore:
         )
         async with self.engine.begin() as conn:
             await conn.execute(statement)
+
+    @asynccontextmanager
+    async def transaction(self):
+        async with self.engine.begin() as conn:
+            yield SellerTransaction(self, conn)
 
     async def get_stock(self, sku: str) -> Stock:
         async with self.engine.connect() as conn:

@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 from commerce_core.contracts import (
     AcceptOffer,
     CommerceError,
+    PurchaseOrderRequest,
     CommerceErrorCode,
     CounterOffer,
     Offer,
@@ -45,6 +46,7 @@ class SellerState(TypedDict, total=False):
     allow_split: bool
     decision: dict | None
     offer: dict | None
+    order: dict | None
     error: dict | None
     task_state: str
     message: str
@@ -96,7 +98,9 @@ def classify(state: SellerState) -> dict:
 
 def route_kind(state: SellerState) -> str:
     kind = state.get("kind", "invalid")
-    if kind in {"rfq", "counter_offer", "accept_offer", "order"}:
+    if kind == "purchase_order":
+        return "order"
+    if kind in {"rfq", "counter_offer", "accept_offer"}:
         return kind
     return "invalid"
 
@@ -427,12 +431,29 @@ async def reject_offer(state: SellerState, config: RunnableConfig) -> dict:
 
 
 async def order(state: SellerState, config: RunnableConfig) -> dict:
+    service = config["configurable"]["service"]
+    try:
+        po = parse_payload(
+            "purchase_order", state["incoming"], PurchaseOrderRequest
+        )
+        created = await service.order_service.create_order(po)
+    except Exception as exc:
+        code = getattr(exc, "code", CommerceErrorCode.INVALID_REQUEST)
+        retryable = getattr(exc, "retryable", False)
+        return {
+            "error": {
+                "code": code.value,
+                "message": str(exc),
+                "retryable": retryable,
+                "details": {},
+            },
+            "task_state": "completed",
+            "message": str(exc),
+        }
     return {
-        "error": _error(
-            CommerceErrorCode.INVALID_REQUEST, "Order handling is not ready."
-        ),
-        "task_state": "failed",
-        "message": "Order handling is not ready.",
+        "order": created.model_dump(mode="json"),
+        "task_state": "completed",
+        "message": "Order confirmed.",
     }
 
 

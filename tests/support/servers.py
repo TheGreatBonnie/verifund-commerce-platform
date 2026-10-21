@@ -32,7 +32,7 @@ async def run_uvicorn(app, port: int):
 
 
 @pytest.fixture
-async def seller_server(tmp_path):
+async def seller_runtime(tmp_path):
     from seller_agent.server import create_app
     from seller_agent.settings import Settings
 
@@ -52,4 +52,9 @@ async def seller_server(tmp_path):
     )
     app = create_app(settings)
     async with run_uvicorn(app, 9201) as base_url:
-        yield base_url
+        yield base_url, app
+
+
+@pytest.fixture
+async def seller_server(seller_runtime):
+    return seller_runtime[0]
