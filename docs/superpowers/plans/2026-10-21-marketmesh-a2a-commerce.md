@@ -3,7 +3,7 @@
 **Date:** 2026-10-21  
 **Spec:** `docs/superpowers/specs/2026-10-21-marketmesh-a2a-commerce-design.md`  
 **Target:** `verifund-a2a/`  
-**Status:** Ready for execution
+**Status:** Corrected against `a2a-sdk 1.2.3`; awaiting approval before execution
 
 ## How to use this plan
 
@@ -40,13 +40,24 @@ These were verified against the installed wheels, not assumed:
   part = Part(data=value, media_type="application/json")
   ```
   Read it back with `json_format.MessageToDict(part.data)`.
-- The SDK exposes `create_agent_card_routes(agent_card)` and
-  `create_jsonrpc_routes(request_handler, rpc_url="/a2a")`. Extend a FastAPI app with
-  `app.router.routes.extend(...)`.
+- The checked-in `agents/` tree and `agents/.venv` are on `a2a-sdk 0.3.26`. Its
+  `A2AStarletteApplication` and `server.build()` API were removed in 1.2.3; do not copy
+  those imports into MarketMesh. Use the 1.x route factories instead.
+- The 1.2.3 SDK exposes `create_agent_card_routes(agent_card)` and
+  `create_jsonrpc_routes(request_handler, rpc_url="/a2a")`. For FastAPI, attach them with
+  `add_a2a_routes_to_fastapi(app, agent_card_routes=..., jsonrpc_routes=...)`; do not
+  mutate `app.router.routes` by hand.
+- A2A 1.x JSON-RPC message methods require `A2A-Version: 1.0`. The 1.2.3 `ClientFactory`
+  adds it to its `httpx` client automatically; raw `httpx` protocol tests must set it.
+  The 1.x method names are `SendMessage`, `SendStreamingMessage`, `GetTask`, and
+  `CancelTask`; the 0.3 slash names (`message/send`, `message/stream`, `tasks/get`) are
+  not used by the 1.2.3 dispatcher.
 - `DefaultRequestHandler(agent_executor, task_store, agent_card)` is the request handler.
   `DatabaseTaskStore(engine=async_engine, create_table=True)` is the SQLite task store.
 - A seller executor publishes `TaskStatusUpdateEvent` and `TaskArtifactUpdateEvent` to the
-  provided `EventQueue`; it must not call `event_queue.close()`.
+  provided `EventQueue`; it must not call `event_queue.close()`. In 1.2.3,
+  `TaskStatusUpdateEvent` has **no `final` field**; a terminal `TaskState` ends the stream.
+  `TaskArtifactUpdateEvent.last_chunk` is the artifact-end marker.
 - `ag-ui-langgraph==0.0.47` exposes
   `add_langgraph_fastapi_endpoint(app, agent, path="/agui")` and
   `LangGraphAgent(name=..., graph=..., emit_interrupt_outcome=True)`.
@@ -165,7 +176,7 @@ requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
-  "a2a-sdk[http-server,sqlite]==1.2.3",
+  "a2a-sdk[http-server,sqlite,fastapi]==1.2.3",
   "ag-ui-langgraph==0.0.47",
   "ag-ui-protocol>=0.1.22,<0.2",
   "langgraph>=1.2,<2",
@@ -207,6 +218,7 @@ marketmesh-commerce-core = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
 
@@ -1524,13 +1536,24 @@ reject unauthenticated RPC calls. The executor is a stub until Task 6.
 - `apps/seller_agent/seller_agent/executor.py`
 - `apps/seller_agent/seller_agent/store.py`
 - `apps/seller_agent/seller_agent/__main__.py`
-- Tests: `tests/protocol/test_seller_card.py`, `tests/support/servers.py`
+- Tests: `tests/protocol/test_seller_card.py`, `tests/protocol/conftest.py`,
+  `tests/support/servers.py`
 
 **Step 1: Write failing tests**
 
 `tests/support/servers.py` provides:
 
 ```python
+import asyncio
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import httpx
+import pytest
+import uvicorn
+
+
 @asynccontextmanager
 async def run_uvicorn(app, port: int):
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
@@ -1552,34 +1575,95 @@ async def run_uvicorn(app, port: int):
     finally:
         server.should_exit = True
         await task
+
+
+@pytest.fixture
+async def seller_server(tmp_path):
+    from seller_agent.server import create_app
+    from seller_agent.settings import Settings
+
+    settings = Settings(
+        service_name="Northwind Audio",
+        host="127.0.0.1",
+        port=9201,
+        public_base_url="http://127.0.0.1:9201",
+        profile_path=Path(
+            "apps/seller_agent/seller_agent/profiles/northwind.yaml"
+        ),
+        seller_token="test-seller-token",
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'seller.db'}",
+        llm_mode="scripted",
+        openrouter_api_key=None,
+        openrouter_model="deepseek/deepseek-v4.1-flash",
+    )
+    app = create_app(settings)
+    async with run_uvicorn(app, 9201) as base_url:
+        yield base_url
+```
+
+`tests/protocol/conftest.py` re-exports the fixture so pytest discovers it:
+
+```python
+from tests.support.servers import seller_server
+
+__all__ = ["seller_server"]
 ```
 
 `tests/protocol/test_seller_card.py`:
 
 ```python
 async def test_card_is_valid(seller_server):
-    response = await httpx.AsyncClient().get(
-        f"{seller_server}/.well-known/agent-card.json"
-    )
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{seller_server}/.well-known/agent-card.json"
+        )
     assert response.status_code == 200
     card = parse_agent_card(response.json())
     assert validate_agent_card(card) == []
     assert card.supported_interfaces[0].protocol_binding == "JSONRPC"
+    assert card.supported_interfaces[0].url == f"{seller_server}/a2a"
+    assert card.supported_interfaces[0].protocol_version == "1.0"
     assert card.capabilities.streaming is True
 
 
 async def test_a2a_requires_bearer(seller_server):
-    response = await httpx.AsyncClient().post(
-        f"{seller_server}/a2a",
-        json={"jsonrpc": "2.0", "id": "1", "method": "tasks/get", "params": {"id": "x"}},
-    )
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{seller_server}/a2a",
+            headers={"A2A-Version": "1.0"},
+            json={"jsonrpc": "2.0", "id": "1", "method": "GetTask",
+                  "params": {"id": "x"}},
+        )
     assert response.status_code == 401
 
 
+async def test_a2a_requires_version_header(seller_server):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{seller_server}/a2a",
+            headers={"Authorization": "Bearer test-seller-token"},
+            json={
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "SendMessage",
+                "params": {
+                    "message": {
+                        "messageId": "m1",
+                        "role": "ROLE_USER",
+                        "parts": [{"text": "hello"}],
+                    }
+                },
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["error"]["code"] == -32009
+
+
 async def test_card_is_public(seller_server):
-    response = await httpx.AsyncClient().get(
-        f"{seller_server}/.well-known/agent-card.json"
-    )
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{seller_server}/.well-known/agent-card.json"
+        )
     assert "authorization" not in response.request.headers
 ```
 
@@ -1673,6 +1757,13 @@ def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
 `server.py`:
 
 ```python
+from a2a.server.routes import (
+    add_a2a_routes_to_fastapi,
+    create_agent_card_routes,
+    create_jsonrpc_routes,
+)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     policy = load_policy(settings.profile_path)
@@ -1695,8 +1786,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(BearerAuthMiddleware, token=settings.seller_token,
                        public_paths={"/health", "/ready", "/metrics",
                                      "/.well-known/agent-card.json"})
-    app.router.routes.extend(create_agent_card_routes(card))
-    app.router.routes.extend(create_jsonrpc_routes(handler, rpc_url="/a2a"))
+    add_a2a_routes_to_fastapi(
+        app,
+        agent_card_routes=create_agent_card_routes(card),
+        jsonrpc_routes=create_jsonrpc_routes(handler, rpc_url="/a2a"),
+    )
     @app.on_event("startup")
     async def startup():
         await configure_sqlite(engine)
@@ -1734,19 +1828,22 @@ if __name__ == "__main__":
 ```python
 class SellerExecutor(AgentExecutor):
     async def execute(self, context, event_queue):
+        task_id = context.task_id
+        context_id = context.context_id or task_id
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                context_id=context.context_id or context.task_id,
+                task_id=task_id,
+                context_id=context_id,
                 status=TaskStatus(
                     state=TaskState.TASK_STATE_FAILED,
                     message=Message(
                         message_id=str(uuid.uuid4()),
+                        task_id=task_id,
+                        context_id=context_id,
                         role=Role.ROLE_AGENT,
                         parts=[Part(text="Seller graph not implemented")],
                     ),
                 ),
-                final=True,
             )
         )
 
@@ -1756,7 +1853,6 @@ class SellerExecutor(AgentExecutor):
                 task_id=context.task_id,
                 context_id=context.context_id or context.task_id,
                 status=TaskStatus(state=TaskState.TASK_STATE_CANCELED),
-                final=True,
             )
         )
 ```
@@ -1767,7 +1863,7 @@ class SellerExecutor(AgentExecutor):
 uv run pytest tests/protocol/test_seller_card.py -q
 ```
 
-Expected: 3 passed.
+Expected: 4 passed.
 
 **Step 6: Commit**
 
@@ -2036,11 +2132,12 @@ Map:
 - emit `WORKING` with a short text message;
 - call `service.handle_turn`;
 - emit each artifact as `TaskArtifactUpdateEvent(last_chunk=True)`;
-- emit terminal/interrupted status with the turn's message and `final=True`;
+- emit the turn's `TaskStatusUpdateEvent`; its `TaskState` (`INPUT_REQUIRED`, `COMPLETED`,
+  or `FAILED`) is the stream terminator in 1.2.3—there is no `final` field;
 - on exception, emit `FAILED` plus a `commerce-error` artifact; never leak a traceback
   to the peer.
 
-`cancel` emits `CANCELED` with `final=True` and marks the task cancelable.
+`cancel` emits `CANCELED`; the terminal state ends the stream.
 
 **Step 6: Run tests**
 
@@ -2203,7 +2300,7 @@ async def test_trace_redacts_authorization(trace_store):
     await trace_store.record(
         "run-1",
         direction="outbound",
-        method="message/send",
+        method="SendStreamingMessage",
         task_id="task-1",
         context_id="run-1",
         seller_id="northwind-audio",
@@ -2307,7 +2404,7 @@ this is what the console query API reads.
 
 `record_frame(run_id, seller_id, stream_response)` converts a `StreamResponse` to a
 public dict: prefer `task`, then `status_update`, `artifact_update`, or `message`; record
-the A2A method as `message/stream`; extract task and context IDs when present. It must
+the A2A method as `SendStreamingMessage`; extract task and context IDs when present. It must
 never include protobuf internals or the bearer header.
 
 `list(run_id, after_seq=0, limit=200)` returns ordered events.
@@ -3461,9 +3558,11 @@ Run these from `verifund-a2a/`:
 
 ## Known execution risks
 
-- **A2A SDK wiring:** if `create_jsonrpc_routes` changes shape, read
-  `a2a/server/routes/jsonrpc_routes.py` and `a2a/server/apps` in the installed wheel before
-  changing the plan. Do not switch to a custom JSON-RPC server.
+- **A2A SDK wiring:** use `add_a2a_routes_to_fastapi` with the route factories. If their
+  shape changes, read `a2a/server/routes/fastapi_routes.py`, `agent_card_routes.py`, and
+  `jsonrpc_routes.py` in the installed 1.2.3 wheel. Do not look for
+  `a2a.server.apps` or `A2AStarletteApplication`; those belong to the legacy 0.3 tree under
+  `agents/`. Do not switch to a custom JSON-RPC server.
 - **AG-UI interrupt mapping:** keep the interrupt value's `message` a string. If
   `emit_interrupt_outcome=True` is not honored by the installed CopilotKit runtime, use
   the legacy path by setting it to `False` and verifying `useInterrupt` still receives
