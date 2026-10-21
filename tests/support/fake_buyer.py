@@ -13,10 +13,13 @@ from buyer_agent.a2a_client import A2ATurn
 from buyer_agent.registry_client import SellerEndpoint
 from commerce_core.contracts import (
     CounterOffer,
+    Fulfillment,
     Offer,
     OfferLineItem,
     OfferStatus,
     OfferTerms,
+    Order,
+    OrderStatus,
     PurchaseOrderRequest,
     RFQ,
 )
@@ -167,6 +170,7 @@ class FakeSession:
         self.a2a = a2a
         self.task_id: str | None = None
         self.request_id: str | None = None
+        self.last_offer: Offer | None = None
 
     async def send_rfq(self, rfq: RFQ, context_id: str) -> A2ATurn:
         self.request_id = rfq.request_id
@@ -182,6 +186,8 @@ class FakeSession:
             round_number=1,
             spec=spec,
         ).model_copy(update={"task_id": self.task_id, "context_id": context_id})
+        self.last_offer = offer
+        self.a2a.offers_by_seller[self.endpoint.seller_id] = offer
         return A2ATurn(
             task_id=self.task_id,
             context_id=context_id,
@@ -204,6 +210,8 @@ class FakeSession:
         ).model_copy(
             update={"task_id": task_id, "context_id": context_id}
         )
+        self.last_offer = final
+        self.a2a.offers_by_seller[self.endpoint.seller_id] = final
         return A2ATurn(
             task_id=task_id,
             context_id=context_id,
@@ -217,16 +225,40 @@ class FakeSession:
             task_id=task_id,
             context_id=context_id,
             state=TaskState.TASK_STATE_COMPLETED,
+            offers=[self.last_offer] if self.last_offer else [],
         )
 
     async def send_order(
         self, po: PurchaseOrderRequest, context_id: str
     ) -> A2ATurn:
         self.a2a.orders.append((self.endpoint.seller_id, po))
+        offer = self.last_offer or self.a2a.offers_by_seller.get(
+            self.endpoint.seller_id
+        )
+        if offer is None:
+            raise RuntimeError("no accepted offer")
+        now = datetime.now(UTC)
+        order = Order(
+            order_id=f"MM-FAKE-{self.endpoint.seller_id.upper()[:4]}",
+            offer_id=po.offer_id,
+            seller_id=po.seller_id,
+            status=OrderStatus.CONFIRMED,
+            quantity=po.quantity,
+            total_cents=po.expected_total_cents,
+            line_items=offer.line_items,
+            reserved_at=now,
+            eta=now + timedelta(days=offer.delivery_days),
+            tracking_number=f"MMTRK-{self.endpoint.seller_id.upper()[:4]}",
+            fulfillment=Fulfillment(
+                carrier="MarketMesh Logistics", status="reserved"
+            ),
+        )
+        self.a2a.last_order = order
         return A2ATurn(
             task_id=f"task-order-{self.endpoint.seller_id}",
             context_id=context_id,
             state=TaskState.TASK_STATE_COMPLETED,
+            order=order,
         )
 
     async def cancel(self, task_id: str):
@@ -245,6 +277,20 @@ class ScriptedA2AClient:
         self.accepted: list[tuple[str, Any]] = []
         self.orders: list[tuple[str, PurchaseOrderRequest]] = []
         self.cancelled: list[tuple[str, str]] = []
+        self.last_order: Order | None = None
+        self.offers_by_seller: dict[str, Offer] = {}
+
+    @property
+    def accept_calls(self) -> int:
+        return len(self.accepted)
+
+    @property
+    def order_calls(self) -> int:
+        return len(self.orders)
+
+    @property
+    def cancel_calls(self) -> list[tuple[str, str]]:
+        return self.cancelled
 
     async def open_session(
         self, endpoint: SellerEndpoint, run_id: str

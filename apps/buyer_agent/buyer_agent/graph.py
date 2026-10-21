@@ -12,15 +12,19 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
 
 from commerce_core.contracts import (
+    AcceptOffer,
+    ApprovalReceipt,
     AwardPackage,
     CounterOffer,
     Mandate,
     NegotiationRecord,
     Offer,
     OfferStatus,
+    PurchaseOrderRequest,
     RFQ,
     RFQConstraints,
     RFQPreferences,
+    ShippingAddress,
 )
 from commerce_core.cards import validate_agent_card
 from commerce_core.pricing import counter_targets
@@ -39,6 +43,17 @@ from buyer_agent.planner import (
 )
 
 
+def merge_negotiations(
+    left: list[dict], right: list[dict]
+) -> list[dict]:
+    merged: dict[str, dict] = {
+        item["seller_id"]: item for item in left if "seller_id" in item
+    }
+    for item in right:
+        merged[item["seller_id"]] = item
+    return list(merged.values())
+
+
 class BuyerState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], operator.add]
     run_id: str
@@ -47,7 +62,7 @@ class BuyerState(TypedDict, total=False):
     sellers: list[dict]
     rfq_message: str
     offers: Annotated[list[dict], operator.add]
-    negotiations: Annotated[list[dict], operator.add]
+    negotiations: Annotated[list[dict], merge_negotiations]
     award: dict | None
     award_summary: str
     approval: dict | None
@@ -681,27 +696,200 @@ def approval_route(state: BuyerState) -> str:
     return "approved" if (state.get("approval") or {}).get("approved") else "rejected"
 
 
+def _shipping_address() -> ShippingAddress:
+    return ShippingAddress(
+        name="Demo Buyer",
+        line1="1 Market Street",
+        city="San Francisco",
+        region="CA",
+        postal_code="94105",
+        country="US",
+    )
+
+
+def _negotiation_for(state: BuyerState, seller_id: str) -> dict | None:
+    for negation in state.get("negotiations", []):
+        if negation.get("seller_id") == seller_id:
+            return negation
+    return None
+
+
+async def _cancel_negotiation(
+    services: Any,
+    run_id: str,
+    negotiation: dict,
+) -> bool:
+    task_id = negotiation.get("task_id")
+    if not task_id:
+        return True
+    session = None
+    try:
+        endpoint = services.registry.endpoint(negotiation["seller_id"])
+        session = await services.a2a.open_session(endpoint, run_id)
+        await session.cancel(task_id)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+    finally:
+        if session is not None:
+            await session.close()
+
+
 async def place_order(state: BuyerState, config: dict) -> dict:
-    # Replaced by the order-orchestration task; the graph intentionally stops
-    # at the human interrupt before reaching this node.
+    services = _services(config)
+    run_id = state["run_id"]
+    approval = state.get("approval") or {}
+    if not approval.get("approved") or not str(
+        approval.get("approved_by", "")
+    ).strip():
+        return await cancel_losers(state, config)
+    award = state.get("award") or {}
+    winner = Offer.model_validate(award["winner"])
+    endpoint = services.registry.endpoint(winner.seller_id)
+    negotiation = _negotiation_for(state, winner.seller_id) or {}
+    task_id = negotiation.get("task_id") or ""
+    receipt = ApprovalReceipt(
+        approval_id=str(uuid.uuid4()),
+        approved_by=str(approval["approved_by"]),
+        approved_at=datetime.now(UTC),
+        note=approval.get("note") or None,
+    )
+    po = PurchaseOrderRequest(
+        request_id=f"po-{run_id}-{winner.offer_id}",
+        run_id=run_id,
+        offer_id=winner.offer_id,
+        seller_id=winner.seller_id,
+        quantity=sum(item.quantity for item in winner.line_items),
+        shipping_address=_shipping_address(),
+        approval=receipt,
+        idempotency_key=f"{run_id}:{winner.offer_id}",
+        expected_total_cents=winner.total_cents,
+    )
+    order = None
+    error = None
+    session = None
+    try:
+        session = await services.a2a.open_session(endpoint, run_id)
+        accepted = AcceptOffer(
+            offer_id=winner.offer_id,
+            round=winner.round,
+            accepted_total_cents=winner.total_cents,
+            accepted_by_buyer_task=run_id,
+        )
+        if task_id:
+            accept_turn = await session.send_accept(task_id, run_id, accepted)
+            if accept_turn.error is not None:
+                error = accept_turn.error.message
+        if error is None:
+            order_turn = await session.send_order(po, run_id)
+            if order_turn.error is not None:
+                error = order_turn.error.message
+            else:
+                order = order_turn.order
+    except Exception as exc:  # noqa: BLE001
+        error = str(exc)
+    finally:
+        if session is not None:
+            await session.close()
+
+    if order is None:
+        await _upsert(services, run_id, stage="order_failed", error=error)
+        return {
+            "stage": "order_failed",
+            "order": None,
+            "error": _error(error or "Order failed."),
+            "messages": [
+                AIMessage(content=f"I could not place the order: {error}")
+            ],
+        }
+
+    updates = []
+    for other in state.get("negotiations", []):
+        if other.get("seller_id") == winner.seller_id:
+            updates.append(
+                {
+                    **other,
+                    "status": "accepted",
+                    "final_offer": winner.model_dump(mode="json"),
+                }
+            )
+            continue
+        cancelled = await _cancel_negotiation(services, run_id, other)
+        updates.append(
+            {
+                **other,
+                "status": "cancelled",
+                "error": None if cancelled else "cancel_failed",
+            }
+        )
+    await _upsert(
+        services,
+        run_id,
+        stage="ordered",
+        order=order.model_dump(mode="json"),
+    )
     return {
-        "stage": "ordering",
-        "error": _error("Order orchestration is not implemented yet."),
+        "order": order.model_dump(mode="json"),
+        "negotiations": updates,
+        "stage": "ordered",
+        "trace": [
+            {
+                "type": "order_confirmed",
+                "seller_id": winner.seller_id,
+                "order_id": order.order_id,
+            }
+        ],
     }
 
 
 async def cancel_losers(state: BuyerState, config: dict) -> dict:
-    return {"stage": "cancelled"}
+    services = _services(config)
+    run_id = state["run_id"]
+    updates = []
+    for negotiation in state.get("negotiations", []):
+        cancelled = await _cancel_negotiation(services, run_id, negotiation)
+        updates.append(
+            {
+                **negotiation,
+                "status": "cancelled",
+                "error": None if cancelled else "cancel_failed",
+            }
+        )
+    await _upsert(services, run_id, stage="rejected")
+    return {
+        "negotiations": updates,
+        "stage": "rejected",
+        "order": None,
+        "trace": [{"type": "award_rejected"}],
+    }
 
 
 async def finalize(state: BuyerState, config: dict) -> dict:
-    return {"stage": state.get("stage", "finished")}
+    stage = state.get("stage", "finished")
+    if stage == "ordered":
+        order = state.get("order") or {}
+        summary = (
+            f"Order {order.get('order_id', '')} is confirmed with "
+            f"{order.get('seller_id', 'the winner')}. "
+            f"Tracking: {order.get('tracking_number', 'pending')}."
+        )
+    elif stage == "rejected":
+        summary = (
+            "The award was rejected by the human reviewer, so no order was "
+            "placed and all seller negotiations were closed."
+        )
+    elif stage == "order_failed":
+        summary = "The order could not be completed."
+    else:
+        summary = "The sourcing run finished."
+    return {"messages": [AIMessage(content=summary)], "stage": stage}
 
 
 def build_buyer_graph(
+    services: Any | None = None,
+    checkpointer: Any | None = None,
     *,
     planner: BuyerPlanner | None = None,
-    checkpointer: Any | None = None,
 ):
     default_planner = planner or ScriptedBuyerPlanner()
     builder = StateGraph(BuyerState)
@@ -743,6 +931,8 @@ def build_buyer_graph(
             config = dict(config)
             configurable = dict(config.get("configurable", {}))
             configurable.setdefault("planner", default_planner)
+            if services is not None:
+                configurable.setdefault("services", services)
             config["configurable"] = configurable
             return await fn(state, config)
 

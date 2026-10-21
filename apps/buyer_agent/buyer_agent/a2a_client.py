@@ -245,3 +245,15 @@ class A2ASellerSession:
         return await self.client.cancel_task(
             CancelTaskRequest(id=task_id)
         )
+
+
+class SellerA2AClient:
+    """Factory for authenticated A2A sessions to independently operated sellers."""
+
+    def __init__(self, trace: TraceStore) -> None:
+        self.trace = trace
+
+    async def open_session(
+        self, endpoint: SellerEndpoint, run_id: str
+    ) -> A2ASellerSession:
+        return await A2ASellerSession(endpoint, self.trace, run_id).open()

@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+from dataclasses import asdict
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
+from sqlalchemy import text
+
+router = APIRouter()
+
+
+def _services(request: Request):
+    return request.app.state.services
+
+
+def _run(row: dict) -> dict:
+    return {
+        "run_id": row.get("run_id"),
+        "stage": row.get("stage"),
+        "mandate": row.get("mandate_json"),
+        "award": row.get("award_json"),
+        "order": row.get("order_json"),
+        "error": row.get("error"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+@router.get("/health")
+async def health() -> dict:
+    return {"status": "ok", "service": "buyer"}
+
+
+@router.get("/ready")
+async def ready(request: Request) -> dict:
+    services = _services(request)
+    engine = getattr(services, "engine", None)
+    if engine is not None:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    return {"status": "ready", "service": "buyer"}
+
+
+@router.get("/metrics", response_class=PlainTextResponse)
+async def metrics(request: Request) -> str:
+    services = _services(request)
+    trace = getattr(services, "trace", None)
+    runs = 0
+    if trace is not None:
+        try:
+            runs = len(await trace.list_runs(limit=1000))
+        except Exception:  # noqa: BLE001
+            runs = 0
+    return (
+        "# HELP marketmesh_buyer_runs Number of persisted runs.\n"
+        "# TYPE marketmesh_buyer_runs gauge\n"
+        f"marketmesh_buyer_runs {runs}\n"
+    )
+
+
+@router.get("/api/runs")
+async def list_runs(request: Request, limit: int = 50) -> list[dict]:
+    trace = getattr(_services(request), "trace", None)
+    if trace is None:
+        return []
+    rows = await trace.list_runs(limit=max(1, min(limit, 200)))
+    return [_run(row) for row in rows]
+
+
+@router.get("/api/runs/{run_id}")
+async def get_run(run_id: str, request: Request) -> dict:
+    trace = getattr(_services(request), "trace", None)
+    row = await trace.get_run(run_id) if trace is not None else None
+    if row is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return _run(row)
+
+
+@router.get("/api/runs/{run_id}/trace")
+async def get_trace(
+    run_id: str,
+    request: Request,
+    after_seq: int = 0,
+    limit: int = 200,
+) -> list[dict]:
+    trace = getattr(_services(request), "trace", None)
+    if trace is None:
+        return []
+    events = await trace.list(
+        run_id, after_seq=max(0, after_seq), limit=max(1, min(limit, 500))
+    )
+    return [asdict(event) for event in events]
