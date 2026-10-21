@@ -107,6 +107,8 @@ class Offer(CommerceModel):
     seller_id: str
     seller_name: str
     seller_rating: float = Field(ge=0.0, le=5.0)
+    task_id: str | None = None
+    context_id: str | None = None
     currency: Currency = Currency.USD
     line_items: list[OfferLineItem]
     subtotal_cents: int = Field(ge=0)

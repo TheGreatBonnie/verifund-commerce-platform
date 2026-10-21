@@ -6,30 +6,120 @@ from a2a.types.a2a_pb2 import (
     Message,
     Part,
     Role,
+    Task,
+    TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
 )
 
+from commerce_core.contracts import CommerceErrorCode
+
+from seller_agent.graph import error_artifact
+from seller_agent.service import SellerService
+
 
 class SellerExecutor(AgentExecutor):
-    async def execute(
+    def __init__(self, service: SellerService) -> None:
+        self.service = service
+
+    def _agent_message(
+        self, text: str, task_id: str, context_id: str
+    ) -> Message:
+        return Message(
+            message_id=str(uuid.uuid4()),
+            task_id=task_id,
+            context_id=context_id,
+            role=Role.ROLE_AGENT,
+            parts=[Part(text=text, media_type="text/plain")],
+        )
+
+    async def _start_task(
         self, context: RequestContext, event_queue: EventQueue
-    ) -> None:
-        task_id = context.task_id
+    ) -> tuple[str, str]:
+        task_id = context.task_id or str(uuid.uuid4())
         context_id = context.context_id or task_id
+        history = [context.message] if context.message is not None else []
+        await event_queue.enqueue_event(
+            Task(
+                id=task_id,
+                context_id=context_id,
+                status=TaskStatus(state=TaskState.TASK_STATE_WORKING),
+                history=history,
+            )
+        )
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
                 task_id=task_id,
                 context_id=context_id,
                 status=TaskStatus(
-                    state=TaskState.TASK_STATE_FAILED,
-                    message=Message(
-                        message_id=str(uuid.uuid4()),
-                        task_id=task_id,
-                        context_id=context_id,
-                        role=Role.ROLE_AGENT,
-                        parts=[Part(text="Seller graph not implemented")],
+                    state=TaskState.TASK_STATE_WORKING,
+                    message=self._agent_message(
+                        "Seller is evaluating the request.",
+                        task_id,
+                        context_id,
+                    ),
+                ),
+            )
+        )
+        return task_id, context_id
+
+    async def execute(
+        self, context: RequestContext, event_queue: EventQueue
+    ) -> None:
+        task_id, context_id = await self._start_task(context, event_queue)
+        try:
+            turn = await self.service.handle_turn(
+                task_id, context_id, context.message
+            )
+        except Exception:
+            error = {
+                "code": CommerceErrorCode.INVALID_REQUEST.value,
+                "message": "The seller could not process this request.",
+                "retryable": False,
+                "details": {},
+            }
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    task_id=task_id,
+                    context_id=context_id,
+                    artifact=error_artifact(error),
+                    last_chunk=True,
+                )
+            )
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    context_id=context_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_FAILED,
+                        message=self._agent_message(
+                            "The seller could not process this request.",
+                            task_id,
+                            context_id,
+                        ),
+                    ),
+                )
+            )
+            return
+
+        for artifact in turn.artifacts:
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    task_id=task_id,
+                    context_id=context_id,
+                    artifact=artifact,
+                    last_chunk=True,
+                )
+            )
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=task_id,
+                context_id=context_id,
+                status=TaskStatus(
+                    state=turn.task_state,
+                    message=self._agent_message(
+                        turn.message, task_id, context_id
                     ),
                 ),
             )
@@ -38,10 +128,16 @@ class SellerExecutor(AgentExecutor):
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
+        task_id, context_id = await self._start_task(context, event_queue)
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                context_id=context.context_id or context.task_id,
-                status=TaskStatus(state=TaskState.TASK_STATE_CANCELED),
+                task_id=task_id,
+                context_id=context_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_CANCELED,
+                    message=self._agent_message(
+                        "Task canceled.", task_id, context_id
+                    ),
+                ),
             )
         )

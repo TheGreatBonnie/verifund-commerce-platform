@@ -13,6 +13,8 @@ from a2a.server.tasks import DatabaseTaskStore
 from seller_agent.auth import BearerAuthMiddleware
 from seller_agent.card import build_agent_card
 from seller_agent.executor import SellerExecutor
+from seller_agent.planner import select_planner
+from seller_agent.service import SellerService
 from seller_agent.settings import Settings
 from seller_agent.store import SellerStore
 from commerce_core.pricing import load_policy
@@ -25,7 +27,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     store = SellerStore(engine)
     card = build_agent_card(policy, settings.public_base_url)
     task_store = DatabaseTaskStore(engine=engine, create_table=True)
-    executor = SellerExecutor()
+    planner = select_planner(
+        settings.llm_mode, settings.openrouter_api_key, settings.openrouter_model
+    )
+    service = SellerService(store=store, policy=policy, planner=planner)
+    executor = SellerExecutor(service)
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=task_store,
@@ -36,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = store
     app.state.policy = policy
     app.state.engine = engine
+    app.state.service = service
     app.state.executor = executor
     app.add_middleware(
         BearerAuthMiddleware,

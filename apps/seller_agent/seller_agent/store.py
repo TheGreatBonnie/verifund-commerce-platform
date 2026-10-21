@@ -151,6 +151,19 @@ class SellerStore:
                 return None
             return Offer.model_validate(row.offer_json)
 
+    async def get_latest_offer(self, task_id: str) -> Offer | None:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.offers)
+                .where(self.offers.c.task_id == task_id)
+                .order_by(self.offers.c.created_at.desc())
+                .limit(1)
+            )
+            row = result.first()
+            if row is None:
+                return None
+            return Offer.model_validate(row.offer_json)
+
     async def save_order(
         self,
         order: Order,
