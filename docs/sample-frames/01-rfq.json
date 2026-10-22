@@ -1,0 +1,23 @@
+{
+  "schema": "https://marketmesh.example/extensions/commerce/v1/schemas/rfq.json",
+  "schema_version": "1.0",
+  "payload": {
+    "schema_version": "1.0",
+    "request_id": "rfq-demo-circuitforge",
+    "run_id": "run-demo",
+    "category": "consumer-electronics",
+    "product_hint": "Nimbus NC-700 ANC headset",
+    "quantity": 12,
+    "required_by": "2026-11-05T09:00:00Z",
+    "constraints": {
+      "min_warranty_months": 24,
+      "min_returns_days": 30,
+      "color": "black"
+    },
+    "preferences": {
+      "sustainability": true,
+      "delivery_preference": null
+    },
+    "message": "Please quote 12 units."
+  }
+}

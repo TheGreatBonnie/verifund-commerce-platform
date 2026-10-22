@@ -1,0 +1,16 @@
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.8.15 /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+COPY packages ./packages
+COPY apps/registry ./apps/registry
+COPY apps/seller_agent ./apps/seller_agent
+COPY apps/buyer_agent ./apps/buyer_agent
+COPY scripts ./scripts
+
+RUN uv sync --frozen --no-dev
+ENV PATH="/app/.venv/bin:$PATH"
+
+CMD ["python", "-m", "registry"]

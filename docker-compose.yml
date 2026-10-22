@@ -1,0 +1,165 @@
+name: marketmesh
+
+x-python-service: &python-service
+  build:
+    context: .
+    dockerfile: Dockerfile.python
+  volumes:
+    - marketmesh-data:/app/data
+  restart: unless-stopped
+
+x-model-env: &model-env
+  MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-v4.1-flash}
+
+services:
+  registry:
+    <<: *python-service
+    command: python -m registry
+    environment:
+      HOST: 0.0.0.0
+      PORT: 9105
+      REGISTRY_DATABASE_URL: sqlite+aiosqlite:////app/data/registry.db
+      REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
+      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora"]'
+    ports:
+      - "127.0.0.1:9105:9105"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9105/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  northwind:
+    <<: *python-service
+    command: python -m seller_agent
+    environment:
+      <<: *model-env
+      HOST: 0.0.0.0
+      PORT: 9201
+      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/northwind.yaml
+      PUBLIC_BASE_URL: http://northwind:9201
+      SELLER_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
+      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/northwind.db
+    ports:
+      - "127.0.0.1:9201:9201"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9201/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  circuitforge:
+    <<: *python-service
+    command: python -m seller_agent
+    environment:
+      <<: *model-env
+      HOST: 0.0.0.0
+      PORT: 9202
+      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/circuitforge.yaml
+      PUBLIC_BASE_URL: http://circuitforge:9202
+      SELLER_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
+      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/circuitforge.db
+    ports:
+      - "127.0.0.1:9202:9202"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9202/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  aurora:
+    <<: *python-service
+    command: python -m seller_agent
+    environment:
+      <<: *model-env
+      HOST: 0.0.0.0
+      PORT: 9203
+      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/aurora.yaml
+      PUBLIC_BASE_URL: http://aurora:9203
+      SELLER_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
+      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/aurora.db
+    ports:
+      - "127.0.0.1:9203:9203"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9203/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    command: python scripts/seed.py
+    depends_on:
+      registry:
+        condition: service_healthy
+      northwind:
+        condition: service_healthy
+      circuitforge:
+        condition: service_healthy
+      aurora:
+        condition: service_healthy
+    environment:
+      REGISTRY_URL: http://registry:9105
+      REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
+      NORTHWIND_DATABASE_URL: sqlite+aiosqlite:////app/data/northwind.db
+      CIRCUITFORGE_DATABASE_URL: sqlite+aiosqlite:////app/data/circuitforge.db
+      AURORA_DATABASE_URL: sqlite+aiosqlite:////app/data/aurora.db
+      NORTHWIND_PUBLIC_BASE_URL: http://northwind:9201
+      CIRCUITFORGE_PUBLIC_BASE_URL: http://circuitforge:9202
+      AURORA_PUBLIC_BASE_URL: http://aurora:9203
+    volumes:
+      - marketmesh-data:/app/data
+
+  buyer:
+    <<: *python-service
+    command: python -m buyer_agent
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    environment:
+      <<: *model-env
+      HOST: 0.0.0.0
+      PORT: 9100
+      REGISTRY_URL: http://registry:9105
+      BUYER_DATABASE_URL: sqlite+aiosqlite:////app/data/buyer.db
+      BUYER_CHECKPOINT_PATH: /app/data/buyer-checkpoints.db
+      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora"]'
+      BUYER_SELLER_TOKENS: '{"northwind-audio":"${SELLER_NORTHWIND_TOKEN:-dev-northwind}","circuitforge":"${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}","aurora-supply":"${SELLER_AURORA_TOKEN:-dev-aurora}"}'
+    ports:
+      - "127.0.0.1:9100:9100"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  console:
+    build:
+      context: .
+      dockerfile: apps/console/Dockerfile
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      buyer:
+        condition: service_healthy
+    environment:
+      BUYER_AGUI_URL: http://buyer:9100/agui
+      BUYER_API_URL: http://buyer:9100
+      REGISTRY_URL: http://registry:9105
+      MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
+      NEXT_TELEMETRY_DISABLED: "1"
+      COPILOTKIT_TELEMETRY_DISABLED: "true"
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  marketmesh-data:

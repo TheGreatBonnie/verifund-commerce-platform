@@ -17,6 +17,7 @@ test-results/
 playwright-report/
 .dev-pids.json
 .dev-logs/
+logs/
 
 # Next.js generated
 next-env.d.ts

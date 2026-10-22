@@ -1,0 +1,14 @@
+.git
+.venv
+node_modules
+data
+.env
+.dev-logs
+.dev-pids.json
+.pytest_cache
+.ruff_cache
+apps/console/.next
+apps/console/tsconfig.tsbuildinfo
+test-results
+playwright-report
+logs

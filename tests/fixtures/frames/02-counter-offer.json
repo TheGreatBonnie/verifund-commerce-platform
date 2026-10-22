@@ -1,0 +1,13 @@
+{
+  "schema": "https://marketmesh.example/extensions/commerce/v1/schemas/counter-offer.json",
+  "schema_version": "1.0",
+  "payload": {
+    "schema_version": "1.0",
+    "negotiation_round": 2,
+    "target_unit_price_cents": 25522,
+    "requested_changes": {
+      "warranty_months": 24
+    },
+    "rationale": "Request 24-month coverage and a lower unit price."
+  }
+}

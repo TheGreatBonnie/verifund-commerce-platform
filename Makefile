@@ -1,4 +1,4 @@
-.PHONY: setup dev seed reset test lint e2e demo down
+.PHONY: setup dev dev-scripted seed reset test lint e2e demo down
 
 setup:
 	uv lock
@@ -8,6 +8,9 @@ setup:
 
 dev:
 	uv run python scripts/dev.py
+
+dev-scripted:
+	uv run python scripts/dev.py --scripted
 
 seed:
 	uv run python scripts/seed.py

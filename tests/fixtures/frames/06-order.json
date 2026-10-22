@@ -1,0 +1,34 @@
+{
+  "schema": "https://marketmesh.example/extensions/commerce/v1/schemas/order.json",
+  "schema_version": "1.0",
+  "payload": {
+    "schema_version": "1.0",
+    "order_id": "MM-CF-1001",
+    "offer_id": "offer-cf-demo-final",
+    "seller_id": "circuitforge",
+    "status": "confirmed",
+    "currency": "USD",
+    "quantity": 12,
+    "total_cents": 322944,
+    "line_items": [
+      {
+        "sku": "NC-700-BLK",
+        "name": "Nimbus NC-700 ANC Headset",
+        "quantity": 12,
+        "unit_price_cents": 26312,
+        "list_unit_price_cents": 27900,
+        "warranty_addon_cents": 600,
+        "attributes": {
+          "color": "black"
+        }
+      }
+    ],
+    "reserved_at": "2026-10-22T09:00:00Z",
+    "eta": "2026-10-29T09:00:00Z",
+    "tracking_number": "MMTRK-CF-1001",
+    "fulfillment": {
+      "carrier": "MarketMesh Logistics",
+      "status": "confirmed"
+    }
+  }
+}

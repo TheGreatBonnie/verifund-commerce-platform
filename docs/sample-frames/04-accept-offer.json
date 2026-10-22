@@ -1,0 +1,11 @@
+{
+  "schema": "https://marketmesh.example/extensions/commerce/v1/schemas/accept-offer.json",
+  "schema_version": "1.0",
+  "payload": {
+    "schema_version": "1.0",
+    "offer_id": "offer-cf-demo-final",
+    "round": 2,
+    "accepted_total_cents": 322944,
+    "accepted_by_buyer_task": "task-buyer-demo"
+  }
+}

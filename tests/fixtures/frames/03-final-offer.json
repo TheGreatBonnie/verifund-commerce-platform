@@ -1,0 +1,44 @@
+{
+  "schema": "https://marketmesh.example/extensions/commerce/v1/schemas/offer.json",
+  "schema_version": "1.0",
+  "payload": {
+    "offer_id": "offer-cf-demo-final",
+    "request_id": "rfq-demo-circuitforge",
+    "seller_id": "circuitforge",
+    "seller_name": "CircuitForge",
+    "seller_rating": 4.4,
+    "task_id": "task-cf-demo",
+    "context_id": "run-demo",
+    "currency": "USD",
+    "line_items": [
+      {
+        "sku": "NC-700-BLK",
+        "name": "Nimbus NC-700 ANC Headset",
+        "quantity": 12,
+        "unit_price_cents": 26312,
+        "list_unit_price_cents": 27900,
+        "warranty_addon_cents": 600,
+        "attributes": {
+          "color": "black"
+        }
+      }
+    ],
+    "subtotal_cents": 322944,
+    "shipping_cents": 0,
+    "total_cents": 322944,
+    "delivery_days": 7,
+    "delivery_date": null,
+    "warranty_months": 24,
+    "returns_days": 30,
+    "valid_until": "2026-10-22T09:30:00Z",
+    "terms": {
+      "sustainability_certified": false,
+      "stock_confidence": 1.0,
+      "split_shipment": false,
+      "notes": "Holding the current policy price."
+    },
+    "status": "final",
+    "round": 2,
+    "rationale": "Buyer target is below the seller floor; hold the current policy price."
+  }
+}

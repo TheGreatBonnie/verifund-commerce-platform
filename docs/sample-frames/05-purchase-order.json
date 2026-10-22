@@ -1,0 +1,28 @@
+{
+  "schema": "https://marketmesh.example/extensions/commerce/v1/schemas/purchase-order.json",
+  "schema_version": "1.0",
+  "payload": {
+    "schema_version": "1.0",
+    "request_id": "po-demo-001",
+    "run_id": "run-demo",
+    "offer_id": "offer-cf-demo-final",
+    "seller_id": "circuitforge",
+    "quantity": 12,
+    "shipping_address": {
+      "name": "Demo Buyer",
+      "line1": "1 Market Street",
+      "city": "San Francisco",
+      "region": "CA",
+      "postal_code": "94105",
+      "country": "US"
+    },
+    "approval": {
+      "approval_id": "approval-demo-001",
+      "approved_by": "demo-human",
+      "approved_at": "2026-10-22T09:00:00Z",
+      "note": "Approved in the MarketMesh console."
+    },
+    "idempotency_key": "po-demo-001",
+    "expected_total_cents": 322944
+  }
+}
