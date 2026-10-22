@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import perf_counter
 
 import httpx
-
 from a2a.client import ClientConfig, ClientFactory
 from a2a.types.a2a_pb2 import (
     CancelTaskRequest,
@@ -13,16 +13,15 @@ from a2a.types.a2a_pb2 import (
     StreamResponse,
     TaskState,
 )
-
 from commerce_core.a2a_parts import make_message, part_value
 from commerce_core.contracts import (
+    RFQ,
     AcceptOffer,
     CommerceError,
     CounterOffer,
     Offer,
     Order,
     PurchaseOrderRequest,
-    RFQ,
 )
 from commerce_core.extension import SCHEMA_FILES, parse_payload, wrap_payload
 
@@ -55,7 +54,7 @@ class A2ATurn:
     @classmethod
     def from_frames(
         cls, frames: list[StreamResponse], endpoint: SellerEndpoint
-    ) -> "A2ATurn":
+    ) -> A2ATurn:
         task_id = None
         context_id = None
         state = TaskState.TASK_STATE_UNSPECIFIED
@@ -170,7 +169,7 @@ class A2ASellerSession:
         )
         self.client = None
 
-    async def open(self) -> "A2ASellerSession":
+    async def open(self) -> A2ASellerSession:
         self.client = create_client(
             self.endpoint.card,
             ClientConfig(streaming=True, httpx_client=self.http),
@@ -184,12 +183,19 @@ class A2ASellerSession:
 
     async def send(self, message: Message) -> A2ATurn:
         frames: list[StreamResponse] = []
+        await self.trace.record_message(
+            self.run_id, self.endpoint.seller_id, message
+        )
+        started = perf_counter()
         async for event in self.client.send_message(
             SendMessageRequest(message=message)
         ):
             frames.append(event)
             await self.trace.record_frame(
-                self.run_id, self.endpoint.seller_id, event
+                self.run_id,
+                self.endpoint.seller_id,
+                event,
+                latency_ms=int((perf_counter() - started) * 1000),
             )
         return A2ATurn.from_frames(frames, self.endpoint)
 

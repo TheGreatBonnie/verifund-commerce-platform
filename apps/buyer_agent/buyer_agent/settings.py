@@ -1,10 +1,9 @@
 from pathlib import Path
 from typing import Literal
 
+from commerce_core.cards import DEFAULT_CARD_HOSTS
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from commerce_core.cards import DEFAULT_CARD_HOSTS
 
 
 class Settings(BaseSettings):
@@ -14,7 +13,10 @@ class Settings(BaseSettings):
 
     service_name: str = "buyer"
     host: str = "127.0.0.1"
-    port: int = 9100
+    port: int = Field(
+        default=9100,
+        validation_alias=AliasChoices("BUYER_PORT", "PORT"),
+    )
     registry_url: str = "http://127.0.0.1:9105"
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/buyer.db",

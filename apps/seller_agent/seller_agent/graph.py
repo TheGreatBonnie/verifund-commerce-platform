@@ -1,27 +1,25 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from typing import Any, TypedDict
-
-from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, StateGraph
+from typing import TypedDict
 
 from commerce_core.contracts import (
+    RFQ,
     AcceptOffer,
     CommerceError,
-    PurchaseOrderRequest,
     CommerceErrorCode,
     CounterOffer,
     Offer,
     OfferLineItem,
     OfferStatus,
     OfferTerms,
-    RFQ,
+    PurchaseOrderRequest,
 )
-from commerce_core.extension import parse_payload, expected_schema
+from commerce_core.extension import expected_schema, parse_payload
 from commerce_core.pricing import Quote, SellerPolicy
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
 from seller_agent.planner import (
     ScriptedSellerPlanner,
@@ -189,7 +187,7 @@ async def prepare(state: SellerState, config: RunnableConfig) -> dict:
                 "allow_split": allow_split,
             }
         return {}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return {
             "error": _error(
                 CommerceErrorCode.UNSUPPORTED_CONSTRAINT, str(exc)
@@ -246,11 +244,11 @@ async def decide(state: SellerState, config: RunnableConfig) -> dict:
             decision, context
         ):
             raise ValueError("invalid seller decision")
-    except Exception:
+    except Exception:  # noqa: BLE001
         fallback_used = True
         try:
             decision = await ScriptedSellerPlanner().decide(context)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return {
                 "error": _error(CommerceErrorCode.INVALID_REQUEST, str(exc)),
                 "task_state": "failed",
@@ -372,7 +370,7 @@ async def finalize_offer(state: SellerState, config: RunnableConfig) -> dict:
         await service.store.save_offer(
             offer, task_id=state["task_id"], context_id=state["context_id"]
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return {
             "error": _error(CommerceErrorCode.INVALID_REQUEST, str(exc)),
             "task_state": "failed",
@@ -406,7 +404,7 @@ async def accept_offer(state: SellerState, config: RunnableConfig) -> dict:
             task_id=state["task_id"],
             context_id=state["context_id"],
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return {
             "error": _error(CommerceErrorCode.CONFLICT, str(exc)),
             "task_state": "failed",
@@ -437,7 +435,7 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
             "purchase_order", state["incoming"], PurchaseOrderRequest
         )
         created = await service.order_service.create_order(po)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         code = getattr(exc, "code", CommerceErrorCode.INVALID_REQUEST)
         retryable = getattr(exc, "retryable", False)
         return {

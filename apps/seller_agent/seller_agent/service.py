@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from a2a.types.a2a_pb2 import Artifact, Message, TaskState
-
 from commerce_core.a2a_parts import first_envelope, make_artifact
 from commerce_core.contracts import CommerceErrorCode, Offer, Order
 from commerce_core.extension import wrap_payload
@@ -86,7 +85,7 @@ class SellerService:
                     }
                 },
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             error = {
                 "code": CommerceErrorCode.INVALID_REQUEST.value,
                 "message": str(exc),

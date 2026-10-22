@@ -1,4 +1,4 @@
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,9 +13,6 @@ SCHEMA_FILES = {
     "order": "order.json",
     "commerce_error": "commerce-error.json",
 }
-
-ModelT = TypeVar("ModelT", bound=BaseModel)
-
 
 class CommerceEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -48,5 +45,7 @@ def unwrap_payload(kind: str, envelope: dict[str, Any]) -> dict[str, Any]:
     return parsed.payload
 
 
-def parse_payload(kind: str, envelope: dict[str, Any], model: type[ModelT]) -> ModelT:
+def parse_payload[ModelT: BaseModel](
+    kind: str, envelope: dict[str, Any], model: type[ModelT]
+) -> ModelT:
     return model.model_validate(unwrap_payload(kind, envelope))

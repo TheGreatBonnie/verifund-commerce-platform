@@ -1,24 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
 from a2a.client import ClientConfig, ClientFactory
 from a2a.client.auth.credentials import CredentialService
 from a2a.client.auth.interceptor import AuthInterceptor
 from a2a.client.client import Client, ClientCallContext
 from a2a.types.a2a_pb2 import (
+    Role,
     SendMessageRequest,
     StreamResponse,
-    Task,
-    TaskArtifactUpdateEvent,
     TaskState,
-    TaskStatusUpdateEvent,
 )
-
-from commerce_core.a2a_parts import part_value
+from commerce_core.a2a_parts import make_message, part_value
 from commerce_core.extension import SCHEMA_FILES, wrap_payload
-from commerce_core.a2a_parts import make_message
-from a2a.types.a2a_pb2 import Role, SendMessageRequest
 
 
 class StaticCredentialService(CredentialService):

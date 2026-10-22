@@ -12,7 +12,6 @@ from a2a.types.a2a_pb2 import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-
 from commerce_core.contracts import CommerceErrorCode
 
 from seller_agent.graph import error_artifact
@@ -72,7 +71,7 @@ class SellerExecutor(AgentExecutor):
             turn = await self.service.handle_turn(
                 task_id, context_id, context.message
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             error = {
                 "code": CommerceErrorCode.INVALID_REQUEST.value,
                 "message": "The seller could not process this request.",

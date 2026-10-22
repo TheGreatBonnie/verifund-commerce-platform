@@ -1,24 +1,46 @@
 "use client";
 
 import {
-  CopilotChat,
   CopilotChatConfigurationProvider,
   CopilotKitProvider,
+  CopilotThreadsDrawer,
 } from "@copilotkit/react-core/v2";
+
+import { ConsoleShell } from "@/components/console-shell";
+
+const threadsEnabled =
+  process.env.NEXT_PUBLIC_COPILOTKIT_THREADS_ENABLED === "true";
 
 export default function Home() {
   return (
-    <CopilotKitProvider runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
-      <CopilotChatConfigurationProvider agentId="marketmesh_buyer">
-        <main className="min-h-dvh bg-[#F4F0E6] p-8 text-[#171713]">
-          <h1 className="font-serif text-4xl">MarketMesh</h1>
-          <p className="mt-2 text-sm text-[#5E5A50]">
-            A2A commerce exchange — console wiring in progress.
-          </p>
-          <div className="mt-8 h-[70dvh] max-w-xl">
-            <CopilotChat />
-          </div>
-        </main>
+    <CopilotKitProvider
+      runtimeUrl="/api/copilotkit"
+      useSingleEndpoint={false}
+    >
+      <CopilotChatConfigurationProvider
+        agentId="marketmesh_buyer"
+        labels={{
+          modalHeaderTitle: "MarketMesh runs",
+          chatInputPlaceholder:
+            "Describe the purchase, budget, deadline, and warranty…",
+          welcomeMessageText:
+            "Tell me what your team needs. I’ll find independent sellers, negotiate structured offers, and stop for your approval before any order.",
+          chatDisclaimerText:
+            "Buyer agent · every order requires a human decision.",
+        }}
+      >
+        <div className={threadsEnabled ? "mm-app-frame" : undefined}>
+          {threadsEnabled ? (
+            <div className="mm-thread-drawer-shell">
+              <CopilotThreadsDrawer
+                agentId="marketmesh_buyer"
+                label="MarketMesh runs"
+                recentLabel="Recent sourcing runs"
+              />
+            </div>
+          ) : null}
+          <ConsoleShell />
+        </div>
       </CopilotChatConfigurationProvider>
     </CopilotKitProvider>
   );

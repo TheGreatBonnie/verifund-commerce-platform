@@ -11,7 +11,6 @@ from a2a.types.a2a_pb2 import (
     StringList,
 )
 from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
-
 from commerce_core.extension import EXTENSION_URI
 from commerce_core.pricing import SellerPolicy
 

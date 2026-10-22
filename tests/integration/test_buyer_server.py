@@ -4,10 +4,10 @@ from pathlib import Path
 
 import httpx
 import pytest
-from langgraph.checkpoint.memory import MemorySaver
-
 from buyer_agent.server import create_app
 from buyer_agent.settings import Settings
+from langgraph.checkpoint.memory import MemorySaver
+
 from tests.support.fake_buyer import FakeServices
 from tests.support.servers import run_uvicorn
 
@@ -47,14 +47,13 @@ async def test_agui_stream_starts_and_interrupts(buyer_server):
         "state": {},
         "forwardedProps": {},
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        async with client.stream(
-            "POST",
-            f"{buyer_server}/agui",
-            json=payload,
-            headers={"Accept": "text/event-stream"},
-        ) as response:
-            body = "".join([chunk async for chunk in response.aiter_text()])
+    async with httpx.AsyncClient(timeout=60) as client, client.stream(
+        "POST",
+        f"{buyer_server}/agui",
+        json=payload,
+        headers={"Accept": "text/event-stream"},
+    ) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
     assert response.status_code == 200
     assert "RUN_STARTED" in body
     assert "interrupt" in body.lower()

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from buyer_agent.graph import build_buyer_graph
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from buyer_agent.graph import build_buyer_graph
 from tests.support.fake_buyer import FakeServices
 
 

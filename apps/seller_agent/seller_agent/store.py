@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from commerce_core.contracts import Offer, Order
+from commerce_core.db import configure_sqlite
+from commerce_core.pricing import SellerPolicy
 from sqlalchemy import (
     JSON,
     Column,
@@ -16,10 +19,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
-
-from commerce_core.contracts import Offer, Order
-from commerce_core.db import configure_sqlite
-from commerce_core.pricing import SellerPolicy
 
 
 @dataclass(frozen=True)
@@ -36,7 +35,7 @@ class Reservation:
 
 
 class SellerTransaction:
-    def __init__(self, store: "SellerStore", conn: AsyncConnection) -> None:
+    def __init__(self, store: SellerStore, conn: AsyncConnection) -> None:
         self.store = store
         self.conn = conn
 

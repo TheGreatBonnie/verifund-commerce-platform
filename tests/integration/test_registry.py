@@ -3,13 +3,12 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+from commerce_core.extension import EXTENSION_URI
 from google.protobuf import json_format
-
 from registry.api import create_app
 from registry.settings import Settings
-from tests.support.cards import build_test_card
 
-from commerce_core.extension import EXTENSION_URI
+from tests.support.cards import build_test_card
 
 
 @pytest.fixture

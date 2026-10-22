@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import Literal, Protocol
 
+from commerce_core.contracts import RFQ, CounterOffer, Mandate, Offer
+from commerce_core.pricing import SellerPolicy
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict
-
-from commerce_core.contracts import CounterOffer, Mandate, Offer, RFQ
-from commerce_core.pricing import SellerPolicy
 
 SELLER_SYSTEM_PROMPT = """You are an autonomous seller agent in MarketMesh.
 Choose exactly one action from the allowed options. Never invent a price or warranty
@@ -81,9 +80,19 @@ class ScriptedSellerPlanner:
                 rationale="Requested warranty is not supported.",
             )
         if target is not None and target < policy.floor_unit_price_cents:
+            if context.allowed_prices:
+                return SellerDecision(
+                    action="counter",
+                    unit_price_cents=context.allowed_prices[0],
+                    warranty_months=warranty,
+                    rationale=(
+                        "Buyer target is below the seller floor; hold the "
+                        "current policy price."
+                    ),
+                )
             return SellerDecision(
                 action="reject",
-                unit_price_cents=policy.floor_unit_price_cents,
+                unit_price_cents=previous_base,
                 warranty_months=warranty,
                 rationale="Buyer target is below the seller floor.",
             )

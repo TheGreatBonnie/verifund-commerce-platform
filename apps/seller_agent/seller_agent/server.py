@@ -1,7 +1,3 @@
-from fastapi import FastAPI
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import (
     add_a2a_routes_to_fastapi,
@@ -9,6 +5,10 @@ from a2a.server.routes import (
     create_jsonrpc_routes,
 )
 from a2a.server.tasks import DatabaseTaskStore
+from commerce_core.pricing import load_policy
+from fastapi import FastAPI
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from seller_agent.auth import BearerAuthMiddleware
 from seller_agent.card import build_agent_card
@@ -17,7 +17,6 @@ from seller_agent.planner import select_planner
 from seller_agent.service import SellerService
 from seller_agent.settings import Settings
 from seller_agent.store import SellerStore
-from commerce_core.pricing import load_policy
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

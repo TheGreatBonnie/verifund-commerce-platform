@@ -7,13 +7,12 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+from buyer_agent.registry_client import RegistryClient
+from buyer_agent.trace import TraceStore
+from commerce_core.cards import parse_agent_card, validate_agent_card
 from google.protobuf import json_format
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from buyer_agent.registry_client import RegistryClient
-from buyer_agent.trace import TraceStore
-from commerce_core.cards import validate_agent_card
-from commerce_core.cards import parse_agent_card
 from tests.support.cards import build_test_card
 
 
@@ -117,6 +116,9 @@ async def test_buyer_validates_cards_independently(
             parse_agent_card(seller_cards[seller.seller_id])
         ) == []
     assert buyer_services.registry.fetch_calls == 3
+    cached = buyer_services.registry.endpoint("northwind-audio")
+    assert cached.seller_id == "northwind-audio"
+    assert cached.name == "Northwind Audio"
 
 
 async def test_invalid_card_is_excluded(

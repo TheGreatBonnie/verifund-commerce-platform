@@ -1,5 +1,4 @@
 import httpx
-
 from commerce_core.cards import parse_agent_card, validate_agent_card
 
 

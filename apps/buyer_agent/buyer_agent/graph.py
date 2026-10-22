@@ -5,13 +5,9 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, TypedDict
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
-from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send, interrupt
-
+from commerce_core.cards import validate_agent_card
 from commerce_core.contracts import (
+    RFQ,
     AcceptOffer,
     ApprovalReceipt,
     AwardPackage,
@@ -21,18 +17,23 @@ from commerce_core.contracts import (
     Offer,
     OfferStatus,
     PurchaseOrderRequest,
-    RFQ,
     RFQConstraints,
     RFQPreferences,
     ShippingAddress,
 )
-from commerce_core.cards import validate_agent_card
 from commerce_core.pricing import counter_targets
 from commerce_core.scoring import (
     ScoredOffer,
     hard_constraint_failures,
+)
+from commerce_core.scoring import (
     rank_offers as rank_eligible_offers,
 )
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send, interrupt
 
 from buyer_agent.a2a_client import A2ATurn
 from buyer_agent.planner import (
@@ -165,15 +166,13 @@ async def interpret_brief(state: BuyerState, config: dict) -> dict:
     services = _services(config)
     mandate = None
     fallback_used = False
-    last_error = None
     for _ in range(2):
         try:
             mandate = await planner.parse_brief(text)
             if not isinstance(mandate, Mandate):
                 mandate = Mandate.model_validate(mandate)
             break
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
+        except Exception:  # noqa: BLE001
             mandate = None
     if mandate is None:
         fallback_used = True
@@ -196,13 +195,19 @@ async def interpret_brief(state: BuyerState, config: dict) -> dict:
                 ],
             }
     mandate = mandate.model_copy(update={"run_id": run_id})
+    source = "scripted.fallback" if fallback_used else "scripted.decision"
+    rationale = (
+        "Used regex fallback for the shopping brief."
+        if fallback_used
+        else "Parsed the shopping brief."
+    )
     trace = [
         await _record_decision(
             services,
             run_id,
-            source="scripted.decision" if not fallback_used else "scripted.decision",
+            source=source,
             action="parse_brief",
-            rationale="Parsed the shopping brief." if not fallback_used else "Used regex fallback for the shopping brief.",
+            rationale=rationale,
             fallback_used=fallback_used,
         )
     ]
@@ -391,7 +396,7 @@ async def _choose_counter(
                 )
             )
             return choice, False, trace
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S112
             continue
     fallback = await ScriptedBuyerPlanner().choose_counter(
         offer, mandate, allowed, round_number

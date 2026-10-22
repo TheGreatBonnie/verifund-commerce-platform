@@ -4,6 +4,7 @@ import re
 import secrets
 from typing import Annotated, Any
 
+from commerce_core.cards import fetch_agent_card, validate_agent_card
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from google.protobuf import json_format
@@ -12,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from commerce_core.cards import fetch_agent_card, validate_agent_card
 from registry.settings import Settings
 from registry.store import RegistryStore, canonical_card_hash
 

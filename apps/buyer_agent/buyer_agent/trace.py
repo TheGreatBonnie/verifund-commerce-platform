@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from a2a.types.a2a_pb2 import StreamResponse
+from commerce_core.db import configure_sqlite
 from google.protobuf import json_format
 from sqlalchemy import (
     JSON,
@@ -18,8 +19,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
-
-from commerce_core.db import configure_sqlite
 
 SENSITIVE_KEYS = {"authorization", "cookie", "x-api-key", "token"}
 MAX_PAYLOAD_BYTES = 256 * 1024
@@ -182,8 +181,35 @@ class TraceStore:
                 for row in result
             ]
 
+    async def record_message(
+        self,
+        run_id: str,
+        seller_id: str,
+        message,
+        *,
+        method: str = "SendStreamingMessage",
+    ) -> None:
+        payload: dict[str, Any] = {
+            "kind": "message",
+            "message": json_format.MessageToDict(message),
+        }
+        await self.record(
+            run_id,
+            direction="outbound",
+            method=method,
+            payload=payload,
+            task_id=message.task_id or None,
+            context_id=message.context_id or None,
+            seller_id=seller_id,
+        )
+
     async def record_frame(
-        self, run_id: str, seller_id: str, frame: StreamResponse
+        self,
+        run_id: str,
+        seller_id: str,
+        frame: StreamResponse,
+        *,
+        latency_ms: int | None = None,
     ) -> None:
         kind = frame.WhichOneof("payload") or "unknown"
         payload: dict[str, Any] = {"kind": kind}
@@ -217,6 +243,7 @@ class TraceStore:
             task_id=task_id,
             context_id=context_id,
             seller_id=seller_id,
+            latency_ms=latency_ms,
         )
 
     async def upsert_run(self, run_id: str, **fields: Any) -> None:

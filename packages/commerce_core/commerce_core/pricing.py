@@ -49,7 +49,7 @@ class SellerPolicy(BaseModel):
         unit_price_cents: int,
         warranty_months: int,
         allow_split: bool = False,
-    ) -> "Quote":
+    ) -> Quote:
         if quantity <= 0:
             raise ValueError("quantity must be positive")
         if unit_price_cents < self.floor_unit_price_cents:
@@ -91,7 +91,7 @@ class SellerPolicy(BaseModel):
             + timedelta(minutes=self.offer_ttl_minutes),
         )
 
-    def initial_quote(self, quantity: int) -> "Quote":
+    def initial_quote(self, quantity: int) -> Quote:
         return self.quote(
             quantity=quantity,
             unit_price_cents=self.initial_unit_price_cents,

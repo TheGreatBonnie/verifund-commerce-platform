@@ -1,5 +1,4 @@
 import pytest
-
 from commerce_core.contracts import RFQ, RFQConstraints, RFQPreferences
 from commerce_core.extension import EXTENSION_URI, parse_payload, wrap_payload
 

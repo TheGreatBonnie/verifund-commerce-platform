@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-
 from commerce_core.contracts import (
     ApprovalReceipt,
     Offer,
@@ -13,6 +12,7 @@ from commerce_core.contracts import (
     ShippingAddress,
 )
 from commerce_core.pricing import load_policy
+
 from tests.support.a2a import send_purchase_order
 
 POLICY_PATH = Path(

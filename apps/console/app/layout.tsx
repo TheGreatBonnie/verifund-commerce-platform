@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   Instrument_Serif,
   Plus_Jakarta_Sans,
@@ -25,8 +25,13 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "MarketMesh",
-  description: "An open A2A commerce exchange",
+  title: "MarketMesh — open agent exchange",
+  description:
+    "Independent buyer and seller agents discover, negotiate, and transact with a human at the order gate.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#f4f0e6",
 };
 
 export default function RootLayout({

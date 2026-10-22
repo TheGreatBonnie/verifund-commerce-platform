@@ -3,16 +3,15 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict
-
 from commerce_core.contracts import (
     AwardPackage,
     Mandate,
     Offer,
     Preferences,
 )
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, ConfigDict
 
 BUYER_SYSTEM_PROMPT = """You are the buyer's sourcing agent in MarketMesh.
 You never reveal or include the buyer's maximum total budget in any message to a
@@ -87,14 +86,14 @@ class ScriptedBuyerPlanner:
 
 class OpenRouterBuyerPlanner:
     def __init__(self, api_key: str, model: str) -> None:
-        common = dict(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            model=model,
-            temperature=0,
-            timeout=45,
-            max_retries=1,
-        )
+        common = {
+            "api_key": api_key,
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": model,
+            "temperature": 0,
+            "timeout": 45,
+            "max_retries": 1,
+        }
         self.brief_llm = ChatOpenAI(**common).with_structured_output(Mandate)
         self.counter_llm = ChatOpenAI(**common).with_structured_output(
             CounterChoice
@@ -159,7 +158,7 @@ def mandate_from_text(text: str) -> Mandate:
     quantity_match = re.search(
         r"\b(\d{1,3})\s+(?:x\s+)?(?:Nimbus|units?|headsets?)",
         text,
-        re.I,
+        re.IGNORECASE,
     )
     budget_match = re.search(r"\$\s*([0-9][0-9,]*)", text)
     quantity = int(quantity_match.group(1)) if quantity_match else 12

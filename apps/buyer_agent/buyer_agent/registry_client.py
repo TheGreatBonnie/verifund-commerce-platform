@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-
 from commerce_core.cards import (
     card_commerce_metadata,
     fetch_agent_card,
@@ -42,9 +41,18 @@ class RegistryClient:
         self.trace = trace
         self.http = client or httpx.AsyncClient(timeout=10.0)
         self.fetch_calls = 0
+        self._endpoints: dict[str, SellerEndpoint] = {}
 
     async def close(self) -> None:
         await self.http.aclose()
+
+    def endpoint(self, seller_id: str) -> SellerEndpoint:
+        try:
+            return self._endpoints[seller_id]
+        except KeyError:
+            raise KeyError(
+                f"seller {seller_id!r} was not discovered or failed validation"
+            ) from None
 
     async def discover(self, category: str) -> list[SellerEndpoint]:
         response = await self.http.post(
@@ -66,7 +74,7 @@ class RegistryClient:
                     client=self.http,
                     allowed_hosts=self.allowed_card_hosts,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 await self._trace_invalid(result, str(exc))
                 continue
             errors = validate_agent_card(card)
@@ -79,19 +87,19 @@ class RegistryClient:
                     f"missing buyer credential for seller {seller_id}"
                 )
             metadata = card_commerce_metadata(card)
-            endpoints.append(
-                SellerEndpoint(
-                    seller_id=seller_id,
-                    name=card.name,
-                    card_url=card_url,
-                    card=card,
-                    token=token,
-                    rating=float(metadata["rating"]),
-                    sustainability_certified=bool(
-                        metadata["sustainability_certified"]
-                    ),
-                )
+            endpoint = SellerEndpoint(
+                seller_id=seller_id,
+                name=card.name,
+                card_url=card_url,
+                card=card,
+                token=token,
+                rating=float(metadata["rating"]),
+                sustainability_certified=bool(
+                    metadata["sustainability_certified"]
+                ),
             )
+            self._endpoints[seller_id] = endpoint
+            endpoints.append(endpoint)
         return endpoints
 
     async def _trace_invalid(

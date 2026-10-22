@@ -1,6 +1,6 @@
-from tests.support.cards import build_test_card
-
 from commerce_core.cards import validate_agent_card
+
+from tests.support.cards import build_test_card
 
 
 def test_valid_card_has_no_errors():

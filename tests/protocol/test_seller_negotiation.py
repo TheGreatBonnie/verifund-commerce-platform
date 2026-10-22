@@ -1,15 +1,15 @@
 from datetime import UTC, datetime, timedelta
 
 from a2a.types.a2a_pb2 import Role, SendMessageRequest, TaskState
-
 from commerce_core.a2a_parts import make_message
 from commerce_core.contracts import (
-    CounterOffer,
     RFQ,
+    CounterOffer,
     RFQConstraints,
     RFQPreferences,
 )
 from commerce_core.extension import wrap_payload
+
 from tests.support.a2a import (
     collect_stream,
     first_task_id,
@@ -84,7 +84,7 @@ async def test_rfq_offer_and_counter(seller_session):
 
 
 async def test_task_ids_are_stable_and_context_is_shared(seller_session):
-    offer, events = await start_rfq(seller_session)
+    _offer, events = await start_rfq(seller_session)
     task_id = first_task_id(events)
     client, _ = seller_session
     counter = CounterOffer(

@@ -6,12 +6,14 @@ const nextConfig: NextConfig = {
   // becomes the workspace root. This value also sets the file tracing root.
   turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
   output: "standalone",
-  serverExternalPackages: ["@copilotkit/runtime"],
   env: {
+    NEXT_PUBLIC_MARKETMESH_LLM_MODE:
+      process.env.MARKETMESH_LLM_MODE ?? "scripted",
     NEXT_PUBLIC_COPILOTKIT_THREADS_ENABLED: process.env.CPK_INTELLIGENCE_API_KEY
       ? "true"
       : "false",
   },
+  serverExternalPackages: ["@copilotkit/runtime"],
 };
 
 export default nextConfig;

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import copy
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from a2a.types.a2a_pb2 import TaskState
-from google.protobuf import json_format
-
 from buyer_agent.a2a_client import A2ATurn
 from buyer_agent.registry_client import SellerEndpoint
 from commerce_core.contracts import (
+    RFQ,
     CounterOffer,
     Fulfillment,
     Offer,
@@ -21,8 +19,9 @@ from commerce_core.contracts import (
     Order,
     OrderStatus,
     PurchaseOrderRequest,
-    RFQ,
 )
+from google.protobuf import json_format
+
 from tests.support.cards import build_test_card
 
 
@@ -165,7 +164,7 @@ class FakeRegistry:
 
 
 class FakeSession:
-    def __init__(self, endpoint: SellerEndpoint, a2a: "ScriptedA2AClient") -> None:
+    def __init__(self, endpoint: SellerEndpoint, a2a: ScriptedA2AClient) -> None:
         self.endpoint = endpoint
         self.a2a = a2a
         self.task_id: str | None = None
@@ -263,7 +262,6 @@ class FakeSession:
 
     async def cancel(self, task_id: str):
         self.a2a.cancelled.append((self.endpoint.seller_id, task_id))
-        return None
 
     async def close(self) -> None:
         return None

@@ -1,6 +1,6 @@
 import pytest
-
 from commerce_core.cards import fetch_agent_card
+
 from tests.support.a2a import make_client
 from tests.support.servers import seller_runtime, seller_server
 from tests.support.session import SellerSession

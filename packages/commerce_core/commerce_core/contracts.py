@@ -125,7 +125,7 @@ class Offer(CommerceModel):
     rationale: str = ""
 
     @model_validator(mode="after")
-    def validate_totals(self) -> "Offer":
+    def validate_totals(self) -> Offer:
         computed = 0
         for item in self.line_items:
             if item.quantity <= 0:

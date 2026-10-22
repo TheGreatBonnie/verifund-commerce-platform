@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+from ag_ui_langgraph import LangGraphAgent, add_langgraph_fastapi_endpoint
+from commerce_core.db import configure_sqlite
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
-
-from ag_ui_langgraph import LangGraphAgent, add_langgraph_fastapi_endpoint
 
 from buyer_agent import console_api
 from buyer_agent.graph import build_buyer_graph
 from buyer_agent.services import BuyerServices, build_services
 from buyer_agent.settings import Settings
-from commerce_core.db import configure_sqlite
 
 
 def create_app(

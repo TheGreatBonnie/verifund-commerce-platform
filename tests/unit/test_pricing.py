@@ -1,7 +1,5 @@
 import pytest
 
-from commerce_core.pricing import SellerPolicy
-
 
 def test_northwind_ladder_ends_at_final_price(northwind_policy):
     assert northwind_policy.initial_unit_price_cents == 30300
