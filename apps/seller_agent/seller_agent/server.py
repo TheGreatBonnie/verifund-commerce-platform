@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from seller_agent.auth import BearerAuthMiddleware
 from seller_agent.card import build_agent_card
 from seller_agent.executor import SellerExecutor
-from seller_agent.planner import select_planner
+from seller_agent.planner import select_seller_planner
 from seller_agent.service import SellerService
 from seller_agent.settings import Settings
 from seller_agent.store import SellerStore
@@ -26,8 +26,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     store = SellerStore(engine)
     card = build_agent_card(policy, settings.public_base_url)
     task_store = DatabaseTaskStore(engine=engine, create_table=True)
-    planner = select_planner(
-        settings.llm_mode, settings.openrouter_api_key, settings.openrouter_model
+    planner = select_seller_planner(
+        settings.llm_mode,
+        settings.nebius_api_key,
+        settings.nebius_base_url,
+        settings.nebius_model,
     )
     service = SellerService(store=store, policy=policy, planner=planner)
     executor = SellerExecutor(service)

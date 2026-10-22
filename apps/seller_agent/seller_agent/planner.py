@@ -118,11 +118,11 @@ class ScriptedSellerPlanner:
         )
 
 
-class OpenRouterSellerPlanner:
-    def __init__(self, api_key: str, model: str) -> None:
+class NebiusSellerPlanner:
+    def __init__(self, api_key: str, base_url: str, model: str) -> None:
         self.llm = ChatOpenAI(
             api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
+            base_url=base_url,
             model=model,
             temperature=0.2,
             timeout=30,
@@ -138,9 +138,12 @@ class OpenRouterSellerPlanner:
         )
 
 
-def select_planner(
-    llm_mode: str, api_key: str | None, model: str
+def select_seller_planner(
+    llm_mode: str,
+    api_key: str | None,
+    base_url: str,
+    model: str,
 ) -> SellerPlanner:
-    if llm_mode == "live" and api_key and api_key.startswith("sk-or-"):
-        return OpenRouterSellerPlanner(api_key, model)
+    if llm_mode == "live" and api_key:
+        return NebiusSellerPlanner(api_key, base_url, model)
     return ScriptedSellerPlanner()

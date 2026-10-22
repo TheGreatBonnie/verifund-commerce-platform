@@ -41,7 +41,7 @@ The demo is not a pair of chatbots. Buyer-to-seller commerce is carried over Goo
 | Product name | MarketMesh |
 | Commerce scenario | Buyer purchasing 12 noise-cancelling headsets |
 | Agent framework | LangGraph for buyer and all sellers |
-| LLM access | OpenRouter, model `deepseek/deepseek-v4.1-flash` by default |
+| LLM access | Nebius token factory, model `deepseek-ai/DeepSeek-V4-Flash-0731` by default |
 | Agent intelligence | LLM-first, bounded by deterministic tools and validators |
 | Human authority | Human approves every order; no auto-approval |
 | Discovery | Agent Card registry plus direct Card validation by buyer |
@@ -102,7 +102,7 @@ The three sellers share the seller runtime package to keep the prototype maintai
 - `a2a-sdk==1.2.3` with HTTP server and SQLite extras.
 - LangGraph 1.2.x, `langgraph-checkpoint-sqlite`.
 - `ag-ui-langgraph==0.0.47`, `ag-ui-protocol`.
-- `langchain-openai` pointed at OpenRouter's OpenAI-compatible endpoint.
+- `langchain-openai` pointed at Nebius's OpenAI-compatible endpoint.
 - SQLAlchemy 2 async + `aiosqlite`.
 - Next.js 15.5, React 19, CopilotKit 1.79, Tailwind 4.
 - Pytest, HTTPX, Playwright.
@@ -390,7 +390,7 @@ The LLM drives brief interpretation, seller strategy, negotiation wording, actio
 - Buyer tools constrain counteroffers to the mandate.
 - Validators reject hallucinated prices, totals, quantities, warranties, and invalid task transitions.
 - Rejected LLM output triggers one repair attempt. Two consecutive failures trigger a deterministic fallback planner; the trace records `fallback_used`.
-- The model is configurable through `OPENROUTER_MODEL`; default `deepseek/deepseek-v4.1-flash`.
+- The model is configurable through `NEBIUS_MODEL`; default `deepseek-ai/DeepSeek-V4-Flash-0731`.
 - Temperature is low; token and time budgets are explicit.
 
 ### 9.6 Prompt-injection posture
@@ -626,7 +626,7 @@ Retries use bounded exponential backoff with jitter. Transport retries reuse mes
 ### End-to-end
 
 - Playwright: start demo, see three seller lanes, observe offers and negotiation, open A2A Wire, approve, see order.
-- Optional live OpenRouter smoke test, manual only.
+- Optional live Nebius smoke test, manual only.
 
 ### Commands
 
@@ -653,8 +653,8 @@ Retries use bounded exponential backoff with jitter. Transport retries reuse mes
 4. No order is sent before human approval. Approve creates an order artifact; reject creates none.
 5. Losing tasks are cancelled and duplicate order requests return the same order.
 6. One seller can fail without aborting procurement.
-7. `make test` and the Playwright smoke test pass without OpenRouter access.
-8. No Verifund code, service, env var, model, payment workflow, transaction coordinator, or dependency exists. OpenRouter is the only external runtime dependency.
+7. `make test` and the Playwright smoke test pass without Nebius access.
+8. No Verifund code, service, env var, model, payment workflow, transaction coordinator, or dependency exists. Nebius is the only external runtime dependency.
 9. UI is responsive, keyboard-accessible, and meets WCAG AA contrast.
 
 ## 19. Risks and mitigations

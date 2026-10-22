@@ -57,13 +57,13 @@ def main() -> int:
         print(f"MarketMesh is already running at {url}")
     else:
         mode = os.environ.get("MARKETMESH_LLM_MODE", "scripted").lower()
-        key = os.environ.get("OPENROUTER_API_KEY", "")
+        key = os.environ.get("NEBIUS_API_KEY", "").strip()
         command = [sys.executable, str(ROOT / "scripts/dev.py")]
-        if mode != "live" or not key.startswith("sk-or-"):
-            print("No usable OpenRouter key; running scripted demo.")
+        if mode != "live" or not key:
+            print("No usable Nebius key; running scripted demo.")
             command.append("--scripted")
         else:
-            print("Starting live OpenRouter demo.")
+            print("Starting live Nebius demo.")
 
         log_path = LOG_DIR / "run_demo.out"
         handle = log_path.open("a", encoding="utf-8")

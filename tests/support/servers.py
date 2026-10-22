@@ -46,8 +46,9 @@ async def seller_runtime(tmp_path):
         seller_token="test-seller-token",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'seller.db'}",
         llm_mode="scripted",
-        openrouter_api_key=None,
-        openrouter_model="deepseek/deepseek-v4.1-flash",
+        nebius_api_key=None,
+        nebius_base_url="https://api.tokenfactory.us-central1.nebius.com/v1/",
+        nebius_model="deepseek-ai/DeepSeek-V4-Flash-0731",
     )
     app = create_app(settings)
     async with run_uvicorn(app, 9201) as base_url:

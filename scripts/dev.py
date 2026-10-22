@@ -24,7 +24,9 @@ from config import (
     buyer_url,
     console_port,
     llm_mode,
-    openrouter_key,
+    nebius_api_key,
+    nebius_base_url,
+    nebius_model,
     registry_url,
     seller_tokens_json,
 )
@@ -56,7 +58,9 @@ def _base_env(mode: str) -> dict[str, str]:
         }
     )
     if mode == "live":
-        env["OPENROUTER_API_KEY"] = openrouter_key()
+        env["NEBIUS_API_KEY"] = nebius_api_key()
+        env["BASE_URL"] = nebius_base_url()
+        env["MODEL"] = nebius_model()
     return env
 
 
@@ -344,10 +348,10 @@ def _resolve_mode(scripted: bool) -> str:
     if mode not in {"scripted", "live"}:
         print(f"Unknown MARKETMESH_LLM_MODE={mode!r}; using scripted mode.")
         return "scripted"
-    if mode == "live" and not openrouter_key().startswith("sk-or-"):
+    if mode == "live" and not nebius_api_key():
         print(
-            "No usable OpenRouter key; running the deterministic scripted demo.\n"
-            "Set OPENROUTER_API_KEY to an sk-or-... value to use live agents."
+            "No usable Nebius key; running the deterministic scripted demo.\n"
+            "Set NEBIUS_API_KEY to use live agents."
         )
         return "scripted"
     return mode

@@ -29,5 +29,15 @@ class Settings(BaseSettings):
         default="scripted",
         validation_alias=AliasChoices("MARKETMESH_LLM_MODE", "LLM_MODE"),
     )
-    openrouter_api_key: str | None = None
-    openrouter_model: str = "deepseek/deepseek-v4.1-flash"
+    nebius_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("NEBIUS_API_KEY"),
+    )
+    nebius_base_url: str = Field(
+        default="https://api.tokenfactory.us-central1.nebius.com/v1/",
+        validation_alias=AliasChoices("NEBIUS_BASE_URL"),
+    )
+    nebius_model: str = Field(
+        default="deepseek-ai/DeepSeek-V4-Flash-0731",
+        validation_alias=AliasChoices("NEBIUS_MODEL"),
+    )

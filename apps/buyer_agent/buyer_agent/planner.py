@@ -84,11 +84,11 @@ class ScriptedBuyerPlanner:
         )
 
 
-class OpenRouterBuyerPlanner:
-    def __init__(self, api_key: str, model: str) -> None:
+class NebiusBuyerPlanner:
+    def __init__(self, api_key: str, base_url: str, model: str) -> None:
         common = {
             "api_key": api_key,
-            "base_url": "https://openrouter.ai/api/v1",
+            "base_url": base_url,
             "model": model,
             "temperature": 0,
             "timeout": 45,
@@ -182,9 +182,12 @@ def mandate_from_text(text: str) -> Mandate:
     )
 
 
-def select_planner(
-    llm_mode: str, api_key: str | None, model: str
+def select_buyer_planner(
+    llm_mode: str,
+    api_key: str | None,
+    base_url: str,
+    model: str,
 ) -> BuyerPlanner:
-    if llm_mode == "live" and api_key and api_key.startswith("sk-or-"):
-        return OpenRouterBuyerPlanner(api_key, model)
+    if llm_mode == "live" and api_key:
+        return NebiusBuyerPlanner(api_key, base_url, model)
     return ScriptedBuyerPlanner()

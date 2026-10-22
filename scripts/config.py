@@ -127,8 +127,22 @@ def llm_mode() -> str:
     return _env("MARKETMESH_LLM_MODE", "scripted").strip().lower()
 
 
-def openrouter_key() -> str:
-    return _env("OPENROUTER_API_KEY", "").strip()
+def nebius_api_key() -> str:
+    return _env("NEBIUS_API_KEY", "").strip()
+
+
+def nebius_base_url() -> str:
+    return _env(
+        "NEBIUS_BASE_URL",
+        "https://api.tokenfactory.us-central1.nebius.com/v1/",
+    ).rstrip("/")
+
+
+def nebius_model() -> str:
+    return _env(
+        "NEBIUS_MODEL",
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+    ).strip()
 
 
 def seller_tokens_json() -> str:

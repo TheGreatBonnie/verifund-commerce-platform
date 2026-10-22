@@ -126,15 +126,16 @@ a trust shortcut.
 The deterministic scripted mode is the default and works without network access. It
 selects planner decisions from explicit policy options, which makes the demo repeatable.
 
-To use OpenRouter:
+To use Nebius token factory:
 
 ```bash
 MARKETMESH_LLM_MODE=live
-OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_MODEL=deepseek/deepseek-v4.1-flash
+NEBIUS_API_KEY=<your-nebius-key>
+NEBIUS_BASE_URL=https://api.tokenfactory.us-central1.nebius.com/v1/
+NEBIUS_MODEL=deepseek-ai/DeepSeek-V4-Flash-0731
 ```
 
-If live mode is requested without an `sk-or-` key, `make dev` prints a warning and falls
+If live mode is requested without a Nebius key, `make dev` prints a warning and falls
 back to scripted mode. In live mode, the LLM proposes a strategy and rationale; code still
 owns price floors, mandate checks, stock, order totals, and ranking. If a structured model
 response is unusable, the graph falls back to its deterministic planner and records that
@@ -148,7 +149,7 @@ make lint      # Ruff plus TypeScript typecheck
 make e2e       # starts the scripted stack and runs Playwright
 ```
 
-The Python suite never calls OpenRouter. Playwright installs Chromium on first use.
+The Python suite never calls Nebius. Playwright installs Chromium on first use.
 
 ## Troubleshooting
 
@@ -161,7 +162,7 @@ The Python suite never calls OpenRouter. Playwright installs Chromium on first u
   `.dev-logs/registry.log`.
 - A seller lane is missing: check its `/health` endpoint, its log in `.dev-logs/`, and
   whether its card is present at `/v1/sellers`.
-- Live mode falls back to scripted: confirm the key starts with `sk-or-` and inspect
+- Live mode falls back to scripted: confirm the Nebius key is set and inspect
   `.dev-logs/buyer.log` and the seller logs.
 
 ## Security limits

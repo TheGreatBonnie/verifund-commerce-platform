@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from buyer_agent import console_api
 from buyer_agent.graph import build_buyer_graph
+from buyer_agent.planner import select_buyer_planner
 from buyer_agent.services import BuyerServices, build_services
 from buyer_agent.settings import Settings
 
@@ -22,7 +23,17 @@ def create_app(
         engine = create_async_engine(settings.database_url)
     if services is None:
         services = build_services(settings, engine)
-    graph = build_buyer_graph(services, checkpointer)
+    planner = select_buyer_planner(
+        settings.llm_mode,
+        settings.nebius_api_key,
+        settings.nebius_base_url,
+        settings.nebius_model,
+    )
+    graph = build_buyer_graph(
+        services=services,
+        checkpointer=checkpointer,
+        planner=planner,
+    )
     app = FastAPI(title="MarketMesh Buyer")
     app.state.settings = settings
     app.state.engine = engine

@@ -75,7 +75,7 @@ The registry never receives seller bearer tokens. The console never receives the
 | `out_of_stock` | Stock was reserved by another task | Reset stock with `make seed` or use another seller |
 | `database is locked` | Multiple writers or a stale stack | Stop the stack, wait, retry; keep one buyer per buyer DB |
 | Registry dot offline | Registry process died | Check `.dev-logs/registry.log` |
-| Live mode falls back | Missing or malformed OpenRouter key | Use an `sk-or-` key and check the buyer log |
+| Live mode falls back | Missing or malformed Nebius key | Set `NEBIUS_API_KEY` and check the buyer log |
 
 ## Logs and traces
 
@@ -111,7 +111,7 @@ make dev
 To exercise live mode:
 
 ```bash
-OPENROUTER_API_KEY=sk-or-... MARKETMESH_LLM_MODE=live make dev
+NEBIUS_API_KEY=<your-nebius-key> MARKETMESH_LLM_MODE=live make dev
 ```
 
 Then verify the buyer trace contains planner decision events and that ranking still matches
