@@ -103,7 +103,7 @@ function errorText(error: BuyerState["error"]) {
 
 export function ConsoleShell() {
   const { agent, isReady } = useAgent({
-    agentId: "marketmesh_buyer",
+    agentId: "a2a_chat",
     updates: [
       UseAgentUpdate.OnMessagesChanged,
       UseAgentUpdate.OnStateChanged,
@@ -193,7 +193,7 @@ export function ConsoleShell() {
   );
 
   const approvalElement = useInterrupt({
-    agentId: "marketmesh_buyer",
+    agentId: "a2a_chat",
     renderInChat: false,
     enabled: (event) => {
       const value = event.value as { reason?: string } | null | undefined;

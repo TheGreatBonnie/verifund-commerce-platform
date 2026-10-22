@@ -18,7 +18,7 @@ export default function Home() {
       useSingleEndpoint={false}
     >
       <CopilotChatConfigurationProvider
-        agentId="marketmesh_buyer"
+        agentId="a2a_chat"
         labels={{
           modalHeaderTitle: "MarketMesh runs",
           chatInputPlaceholder:
@@ -33,7 +33,7 @@ export default function Home() {
           {threadsEnabled ? (
             <div className="mm-thread-drawer-shell">
               <CopilotThreadsDrawer
-                agentId="marketmesh_buyer"
+                agentId="a2a_chat"
                 label="MarketMesh runs"
                 recentLabel="Recent sourcing runs"
               />
