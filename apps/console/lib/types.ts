@@ -90,6 +90,8 @@ export type Mandate = {
 
 export type BuyerState = {
   run_id?: string;
+  task_id?: string;
+  status?: string;
   stage?: string;
   mandate?: Mandate | null;
   sellers?: Array<{
@@ -110,6 +112,7 @@ export type BuyerState = {
   order?: Order | null;
   error?: { code?: string; message?: string } | string | null;
   award_summary?: string;
+  message?: string;
   trace?: Array<{
     type?: string;
     action?: string;

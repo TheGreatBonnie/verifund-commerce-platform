@@ -152,3 +152,19 @@ def seller_tokens_json() -> str:
     import json
 
     return json.dumps({seller.seller_id: seller.token for seller in SELLERS})
+
+
+def orchestrator_port() -> int:
+    return _port("ORCHESTRATOR_PORT", 9000)
+
+
+def orchestrator_url() -> str:
+    return _env("ORCHESTRATOR_URL", f"http://127.0.0.1:{orchestrator_port()}")
+
+
+def orchestrator_agui_url() -> str:
+    return _env("ORCHESTRATOR_AGUI_URL", orchestrator_url())
+
+
+def buyer_a2a_url() -> str:
+    return _env("BUYER_A2A_URL", buyer_url().rstrip("/"))

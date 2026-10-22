@@ -138,6 +138,28 @@ services:
       timeout: 3s
       retries: 20
 
+  orchestrator:
+    <<: *python-service
+    command: python -m orchestrator_agent
+    depends_on:
+      buyer:
+        condition: service_healthy
+    environment:
+      <<: *model-env
+      HOST: 0.0.0.0
+      PORT: 9000
+      ORCHESTRATOR_URL: http://orchestrator:9000
+      ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
+      BUYER_A2A_URL: http://buyer:9100
+      SELLER_URLS: http://northwind:9201,http://circuitforge:9202,http://aurora:9203
+    ports:
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   console:
     build:
       context: .
@@ -147,9 +169,12 @@ services:
         condition: service_completed_successfully
       buyer:
         condition: service_healthy
+      orchestrator:
+        condition: service_healthy
     environment:
       BUYER_AGUI_URL: http://buyer:9100/agui
       BUYER_API_URL: http://buyer:9100
+      ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       REGISTRY_URL: http://registry:9105
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
       NEXT_TELEMETRY_DISABLED: "1"

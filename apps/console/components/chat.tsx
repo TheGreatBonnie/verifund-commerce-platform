@@ -1,39 +1,80 @@
 "use client";
 
-import { CopilotChat, useFrontendTool } from "@copilotkit/react-core/v2";
+import { useEffect } from "react";
+import { CopilotChat, useFrontendTool, useAgent } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
+import { MessageToA2A } from "./a2a/MessageToA2A";
+import { MessageFromA2A } from "./a2a/MessageFromA2A";
+
+type BuyerState = {
+  status?: string;
+  task_id?: string;
+  stage?: string;
+  award?: any;
+  mandate?: any;
+  order?: any;
+  error?: any;
+  message?: string;
+};
 
 type ChatProps = {
   onRunSample: () => void;
   isRunning: boolean;
   isReady: boolean;
+  onBuyerStateUpdate?: (state: BuyerState) => void;
 };
 
 const SAMPLE_PROMPT =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
 
-function MessageToA2A({ args, status }: { args?: { agentName?: string; task?: string }; status?: string }) {
-  return (
-    <div className="my-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-      <div className="font-semibold">To {args?.agentName ?? "A2A agent"}</div>
-      <div className="mt-1 break-words">{args?.task ?? ""}</div>
-      {status ? <div className="mt-1 text-xs text-blue-700">{status}</div> : null}
-    </div>
-  );
-}
+export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: ChatProps) {
+  const { agent } = useAgent({ agentId: "a2a_chat" });
 
-function MessageFromA2A({ args, status }: { args?: { agentName?: string; task?: string }; status?: string }) {
-  return (
-    <div className="my-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
-      <div className="font-semibold">From {args?.agentName ?? "A2A agent"}</div>
-      <div className="mt-1 break-words">{args?.task ?? ""}</div>
-      {status ? <div className="mt-1 text-xs text-green-700">{status}</div> : null}
-    </div>
-  );
-}
+  // Extract structured JSON from A2A agent responses and pass to parent
+  useEffect(() => {
+    const extractDataFromMessages = () => {
+      for (const message of agent.messages) {
+        const msg = message as any;
 
-export function Chat({ onRunSample, isRunning, isReady }: ChatProps) {
+        if (msg.role === "tool" && typeof msg.content !== "undefined") {
+          try {
+            const result = msg.content;
+            let parsed;
+
+            if (typeof result === "string") {
+              let cleanResult = result;
+              // Handle A2A response format from middleware
+              if (result.startsWith("A2A Agent Response: ")) {
+                cleanResult = result.slice("A2A Agent Response: ".length);
+              }
+              try {
+                parsed = JSON.parse(cleanResult);
+              } catch {
+                continue;
+              }
+            } else if (typeof result === "object") {
+              parsed = result;
+            } else {
+              continue;
+            }
+
+            // Check for MarketMesh buyer state fields
+            if (parsed.status || parsed.award || parsed.mandate || parsed.task_id || parsed.order) {
+              if (onBuyerStateUpdate) {
+                onBuyerStateUpdate(parsed as BuyerState);
+              }
+            }
+          } catch (e) {
+            console.error("Failed to extract data from message:", e);
+          }
+        }
+      }
+    };
+
+    extractDataFromMessages();
+  }, [agent.messages, onBuyerStateUpdate]);
+
   useFrontendTool({
     name: "send_message_to_a2a_agent",
     description: "Sends a message to an A2A agent",
@@ -94,7 +135,7 @@ export function Chat({ onRunSample, isRunning, isReady }: ChatProps) {
             chatInputPlaceholder:
               "Describe the purchase, budget, deadline, and warranty…",
             chatDisclaimerText:
-              "Buyer agent · every order requires a human decision.",
+              "MarketMesh orchestrator · every order requires a human decision.",
           }}
         />
       </div>

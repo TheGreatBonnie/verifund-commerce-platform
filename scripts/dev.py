@@ -21,12 +21,16 @@ from config import (
     SELLERS,
     admin_token,
     buyer_agui_url,
+    buyer_a2a_url,
     buyer_url,
     console_port,
     llm_mode,
     nebius_api_key,
     nebius_base_url,
     nebius_model,
+    orchestrator_agui_url,
+    orchestrator_port,
+    orchestrator_url,
     registry_url,
     seller_tokens_json,
 )
@@ -293,12 +297,32 @@ def buyer_environment(mode: str) -> dict[str, str]:
     return env
 
 
+def orchestrator_environment(mode: str) -> dict[str, str]:
+    env = _base_env(mode)
+    env.update(
+        {
+            "PORT": str(orchestrator_port()),
+            "ORCHESTRATOR_PORT": str(orchestrator_port()),
+            "ORCHESTRATOR_URL": orchestrator_url(),
+            "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
+            "BUYER_A2A_URL": buyer_a2a_url(),
+            "SELLER_URLS": ",".join(seller.base_url for seller in SELLERS),
+            "COPILOTKIT_AGENT_MODEL": f"openai:{nebius_model()}",
+            "OPENAI_BASE_URL": nebius_base_url(),
+        }
+    )
+    if mode == "live":
+        env["OPENAI_API_KEY"] = nebius_api_key()
+    return env
+
+
 def console_environment(mode: str) -> dict[str, str]:
     env = _base_env(mode)
     env.update(
         {
             "BUYER_AGUI_URL": buyer_agui_url(),
             "BUYER_API_URL": buyer_url(),
+            "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
             "REGISTRY_URL": registry_url(),
             "NEXT_TELEMETRY_DISABLED": "1",
             "COPILOTKIT_TELEMETRY_DISABLED": "true",
@@ -430,6 +454,21 @@ def run_stack(scripted: bool) -> int:
             log_path=buyer.log_path,
         )
 
+        orchestrator = start_child(
+            "orchestrator",
+            [sys.executable, "-m", "orchestrator_agent"],
+            env=orchestrator_environment(mode),
+            url=f"{orchestrator_url().rstrip('/')}/health",
+        )
+        children.append(orchestrator)
+        wait_for_http(
+            "orchestrator",
+            f"{orchestrator_url().rstrip('/')}/health",
+            timeout=45,
+            process=orchestrator.process,
+            log_path=orchestrator.log_path,
+        )
+
         console = start_child(
             "console",
             [
@@ -456,6 +495,7 @@ def run_stack(scripted: bool) -> int:
         _write_pids(children, mode)
         print("\nMarketMesh is ready")
         print(f"  Console       http://127.0.0.1:{console_port()}")
+        print(f"  Orchestrator  {orchestrator_agui_url()}")
         print(f"  Buyer AG-UI   {buyer_agui_url()}")
         print(f"  Registry      {registry_url().rstrip('/')}/v1/sellers")
         for seller in SELLERS:

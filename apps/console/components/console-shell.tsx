@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   UseAgentUpdate,
   useAgent,
-  useInterrupt,
 } from "@copilotkit/react-core/v2";
 import {
   ArrowDownRight,
@@ -110,13 +109,58 @@ export function ConsoleShell() {
       UseAgentUpdate.OnRunStatusChanged,
     ],
   });
-  const state = (agent.state ?? {}) as BuyerState;
+  const [buyerState, setBuyerState] = useState<BuyerState>({});
+  useEffect(() => {
+    let latest: BuyerState | null = null;
+    for (const message of agent.messages ?? []) {
+      const content =
+        typeof message.content === "string" ? message.content : "";
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        continue;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        continue;
+      }
+      let candidate = parsed as BuyerState;
+
+      // Check for A2A Task format: { id, status: { message: { parts: [{ text: "{\"status\":\"...\"}" }] } } }
+      const taskMessageText =
+        (parsed as { status?: { message?: { parts?: Array<{ text?: string }> } } })
+          ?.status?.message?.parts?.[0]?.text;
+      if (typeof taskMessageText === "string") {
+        try {
+          const nested = JSON.parse(taskMessageText);
+          if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+            candidate = nested as BuyerState;
+          }
+        } catch {
+          // keep candidate as parsed
+        }
+      }
+
+      if (
+        candidate &&
+        (candidate.task_id ||
+          candidate.award ||
+          candidate.mandate ||
+          candidate.order)
+      ) {
+        latest = candidate;
+      }
+    }
+    if (latest) setBuyerState(latest);
+  }, [agent.messages]);
+
+  const state = buyerState;
   const stage = state.stage ?? "new";
   const award = state.award ?? null;
   const mandate = state.mandate ?? null;
   const negotiations = state.negotiations ?? [];
   const sellers = state.sellers ?? [];
-  const runId = state.run_id ?? agent.threadId ?? "";
+  const runId = state.task_id ?? state.run_id ?? agent.threadId ?? "";
   const terminal = TERMINAL.has(stage);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -156,6 +200,7 @@ export function ConsoleShell() {
     agent.threadId = crypto.randomUUID();
     agent.setMessages([]);
     agent.setState({});
+    setBuyerState({});
     setRunError(null);
     setHasStarted(false);
     setSellerFilter("all");
@@ -168,6 +213,7 @@ export function ConsoleShell() {
       agent.threadId = threadId;
       agent.setMessages([]);
       agent.setState({});
+      setBuyerState({});
       setRunError(null);
       setHasStarted(true);
       setSellerFilter("all");
@@ -192,56 +238,44 @@ export function ConsoleShell() {
     [agent, isReady, isRunning],
   );
 
-  const approvalElement = useInterrupt({
-    agentId: "a2a_chat",
-    renderInChat: false,
-    enabled: (event) => {
-      const value = event.value as { reason?: string } | null | undefined;
-      return value?.reason === "order_approval";
-    },
-    render: ({ interrupt, resolve }) => {
-      const raw = (
-        interrupt?.metadata as
-          | {
-              langgraph?: {
-                raw?: {
-                  award?: Award;
-                  mandate?: Mandate;
-                };
-              };
-            }
-          | undefined
-      )?.langgraph?.raw;
-      const cardAward = state.award ?? raw?.award ?? null;
-      const cardMandate = state.mandate ?? raw?.mandate ?? null;
-
-      const settle = async (approved: boolean, note: string) => {
-        try {
-          await resolve({
-            approved,
-            approved_by: "Demo Buyer",
-            note,
-          });
-        } catch (error) {
-          setRunError(
-            error instanceof Error
-              ? error.message
-              : "The approval could not be submitted.",
-          );
-        }
+  const sendApproval = useCallback(
+    async (approved: boolean, note: string) => {
+      const payload = {
+        approval: {
+          approved,
+          approved_by: "Demo Buyer",
+          note,
+        },
+        task_id: buyerState.task_id,
       };
-
-      return (
-        <ApprovalCard
-          award={cardAward}
-          mandate={cardMandate}
-          message={interrupt?.message}
-          onApprove={(note) => settle(true, note)}
-          onReject={(note) => settle(false, note)}
-        />
-      );
+      agent.addMessage({
+        id: crypto.randomUUID(),
+        role: "user",
+        content: `MarketMesh approval response: ${JSON.stringify(payload)}`,
+      });
+      try {
+        await agent.runAgent();
+      } catch (error) {
+        setRunError(
+          error instanceof Error
+            ? error.message
+            : "The approval could not be submitted.",
+        );
+      }
     },
-  });
+    [agent, buyerState.task_id],
+  );
+
+  const approvalElement =
+    buyerState.status === "approval_required" ? (
+      <ApprovalCard
+        award={buyerState.award ?? null}
+        mandate={buyerState.mandate ?? null}
+        message={buyerState.message}
+        onApprove={(note) => void sendApproval(true, note)}
+        onReject={(note) => void sendApproval(false, note)}
+      />
+    ) : null;
 
   const handleNewRun = () => {
     if (isRunning) return;

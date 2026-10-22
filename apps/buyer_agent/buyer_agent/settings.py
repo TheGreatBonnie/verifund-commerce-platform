@@ -36,6 +36,10 @@ class Settings(BaseSettings):
             "ALLOWED_CARD_HOSTS", "BUYER_ALLOWED_CARD_HOSTS"
         ),
     )
+    public_base_url: str = Field(
+        default="http://127.0.0.1:9100",
+        validation_alias=AliasChoices("BUYER_PUBLIC_BASE_URL", "PUBLIC_BASE_URL"),
+    )
     llm_mode: Literal["scripted", "live"] = Field(
         default="scripted",
         validation_alias=AliasChoices("MARKETMESH_LLM_MODE", "LLM_MODE"),

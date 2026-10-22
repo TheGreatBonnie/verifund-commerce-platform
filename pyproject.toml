@@ -21,6 +21,9 @@ dependencies = [
   "pyyaml>=6,<7",
   "tenacity>=9,<10",
   "prometheus-client>=0.21,<1",
+  "google-adk>=1.0,<2",
+  "ag-ui-adk>=0.1,<1",
+  "litellm>=1.84,<2",
 ]
 
 [dependency-groups]
@@ -38,6 +41,7 @@ members = [
   "apps/registry",
   "apps/seller_agent",
   "apps/buyer_agent",
+  "apps/orchestrator_agent",
 ]
 
 [tool.uv]
