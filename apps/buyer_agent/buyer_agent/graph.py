@@ -511,9 +511,9 @@ async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
             if offer_obj is None:
                 continue
             trusted, err = _trusted_offer(offer_obj, mandate, endpoint, rfq_request_id)
-            if err:
-                error_message = err
-                trace.append({"type": "protocol_error", "seller_id": seller_id, "reason": err})
+            if err or trusted is None:
+                error_message = err or "invalid offer"
+                trace.append({"type": "protocol_error", "seller_id": seller_id, "reason": error_message})
                 continue
             rounds.append(trusted)
         if not rounds and not error_message:
@@ -572,9 +572,9 @@ async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
             else:
                 offer_obj = offer
             trusted, err = _trusted_offer(offer_obj, mandate, endpoint, rfq_request_id)
-            if err:
-                error_message = err
-                trace.append({"type": "protocol_error", "seller_id": seller_id, "reason": err})
+            if err or trusted is None:
+                error_message = err or "invalid offer"
+                trace.append({"type": "protocol_error", "seller_id": seller_id, "reason": error_message})
                 continue
             new_offers.append(trusted)
         if new_offers:
