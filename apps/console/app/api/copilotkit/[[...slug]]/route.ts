@@ -204,7 +204,7 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   agentUrls: a2aAgentUrls,
   orchestrationAgent,
   instructions:
-    "Use MarketMesh Buyer for sourcing, negotiation, ranking, and approval. Seller agents may be queried directly for catalog/status only; never place orders with sellers directly. To approve an award, send the Buyer one message whose content is a JSON object: {\\\"approval\\\":{\\\"approved\\\":true,\\\"approved_by\\\":\\\"user\\\"},\\\"task_id\\\":\\\"<task_id from the approval_required response>\\\"}. Do not add prose around that JSON. Stop for human approval before any order.",
+    "Use MarketMesh Buyer for sourcing, negotiation, ranking, and approval. All seller calls are orchestrator-mediated: when the Buyer pauses with a seller_call_required response, call mediate_seller_call using seller_card_url from that response's card_url field, then resume the Buyer with the returned seller result. Seller agents may be queried directly for catalog/status only; never place orders with sellers directly. To approve an award, send the Buyer one message whose content is a JSON object: {\\\"approval\\\":{\\\"approved\\\":true,\\\"approved_by\\\":\\\"user\\\"},\\\"task_id\\\":\\\"<task_id from the approval_required response>\\\"}. Do not add prose around that JSON. Stop for human approval before any order.",
   tokens: sellerTokens,
 });
 
