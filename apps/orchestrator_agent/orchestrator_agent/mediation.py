@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import httpx
@@ -29,12 +30,29 @@ async def _a2a_send(base_url: str, message: Message, token: str | None = None) -
     return frames
 
 
+def _resolve_seller_token(seller_card_url: str, seller_token: str | None) -> str:
+    # Prefer an explicitly supplied, non-default token (e.g. tests).
+    if seller_token and seller_token != "dev-seller":
+        return seller_token
+    # Otherwise resolve from per-seller config by port.
+    try:
+        port = seller_card_url.split("://", 1)[-1].split("/", 1)[0].split(":")[-1]
+    except Exception:  # noqa: BLE001
+        port = ""
+    port_map = {
+        "9201": os.environ.get("SELLER_NORTHWIND_TOKEN", "dev-northwind"),
+        "9202": os.environ.get("SELLER_CIRCUITFORGE_TOKEN", "dev-circuitforge"),
+        "9203": os.environ.get("SELLER_AURORA_TOKEN", "dev-aurora"),
+    }
+    return port_map.get(port, os.environ.get("SELLER_TOKEN", "dev-seller"))
+
+
 async def mediate_seller_call(
     buyer_task_id: str,
     seller_card_url: str,
     buyer_a2a_url: str,
     seller_request: dict[str, Any] | None = None,
-    seller_token: str = "dev-seller",
+    seller_token: str | None = None,
 ) -> dict[str, Any]:
     """Mediate a single buyer seller-call pause through the orchestrator."""
     try:
@@ -46,7 +64,8 @@ async def mediate_seller_call(
             context_id=buyer_task_id,
             envelope=request_envelope if request_envelope else None,
         )
-        frames = await _a2a_send(seller_base, msg, token=seller_token)
+        token = _resolve_seller_token(seller_card_url, seller_token)
+        frames = await _a2a_send(seller_base, msg, token=token)
 
         offers: list[dict[str, Any]] = []
         orders: list[dict[str, Any]] = []
