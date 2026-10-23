@@ -156,6 +156,7 @@ class BuyerExecutor(AgentExecutor):
                     "reason": "seller_call",
                     "task_id": thread_id,
                     "seller_id": interrupt_value.get("seller_id"),
+                    "card_url": interrupt_value.get("card_url"),
                     "kind": interrupt_value.get("kind"),
                     "request": interrupt_value.get("request"),
                     "message": interrupt_value.get("message", "Seller call required."),
