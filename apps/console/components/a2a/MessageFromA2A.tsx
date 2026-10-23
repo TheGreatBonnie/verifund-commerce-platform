@@ -34,10 +34,10 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
   const agentStyle = getAgentStyle(agentName);
 
   return (
-    <div className="my-2">
+    <div className="my-2 a2a-message-card a2a-message-card-incoming">
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 min-w-[200px] flex-shrink-0">
+        <div className="a2a-message-layout">
+          <div className="a2a-message-route">
             <div className="flex flex-col items-center">
               <span
                 className={`px-3 py-1 rounded-full text-xs font-semibold border-2 ${agentStyle.bgColor} ${agentStyle.textColor} ${agentStyle.borderColor} flex items-center gap-1`}
@@ -62,7 +62,7 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
             </div>
           </div>
 
-          <span className="text-xs text-gray-600">✓ Response received</span>
+          <span className="text-xs text-gray-600 a2a-message-copy">✓ Response received</span>
         </div>
       </div>
     </div>

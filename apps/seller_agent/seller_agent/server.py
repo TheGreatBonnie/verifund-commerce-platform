@@ -18,27 +18,6 @@ from seller_agent.service import SellerService
 from seller_agent.settings import Settings
 from seller_agent.store import SellerStore
 
-# Patch A2A JSON-RPC dispatcher to accept both PascalCase and lowercase method names
-# The JavaScript SDK uses lowercase (e.g., "message/send") while Python SDK expects PascalCase (e.g., "SendMessage")
-import a2a.server.routes.jsonrpc_dispatcher as _dispatcher
-_original_method_to_model = _dispatcher.JsonRpcDispatcher.METHOD_TO_MODEL.copy()
-_method_aliases = {
-    'message/send': 'SendMessage',
-    'message/stream': 'SendStreamingMessage',
-    'tasks/get': 'GetTask',
-    'tasks/list': 'ListTasks',
-    'tasks/cancel': 'CancelTask',
-    'tasks/pushNotificationConfig/set': 'CreateTaskPushNotificationConfig',
-    'tasks/pushNotificationConfig/get': 'GetTaskPushNotificationConfig',
-    'tasks/pushNotificationConfig/list': 'ListTaskPushNotificationConfigs',
-    'tasks/pushNotificationConfig/delete': 'DeleteTaskPushNotificationConfig',
-    'tasks/resubscribe': 'SubscribeToTask',
-    'agent/auth/getExtendedCard': 'GetExtendedAgentCard',
-}
-_dispatcher.JsonRpcDispatcher.METHOD_TO_MODEL.update(
-    {alias: _original_method_to_model[canonical] for alias, canonical in _method_aliases.items() if canonical in _original_method_to_model}
-)
-
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
@@ -80,7 +59,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     add_a2a_routes_to_fastapi(
         app,
         agent_card_routes=create_agent_card_routes(card),
-        jsonrpc_routes=create_jsonrpc_routes(handler, rpc_url="/a2a"),
+        jsonrpc_routes=create_jsonrpc_routes(
+            handler,
+            rpc_url="/a2a",
+            # The console uses the A2A 0.3 JavaScript client (lowercase
+            # methods such as "message/send"). Keep the 1.0 endpoint and add
+            # the SDK's built-in 0.3 compatibility adapter alongside it.
+            enable_v0_3_compat=True,
+        ),
     )
 
     @app.on_event("startup")

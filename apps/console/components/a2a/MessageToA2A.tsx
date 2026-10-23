@@ -37,9 +37,9 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
   const agentStyle = getAgentStyle(agentName);
 
   return (
-    <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 my-2 a2a-message-enter">
-      <div className="flex items-start gap-3">
-        <div className="flex items-center gap-2 flex-shrink-0">
+    <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 my-2 a2a-message-enter a2a-message-card a2a-message-card-outgoing">
+      <div className="a2a-message-layout">
+        <div className="a2a-message-route">
           <div className="flex flex-col items-center">
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-700 text-white">
               Orchestrator
@@ -65,7 +65,7 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
         </div>
 
         <span
-          className="text-gray-700 text-sm flex-1 min-w-0 break-words"
+          className="text-gray-700 text-sm a2a-message-copy"
           title={task}
         >
           {truncateTask(task)}

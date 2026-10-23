@@ -69,7 +69,9 @@ class MarketMeshA2AClient extends (A2AClient as any) {
           ...init,
           headers: {
             ...(init?.headers ?? {}),
-            "A2A-Version": "1.0",
+            // @a2a-js/sdk 0.2.x speaks A2A 0.3 (lowercase JSON-RPC methods),
+            // so use the server's v0.3 compatibility adapter.
+            "A2A-Version": "0.3",
             ...(this.token && {
               Authorization: `Bearer ${this.token}`,
             }),
@@ -99,7 +101,9 @@ class MarketMeshA2AClient extends (A2AClient as any) {
           ...init,
           headers: {
             ...(init?.headers ?? {}),
-            "A2A-Version": "1.0",
+            // @a2a-js/sdk 0.2.x speaks A2A 0.3 (lowercase JSON-RPC methods),
+            // so use the server's v0.3 compatibility adapter.
+            "A2A-Version": "0.3",
             Accept: "text/event-stream",
             ...(this.token && {
               Authorization: `Bearer ${this.token}`,
@@ -180,12 +184,13 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
       // Runtime: fetch agent cards with graceful error handling
       this.agentCards = Promise.all(
         this.agentClients.map(async (client) => {
+          const baseUrl = (client as unknown as MarketMeshA2AClient).baseUrl;
           try {
             return await client.getAgentCard();
           } catch (error) {
-            console.warn(`Failed to fetch agent card for ${client.baseUrl}:`, error);
+            console.warn(`Failed to fetch agent card for ${baseUrl}:`, error);
             // Return minimal fallback
-            const port = new URL(client.baseUrl).port;
+            const port = new URL(baseUrl).port;
             const name = port === '9100' ? 'MarketMesh Buyer' :
                          port === '9201' ? 'Northwind Audio' :
                          port === '9202' ? 'CircuitForge' :
@@ -194,9 +199,9 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
               name,
               description: `${name} A2A agent (offline)`,
               version: '1.0.0',
-              provider: { organization: name, url: client.baseUrl },
+              provider: { organization: name, url: baseUrl },
               supportedInterfaces: [{
-                url: `${client.baseUrl}/a2a`,
+                url: `${baseUrl}/a2a`,
                 protocolBinding: 'JSONRPC',
                 protocolVersion: '1.0',
               }],

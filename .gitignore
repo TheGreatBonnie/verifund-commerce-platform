@@ -22,3 +22,5 @@ logs/
 # Next.js generated
 next-env.d.ts
 *.tsbuildinfo
+
+.agents/

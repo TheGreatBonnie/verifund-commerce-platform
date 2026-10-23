@@ -586,15 +586,12 @@
 
 .mm-chat-surface {
   display: flex;
-  min-height: 500px;
-  flex: 1;
   padding-top: 8px;
 }
 
 .mm-copilot-chat {
   width: 100%;
   height: auto;
-  min-height: 500px;
 }
 
 .mm-copilot-chat [data-copilotkit],
@@ -621,22 +618,53 @@
   font-family: var(--font-plus-jakarta-sans), sans-serif;
 }
 
-.mm-copilot-chat [data-copilotkit] {
-  min-height: 500px;
-}
-
 .mm-copilot-chat [data-copilotkit] p {
   font-size: 12.5px;
   line-height: 1.55;
 }
 
 .mm-copilot-chat [data-testid="copilot-chat"] {
-  min-height: 500px;
+  height: auto;
+  min-height: 0;
   background: transparent;
 }
 
 .mm-chat-approval {
   padding: 0 16px 16px;
+}
+
+/* Keep A2A routing labels from squeezing the message text in the chat rail. */
+.a2a-message-card {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.a2a-message-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.a2a-message-route {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.a2a-message-copy {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@container (min-width: 560px) {
+  .a2a-message-layout {
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: center;
+  }
 }
 
 /* ---------- Shared panel language ---------- */
@@ -2402,13 +2430,6 @@
     box-shadow: 3px 3px 0 rgba(23, 26, 22, 0.08);
   }
 
-  .mm-chat-surface,
-  .mm-copilot-chat,
-  .mm-copilot-chat [data-copilotkit],
-  .mm-copilot-chat [data-testid="copilot-chat"] {
-    min-height: 430px;
-  }
-
   .mm-deal-intro {
     grid-template-columns: 1fr;
     gap: 22px;
@@ -2485,13 +2506,6 @@
 
   .mm-chat {
     padding: 13px 12px 0;
-  }
-
-  .mm-chat-surface,
-  .mm-copilot-chat,
-  .mm-copilot-chat [data-copilotkit],
-  .mm-copilot-chat [data-testid="copilot-chat"] {
-    min-height: 390px;
   }
 
   .mm-chat-approval {
