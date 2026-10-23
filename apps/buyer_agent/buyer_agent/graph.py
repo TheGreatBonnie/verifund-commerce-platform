@@ -34,7 +34,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send, interrupt
+from langgraph.types import interrupt
 
 from buyer_agent.a2a_client import A2ATurn
 from buyer_agent.planner import (
@@ -322,25 +322,6 @@ async def plan_sourcing(state: BuyerState, config: dict) -> dict:
     return {"rfq_message": message, "trace": trace, "stage": "sourcing_planned"}
 
 
-async def prepare_fanout(state: BuyerState, config: dict) -> dict:
-    return {"stage": "negotiating"}
-
-
-def fan_out_sellers(state: BuyerState) -> list[Send]:
-    return [
-        Send(
-            "negotiate_seller",
-            {
-                "seller_id": seller["seller_id"],
-                "mandate": state["mandate"],
-                "run_id": state["run_id"],
-                "rfq_message": state.get("rfq_message", ""),
-            },
-        )
-        for seller in state.get("sellers", [])
-    ]
-
-
 def _recompute_total(offer: Offer) -> int:
     return sum(
         (item.unit_price_cents + item.warranty_addon_cents) * item.quantity
@@ -427,15 +408,43 @@ async def _choose_counter(
     )
     return fallback, True, trace
 
+def _turn_from_resume(resumed: Any) -> dict:
+    if not isinstance(resumed, dict):
+        return {"offers": [], "orders": [], "order": None, "task_id": "", "context_id": "", "error": None, "text": ""}
+    if "error" in resumed and "offers" not in resumed and "order" not in resumed and "orders" not in resumed:
+        return {"offers": [], "orders": [], "order": None, "task_id": resumed.get("task_id", ""), "context_id": resumed.get("context_id", ""), "error": resumed.get("error"), "text": ""}
+    offers = resumed.get("offers", [])
+    if isinstance(offers, dict):
+        offers = [offers]
+    return {
+        "offers": offers if isinstance(offers, list) else [],
+        "orders": resumed.get("orders", []),
+        "order": resumed.get("order"),
+        "task_id": resumed.get("task_id", ""),
+        "context_id": resumed.get("context_id", ""),
+        "error": resumed.get("error"),
+        "text": resumed.get("text", ""),
+        "state": resumed.get("state"),
+    }
 
-async def negotiate_seller(state: BuyerState, config: dict) -> dict:
+
+async def _mediated_prepare(state: BuyerState, config: dict) -> dict:
+    return {
+        "stage": "negotiating",
+        "pending_sellers": [s["seller_id"] for s in state.get("sellers", [])],
+    }
+
+
+async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
     services = _services(config)
     planner = _planner(config, ScriptedBuyerPlanner())
     run_id = state["run_id"]
     mandate = Mandate.model_validate(state["mandate"])
-    seller_id = state["seller_id"]
+    seller_id = state.get("current_seller_id", "")
+    if not seller_id:
+        return {"current_seller_id": ""}
     endpoint = services.registry.endpoint(seller_id)
-    rfq_request_id = f"rfq-{run_id}-{seller_id}-{uuid.uuid4().hex[:8]}"
+    rfq_request_id = f"rfq-{run_id}-{seller_id}-mediated"
     rfq = RFQ(
         request_id=rfq_request_id,
         run_id=run_id,
@@ -448,119 +457,136 @@ async def negotiate_seller(state: BuyerState, config: dict) -> dict:
             min_returns_days=mandate.min_returns_days,
             color=mandate.preferences.color,
         ),
-        preferences=RFQPreferences(
-            sustainability=mandate.preferences.sustainability
-        ),
+        preferences=RFQPreferences(sustainability=mandate.preferences.sustainability),
         message=state.get("rfq_message") or fallback_rfq_message(mandate),
     )
     if not _safe_text(rfq.model_dump_json(), mandate):
+        record = NegotiationRecord(
+            seller_id=seller_id,
+            seller_name=endpoint.name,
+            task_id="",
+            status="error",
+            error="outbound RFQ contained the buyer budget",
+        )
         return {
-            "negotiations": [
-                NegotiationRecord(
-                    seller_id=seller_id,
-                    seller_name=endpoint.name,
-                    task_id="",
-                    status="error",
-                    error="outbound RFQ contained the buyer budget",
-                ).model_dump(mode="json")
-            ],
-            "trace": [
-                {
-                    "type": "guardrail_rejected",
-                    "seller_id": seller_id,
-                    "reason": "budget_in_rfq",
-                }
-            ],
+            "current_seller_id": "",
+            "trace": (state.get("trace") or [])
+            + [{"type": "guardrail_rejected", "seller_id": seller_id, "reason": "budget_in_rfq"}],
+            "negotiations": [record.model_dump(mode="json")],
         }
 
     rounds: list[Offer] = []
     trace: list[dict] = [{"type": "rfq_sent", "seller_id": seller_id}]
     error_message: str | None = None
     task_id = ""
-    session = None
-    try:
-        session = await services.a2a.open_session(endpoint, run_id)
-        turn: A2ATurn = await session.send_rfq(rfq, run_id)
-        task_id = turn.task_id or rfq_request_id
-        for round_number in range(1, 4):
-            current_offers = []
-            for offer in turn.offers:
-                trusted, error = _trusted_offer(
-                    offer, mandate, endpoint, rfq_request_id
-                )
-                if error:
-                    error_message = error
-                    trace.append(
-                        {
-                            "type": "protocol_error",
-                            "seller_id": seller_id,
-                            "reason": error,
-                        }
-                    )
-                    continue
-                current_offers.append(trusted)
-            rounds.extend(current_offers)
-            if turn.error:
-                error_message = turn.error.message
-                trace.append(
-                    {
-                        "type": "commerce_error",
-                        "seller_id": seller_id,
-                        "code": turn.error.code.value,
-                    }
-                )
-                break
-            if not current_offers:
-                error_message = "seller returned no structured offer"
-                break
-            last = rounds[-1]
-            if last.status == OfferStatus.REJECTED:
-                error_message = "seller rejected the negotiation"
-                break
-            if round_number == 3 or last.status == OfferStatus.FINAL:
-                break
-            targets = counter_targets(
-                last.line_items[0].unit_price_cents,
-                mandate.max_total_cents,
-                mandate.quantity,
-            )
-            index = round_number - 1
-            if index >= len(targets):
-                break
-            allowed = [targets[index]]
-            choice, _, counter_trace = await _choose_counter(
-                services,
-                run_id,
-                planner,
-                last,
-                mandate,
-                allowed,
-                round_number + 1,
-                seller_id,
-            )
-            trace.extend(counter_trace)
-            counter = CounterOffer(
-                negotiation_round=round_number + 1,
-                target_unit_price_cents=choice.target_unit_price_cents,
-                requested_changes=choice.requested_changes,
-                rationale=choice.rationale,
-            )
-            turn = await session.send_counter(task_id, run_id, counter)
-    except Exception as exc:  # noqa: BLE001
-        error_message = str(exc)
-        trace.append(
-            {"type": "a2a_error", "seller_id": seller_id, "reason": str(exc)}
+
+    # RFQ pause
+    resumed = interrupt(
+        {
+            "reason": "seller_call",
+            "kind": "rfq",
+            "seller_id": seller_id,
+            "request": wrap_payload("rfq", rfq),
+            "run_id": run_id,
+            "context_id": run_id,
+            "message": f"Seller call required for {seller_id}.",
+        }
+    )
+    turn = _turn_from_resume(resumed)
+    task_id = turn["task_id"] or rfq_request_id
+    if turn["error"]:
+        error_message = turn["error"]
+        trace.append({"type": "seller_error", "seller_id": seller_id, "reason": error_message})
+    else:
+        for offer in turn["offers"]:
+            trusted, err = _trusted_offer(offer if isinstance(offer, Offer) else Offer.model_validate(offer), mandate, endpoint, rfq_request_id)
+            # _trusted_offer expects Offer; convert
+            if isinstance(offer, dict):
+                try:
+                    offer_obj = Offer.model_validate(offer)
+                except Exception:
+                    offer_obj = None
+            else:
+                offer_obj = offer
+            if offer_obj is None:
+                continue
+            trusted, err = _trusted_offer(offer_obj, mandate, endpoint, rfq_request_id)
+            if err:
+                error_message = err
+                trace.append({"type": "protocol_error", "seller_id": seller_id, "reason": err})
+                continue
+            rounds.append(trusted)
+        if not rounds and not error_message:
+            error_message = "seller returned no structured offer"
+        if turn["text"]:
+            trace.append({"type": "seller_text", "seller_id": seller_id})
+
+    # Counter rounds
+    round_number = 1
+    while rounds and round_number < 3:
+        last = rounds[-1]
+        if last.status in (OfferStatus.FINAL, OfferStatus.REJECTED):
+            break
+        targets = counter_targets(
+            last.line_items[0].unit_price_cents,
+            mandate.max_total_cents,
+            mandate.quantity,
         )
-    finally:
-        if session is not None:
-            await session.close()
+        index = round_number - 1
+        if index >= len(targets):
+            break
+        allowed = [targets[index]]
+        choice, _, counter_trace = await _choose_counter(
+            services, run_id, planner, last, mandate, allowed, round_number + 1, seller_id
+        )
+        trace.extend(counter_trace)
+        counter = CounterOffer(
+            negotiation_round=round_number + 1,
+            target_unit_price_cents=choice.target_unit_price_cents,
+            requested_changes=choice.requested_changes,
+            rationale=choice.rationale,
+        )
+        resumed = interrupt(
+            {
+                "reason": "seller_call",
+                "kind": "counter",
+                "seller_id": seller_id,
+                "request": wrap_payload("counter_offer", counter),
+                "run_id": run_id,
+                "context_id": run_id,
+                "message": f"Counteroffer required for {seller_id}.",
+            }
+        )
+        turn = _turn_from_resume(resumed)
+        if turn["error"]:
+            error_message = turn["error"]
+            trace.append({"type": "seller_error", "seller_id": seller_id, "reason": error_message})
+            break
+        new_offers = []
+        for offer in turn["offers"]:
+            if isinstance(offer, dict):
+                try:
+                    offer_obj = Offer.model_validate(offer)
+                except Exception:
+                    continue
+            else:
+                offer_obj = offer
+            trusted, err = _trusted_offer(offer_obj, mandate, endpoint, rfq_request_id)
+            if err:
+                error_message = err
+                trace.append({"type": "protocol_error", "seller_id": seller_id, "reason": err})
+                continue
+            new_offers.append(trusted)
+        if new_offers:
+            rounds.extend(new_offers)
+        else:
+            if not error_message:
+                error_message = "seller returned no structured offer"
+            break
+        round_number += 1
 
     final = rounds[-1] if rounds else None
-    status = (
-        final.status.value
-        if final is not None
-        else "error"
-    )
+    status = final.status.value if final is not None else "error"
     if error_message and final is None:
         status = "error"
     record = NegotiationRecord(
@@ -576,8 +602,131 @@ async def negotiate_seller(state: BuyerState, config: dict) -> dict:
         "offers": [final.model_dump(mode="json")] if final is not None else [],
         "negotiations": [record.model_dump(mode="json")],
         "trace": trace,
+        "current_seller_id": "",
     }
     return result
+
+
+async def _mediated_select(state: BuyerState, config: dict) -> dict:
+    pending = list(state.get("pending_sellers", []))
+    if not pending:
+        return {"current_seller_id": "", "stage": "ranking_ready"}
+    seller_id = pending[0]
+    remaining = pending[1:]
+    return {
+        "current_seller_id": seller_id,
+        "pending_sellers": remaining,
+        "stage": "seller_call_pending",
+    }
+
+
+def _mediated_route_after_select(state: BuyerState) -> str:
+    if state.get("current_seller_id"):
+        return "process_seller"
+    if state.get("pending_sellers"):
+        return "select_next_seller"
+    return "rank_offers"
+
+
+def _mediated_route_after_process(state: BuyerState) -> str:
+    if state.get("pending_sellers"):
+        return "select_next_seller"
+    return "rank_offers"
+
+
+async def _mediated_place_order(state: BuyerState, config: dict) -> dict:
+    services = _services(config)
+    run_id = state["run_id"]
+    approval = state.get("approval") or {}
+    if not approval.get("approved") or not str(approval.get("approved_by", "")).strip():
+        return await cancel_losers(state, config)
+    award = state.get("award") or {}
+    winner = Offer.model_validate(award["winner"])
+    endpoint = services.registry.endpoint(winner.seller_id)
+    negotiation = _negotiation_for(state, winner.seller_id) or {}
+    task_id = negotiation.get("task_id") or ""
+    receipt = ApprovalReceipt(
+        approval_id=str(uuid.uuid4()),
+        approved_by=str(approval["approved_by"]),
+        approved_at=datetime.now(UTC),
+        note=approval.get("note") or None,
+    )
+    po = PurchaseOrderRequest(
+        request_id=f"po-{run_id}-{winner.offer_id}",
+        run_id=run_id,
+        offer_id=winner.offer_id,
+        seller_id=winner.seller_id,
+        quantity=sum(item.quantity for item in winner.line_items),
+        shipping_address=_shipping_address(),
+        approval=receipt,
+        idempotency_key=f"{run_id}:{winner.offer_id}",
+        expected_total_cents=winner.total_cents,
+    )
+    # accept pause (only if we have a task_id to accept against)
+    if task_id:
+        accept = AcceptOffer(
+            offer_id=winner.offer_id,
+            round=winner.round,
+            accepted_total_cents=winner.total_cents,
+            accepted_by_buyer_task=run_id,
+        )
+        resumed = interrupt(
+            {
+                "reason": "seller_call",
+                "kind": "accept",
+                "seller_id": winner.seller_id,
+                "request": wrap_payload("accept_offer", accept),
+                "run_id": run_id,
+                "context_id": run_id,
+                "message": f"Acceptance required for {winner.seller_id}.",
+            }
+        )
+        turn = _turn_from_resume(resumed)
+        if turn.get("error"):
+            await _upsert(services, run_id, stage="order_failed", error=turn["error"])
+            return {"stage": "order_failed", "order": None, "error": _error(turn["error"]), "messages": [AIMessage(content=f"I could not place the order: {turn['error']}")]}
+
+    # order pause
+    resumed = interrupt(
+        {
+            "reason": "seller_call",
+            "kind": "order",
+            "seller_id": winner.seller_id,
+            "request": wrap_payload("purchase_order", po),
+            "run_id": run_id,
+            "context_id": run_id,
+            "message": f"Order required for {winner.seller_id}.",
+        }
+    )
+    turn = _turn_from_resume(resumed)
+    order = turn.get("order")
+    if order is None:
+        for o in turn.get("orders", []) + turn.get("offers", []):
+            if isinstance(o, dict) and o.get("order_id"):
+                order = o
+                break
+    if order is None:
+        err = turn.get("error") or "Order failed."
+        await _upsert(services, run_id, stage="order_failed", error=err)
+        return {"stage": "order_failed", "order": None, "error": _error(err), "messages": [AIMessage(content=f"I could not place the order: {err}")]}
+
+    updates = []
+    for other in state.get("negotiations", []):
+        if other.get("seller_id") == winner.seller_id:
+            updates.append({**other, "status": "accepted", "final_offer": winner.model_dump(mode="json")})
+            continue
+        updates.append({**other, "status": "cancelled", "error": None})
+    await _upsert(services, run_id, stage="ordered", order=order if isinstance(order, dict) else order)
+    return {
+        "order": order if isinstance(order, dict) else (order.model_dump(mode="json") if hasattr(order, "model_dump") else order),
+        "negotiations": updates,
+        "stage": "ordered",
+        "trace": [{"type": "order_confirmed", "seller_id": winner.seller_id, "order_id": (order.get("order_id") if isinstance(order, dict) else getattr(order, "order_id", None))}],
+    }
+
+
+def mandate_qty(state):
+    return Mandate.model_validate(state["mandate"]).quantity
 
 
 async def rank_offers(state: BuyerState, config: dict) -> dict:
@@ -725,145 +874,16 @@ def _negotiation_for(state: BuyerState, seller_id: str) -> dict | None:
     return None
 
 
-async def _cancel_negotiation(
-    services: Any,
-    run_id: str,
-    negotiation: dict,
-) -> bool:
-    task_id = negotiation.get("task_id")
-    if not task_id:
-        return True
-    session = None
-    try:
-        endpoint = services.registry.endpoint(negotiation["seller_id"])
-        session = await services.a2a.open_session(endpoint, run_id)
-        await session.cancel(task_id)
-        return True
-    except Exception:  # noqa: BLE001
-        return False
-    finally:
-        if session is not None:
-            await session.close()
-
-
-async def place_order(state: BuyerState, config: dict) -> dict:
-    services = _services(config)
-    run_id = state["run_id"]
-    approval = state.get("approval") or {}
-    if not approval.get("approved") or not str(
-        approval.get("approved_by", "")
-    ).strip():
-        return await cancel_losers(state, config)
-    award = state.get("award") or {}
-    winner = Offer.model_validate(award["winner"])
-    endpoint = services.registry.endpoint(winner.seller_id)
-    negotiation = _negotiation_for(state, winner.seller_id) or {}
-    task_id = negotiation.get("task_id") or ""
-    receipt = ApprovalReceipt(
-        approval_id=str(uuid.uuid4()),
-        approved_by=str(approval["approved_by"]),
-        approved_at=datetime.now(UTC),
-        note=approval.get("note") or None,
-    )
-    po = PurchaseOrderRequest(
-        request_id=f"po-{run_id}-{winner.offer_id}",
-        run_id=run_id,
-        offer_id=winner.offer_id,
-        seller_id=winner.seller_id,
-        quantity=sum(item.quantity for item in winner.line_items),
-        shipping_address=_shipping_address(),
-        approval=receipt,
-        idempotency_key=f"{run_id}:{winner.offer_id}",
-        expected_total_cents=winner.total_cents,
-    )
-    order = None
-    error = None
-    session = None
-    try:
-        session = await services.a2a.open_session(endpoint, run_id)
-        accepted = AcceptOffer(
-            offer_id=winner.offer_id,
-            round=winner.round,
-            accepted_total_cents=winner.total_cents,
-            accepted_by_buyer_task=run_id,
-        )
-        if task_id:
-            accept_turn = await session.send_accept(task_id, run_id, accepted)
-            if accept_turn.error is not None:
-                error = accept_turn.error.message
-        if error is None:
-            order_turn = await session.send_order(po, run_id)
-            if order_turn.error is not None:
-                error = order_turn.error.message
-            else:
-                order = order_turn.order
-    except Exception as exc:  # noqa: BLE001
-        error = str(exc)
-    finally:
-        if session is not None:
-            await session.close()
-
-    if order is None:
-        await _upsert(services, run_id, stage="order_failed", error=error)
-        return {
-            "stage": "order_failed",
-            "order": None,
-            "error": _error(error or "Order failed."),
-            "messages": [
-                AIMessage(content=f"I could not place the order: {error}")
-            ],
-        }
-
-    updates = []
-    for other in state.get("negotiations", []):
-        if other.get("seller_id") == winner.seller_id:
-            updates.append(
-                {
-                    **other,
-                    "status": "accepted",
-                    "final_offer": winner.model_dump(mode="json"),
-                }
-            )
-            continue
-        cancelled = await _cancel_negotiation(services, run_id, other)
-        updates.append(
-            {
-                **other,
-                "status": "cancelled",
-                "error": None if cancelled else "cancel_failed",
-            }
-        )
-    await _upsert(
-        services,
-        run_id,
-        stage="ordered",
-        order=order.model_dump(mode="json"),
-    )
-    return {
-        "order": order.model_dump(mode="json"),
-        "negotiations": updates,
-        "stage": "ordered",
-        "trace": [
-            {
-                "type": "order_confirmed",
-                "seller_id": winner.seller_id,
-                "order_id": order.order_id,
-            }
-        ],
-    }
-
-
 async def cancel_losers(state: BuyerState, config: dict) -> dict:
     services = _services(config)
     run_id = state["run_id"]
     updates = []
     for negotiation in state.get("negotiations", []):
-        cancelled = await _cancel_negotiation(services, run_id, negotiation)
         updates.append(
             {
                 **negotiation,
                 "status": "cancelled",
-                "error": None if cancelled else "cancel_failed",
+                "error": None,
             }
         )
     await _upsert(services, run_id, stage="rejected")
@@ -895,198 +915,7 @@ async def finalize(state: BuyerState, config: dict) -> dict:
         summary = "The sourcing run finished."
     return {"messages": [AIMessage(content=summary)], "stage": stage}
 
-
-def build_buyer_graph(
-    services: Any | None = None,
-    checkpointer: Any | None = None,
-    *,
-    planner: BuyerPlanner | None = None,
-):
-    default_planner = planner or ScriptedBuyerPlanner()
-    builder = StateGraph(BuyerState)
-
-    async def _interpret(state: BuyerState, config: dict) -> dict:
-        return await interpret_brief(state, config)
-
-    async def _discover(state: BuyerState, config: dict) -> dict:
-        return await discover_sellers(state, config)
-
-    async def _plan(state: BuyerState, config: dict) -> dict:
-        return await plan_sourcing(state, config)
-
-    async def _prepare(state: BuyerState, config: dict) -> dict:
-        return await prepare_fanout(state, config)
-
-    async def _negotiate(state: BuyerState, config: dict) -> dict:
-        return await negotiate_seller(state, config)
-
-    async def _rank(state: BuyerState, config: dict) -> dict:
-        return await rank_offers(state, config)
-
-    async def _approval(state: BuyerState, config: dict) -> dict:
-        return await await_approval(state, config)
-
-    async def _order(state: BuyerState, config: dict) -> dict:
-        return await place_order(state, config)
-
-    async def _cancel(state: BuyerState, config: dict) -> dict:
-        return await cancel_losers(state, config)
-
-    async def _finalize(state: BuyerState, config: dict) -> dict:
-        return await finalize(state, config)
-
-    # Wrap nodes so the graph can use a default planner while allowing a
-    # per-run planner in config["configurable"]["planner"].
-    def with_planner(fn):
-        async def wrapped(state: BuyerState, config: RunnableConfig) -> dict:
-            config = dict(config)
-            configurable = dict(config.get("configurable", {}))
-            configurable.setdefault("planner", default_planner)
-            if services is not None:
-                configurable.setdefault("services", services)
-            config["configurable"] = configurable
-            return await fn(state, config)
-
-        return wrapped
-
-    builder.add_node("interpret_brief", with_planner(_interpret))
-    builder.add_node("discover_sellers", with_planner(_discover))
-    builder.add_node("plan_sourcing", with_planner(_plan))
-    builder.add_node("prepare_fanout", with_planner(_prepare))
-    builder.add_node("negotiate_seller", with_planner(_negotiate))
-    builder.add_node("rank_offers", with_planner(_rank))
-    builder.add_node("await_approval", with_planner(_approval))
-    builder.add_node("place_order", with_planner(_order))
-    builder.add_node("cancel_losers", with_planner(_cancel))
-    builder.add_node("finalize", with_planner(_finalize))
-
-    builder.add_edge(START, "interpret_brief")
-    builder.add_conditional_edges(
-        "interpret_brief",
-        has_brief,
-        {"continue": "discover_sellers", "stop": END},
-    )
-    builder.add_conditional_edges(
-        "discover_sellers",
-        has_sellers,
-        {"continue": "plan_sourcing", "stop": END},
-    )
-    builder.add_edge("plan_sourcing", "prepare_fanout")
-    builder.add_conditional_edges(
-        "prepare_fanout", fan_out_sellers, ["negotiate_seller"]
-    )
-    builder.add_edge("negotiate_seller", "rank_offers")
-    builder.add_conditional_edges(
-        "rank_offers", has_award, {"continue": "await_approval", "stop": END}
-    )
-    builder.add_conditional_edges(
-        "await_approval",
-        approval_route,
-        {"approved": "place_order", "rejected": "cancel_losers"},
-    )
-    builder.add_edge("place_order", "finalize")
-    builder.add_edge("cancel_losers", "finalize")
-    builder.add_edge("finalize", END)
-    return builder.compile(checkpointer=checkpointer or MemorySaver())
-
-
-# ---------------------------------------------------------------------------
-# Mediated buyer graph (Task 0 gate proof): serial seller-call interrupts.
-# RFQ phase only; counters/accept/order remain on the direct path until Plan B.
-# ---------------------------------------------------------------------------
-
-
-async def _mediated_prepare(state: BuyerState, config: dict) -> dict:
-    return {
-        "stage": "negotiating",
-        "pending_sellers": [s["seller_id"] for s in state.get("sellers", [])],
-    }
-
-
-async def _mediated_select(state: BuyerState, config: dict) -> dict:
-    services = _services(config)
-    planner = _planner(config, ScriptedBuyerPlanner())
-    pending = list(state.get("pending_sellers", []))
-    if not pending:
-        return {"current_seller_id": "", "stage": "ranking_ready"}
-    seller_id = pending[0]
-    remaining = pending[1:]
-    run_id = state["run_id"]
-    mandate = Mandate.model_validate(state["mandate"])
-    endpoint = services.registry.endpoint(seller_id)
-    rfq_request_id = f"rfq-{run_id}-{seller_id}-mediated"
-    rfq = RFQ(
-        request_id=rfq_request_id,
-        run_id=run_id,
-        category=mandate.category,
-        product_hint=mandate.product_hint,
-        quantity=mandate.quantity,
-        required_by=datetime.now(UTC) + timedelta(days=mandate.deadline_days),
-        constraints=RFQConstraints(
-            min_warranty_months=mandate.min_warranty_months,
-            min_returns_days=mandate.min_returns_days,
-            color=mandate.preferences.color,
-        ),
-        preferences=RFQPreferences(sustainability=mandate.preferences.sustainability),
-        message=state.get("rfq_message") or fallback_rfq_message(mandate),
-    )
-    if not _safe_text(rfq.model_dump_json(), mandate):
-        return {
-            "current_seller_id": "",
-            "pending_sellers": remaining,
-            "trace": (state.get("trace") or [])
-            + [{"type": "guardrail_rejected", "seller_id": seller_id, "reason": "budget_in_rfq"}],
-        }
-    return {
-        "current_seller_id": seller_id,
-        "pending_sellers": remaining,
-        "current_rfq": wrap_payload("rfq", rfq),
-        "stage": "seller_call_pending",
-    }
-
-
-async def _mediated_pause(state: BuyerState, config: dict) -> dict:
-    seller_id = state.get("current_seller_id", "")
-    if not seller_id:
-        return {}
-    resumed = interrupt(
-        {
-            "reason": "seller_call",
-            "kind": "rfq",
-            "seller_id": seller_id,
-            "request": state.get("current_rfq"),
-            "run_id": state.get("run_id"),
-            "context_id": state.get("run_id"),
-            "message": f"Seller call required for {seller_id}.",
-        }
-    )
-    return {"seller_call_result": resumed}
-
-
-async def _mediated_apply(state: BuyerState, config: dict) -> dict:
-    result = state.get("seller_call_result") or {}
-    offers = result.get("offers", [])
-    if not isinstance(offers, list):
-        offers = []
-    normalized = [o for o in offers if isinstance(o, dict)]
-    return {"offers": normalized, "seller_call_result": None}
-
-
-def _mediated_route_after_select(state: BuyerState) -> str:
-    if state.get("current_seller_id"):
-        return "pause_seller_call"
-    if state.get("pending_sellers"):
-        return "select_next_seller"
-    return "rank_offers"
-
-
-def _mediated_route_after_apply(state: BuyerState) -> str:
-    if state.get("pending_sellers"):
-        return "select_next_seller"
-    return "rank_offers"
-
-
-def build_mediated_buyer_graph(services=None, checkpointer=None, *, planner=None):
+def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
     default_planner = planner or ScriptedBuyerPlanner()
     builder = StateGraph(BuyerState)
 
@@ -1105,11 +934,8 @@ def build_mediated_buyer_graph(services=None, checkpointer=None, *, planner=None
     async def _select(state, config):
         return await _mediated_select(state, config)
 
-    async def _pause(state, config):
-        return await _mediated_pause(state, config)
-
-    async def _apply(state, config):
-        return await _mediated_apply(state, config)
+    async def _process(state, config):
+        return await _mediated_process_seller(state, config)
 
     async def _rank(state, config):
         return await rank_offers(state, config)
@@ -1118,7 +944,7 @@ def build_mediated_buyer_graph(services=None, checkpointer=None, *, planner=None
         return await await_approval(state, config)
 
     async def _order(state, config):
-        return await place_order(state, config)
+        return await _mediated_place_order(state, config)
 
     async def _cancel(state, config):
         return await cancel_losers(state, config)
@@ -1144,8 +970,7 @@ def build_mediated_buyer_graph(services=None, checkpointer=None, *, planner=None
         ("plan_sourcing", _plan),
         ("prepare_mediated", _prepare),
         ("select_next_seller", _select),
-        ("pause_seller_call", _pause),
-        ("apply_seller_result", _apply),
+        ("process_seller", _process),
         ("rank_offers", _rank),
         ("await_approval", _approval),
         ("place_order", _order),
@@ -1167,15 +992,15 @@ def build_mediated_buyer_graph(services=None, checkpointer=None, *, planner=None
         "select_next_seller",
         _mediated_route_after_select,
         {
-            "pause_seller_call": "pause_seller_call",
+            "process_seller": "process_seller",
             "select_next_seller": "select_next_seller",
             "rank_offers": "rank_offers",
         },
     )
-    builder.add_edge("pause_seller_call", "apply_seller_result")
+    # Apply is folded into process_seller; route after process:
     builder.add_conditional_edges(
-        "apply_seller_result",
-        _mediated_route_after_apply,
+        "process_seller",
+        _mediated_route_after_process,
         {"select_next_seller": "select_next_seller", "rank_offers": "rank_offers"},
     )
     builder.add_conditional_edges(
@@ -1190,3 +1015,6 @@ def build_mediated_buyer_graph(services=None, checkpointer=None, *, planner=None
     builder.add_edge("cancel_losers", "finalize")
     builder.add_edge("finalize", END)
     return builder.compile(checkpointer=checkpointer or MemorySaver())
+
+
+

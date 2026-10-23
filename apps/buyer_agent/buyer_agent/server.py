@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from buyer_agent import console_api
 from buyer_agent.card import build_buyer_agent_card
 from buyer_agent.executor import BuyerExecutor
-from buyer_agent.graph import build_buyer_graph, build_mediated_buyer_graph
+from buyer_agent.graph import build_buyer_graph
 from buyer_agent.planner import select_buyer_planner
 from buyer_agent.services import BuyerServices, build_services
 from buyer_agent.settings import Settings
@@ -25,7 +25,6 @@ def create_app(
     settings: Settings,
     checkpointer,
     services: BuyerServices | None = None,
-    mediated: bool = False,
 ) -> FastAPI:
     owns_services = services is None
     engine = getattr(services, "engine", None) if services is not None else None
@@ -39,18 +38,11 @@ def create_app(
         settings.nebius_base_url,
         settings.nebius_model,
     )
-    if mediated:
-        graph = build_mediated_buyer_graph(
-            services=services,
-            checkpointer=checkpointer,
-            planner=planner,
-        )
-    else:
-        graph = build_buyer_graph(
-            services=services,
-            checkpointer=checkpointer,
-            planner=planner,
-        )
+    graph = build_buyer_graph(
+        services=services,
+        checkpointer=checkpointer,
+        planner=planner,
+    )
     app = FastAPI(title="MarketMesh Buyer")
     app.state.settings = settings
     app.state.engine = engine

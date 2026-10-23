@@ -49,6 +49,7 @@ async def mediate_seller_call(
         frames = await _a2a_send(seller_base, msg, token=seller_token)
 
         offers: list[dict[str, Any]] = []
+        orders: list[dict[str, Any]] = []
         for frame in frames:
             kind = frame.WhichOneof("payload")
             artifacts = []
@@ -63,11 +64,16 @@ async def mediate_seller_call(
                         continue
                     if "payload" in val and "schema" in val:
                         val = val["payload"]
-                    if isinstance(val, dict) and val.get("offer_id"):
-                        offers.append(val)
+                    if isinstance(val, dict):
+                        if val.get("offer_id") and not val.get("order_id"):
+                            offers.append(val)
+                        elif val.get("order_id"):
+                            orders.append(val)
 
         seller_result = {
             "offers": offers,
+            "orders": orders,
+            "order": orders[0] if orders else None,
             "task_id": buyer_task_id,
             "context_id": buyer_task_id,
         }

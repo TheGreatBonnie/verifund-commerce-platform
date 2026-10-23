@@ -188,4 +188,4 @@ async def test_v03_message_send_reaches_buyer(buyer_v03_app):
 
     status_text = result["status"]["message"]["parts"][0]["text"]
     status = json.loads(status_text)
-    assert status["status"] == "approval_required"
+    assert status["status"] in ("seller_call_required", "approval_required")

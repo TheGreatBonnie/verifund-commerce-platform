@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from buyer_agent.executor import BuyerExecutor
-from buyer_agent.graph import build_mediated_buyer_graph
+from buyer_agent.graph import build_buyer_graph as build_mediated_buyer_graph
 from buyer_agent.settings import Settings
 from langgraph.checkpoint.memory import MemorySaver
 from tests.support.fake_buyer import FakeServices
