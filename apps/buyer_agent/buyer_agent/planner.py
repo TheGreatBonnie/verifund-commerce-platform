@@ -101,12 +101,17 @@ class NebiusBuyerPlanner:
         self.explain_llm = ChatOpenAI(**common)
 
     async def parse_brief(self, text: str) -> Mandate:
-        return await self.brief_llm.ainvoke(
+        mandate = await self.brief_llm.ainvoke(
             [
                 SystemMessage(content=BUYER_SYSTEM_PROMPT),
                 HumanMessage(content=text),
             ]
         )
+        # The registry indexes sellers under a small, fixed set of categories.
+        # Keep the LLM from inventing a category that matches no seller.
+        if mandate.category not in {"audio", "consumer-electronics"}:
+            mandate.category = "consumer-electronics"
+        return mandate
 
     async def choose_counter(
         self,

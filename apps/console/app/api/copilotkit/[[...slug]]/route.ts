@@ -19,13 +19,10 @@ export const revalidate = 0;
 // path, so use the 1.0 path explicitly.
 class MarketMeshA2AClient extends (A2AClient as any) {
   public readonly baseUrl: string;
-  constructor(baseUrl: string, token: string = "") {
+  constructor(baseUrl: string) {
     super(baseUrl, ".well-known/agent-card.json");
     this.baseUrl = baseUrl;
-    this.token = token;
   }
-
-  private token: string;
 
   async _fetchAndCacheAgentCard() {
     const self = this as any;
@@ -55,72 +52,6 @@ class MarketMeshA2AClient extends (A2AClient as any) {
     return super.getAgentCard(baseUrl, agentCardPath);
   }
 
-  async sendMessage(params: Parameters<A2AClient["sendMessage"]>[0]) {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input, init) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
-      if (url.includes("/a2a")) {
-        init = {
-          ...init,
-          headers: {
-            ...(init?.headers ?? {}),
-            // @a2a-js/sdk 0.2.x speaks A2A 0.3 (lowercase JSON-RPC methods),
-            // so use the server's v0.3 compatibility adapter.
-            "A2A-Version": "0.3",
-            ...(this.token && {
-              Authorization: `Bearer ${this.token}`,
-            }),
-          },
-        };
-      }
-      return originalFetch(input, init);
-    };
-    try {
-      return await super.sendMessage(params);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  }
-
-  async *sendMessageStream(params: Parameters<A2AClient["sendMessageStream"]>[0]) {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input, init) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
-      if (url.includes("/a2a")) {
-        init = {
-          ...init,
-          headers: {
-            ...(init?.headers ?? {}),
-            // @a2a-js/sdk 0.2.x speaks A2A 0.3 (lowercase JSON-RPC methods),
-            // so use the server's v0.3 compatibility adapter.
-            "A2A-Version": "0.3",
-            Accept: "text/event-stream",
-            ...(this.token && {
-              Authorization: `Bearer ${this.token}`,
-            }),
-          },
-        };
-      }
-      return originalFetch(input, init);
-    };
-    try {
-      for await (const event of super.sendMessageStream(params)) {
-        yield event;
-      }
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  }
 }
 
 // The middleware constructor only accepts URLs, so wrap it to use the
@@ -141,8 +72,7 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
     });
 
     this.agentClients = config.agentUrls.map((url) => {
-      const port = new URL(url).port;
-      return new MarketMeshA2AClient(url, config.tokens.get(port) ?? "");
+      return new MarketMeshA2AClient(url);
     }) as any;
 
     // During build time (static generation), agent services aren't running.
@@ -234,6 +164,38 @@ const sellerTokens = new Map<string, string>([
   ["9203", process.env.SELLER_AURORA_TOKEN ?? "dev-aurora"],
 ]);
 
+// The @a2a-js/sdk uses the global `fetch` and has no per-client header hook.
+// Patching `globalThis.fetch` per call (inside sendMessage) is racy when several
+// seller calls overlap, which intermittently drops the Authorization header and
+// makes a seller's bearer-auth middleware return 401. Install a single,
+// concurrency-safe wrapper once at module load instead: headers are derived
+// from the request URL, so overlapping calls never clobber each other.
+const marketmeshGlobalFetch = globalThis.fetch;
+if (!(globalThis as { __marketmeshA2aFetchPatched?: boolean }).__marketmeshA2aFetchPatched) {
+  globalThis.fetch = async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (url.includes("/a2a")) {
+      const port = new URL(url).port;
+      const token = sellerTokens.get(port) ?? "";
+      const headers = new Headers(init?.headers);
+      // @a2a-js/sdk 0.2.x speaks A2A 0.3 (lowercase JSON-RPC methods), so
+      // use the server's v0.3 compatibility adapter.
+      headers.set("A2A-Version", "0.3");
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      init = { ...init, headers };
+    }
+    return marketmeshGlobalFetch(input, init);
+  };
+  (globalThis as { __marketmeshA2aFetchPatched?: boolean }).__marketmeshA2aFetchPatched = true;
+}
+
 const orchestrationAgent = createDefaultAgent();
 
 const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
@@ -242,7 +204,7 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   agentUrls: a2aAgentUrls,
   orchestrationAgent,
   instructions:
-    "Use MarketMesh Buyer for sourcing, negotiation, ranking, and approval. Seller agents may be queried directly for status, but sourcing authority remains in the buyer. Stop for human approval before any order.",
+    "Use MarketMesh Buyer for sourcing, negotiation, ranking, and approval. Seller agents may be queried directly for catalog/status only; never place orders with sellers directly. To approve an award, send the Buyer one message whose content is a JSON object: {\\\"approval\\\":{\\\"approved\\\":true,\\\"approved_by\\\":\\\"user\\\"},\\\"task_id\\\":\\\"<task_id from the approval_required response>\\\"}. Do not add prose around that JSON. Stop for human approval before any order.",
   tokens: sellerTokens,
 });
 

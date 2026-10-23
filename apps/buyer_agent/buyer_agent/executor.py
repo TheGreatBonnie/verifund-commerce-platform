@@ -53,11 +53,17 @@ class BuyerExecutor(AgentExecutor):
         return ""
 
     def _payload(self, text: str) -> dict[str, Any]:
-        if not text.startswith("{"):
-            return {"brief": text}
+        # Accept JSON even when the caller wraps it in prose, so approval
+        # resumes work whether the orchestrator sends pure JSON or annotated text.
+        candidate = text.strip()
+        if not candidate.startswith("{"):
+            start = candidate.find("{")
+            end = candidate.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                candidate = candidate[start : end + 1]
         try:
-            value = json.loads(text)
-        except json.JSONDecodeError:
+            value = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
             return {"brief": text}
         if not isinstance(value, dict):
             return {"brief": text}
@@ -116,6 +122,12 @@ class BuyerExecutor(AgentExecutor):
                 config["configurable"]["thread_id"] = thread_id
                 decision = normalize_approval(payload["approval"])
                 result = await self.graph.ainvoke(Command(resume=decision), config=config)
+            elif "seller_result" in payload and "task_id" in payload:
+                thread_id = str(payload["task_id"])
+                config["configurable"]["thread_id"] = thread_id
+                result = await self.graph.ainvoke(
+                    Command(resume=payload["seller_result"]), config=config
+                )
             else:
                 brief = str(payload.get("brief") or text)
                 result = await self.graph.ainvoke(
@@ -137,15 +149,28 @@ class BuyerExecutor(AgentExecutor):
 
         if "__interrupt__" in result:
             interrupt_value = result["__interrupt__"][0].value
-            response = {
-                "status": "approval_required",
-                "task_id": thread_id,
-                "message": interrupt_value.get(
-                    "message", "Human approval required before placing the order."
-                ),
-                "award": result.get("award"),
-                "mandate": result.get("mandate"),
-            }
+            reason = interrupt_value.get("reason", "order_approval")
+            if reason == "seller_call":
+                response = {
+                    "status": "seller_call_required",
+                    "reason": "seller_call",
+                    "task_id": thread_id,
+                    "seller_id": interrupt_value.get("seller_id"),
+                    "kind": interrupt_value.get("kind"),
+                    "request": interrupt_value.get("request"),
+                    "message": interrupt_value.get("message", "Seller call required."),
+                }
+            else:
+                response = {
+                    "status": "approval_required",
+                    "reason": "order_approval",
+                    "task_id": thread_id,
+                    "message": interrupt_value.get(
+                        "message", "Human approval required before placing the order."
+                    ),
+                    "award": result.get("award"),
+                    "mandate": result.get("mandate"),
+                }
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=task_id,

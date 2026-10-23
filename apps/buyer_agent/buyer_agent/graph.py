@@ -29,6 +29,7 @@ from commerce_core.scoring import (
 from commerce_core.scoring import (
     rank_offers as rank_eligible_offers,
 )
+from commerce_core.extension import wrap_payload
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
@@ -70,6 +71,11 @@ class BuyerState(TypedDict, total=False):
     order: dict | None
     error: dict | None
     trace: Annotated[list[dict], operator.add]
+    # Mediated mode (Task 0 gate proof)
+    pending_sellers: list[str]
+    current_seller_id: str
+    current_rfq: dict
+    seller_call_result: Any
 
 
 def _services(config: dict) -> Any:
@@ -970,6 +976,208 @@ def build_buyer_graph(
         "prepare_fanout", fan_out_sellers, ["negotiate_seller"]
     )
     builder.add_edge("negotiate_seller", "rank_offers")
+    builder.add_conditional_edges(
+        "rank_offers", has_award, {"continue": "await_approval", "stop": END}
+    )
+    builder.add_conditional_edges(
+        "await_approval",
+        approval_route,
+        {"approved": "place_order", "rejected": "cancel_losers"},
+    )
+    builder.add_edge("place_order", "finalize")
+    builder.add_edge("cancel_losers", "finalize")
+    builder.add_edge("finalize", END)
+    return builder.compile(checkpointer=checkpointer or MemorySaver())
+
+
+# ---------------------------------------------------------------------------
+# Mediated buyer graph (Task 0 gate proof): serial seller-call interrupts.
+# RFQ phase only; counters/accept/order remain on the direct path until Plan B.
+# ---------------------------------------------------------------------------
+
+
+async def _mediated_prepare(state: BuyerState, config: dict) -> dict:
+    return {
+        "stage": "negotiating",
+        "pending_sellers": [s["seller_id"] for s in state.get("sellers", [])],
+    }
+
+
+async def _mediated_select(state: BuyerState, config: dict) -> dict:
+    services = _services(config)
+    planner = _planner(config, ScriptedBuyerPlanner())
+    pending = list(state.get("pending_sellers", []))
+    if not pending:
+        return {"current_seller_id": "", "stage": "ranking_ready"}
+    seller_id = pending[0]
+    remaining = pending[1:]
+    run_id = state["run_id"]
+    mandate = Mandate.model_validate(state["mandate"])
+    endpoint = services.registry.endpoint(seller_id)
+    rfq_request_id = f"rfq-{run_id}-{seller_id}-mediated"
+    rfq = RFQ(
+        request_id=rfq_request_id,
+        run_id=run_id,
+        category=mandate.category,
+        product_hint=mandate.product_hint,
+        quantity=mandate.quantity,
+        required_by=datetime.now(UTC) + timedelta(days=mandate.deadline_days),
+        constraints=RFQConstraints(
+            min_warranty_months=mandate.min_warranty_months,
+            min_returns_days=mandate.min_returns_days,
+            color=mandate.preferences.color,
+        ),
+        preferences=RFQPreferences(sustainability=mandate.preferences.sustainability),
+        message=state.get("rfq_message") or fallback_rfq_message(mandate),
+    )
+    if not _safe_text(rfq.model_dump_json(), mandate):
+        return {
+            "current_seller_id": "",
+            "pending_sellers": remaining,
+            "trace": (state.get("trace") or [])
+            + [{"type": "guardrail_rejected", "seller_id": seller_id, "reason": "budget_in_rfq"}],
+        }
+    return {
+        "current_seller_id": seller_id,
+        "pending_sellers": remaining,
+        "current_rfq": wrap_payload("rfq", rfq),
+        "stage": "seller_call_pending",
+    }
+
+
+async def _mediated_pause(state: BuyerState, config: dict) -> dict:
+    seller_id = state.get("current_seller_id", "")
+    if not seller_id:
+        return {}
+    resumed = interrupt(
+        {
+            "reason": "seller_call",
+            "kind": "rfq",
+            "seller_id": seller_id,
+            "request": state.get("current_rfq"),
+            "run_id": state.get("run_id"),
+            "context_id": state.get("run_id"),
+            "message": f"Seller call required for {seller_id}.",
+        }
+    )
+    return {"seller_call_result": resumed}
+
+
+async def _mediated_apply(state: BuyerState, config: dict) -> dict:
+    result = state.get("seller_call_result") or {}
+    offers = result.get("offers", [])
+    if not isinstance(offers, list):
+        offers = []
+    normalized = [o for o in offers if isinstance(o, dict)]
+    return {"offers": normalized, "seller_call_result": None}
+
+
+def _mediated_route_after_select(state: BuyerState) -> str:
+    if state.get("current_seller_id"):
+        return "pause_seller_call"
+    if state.get("pending_sellers"):
+        return "select_next_seller"
+    return "rank_offers"
+
+
+def _mediated_route_after_apply(state: BuyerState) -> str:
+    if state.get("pending_sellers"):
+        return "select_next_seller"
+    return "rank_offers"
+
+
+def build_mediated_buyer_graph(services=None, checkpointer=None, *, planner=None):
+    default_planner = planner or ScriptedBuyerPlanner()
+    builder = StateGraph(BuyerState)
+
+    async def _interpret(state, config):
+        return await interpret_brief(state, config)
+
+    async def _discover(state, config):
+        return await discover_sellers(state, config)
+
+    async def _plan(state, config):
+        return await plan_sourcing(state, config)
+
+    async def _prepare(state, config):
+        return await _mediated_prepare(state, config)
+
+    async def _select(state, config):
+        return await _mediated_select(state, config)
+
+    async def _pause(state, config):
+        return await _mediated_pause(state, config)
+
+    async def _apply(state, config):
+        return await _mediated_apply(state, config)
+
+    async def _rank(state, config):
+        return await rank_offers(state, config)
+
+    async def _approval(state, config):
+        return await await_approval(state, config)
+
+    async def _order(state, config):
+        return await place_order(state, config)
+
+    async def _cancel(state, config):
+        return await cancel_losers(state, config)
+
+    async def _finalize(state, config):
+        return await finalize(state, config)
+
+    def with_planner(fn):
+        async def wrapped(state, config):
+            config = dict(config)
+            configurable = dict(config.get("configurable", {}))
+            configurable.setdefault("planner", default_planner)
+            if services is not None:
+                configurable.setdefault("services", services)
+            config["configurable"] = configurable
+            return await fn(state, config)
+
+        return wrapped
+
+    for name, fn in [
+        ("interpret_brief", _interpret),
+        ("discover_sellers", _discover),
+        ("plan_sourcing", _plan),
+        ("prepare_mediated", _prepare),
+        ("select_next_seller", _select),
+        ("pause_seller_call", _pause),
+        ("apply_seller_result", _apply),
+        ("rank_offers", _rank),
+        ("await_approval", _approval),
+        ("place_order", _order),
+        ("cancel_losers", _cancel),
+        ("finalize", _finalize),
+    ]:
+        builder.add_node(name, with_planner(fn))
+
+    builder.add_edge(START, "interpret_brief")
+    builder.add_conditional_edges(
+        "interpret_brief", has_brief, {"continue": "discover_sellers", "stop": END}
+    )
+    builder.add_conditional_edges(
+        "discover_sellers", has_sellers, {"continue": "plan_sourcing", "stop": END}
+    )
+    builder.add_edge("plan_sourcing", "prepare_mediated")
+    builder.add_edge("prepare_mediated", "select_next_seller")
+    builder.add_conditional_edges(
+        "select_next_seller",
+        _mediated_route_after_select,
+        {
+            "pause_seller_call": "pause_seller_call",
+            "select_next_seller": "select_next_seller",
+            "rank_offers": "rank_offers",
+        },
+    )
+    builder.add_edge("pause_seller_call", "apply_seller_result")
+    builder.add_conditional_edges(
+        "apply_seller_result",
+        _mediated_route_after_apply,
+        {"select_next_seller": "select_next_seller", "rank_offers": "rank_offers"},
+    )
     builder.add_conditional_edges(
         "rank_offers", has_award, {"continue": "await_approval", "stop": END}
     )
