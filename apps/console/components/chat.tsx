@@ -170,10 +170,18 @@ export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: Ch
               continue;
             }
 
-            // Check for MarketMesh buyer state fields
-            if (parsed.status || parsed.award || parsed.mandate || parsed.task_id || parsed.order) {
+            // Mediation resumes the Buyer internally, so its latest state is
+            // nested in the mediation tool result instead of a separate Buyer call.
+            const buyerState = parsed.buyer_response ?? parsed;
+            if (
+              buyerState.status ||
+              buyerState.award ||
+              buyerState.mandate ||
+              buyerState.task_id ||
+              buyerState.order
+            ) {
               if (onBuyerStateUpdate) {
-                onBuyerStateUpdate(parsed as BuyerState);
+                onBuyerStateUpdate(buyerState as BuyerState);
               }
             }
           } catch (e) {

@@ -30,6 +30,29 @@ async def _a2a_send(base_url: str, message: Message, token: str | None = None) -
     return frames
 
 
+def _buyer_response(frames: list) -> dict[str, Any] | None:
+    """Extract the buyer's JSON status response from its A2A task events."""
+    response = None
+    for frame in frames:
+        kind = frame.WhichOneof("payload")
+        if kind == "status_update":
+            message = frame.status_update.status.message
+        elif kind == "task":
+            message = frame.task.status.message
+        else:
+            continue
+        for part in message.parts:
+            if not part.HasField("text"):
+                continue
+            try:
+                value = json.loads(part.text)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if isinstance(value, dict) and value.get("status"):
+                response = value
+    return response
+
+
 def _resolve_seller_token(seller_card_url: str, seller_token: str | None) -> str:
     # Prefer an explicitly supplied, non-default token (e.g. tests).
     if seller_token and seller_token != "dev-seller":
@@ -115,11 +138,13 @@ async def mediate_seller_call(
             text=json.dumps({"seller_result": seller_result, "task_id": buyer_task_id}),
             context_id=buyer_task_id,
         )
-        await _a2a_send(buyer_a2a_url, resume_msg)
+        buyer_frames = await _a2a_send(buyer_a2a_url, resume_msg)
+        buyer_response = _buyer_response(buyer_frames)
 
         return {
             "resumed": True,
             "seller_result": seller_result,
+            "buyer_response": buyer_response,
             "seller_communication": {
                 "seller_id": seller_id,
                 "seller_card_url": seller_card_url,

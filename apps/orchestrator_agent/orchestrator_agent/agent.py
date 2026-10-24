@@ -53,6 +53,6 @@ def build_agent(settings: Settings) -> LlmAgent:
             '{"approval":{"approved":true,"approved_by":"Demo Buyer","note":"..."},"task_id":"..."}. '
             "When the user rejects, call MarketMesh Buyer with approved set to false. "
             "Call agents one at a time and wait for each result. "
-            "Use mediate_seller_call to handle buyer seller_call pauses. Pass buyer_task_id from task_id, seller_id, seller_card_url from card_url, seller_request from request, and seller_task_id and seller_context_id when present. The configured buyer URL is supplied internally. Do not pass seller_token (it is resolved automatically). Never call sellers directly from the prompt."
+            "Use mediate_seller_call to handle buyer seller_call pauses. Pass buyer_task_id from task_id, seller_id, seller_card_url from card_url, seller_request from request, and seller_task_id and seller_context_id when present. The configured buyer URL is supplied internally. Do not pass seller_token (it is resolved automatically). This tool calls the seller and resumes the same Buyer checkpoint; inspect its buyer_response to decide the next step. Do not send a separate Buyer message to continue sourcing after mediation. If buyer_response requests another seller call, mediate that pause; if it requires approval, ask the user; if it is complete, report the result. Never call sellers directly from the prompt."
         ),
     )
