@@ -12,6 +12,7 @@ import {
 
 import { A2AWire } from "./components/a2a-wire";
 import { ApprovalCard } from "./components/approval-card";
+import { Chat } from "@/features/chat/chat";
 import { NegotiationFeed } from "./components/negotiation-feed";
 import { OfferMatrix } from "./components/offer-matrix";
 import { OrderPanel } from "./components/order-panel";
@@ -374,6 +375,17 @@ export function ConsoleShell() {
       <StageStepper stage={stage} />
 
       <main className="mm-workspace">
+        <aside className="mm-chat-rail" aria-label="Buyer chat">
+          <Chat
+            onRunSample={() => void startRun(SAMPLE_BRIEF)}
+            isRunning={isRunning}
+            isReady={isReady}
+          />
+          {approvalElement ? (
+            <div className="mm-chat-approval">{approvalElement}</div>
+          ) : null}
+        </aside>
+
         <div className="mm-deal-room">
           {runError ? (
             <div className="mm-alert" role="alert">
