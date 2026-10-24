@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Transform `apps/console` into a production-shaped multi-page Next.js 15 product with typed UI primitives, extracted feature modules, TanStack Query server state, Vitest + Playwright tests, accessibility, and production hardening — frontend only.
+**Goal:** Transform `apps/console` into a production-shaped multi-page Next.js 15 product with typed UI primitives, extracted feature modules, TanStack Query server state, buyer-as-source-of-truth run persistence, Vitest + Playwright tests, accessibility, and production hardening.
 
-**Architecture:** App Router route group `(console)` shares a sidebar + global chat-drawer shell. Server state via TanStack Query. Run state derived client-side from CopilotKit threads + existing trace endpoint. Feature folders own components/hooks/queries. Bespoke `mm-*` CSS becomes typed primitives under `components/ui`.
+**Architecture:** App Router route group `(console)` shares a sidebar + global chat-drawer shell. Server state via TanStack Query. Runs are authoritative from the buyer REST API (`/api/runs`, `/api/runs/:id`); the console adds thin proxy routes to reach them. Live negotiation details still come from CopilotKit thread state and merge into the run detail view. Feature folders own components/hooks/queries. Bespoke `mm-*` CSS becomes typed primitives under `components/ui`.
 
 **Tech Stack:** Next.js 15.5, React 19, TypeScript (strict), Tailwind 4, CopilotKit 1.79, @tanstack/react-query, Vitest + @testing-library/react + jsdom, Playwright + @axe-core/playwright, lucide-react.
 
@@ -14,7 +14,7 @@
 
 - Node 20+, npm. Working dir `apps/console`.
 - TypeScript strict; `tsc --noEmit` must pass after each task.
-- No backend/agent changes; no new API routes.
+- No Python/agent changes: the buyer already exposes `/api/runs`, `/api/runs/{run_id}`, and `/api/runs/{run_id}/trace`. Console adds two proxy routes (list + detail) to reach them; no other new API routes.
 - No mock data (excluded by spec).
 - Preserve existing visual identity (`mm-*` classes) and the two e2e flows (approve/reject).
 - CopilotKit agent id remains `a2a_chat`; thread id handling unchanged.
@@ -715,11 +715,15 @@ export function useApproval(taskId: string | undefined) {
 }
 ```
 
-- [ ] **Step 4: Move existing feature components**
+- [ ] **Step 4: Add thread-state parsing utility (for live deal-room view)**
+
+Create `apps/console/lib/runs.ts` exporting `parseBuyerStateFromMessages(messages)` (same implementation as before, minus `parseRunSummary`, which is no longer needed since runs come from the buyer API). Unit test in `lib/runs.test.ts` covering nested A2A task-message parsing.
+
+- [ ] **Step 5: Move existing feature components**
 
 Move `components/{a2a-wire,approval-card,chat,negotiation-feed,offer-card,offer-matrix,order-panel,registry-panel,seller-lane,stage-stepper}.tsx` and `components/a2a/*` into `features/deal-room/components/` (and `features/chat/` for chat). Update imports to use `@/components/ui` primitives where trivial. Keep markup/classes unchanged.
 
-- [ ] **Step 5: Delete console-shell.tsx; wire run detail page**
+- [ ] **Step 6: Delete console-shell.tsx; wire run detail page (thread state only; buyer merge in Task 6)**
 
 Rewrite `app/(console)/runs/[runId]/page.tsx` to compose the deal-room components using the new hooks, mirroring the old shell JSX but sourcing state from `useRunState`/`useRunTrace`/`useApproval`.
 
@@ -733,110 +737,152 @@ git commit -m "refactor(console): extract run-state hooks and feature modules"
 
 ---
 
-## Task 6: Thread→run adapter and Runs list page
+## Task 6: Buyer run proxy routes + client functions + hooks + Runs list page
 
 **Files:**
-- Create: `apps/console/lib/runs.ts`
+- Create: `apps/console/app/api/runs/route.ts`
+- Create: `apps/console/app/api/runs/[runId]/route.ts`
+- Modify: `apps/console/lib/api.ts` (+ `fetchRuns`, `fetchRun`)
+- Create: `apps/console/features/runs/{use-runs,use-run}.ts`
 - Create: `apps/console/features/runs/{run-summary-card,run-status-badge}.tsx`
 - Create: `apps/console/app/(console)/runs/page.tsx`
 
 **Interfaces:**
-- `parseRunSummary(thread): RunSummary | null`
-- `useRuns(): RunSummary[]` (reads CopilotKit threads)
-- `RunSummary = { runId, title, stage, status, updatedAt, threadId }`
+- `fetchRuns(limit?): Promise<BuyerRun[]>` where `BuyerRun = { run_id, stage, mandate, award, order, error, created_at, updated_at }`
+- `fetchRun(runId): Promise<BuyerRun>`
+- `useRuns(): { runs, isLoading, error, refresh }`
+- `useRun(runId): { run, isLoading, error, refresh }`
+- `RunSummary` derived in the page from `BuyerRun` (title from `mandate.product_hint` + quantity).
 
-- [ ] **Step 1: Write failing test for parseRunSummary**
+- [ ] **Step 1: Create list proxy route**
 
-`apps/console/lib/runs.test.ts`:
+`apps/console/app/api/runs/route.ts`:
 ```ts
-import { parseRunSummary } from "./runs";
+import { NextRequest } from "next/server";
 
-test("returns null for thread with no buyer state", () => {
-  expect(parseRunSummary({ id: "t1", messages: [] })).toBeNull();
-});
-
-test("parses stage from last assistant message", () => {
-  const thread = {
-    id: "t1",
-    createdAt: "2026-10-24T10:00:00Z",
-    messages: [
-      { role: "user", content: "Buy 12 headsets" },
-      { role: "assistant", content: JSON.stringify({ task_id: "run-1", stage: "ordered", award: { winner: { seller_name: "CircuitForge" } } }) },
-    ],
-  };
-  const r = parseRunSummary(thread);
-  expect(r?.runId).toBe("run-1");
-  expect(r?.stage).toBe("ordered");
-  expect(r?.title).toContain("headsets");
-});
+export async function GET(request: NextRequest) {
+  const buyer = process.env.BUYER_API_URL ?? "http://127.0.0.1:9100";
+  const limit = request.nextUrl.searchParams.get("limit") ?? "50";
+  try {
+    const response = await fetch(`${buyer}/api/runs?limit=${encodeURIComponent(limit)}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+    return new Response(await response.text(), {
+      status: response.status,
+      headers: { "content-type": "application/json" },
+    });
+  } catch {
+    return Response.json({ error: "Buyer API is unavailable" }, { status: 503 });
+  }
+}
 ```
 
-- [ ] **Step 2: Run test (fail)**
+- [ ] **Step 2: Create detail proxy route**
 
-Run: `npm run test -- lib/runs`
-Expected: FAIL.
-
-- [ ] **Step 3: Implement lib/runs.ts**
-
+`apps/console/app/api/runs/[runId]/route.ts`:
 ```ts
-import type { BuyerState } from "./types";
+import { NextRequest } from "next/server";
 
-export type RunSummary = {
-  threadId: string;
-  runId: string;
-  title: string;
-  stage: string;
-  updatedAt: string;
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ runId: string }> },
+) {
+  const { runId } = await params;
+  const buyer = process.env.BUYER_API_URL ?? "http://127.0.0.1:9100";
+  try {
+    const response = await fetch(`${buyer}/api/runs/${encodeURIComponent(runId)}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+    return new Response(await response.text(), {
+      status: response.status,
+      headers: { "content-type": "application/json" },
+    });
+  } catch {
+    return Response.json({ error: "Buyer API is unavailable" }, { status: 503 });
+  }
+}
+```
+
+- [ ] **Step 3: Add client functions**
+
+Append to `apps/console/lib/api.ts`:
+```ts
+export type BuyerRun = {
+  run_id: string;
+  stage?: string;
+  mandate?: Mandate | null;
+  award?: Award | null;
+  order?: Order | null;
+  error?: { code?: string; message?: string } | string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
-export function parseBuyerStateFromMessages(messages: Array<{ role?: string; content?: unknown }>): BuyerState | null {
-  let latest: BuyerState | null = null;
-  for (const m of messages ?? []) {
-    const content = typeof m.content === "string" ? m.content : "";
-    let parsed: unknown = null;
-    try { parsed = JSON.parse(content); } catch { continue; }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-    let c = parsed as BuyerState;
-    const t = (parsed as { status?: { message?: { parts?: Array<{ text?: string }> } } })?.status?.message?.parts?.[0]?.text;
-    if (typeof t === "string") { try { const n = JSON.parse(t); if (n && typeof n === "object" && !Array.isArray(n)) c = n as BuyerState; } catch { /* keep */ } }
-    if (c.task_id || c.award || c.mandate || c.order) latest = c;
-  }
-  return latest;
+export async function fetchRuns(limit = 50): Promise<BuyerRun[]> {
+  const response = await fetch(`/api/runs?limit=${limit}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Runs request failed (${response.status})`);
+  return (await response.json()) as BuyerRun[];
 }
 
-export function parseRunSummary(thread: { id: string; createdAt?: string; messages?: Array<{ role?: string; content?: unknown }> }): RunSummary | null {
-  const state = parseBuyerStateFromMessages(thread.messages ?? []);
-  if (!state || !(state.task_id || state.run_id)) return null;
-  const firstUser = (thread.messages ?? []).find((m) => m.role === "user");
-  const title = typeof firstUser?.content === "string"
-    ? firstUser.content.slice(0, 60)
-    : "Untitled run";
-  return {
-    threadId: thread.id,
-    runId: state.task_id ?? state.run_id ?? thread.id,
-    title,
-    stage: state.stage ?? "new",
-    updatedAt: thread.createdAt ?? new Date().toISOString(),
-  };
+export async function fetchRun(runId: string): Promise<BuyerRun> {
+  const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Run request failed (${response.status})`);
+  return (await response.json()) as BuyerRun;
+}
+```
+(Import `Mandate`, `Award`, `Order` from `./types`.)
+
+- [ ] **Step 4: Add query hooks**
+
+`features/runs/use-runs.ts`:
+```ts
+"use client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchRuns } from "@/lib/api";
+
+export function useRuns() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["runs"], queryFn: () => fetchRuns(50), staleTime: 5_000 });
+  return { runs: q.data ?? [], isLoading: q.isLoading, error: q.error ? "Runs unavailable" : null, refresh: () => qc.invalidateQueries({ queryKey: ["runs"] }) };
 }
 ```
 
-- [ ] **Step 4: Implement Runs page**
+`features/runs/use-run.ts`:
+```ts
+"use client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchRun } from "@/lib/api";
 
-`app/(console)/runs/page.tsx`: client component using CopilotKit thread list (reuse existing pattern for listing threads) → map via `parseRunSummary` → render list of `RunSummaryCard` linking to `/runs/[runId]`. Empty state via `EmptyState`. Use `stageLabel` from format.
+export function useRun(runId: string) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["run", runId], queryFn: () => fetchRun(runId), enabled: !!runId, refetchInterval: 2_000 });
+  // stop polling once terminal
+  return { run: q.data ?? null, isLoading: q.isLoading, error: q.error ? "Run unavailable" : null, refresh: () => qc.invalidateQueries({ queryKey: ["run", runId] }) };
+}
+```
+Note: refetchInterval should be disabled when stage is terminal; implement by reading `q.data?.stage` and setting `refetchInterval: (q) => TERMINAL.has(q.state.data?.stage ?? "") ? false : 2_000`.
 
-- [ ] **Step 5: Run tests + typecheck**
+- [ ] **Step 5: Implement Runs list page**
 
-Run: `npm run test -- lib/runs`
-Expected: PASS.
+`app/(console)/runs/page.tsx`: client component using `useRuns()` → map to `RunSummaryCard` linking to `/runs/[runId]`. Title from `mandate?.product_hint` + quantity. Empty state via `EmptyState`. Use `stageLabel`.
+
+- [ ] **Step 6: Implement run detail merge**
+
+Update `app/(console)/runs/[runId]/page.tsx` (from Task 5 Step 6) to:
+- call `useRun(runId)` for authoritative metadata (stage, mandate, award, order, error, timestamps),
+- call `useRunState()` for live negotiations/sellers/offers,
+- call `useRunTrace(runId, true, terminal)`.
+- Prefer buyer `stage`/`mandate`/`award`/`order`/`error` over thread state when present; fall back to thread state otherwise.
+- Render `EmptyState` in lanes/matrix/feed when negotiations are absent (historical run).
+
+- [ ] **Step 7: Run typecheck + commit**
+
 Run: `npm run typecheck`
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
 ```bash
-git add lib/runs.ts features/runs app/\(console\)/runs/page.tsx
-git commit -m "feat(console): add runs list page and thread-to-run adapter"
+git add app/api/runs lib/api.ts features/runs app/\(console\)/runs
+git commit -m "feat(console): buyer-as-source-of-truth runs (proxy + hooks + pages)"
 ```
 
 ---
@@ -924,11 +970,11 @@ git commit -m "feat(console): add settings and help pages"
 - Modify: `apps/console/app/(console)/page.tsx`
 
 **Interfaces:**
-- Consumes: `useRegistry`, recent runs via `parseRunSummary`, `startRun` flow (extracted or inline).
+- Consumes: `useRegistry`, `useRuns`, `startRun` flow (extracted or inline).
 
 - [ ] **Step 1: Implement home**
 
-Overview copy (reuse deal intro), "Run sample brief" CTA that starts a run and navigates to `/runs/[runId]`, last 3 runs summary (links), registry health. Reuse `EmptyState` when no runs.
+Overview copy (reuse deal intro), "Run sample brief" CTA that starts a run and navigates to `/runs/[runId]`, last 3 runs summary from `useRuns()` (links), registry health. Reuse `EmptyState` when no runs.
 
 - [ ] **Step 2: Typecheck + commit**
 
@@ -1070,9 +1116,9 @@ git commit -m "docs: document new console routes and test commands"
 
 **Placeholder scan:** No "TBD"/"TODO" in steps; code blocks provided for new code. Moves reference exact source files.
 
-**Type consistency:** `money()` from lib/format; `RunSummary` defined in Task 6 and consumed in Task 9; `useRegistry` defined Task 7; `useRunState`/`useRunTrace`/`useApproval` Task 5. Names consistent throughout.
+**Type consistency:** `money()` from lib/format; `BuyerRun`/`fetchRuns`/`fetchRun` defined in Task 6 and consumed by `useRuns`/`useRun` and pages; `useRegistry` Task 7; `useRunState`/`useRunTrace`/`useApproval` Task 5. `BuyerRun` fields align with buyer `_run()` response (`run_id, stage, mandate, award, order, error, created_at, updated_at`). Names consistent throughout.
 
-**Open question resolved during planning:** Re-opening a past run is read-only replay of last parsed state + trace (no re-run), matching frontend-only scope. Documented in Task 6.
+**Option A (buyer as source of truth):** `/runs` and `/runs/[runId]` metadata come from buyer API via new proxy routes; deal-room rich views merge buyer metadata with live thread state and degrade gracefully for historical runs. Documented in Task 6 Step 6.
 
 ## Execution Handoff
 
