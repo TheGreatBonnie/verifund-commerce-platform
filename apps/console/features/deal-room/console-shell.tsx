@@ -159,6 +159,13 @@ export function ConsoleShell() {
     if (latest) setBuyerState(latest);
   }, [agent.messages]);
 
+  // Resume a thread when arriving via /runs/[runId], and auto-start a pending brief.
+  useEffect(() => {
+    if (routeRunId) {
+      agent.threadId = routeRunId;
+    }
+  }, [agent, routeRunId]);
+
   const state = useMemo<BuyerState>(() => {
     if (!buyerRun) return buyerState;
     return {
@@ -226,7 +233,7 @@ export function ConsoleShell() {
   const startRun = useCallback(
     async (brief: string) => {
       if (isRunning || !isReady) return;
-      const threadId = crypto.randomUUID();
+      const threadId = routeRunId ?? crypto.randomUUID();
       agent.threadId = threadId;
       agent.setMessages([]);
       agent.setState({});
@@ -252,8 +259,16 @@ export function ConsoleShell() {
         setIsRunning(false);
       }
     },
-    [agent, isReady, isRunning],
+    [agent, isReady, isRunning, routeRunId],
   );
+
+  useEffect(() => {
+    if (!isReady) return;
+    const pending = window.sessionStorage.getItem("marketmesh:pendingBrief");
+    if (!pending) return;
+    window.sessionStorage.removeItem("marketmesh:pendingBrief");
+    void startRun(pending);
+  }, [isReady, startRun]);
 
   const sendApproval = useCallback(
     async (approved: boolean, note: string) => {
