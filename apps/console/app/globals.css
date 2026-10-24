@@ -2699,6 +2699,40 @@
   overflow: auto;
 }
 
+.mm-chat-drawer-shell {
+  position: sticky;
+  top: 0;
+  flex: 0 0 320px;
+  width: 320px;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--panel);
+  border-left: 1px solid var(--rule-strong);
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  gap: 10px;
+}
+
+.mm-chat-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mm-chat-surface {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .mm-chat-drawer-shell {
+    display: none;
+  }
+}
+
 .mm-runs-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

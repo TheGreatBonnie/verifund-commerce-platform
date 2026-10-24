@@ -5,6 +5,7 @@ import { ReactNode } from "react";
 import { CopilotProvider, threadsEnabled } from "@/providers/copilot-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import { Sidebar } from "@/components/layout/sidebar";
+import { ChatDrawer } from "@/components/layout/chat-drawer";
 import { SkipLink } from "@/components/layout/skip-link";
 
 export function ConsoleLayout({ children }: { children: ReactNode }) {
@@ -27,6 +28,7 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
             <main id="main-content" className="mm-console-main">
               {children}
             </main>
+            <ChatDrawer />
           </div>
         </div>
       </QueryProvider>
