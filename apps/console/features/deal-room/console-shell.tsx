@@ -12,15 +12,15 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import { A2AWire } from "./a2a-wire";
-import { ApprovalCard } from "./approval-card";
-import { Chat } from "./chat";
-import { NegotiationFeed } from "./negotiation-feed";
-import { OfferMatrix } from "./offer-matrix";
-import { OrderPanel } from "./order-panel";
-import { RegistryPanel } from "./registry-panel";
-import { SellerLane } from "./seller-lane";
-import { StageStepper } from "./stage-stepper";
+import { A2AWire } from "./components/a2a-wire";
+import { ApprovalCard } from "./components/approval-card";
+import { Chat } from "@/features/chat/chat";
+import { NegotiationFeed } from "./components/negotiation-feed";
+import { OfferMatrix } from "./components/offer-matrix";
+import { OrderPanel } from "./components/order-panel";
+import { RegistryPanel } from "./components/registry-panel";
+import { SellerLane } from "./components/seller-lane";
+import { StageStepper } from "./components/stage-stepper";
 import { fetchRegistry, fetchTrace } from "@/lib/api";
 import { money, scoreLabel, stageLabel } from "@/lib/format";
 import type {

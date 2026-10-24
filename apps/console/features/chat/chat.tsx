@@ -9,8 +9,8 @@ import {
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { MessageToA2A } from "./a2a/MessageToA2A";
-import { MessageFromA2A } from "./a2a/MessageFromA2A";
+import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
+import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
 
 type BuyerState = {
   status?: string;

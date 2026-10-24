@@ -3,20 +3,15 @@
 import {
   CopilotChatConfigurationProvider,
   CopilotKitProvider,
-  CopilotThreadsDrawer,
 } from "@copilotkit/react-core/v2";
-
-import { ConsoleShell } from "@/components/console-shell";
+import { ReactNode } from "react";
 
 const threadsEnabled =
   process.env.NEXT_PUBLIC_COPILOTKIT_THREADS_ENABLED === "true";
 
-export default function Home() {
+export function CopilotProvider({ children }: { children: ReactNode }) {
   return (
-    <CopilotKitProvider
-      runtimeUrl="/api/copilotkit"
-      useSingleEndpoint={false}
-    >
+    <CopilotKitProvider runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
       <CopilotChatConfigurationProvider
         agentId="a2a_chat"
         labels={{
@@ -29,19 +24,10 @@ export default function Home() {
             "Buyer agent · every order requires a human decision.",
         }}
       >
-        <div className={threadsEnabled ? "mm-app-frame" : undefined}>
-          {threadsEnabled ? (
-            <div className="mm-thread-drawer-shell">
-              <CopilotThreadsDrawer
-                agentId="a2a_chat"
-                label="MarketMesh runs"
-                recentLabel="Recent sourcing runs"
-              />
-            </div>
-          ) : null}
-          <ConsoleShell />
-        </div>
+        {children}
       </CopilotChatConfigurationProvider>
     </CopilotKitProvider>
   );
 }
+
+export { threadsEnabled };
