@@ -53,6 +53,7 @@ async def mediate_seller_call(
     buyer_a2a_url: str,
     seller_request: dict[str, Any] | None = None,
     seller_token: str | None = None,
+    seller_id: str | None = None,
     seller_task_id: str | None = None,
     seller_context_id: str | None = None,
 ) -> dict[str, Any]:
@@ -116,6 +117,15 @@ async def mediate_seller_call(
         )
         await _a2a_send(buyer_a2a_url, resume_msg)
 
-        return {"resumed": True, "seller_result": seller_result}
+        return {
+            "resumed": True,
+            "seller_result": seller_result,
+            "seller_communication": {
+                "seller_id": seller_id,
+                "seller_card_url": seller_card_url,
+                "request": request_envelope,
+                "response": seller_result,
+            },
+        }
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}

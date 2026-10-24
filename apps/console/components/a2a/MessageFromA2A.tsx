@@ -13,11 +13,15 @@ type MessageActionRenderProps = {
   args?: {
     agentName?: string;
   };
+  response?: string;
+  failed?: boolean;
 };
 
 export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
   status,
   args,
+  response,
+  failed = false,
 }) => {
   switch (status) {
     case "complete":
@@ -62,7 +66,9 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
             </div>
           </div>
 
-          <span className="text-xs text-gray-600 a2a-message-copy">✓ Response received</span>
+          <span className="text-xs text-gray-600 a2a-message-copy">
+            {failed ? `⚠ ${response || "Seller call failed"}` : `✓ ${response || "Response received"}`}
+          </span>
         </div>
       </div>
     </div>

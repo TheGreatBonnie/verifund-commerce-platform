@@ -37,6 +37,7 @@ async def test_mediation_reuses_seller_task_and_returns_seller_ids(monkeypatch):
         buyer_task_id="buyer-run-2",
         seller_card_url="http://seller/.well-known/agent-card.json",
         buyer_a2a_url="http://buyer",
+        seller_id="aurora-supply",
         seller_task_id="seller-task-7",
         seller_context_id="seller-context-4",
         seller_request={"schema": "counter", "payload": {}},
@@ -47,6 +48,12 @@ async def test_mediation_reuses_seller_task_and_returns_seller_ids(monkeypatch):
     assert sent[0][1].context_id == "seller-context-4"
     assert result["seller_result"]["task_id"] == "seller-task-7"
     assert result["seller_result"]["context_id"] == "seller-context-4"
+    assert result["seller_communication"]["seller_id"] == "aurora-supply"
+    assert result["seller_communication"]["request"] == {
+        "schema": "counter",
+        "payload": {},
+    }
+    assert result["seller_communication"]["response"] == result["seller_result"]
 
 
 @pytest.mark.asyncio
@@ -60,13 +67,16 @@ async def test_orchestrator_tool_binds_configured_buyer_url(monkeypatch):
         observed.update(kwargs)
         return {"resumed": True}
 
-    monkeypatch.setattr(agent, "mediate_seller_call", fake_mediate)
+    monkeypatch.setattr(agent, "_mediate_seller_call", fake_mediate)
     mediation_tool = agent._build_mediation_tool(
         Settings(buyer_a2a_url="http://buyer-configured")
     )
+    assert mediation_tool.name == "mediate_seller_call"
     assert "buyer_a2a_url" not in signature(mediation_tool.func).parameters
     await mediation_tool.func(
         buyer_task_id="buyer-run",
         seller_card_url="http://seller/.well-known/agent-card.json",
+        seller_id="aurora-supply",
     )
     assert observed["buyer_a2a_url"] == "http://buyer-configured"
+    assert observed["seller_id"] == "aurora-supply"

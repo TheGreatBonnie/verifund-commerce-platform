@@ -13,6 +13,12 @@ test("buyer runs the demo and orders only after approval", async ({ page }) => {
   });
   await expect(page.getByText("CircuitForge").first()).toBeVisible();
   await expect(page.getByText("Aurora Supply").first()).toBeVisible();
+  await expect(
+    page.locator(".a2a-message-card-outgoing").filter({ hasText: "Aurora Supply" }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.locator(".a2a-message-card-incoming").filter({ hasText: "Aurora Supply" }),
+  ).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/R2/).first()).toBeVisible();
   await expect(page.getByText("Approve order").first()).toBeVisible({
     timeout: 30_000,

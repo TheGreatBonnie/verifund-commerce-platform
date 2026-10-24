@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { CopilotChat, useFrontendTool, useAgent } from "@copilotkit/react-core/v2";
+import {
+  CopilotChat,
+  useAgent,
+  useFrontendTool,
+  useRenderTool,
+} from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import { MessageToA2A } from "./a2a/MessageToA2A";
@@ -28,8 +33,114 @@ type ChatProps = {
 const SAMPLE_PROMPT =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
 
+function sellerName(sellerId?: string, cardUrl?: string) {
+  const names: Record<string, string> = {
+    "northwind-audio": "Northwind Audio",
+    circuitforge: "CircuitForge",
+    "aurora-supply": "Aurora Supply",
+  };
+  if (sellerId && names[sellerId]) return names[sellerId];
+  let port = "";
+  try {
+    port = cardUrl ? new URL(cardUrl).port : "";
+  } catch {
+    return sellerId ?? "Seller agent";
+  }
+  const idByPort: Record<string, string> = {
+    "9201": "northwind-audio",
+    "9202": "circuitforge",
+    "9203": "aurora-supply",
+  };
+  return names[idByPort[port]] ?? sellerId ?? "Seller agent";
+}
+
+function requestSummary(request?: Record<string, unknown>) {
+  const payload = (request?.payload ?? request) as Record<string, unknown> | undefined;
+  if (!payload) return "Seller request";
+  if (payload.product_hint) {
+    return `RFQ · ${payload.quantity ?? ""} ${payload.product_hint}`.trim();
+  }
+  if (payload.target_unit_price_cents) {
+    return `Counteroffer · $${(Number(payload.target_unit_price_cents) / 100).toFixed(2)} per unit`;
+  }
+  if (payload.accepted_total_cents) {
+    return `Offer acceptance · $${(Number(payload.accepted_total_cents) / 100).toFixed(2)}`;
+  }
+  if (payload.offer_id) return `Order request · offer ${String(payload.offer_id)}`;
+  return "Structured seller request";
+}
+
+function responseSummary(rawResult: string) {
+  try {
+    const content = rawResult.startsWith("A2A Agent Response: ")
+      ? rawResult.slice("A2A Agent Response: ".length)
+      : rawResult;
+    const result = JSON.parse(content) as {
+      error?: string;
+      seller_result?: {
+        offers?: Array<{ total_cents?: number }>;
+        orders?: unknown[];
+        order?: unknown;
+      };
+    };
+    if (result.error) return { label: result.error, failed: true };
+    const sellerResult = result.seller_result;
+    if (!sellerResult) return { label: "Response received", failed: false };
+    if (sellerResult.order || sellerResult.orders?.length) {
+      return { label: "Order response received", failed: false };
+    }
+    const offers = sellerResult.offers ?? [];
+    if (offers.length === 1 && offers[0].total_cents != null) {
+      return {
+        label: `Offer received · $${(offers[0].total_cents / 100).toFixed(2)}`,
+        failed: false,
+      };
+    }
+    if (offers.length > 1) {
+      return { label: `${offers.length} offers received`, failed: false };
+    }
+    return { label: "Response received", failed: false };
+  } catch {
+    return { label: "Response received", failed: false };
+  }
+}
+
 export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: ChatProps) {
   const { agent } = useAgent({ agentId: "a2a_chat" });
+
+  useRenderTool({
+    name: "mediate_seller_call",
+    parameters: z.object({
+      seller_id: z.string().optional(),
+      seller_card_url: z.string(),
+      seller_request: z.record(z.unknown()).optional(),
+    }),
+    render: ({ parameters, status, result }) => {
+      if (status === "inProgress") return null;
+      const agentName = sellerName(parameters.seller_id, parameters.seller_card_url);
+      const outgoing = {
+        agentName,
+        task: requestSummary(parameters.seller_request),
+      };
+      const summary = status === "complete" ? responseSummary(result) : undefined;
+      return (
+        <div data-testid="mediated-seller-exchange">
+          <MessageToA2A
+            status={status === "executing" ? "executing" : "complete"}
+            args={outgoing}
+          />
+          {summary ? (
+            <MessageFromA2A
+              status="complete"
+              args={{ agentName }}
+              response={summary.label}
+              failed={summary.failed}
+            />
+          ) : null}
+        </div>
+      );
+    },
+  });
 
   // Extract structured JSON from A2A agent responses and pass to parent
   useEffect(() => {
