@@ -21,7 +21,7 @@ export function ConsoleLayout({ children }: { children: ReactNode }) {
               />
             </div>
           ) : null}
-          <div className="mm-shell" style={{ flex: 1, minWidth: 0 }}>
+          <div className="mm-shell" style={{ flex: 1, minWidth: 0, display: "flex" }}>
             <SkipLink />
             <Sidebar />
             <main id="main-content" className="mm-console-main">
