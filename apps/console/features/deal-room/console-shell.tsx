@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import {
   UseAgentUpdate,
   useAgent,
@@ -22,11 +23,13 @@ import { RegistryPanel } from "./components/registry-panel";
 import { SellerLane } from "./components/seller-lane";
 import { StageStepper } from "./components/stage-stepper";
 import { fetchRegistry, fetchTrace } from "@/lib/api";
+import { useRun } from "@/features/runs/use-run";
 import { money, scoreLabel, stageLabel } from "@/lib/format";
 import type {
   Award,
   BuyerState,
   Mandate,
+  Order,
   RegistrySeller,
   TraceEvent,
 } from "@/lib/types";
@@ -101,6 +104,7 @@ function errorText(error: BuyerState["error"]) {
 }
 
 export function ConsoleShell() {
+  const routeRunId = useParams()?.runId as string | undefined;
   const { agent, isReady } = useAgent({
     agentId: "a2a_chat",
     updates: [
@@ -110,6 +114,7 @@ export function ConsoleShell() {
     ],
   });
   const [buyerState, setBuyerState] = useState<BuyerState>({});
+  const { run: buyerRun } = useRun(routeRunId ?? "");
   useEffect(() => {
     let latest: BuyerState | null = null;
     for (const message of agent.messages ?? []) {
@@ -154,13 +159,25 @@ export function ConsoleShell() {
     if (latest) setBuyerState(latest);
   }, [agent.messages]);
 
-  const state = buyerState;
+  const state = useMemo<BuyerState>(() => {
+    if (!buyerRun) return buyerState;
+    return {
+      ...buyerState,
+      task_id: buyerRun.run_id ?? buyerState.task_id,
+      run_id: buyerRun.run_id ?? buyerState.run_id,
+      stage: buyerRun.stage ?? buyerState.stage,
+      mandate: (buyerRun.mandate as Mandate | null) ?? buyerState.mandate,
+      award: (buyerRun.award as Award | null) ?? buyerState.award,
+      order: (buyerRun.order as Order | null) ?? buyerState.order,
+      error: buyerRun.error ?? buyerState.error,
+    };
+  }, [buyerState, buyerRun]);
   const stage = state.stage ?? "new";
   const award = state.award ?? null;
   const mandate = state.mandate ?? null;
   const negotiations = state.negotiations ?? [];
   const sellers = state.sellers ?? [];
-  const runId = state.task_id ?? state.run_id ?? agent.threadId ?? "";
+  const runId = routeRunId ?? state.task_id ?? state.run_id ?? agent.threadId ?? "";
   const terminal = TERMINAL.has(stage);
 
   const [isRunning, setIsRunning] = useState(false);
