@@ -2803,6 +2803,33 @@
   margin-top: 24px;
 }
 
+.mm-home {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 760px;
+}
+
+.mm-home-title {
+  margin: 6px 0 0;
+  font-family: var(--font-instrument-serif), Georgia, serif;
+  font-size: clamp(38px, 4.3vw, 64px);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 0.94;
+}
+
+.mm-home-title em {
+  color: var(--signal);
+  font-weight: 400;
+}
+
+.mm-home-actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+}
+
 .mm-page-loading,
 .mm-page-error {
   padding: 24px;

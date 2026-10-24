@@ -36,9 +36,9 @@ export default function Home() {
           <em>Decisions, not autopilot.</em>
         </h2>
         <p className="mm-deal-lede">
-          A buyer agent discovers independent sellers over Agent Cards, negotiates
-          structured offers in private A2A tasks, and brings the award back to a
-          human before an order exists.
+          A buyer agent discovers independent sellers over Agent Cards,
+          negotiates structured offers in private A2A tasks, and brings the
+          award back to a human before an order exists.
         </p>
         <div className="mm-home-actions">
           <Button onClick={runSample}>Run sample brief</Button>

@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  UseAgentUpdate,
-  useAgent,
-} from "@copilotkit/react-core/v2";
+import { UseAgentUpdate, useAgent } from "@copilotkit/react-core/v2";
 import {
   ArrowDownRight,
   CircleAlert,
@@ -132,9 +129,11 @@ export function ConsoleShell() {
       let candidate = parsed as BuyerState;
 
       // Check for A2A Task format: { id, status: { message: { parts: [{ text: "{\"status\":\"...\"}" }] } } }
-      const taskMessageText =
-        (parsed as { status?: { message?: { parts?: Array<{ text?: string }> } } })
-          ?.status?.message?.parts?.[0]?.text;
+      const taskMessageText = (
+        parsed as {
+          status?: { message?: { parts?: Array<{ text?: string }> } };
+        }
+      )?.status?.message?.parts?.[0]?.text;
       if (typeof taskMessageText === "string") {
         try {
           const nested = JSON.parse(taskMessageText);
@@ -184,7 +183,8 @@ export function ConsoleShell() {
   const mandate = state.mandate ?? null;
   const negotiations = state.negotiations ?? [];
   const sellers = state.sellers ?? [];
-  const runId = routeRunId ?? state.task_id ?? state.run_id ?? agent.threadId ?? "";
+  const runId =
+    routeRunId ?? state.task_id ?? state.run_id ?? agent.threadId ?? "";
   const terminal = TERMINAL.has(stage);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -332,11 +332,7 @@ export function ConsoleShell() {
     <div className="mm-shell">
       <header className="mm-topbar">
         <div className="mm-brand">
-          <svg
-            viewBox="0 0 32 32"
-            className="mm-brand-mark"
-            aria-hidden="true"
-          >
+          <svg viewBox="0 0 32 32" className="mm-brand-mark" aria-hidden="true">
             <circle cx="7" cy="8" r="3.2" />
             <circle cx="25" cy="7" r="2.4" />
             <circle cx="22" cy="25" r="3.2" />
@@ -370,8 +366,7 @@ export function ConsoleShell() {
             type="button"
             className="mm-button mm-button-outline"
             onClick={handleNewRun}
-            disabled={isRunning}
-          >
+            disabled={isRunning}>
             <RefreshCcw size={13} aria-hidden="true" /> New run
           </button>
         </div>
@@ -406,7 +401,9 @@ export function ConsoleShell() {
             <section className="mm-award-banner" aria-labelledby="award-title">
               <div className="mm-award-copy">
                 <p className="mm-kicker">
-                  {stage === "rejected" ? "Award rejected" : "Recommended award"}
+                  {stage === "rejected"
+                    ? "Award rejected"
+                    : "Recommended award"}
                 </p>
                 <h2 id="award-title">
                   {award.winner.seller_name}
@@ -439,7 +436,9 @@ export function ConsoleShell() {
               </span>
             </section>
           ) : (
-            <section className="mm-deal-intro" aria-labelledby="deal-intro-title">
+            <section
+              className="mm-deal-intro"
+              aria-labelledby="deal-intro-title">
               <div>
                 <p className="mm-kicker">Sourcing desk · {stageLabel(stage)}</p>
                 <h2 id="deal-intro-title">
@@ -498,7 +497,8 @@ export function ConsoleShell() {
                   <h2 id="seller-lanes-title">Seller lanes</h2>
                 </div>
                 <span className="mm-mono-note">
-                  {sellers.length || negotiations.length} Agent Cards · private tasks
+                  {sellers.length || negotiations.length} Agent Cards · private
+                  tasks
                 </span>
               </header>
               <div className="mm-lane-grid">
