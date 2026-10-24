@@ -15,10 +15,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClass: Record<Variant, string> = {
-  primary: "mm-button mm-button-primary",
+  primary: "mm-button",
   outline: "mm-button mm-button-outline",
   ghost: "mm-button mm-button-ghost",
-  danger: "mm-button mm-button-danger",
+  danger: "mm-button mm-button-outline-danger",
 };
 
 const sizeClass: Record<Size, string> = {
