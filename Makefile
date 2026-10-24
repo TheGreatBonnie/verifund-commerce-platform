@@ -3,7 +3,7 @@
 setup:
 	uv lock
 	uv sync --all-packages
-	cd apps/console && npm install
+	cd apps/console && pnpm install
 	cp -n .env.example .env || true
 
 dev:
@@ -23,7 +23,7 @@ test:
 
 lint:
 	uv run ruff check .
-	cd apps/console && npm run typecheck
+	cd apps/console && pnpm run typecheck
 
 e2e:
 	uv run python scripts/e2e.py
