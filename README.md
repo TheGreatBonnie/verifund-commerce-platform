@@ -94,6 +94,8 @@ and stock reservation logic are real code paths.
 
 ## Using the console
 
+Routes: `/` (home + live run), `/runs`, `/runs/[runId]`, `/sellers`, `/settings`, `/help`.
+
 - **Brief desk** — the CopilotKit chat rail, connected to the buyer AG-UI endpoint.
   The sample button starts the same run as a typed brief.
 - **Seller lanes** — each independently operated seller in the registry, with quote
@@ -107,6 +109,15 @@ and stock reservation logic are real code paths.
   does not approve. Both approval surfaces share one resume path.
 - **Order desk** — approval receipt, order ID, ETA, tracking number, and simulated
   fulfillment timeline. Rejecting produces “No order was placed”.
+
+Runs are persisted by the buyer agent; `/runs` lists them and `/runs/[runId]` replays
+a run (metadata + trace) even after the browser thread is gone.
+
+### Tests
+
+- `cd apps/console && pnpm run test` — Vitest unit/component tests.
+- `cd apps/console && pnpm run typecheck` — TypeScript check.
+- `make e2e` — Playwright (starts the scripted stack).
 
 ## Adding a fourth seller
 
