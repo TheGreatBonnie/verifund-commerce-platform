@@ -53,6 +53,8 @@ async def mediate_seller_call(
     buyer_a2a_url: str,
     seller_request: dict[str, Any] | None = None,
     seller_token: str | None = None,
+    seller_task_id: str | None = None,
+    seller_context_id: str | None = None,
 ) -> dict[str, Any]:
     """Mediate a single buyer seller-call pause through the orchestrator."""
     try:
@@ -61,7 +63,8 @@ async def mediate_seller_call(
         msg = make_message(
             role=Role.ROLE_USER,
             text="Orchestrator-mediated seller request.",
-            context_id=buyer_task_id,
+            context_id=seller_context_id or buyer_task_id,
+            task_id=seller_task_id,
             envelope=request_envelope if request_envelope else None,
         )
         token = _resolve_seller_token(seller_card_url, seller_token)
@@ -69,13 +72,22 @@ async def mediate_seller_call(
 
         offers: list[dict[str, Any]] = []
         orders: list[dict[str, Any]] = []
+        response_task_id = seller_task_id or ""
+        response_context_id = seller_context_id or buyer_task_id
         for frame in frames:
             kind = frame.WhichOneof("payload")
             artifacts = []
             if kind == "artifact_update":
+                response_task_id = frame.artifact_update.task_id or response_task_id
+                response_context_id = frame.artifact_update.context_id or response_context_id
                 artifacts = [frame.artifact_update.artifact]
             elif kind == "task":
+                response_task_id = frame.task.id or response_task_id
+                response_context_id = frame.task.context_id or response_context_id
                 artifacts = list(frame.task.artifacts)
+            elif kind == "status_update":
+                response_task_id = frame.status_update.task_id or response_task_id
+                response_context_id = frame.status_update.context_id or response_context_id
             for art in artifacts:
                 for part in art.parts:
                     val = part_value(part)
@@ -93,8 +105,8 @@ async def mediate_seller_call(
             "offers": offers,
             "orders": orders,
             "order": orders[0] if orders else None,
-            "task_id": buyer_task_id,
-            "context_id": buyer_task_id,
+            "task_id": response_task_id,
+            "context_id": response_context_id,
         }
 
         resume_msg = make_message(

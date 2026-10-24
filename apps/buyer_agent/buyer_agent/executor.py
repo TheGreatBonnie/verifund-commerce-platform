@@ -159,6 +159,8 @@ class BuyerExecutor(AgentExecutor):
                     "card_url": interrupt_value.get("card_url"),
                     "kind": interrupt_value.get("kind"),
                     "request": interrupt_value.get("request"),
+                    "seller_task_id": interrupt_value.get("seller_task_id"),
+                    "seller_context_id": interrupt_value.get("seller_context_id"),
                     "message": interrupt_value.get("message", "Seller call required."),
                 }
             else:

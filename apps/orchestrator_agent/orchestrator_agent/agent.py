@@ -9,6 +9,27 @@ from orchestrator_agent.mediation import mediate_seller_call
 from orchestrator_agent.settings import Settings
 
 
+def _build_mediation_tool(settings: Settings) -> FunctionTool:
+    async def mediate_seller_call_tool(
+        buyer_task_id: str,
+        seller_card_url: str,
+        seller_request: dict | None = None,
+        seller_task_id: str | None = None,
+        seller_context_id: str | None = None,
+    ) -> dict:
+        """Call a seller and resume the buyer's checkpoint with its response."""
+        return await mediate_seller_call(
+            buyer_task_id=buyer_task_id,
+            seller_card_url=seller_card_url,
+            buyer_a2a_url=settings.buyer_a2a_url,
+            seller_request=seller_request,
+            seller_task_id=seller_task_id,
+            seller_context_id=seller_context_id,
+        )
+
+    return FunctionTool(mediate_seller_call_tool)
+
+
 def build_agent(settings: Settings) -> LlmAgent:
     model = LiteLlm(
         model=f"openai/{settings.nebius_model}",
@@ -19,7 +40,7 @@ def build_agent(settings: Settings) -> LlmAgent:
     return LlmAgent(
         name="MarketMeshOrchestrator",
         model=model,
-        tools=[FunctionTool(mediate_seller_call), AGUIToolset()],
+        tools=[_build_mediation_tool(settings), AGUIToolset()],
         instruction=(
             "You are the MarketMesh orchestrator. "
             "Use the MarketMesh Buyer A2A agent for sourcing, negotiation, ranking, and approval. "
@@ -30,6 +51,6 @@ def build_agent(settings: Settings) -> LlmAgent:
             '{"approval":{"approved":true,"approved_by":"Demo Buyer","note":"..."},"task_id":"..."}. '
             "When the user rejects, call MarketMesh Buyer with approved set to false. "
             "Call agents one at a time and wait for each result. "
-            "Use mediate_seller_call to handle buyer seller_call pauses; pass seller_card_url from the pause payload's card_url field. Do not pass seller_token (it is resolved automatically). Never call sellers directly from the prompt."
+            "Use mediate_seller_call to handle buyer seller_call pauses. Pass buyer_task_id from the pause's task_id, seller_card_url from card_url, seller_request from request, and seller_task_id and seller_context_id when present. The configured buyer URL is supplied internally. Do not pass seller_token (it is resolved automatically). Never call sellers directly from the prompt."
         ),
     )

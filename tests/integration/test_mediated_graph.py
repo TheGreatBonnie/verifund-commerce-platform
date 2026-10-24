@@ -39,6 +39,28 @@ async def test_mediated_graph_pauses_with_seller_call_reason(buyer_graph, fake_s
 
 
 @pytest.mark.asyncio
+async def test_malformed_seller_offer_does_not_crash_checkpointed_graph(buyer_graph, fake_services):
+    g = buyer_graph
+    c = cfg(fake_services, "run-malformed-offer")
+    await g.ainvoke(
+        {"messages": [HumanMessage(content="Buy 12 Nimbus NC-700 ANC headsets, budget $3400, 14 days, 24mo warranty, 30d returns.")], "stage": "new"},
+        config=c,
+    )
+    first = (await g.aget_state(c)).tasks[0].interrupts[0].value
+
+    await g.ainvoke(
+        Command(resume={"offers": [{"offer_id": "broken"}], "task_id": "seller-task", "context_id": "seller-context"}),
+        config=c,
+    )
+
+    resumed = await g.aget_state(c)
+    assert resumed.next == ("process_seller",)
+    next_pause = resumed.tasks[0].interrupts[0].value
+    assert next_pause["reason"] == "seller_call"
+    assert next_pause["seller_id"] != first["seller_id"]
+
+
+@pytest.mark.asyncio
 async def test_mediated_graph_reaches_approval(buyer_graph, fake_services):
     g = buyer_graph
     c = cfg(fake_services, "run-sc2")
@@ -66,9 +88,13 @@ async def test_mediated_graph_reaches_approval(buyer_graph, fake_services):
             rfq = RFQ.model_validate(req["payload"] if isinstance(req, dict) and "payload" in req else req)
             turn = await session.send_rfq(rfq, "run-sc2")
         elif kind == "counter":
+            assert iv["seller_task_id"] == session.task_id
+            assert iv["seller_context_id"] == "run-sc2"
             counter = CounterOffer(negotiation_round=2, target_unit_price_cents=25000, rationale="gate")
             turn = await session.send_counter(session.task_id or f"task-{seller_id}", "run-sc2", counter)
         elif kind == "accept":
+            assert iv["seller_task_id"] == session.task_id
+            assert iv["seller_context_id"] == "run-sc2"
             from commerce_core.contracts import AcceptOffer
             turn = await session.send_accept(session.task_id or f"task-{seller_id}", "run-sc2", AcceptOffer(offer_id=f"offer-{seller_id}-final-2", round=2, accepted_total_cents=1))
         else:

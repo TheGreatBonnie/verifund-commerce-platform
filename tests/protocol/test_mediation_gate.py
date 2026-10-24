@@ -76,6 +76,8 @@ async def test_gate_single_seller_call_round_trip(mediated_buyer_server, seller_
                     if isinstance(v, dict) and v.get("reason") == "seller_call":
                         seller_call = v
         assert seller_call is not None, "buyer did not pause with seller_call INPUT_REQUIRED"
+        assert seller_call["seller_task_id"] is None
+        assert seller_call["seller_context_id"] == "gate-1"
         task_id = seller_call["task_id"]
         seller_id = seller_call["seller_id"]
         assert seller_id == "northwind-audio"

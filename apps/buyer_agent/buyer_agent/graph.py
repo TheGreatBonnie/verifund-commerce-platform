@@ -479,6 +479,7 @@ async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
     trace: list[dict] = [{"type": "rfq_sent", "seller_id": seller_id}]
     error_message: str | None = None
     task_id = ""
+    seller_context_id = run_id
 
     # RFQ pause
     resumed = interrupt(
@@ -490,26 +491,24 @@ async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
             "request": wrap_payload("rfq", rfq),
             "run_id": run_id,
             "context_id": run_id,
+            "seller_task_id": None,
+            "seller_context_id": seller_context_id,
             "message": f"Seller call required for {seller_id}.",
         }
     )
     turn = _turn_from_resume(resumed)
     task_id = turn["task_id"] or rfq_request_id
+    seller_context_id = turn["context_id"] or seller_context_id
     if turn["error"]:
         error_message = turn["error"]
         trace.append({"type": "seller_error", "seller_id": seller_id, "reason": error_message})
     else:
         for offer in turn["offers"]:
-            trusted, err = _trusted_offer(offer if isinstance(offer, Offer) else Offer.model_validate(offer), mandate, endpoint, rfq_request_id)
-            # _trusted_offer expects Offer; convert
-            if isinstance(offer, dict):
-                try:
-                    offer_obj = Offer.model_validate(offer)
-                except Exception:
-                    offer_obj = None
-            else:
-                offer_obj = offer
-            if offer_obj is None:
+            try:
+                offer_obj = offer if isinstance(offer, Offer) else Offer.model_validate(offer)
+            except Exception as exc:  # noqa: BLE001
+                error_message = f"invalid offer: {exc}"
+                trace.append({"type": "protocol_error", "seller_id": seller_id, "reason": error_message})
                 continue
             trusted, err = _trusted_offer(offer_obj, mandate, endpoint, rfq_request_id)
             if err or trusted is None:
@@ -556,10 +555,14 @@ async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
                 "request": wrap_payload("counter_offer", counter),
                 "run_id": run_id,
                 "context_id": run_id,
+                "seller_task_id": task_id or None,
+                "seller_context_id": seller_context_id,
                 "message": f"Counteroffer required for {seller_id}.",
             }
         )
         turn = _turn_from_resume(resumed)
+        task_id = turn["task_id"] or task_id
+        seller_context_id = turn["context_id"] or seller_context_id
         if turn["error"]:
             error_message = turn["error"]
             trace.append({"type": "seller_error", "seller_id": seller_id, "reason": error_message})
@@ -681,6 +684,8 @@ async def _mediated_place_order(state: BuyerState, config: dict) -> dict:
                 "request": wrap_payload("accept_offer", accept),
                 "run_id": run_id,
                 "context_id": run_id,
+                "seller_task_id": task_id,
+                "seller_context_id": run_id,
                 "message": f"Acceptance required for {winner.seller_id}.",
             }
         )
@@ -699,6 +704,8 @@ async def _mediated_place_order(state: BuyerState, config: dict) -> dict:
             "request": wrap_payload("purchase_order", po),
             "run_id": run_id,
             "context_id": run_id,
+            "seller_task_id": None,
+            "seller_context_id": run_id,
             "message": f"Order required for {winner.seller_id}.",
         }
     )
