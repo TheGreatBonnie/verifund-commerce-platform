@@ -28,7 +28,7 @@
     "tracking_number": "MMTRK-CF-1001",
     "fulfillment": {
       "carrier": "MarketMesh Logistics",
-      "status": "confirmed"
+      "status": "reserved"
     }
   }
 }

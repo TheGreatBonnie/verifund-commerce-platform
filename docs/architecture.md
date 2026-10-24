@@ -7,6 +7,7 @@ MarketMesh is a set of processes with explicit ownership:
 | Service | Owns | Does not own |
 | --- | --- | --- |
 | Console | UI state, CopilotKit chat, approval presentation, trace/registry proxies | Prices, mandate validation, orders |
+| Orchestrator agent | AG-UI entrypoint, mediated buyer/seller coordination, seller-call resumption | Mandate validation, ranking, stock, order IDs |
 | Buyer agent | Mandate, discovery, negotiation orchestration, ranking, approval interrupt, purchase orders | Seller stock, seller cost floors |
 | Registry | Agent Card index, categories, card hashes, health | Negotiation, trust decisions, orders |
 | Seller agents | Catalog policy, quote generation, negotiation choices, stock, reservations, order IDs | Buyer budget, ranking, human approval |
@@ -21,7 +22,11 @@ No service shares an ORM session or database transaction with another.
 Browser
   │  AG-UI (messages, shared state, interrupts; streaming)
   ▼
-Next.js console ── proxy ──► Buyer FastAPI
+Next.js console ── proxy ──► Orchestrator FastAPI
+                                │
+                                │ mediates buyer and seller calls
+                                ▼
+                         Buyer FastAPI
                                 │
                                 │ A2A 1.x JSON-RPC over HTTP
                                 │ SendStreamingMessage → SSE frames
@@ -45,8 +50,8 @@ The buyer LangGraph graph has these nodes:
 interpret_brief
   → discover_sellers
   → plan_sourcing
-  → prepare_fanout
-  → negotiate_seller (fan-out, one A2A task per seller)
+  → prepare_mediated
+  → select_next_seller ↔ process_seller (mediated, one seller at a time)
   → rank_offers
   → await_approval (interrupt)
   → place_order ──┐
@@ -57,7 +62,7 @@ Key properties:
 
 - The brief is parsed by a planner but normalized against the `Mandate` schema.
 - Discovery validates Agent Cards independently of the registry.
-- Negotiation runs in parallel per seller, each in a private A2A task.
+- Negotiation runs per seller through mediated seller calls, with stable seller task and context IDs.
 - The RFQ never contains `max_total_cents`. A guardrail rejects any RFQ text that leaks the
   budget in dollars or cents.
 - Offers are revalidated: seller ID, request ID, recomputed line-item arithmetic, and
@@ -108,6 +113,7 @@ reservation.
 | --- | --- |
 | Buyer run summary and A2A trace frames | `data/buyer.db` |
 | LangGraph checkpoints and interrupt state | `data/buyer-checkpoints.db` |
+| Orchestrator ADK session state | In memory (not persisted) |
 | Agent Card index | `data/registry.db` |
 | Northwind policy state, offers, stock, orders | `data/northwind.db` |
 | CircuitForge policy state, offers, stock, orders | `data/circuitforge.db` |
