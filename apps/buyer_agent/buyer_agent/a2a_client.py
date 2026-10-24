@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from time import perf_counter
 
 import httpx
-from a2a.client import ClientConfig, ClientFactory
+from a2a.client import Client, ClientConfig, ClientFactory
 from a2a.types.a2a_pb2 import (
     CancelTaskRequest,
     Message,
@@ -29,7 +29,7 @@ from buyer_agent.registry_client import SellerEndpoint
 from buyer_agent.trace import TraceStore
 
 
-def create_client(card, config: ClientConfig):
+def create_client(card, config: ClientConfig) -> Client:
     return ClientFactory(config).create(card)
 
 
@@ -167,7 +167,7 @@ class A2ASellerSession:
             headers={"Authorization": f"Bearer {endpoint.token}"},
             timeout=httpx.Timeout(60.0, connect=5.0),
         )
-        self.client = None
+        self.client: Client | None = None
 
     async def open(self) -> A2ASellerSession:
         self.client = create_client(
@@ -182,6 +182,8 @@ class A2ASellerSession:
         await self.http.aclose()
 
     async def send(self, message: Message) -> A2ATurn:
+        if self.client is None:
+            raise RuntimeError("A2A session is not open")
         frames: list[StreamResponse] = []
         await self.trace.record_message(
             self.run_id, self.endpoint.seller_id, message
@@ -248,6 +250,8 @@ class A2ASellerSession:
         )
 
     async def cancel(self, task_id: str):
+        if self.client is None:
+            raise RuntimeError("A2A session is not open")
         return await self.client.cancel_task(
             CancelTaskRequest(id=task_id)
         )

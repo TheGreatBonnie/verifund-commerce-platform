@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 from commerce_core.contracts import RFQ, CounterOffer, Mandate, Offer
 from commerce_core.pricing import SellerPolicy
@@ -130,11 +130,14 @@ class NebiusSellerPlanner:
         ).with_structured_output(SellerDecision)
 
     async def decide(self, context: SellerDecisionContext) -> SellerDecision:
-        return await self.llm.ainvoke(
-            [
-                SystemMessage(content=SELLER_SYSTEM_PROMPT),
-                HumanMessage(content=context.model_dump_json()),
-            ]
+        return cast(
+            SellerDecision,
+            await self.llm.ainvoke(
+                [
+                    SystemMessage(content=SELLER_SYSTEM_PROMPT),
+                    HumanMessage(content=context.model_dump_json()),
+                ]
+            ),
         )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -8,6 +9,22 @@ from buyer_agent.a2a_client import SellerA2AClient
 from buyer_agent.registry_client import RegistryClient
 from buyer_agent.settings import Settings
 from buyer_agent.store import BuyerStore
+
+
+class BuyerServicesLike(Protocol):
+    """Service surface required to build the buyer app.
+
+    Production passes `BuyerServices`; tests inject duck-typed doubles.
+    """
+
+    @property
+    def registry(self) -> Any: ...
+
+    @property
+    def a2a(self) -> Any: ...
+
+    @property
+    def trace(self) -> Any: ...
 
 
 @dataclass

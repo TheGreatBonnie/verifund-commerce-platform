@@ -1,10 +1,14 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import (
     add_a2a_routes_to_fastapi,
     create_agent_card_routes,
     create_jsonrpc_routes,
 )
-from a2a.server.tasks import DatabaseTaskStore
+from a2a.server.tasks.database_task_store import DatabaseTaskStore
 from commerce_core.pricing import load_policy
 from fastapi import FastAPI
 from sqlalchemy import text
@@ -39,7 +43,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         task_store=task_store,
         agent_card=card,
     )
-    app = FastAPI(title=f"MarketMesh Seller — {policy.name}")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            await store.create_schema()
+            await store.seed_catalog(policy)
+            yield
+        finally:
+            await engine.dispose()
+
+    app = FastAPI(
+        title=f"MarketMesh Seller — {policy.name}", lifespan=lifespan
+    )
     app.state.settings = settings
     app.state.store = store
     app.state.policy = policy
@@ -68,15 +84,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             enable_v0_3_compat=True,
         ),
     )
-
-    @app.on_event("startup")
-    async def startup() -> None:
-        await store.create_schema()
-        await store.seed_catalog(policy)
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        await engine.dispose()
 
     @app.get("/health")
     async def health() -> dict[str, str]:

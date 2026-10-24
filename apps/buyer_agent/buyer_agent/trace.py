@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -138,7 +139,10 @@ class TraceStore:
                     latency_ms=latency_ms,
                 )
             )
-            event_id = result.inserted_primary_key[0]
+            inserted = result.inserted_primary_key
+            if inserted is None:
+                raise RuntimeError("Insert did not return a primary key")
+            event_id = int(inserted[0])
         return TraceEvent(
             id=event_id,
             run_id=run_id,
@@ -153,9 +157,10 @@ class TraceStore:
             latency_ms=latency_ms,
         )
 
+    # `builtins.list` keeps the annotation from resolving to this method name.
     async def list(
         self, run_id: str, after_seq: int = 0, limit: int = 200
-    ) -> list[TraceEvent]:
+    ) -> builtins.list[TraceEvent]:
         async with self.engine.connect() as conn:
             result = await conn.execute(
                 select(self.events)
@@ -278,7 +283,9 @@ class TraceStore:
             row = result.first()
             return dict(row._mapping) if row else None
 
-    async def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
+    async def list_runs(
+        self, limit: int = 50
+    ) -> builtins.list[dict[str, Any]]:
         async with self.engine.connect() as conn:
             result = await conn.execute(
                 select(self.runs)

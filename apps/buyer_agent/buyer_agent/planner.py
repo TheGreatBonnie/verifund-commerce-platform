@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 from commerce_core.contracts import (
     AwardPackage,
@@ -86,7 +86,7 @@ class ScriptedBuyerPlanner:
 
 class NebiusBuyerPlanner:
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        common = {
+        common: dict[str, Any] = {
             "api_key": api_key,
             "base_url": base_url,
             "model": model,
@@ -101,11 +101,14 @@ class NebiusBuyerPlanner:
         self.explain_llm = ChatOpenAI(**common)
 
     async def parse_brief(self, text: str) -> Mandate:
-        mandate = await self.brief_llm.ainvoke(
-            [
-                SystemMessage(content=BUYER_SYSTEM_PROMPT),
-                HumanMessage(content=text),
-            ]
+        mandate = cast(
+            Mandate,
+            await self.brief_llm.ainvoke(
+                [
+                    SystemMessage(content=BUYER_SYSTEM_PROMPT),
+                    HumanMessage(content=text),
+                ]
+            ),
         )
         # The registry indexes sellers under a small, fixed set of categories.
         # Keep the LLM from inventing a category that matches no seller.
@@ -120,18 +123,21 @@ class NebiusBuyerPlanner:
         allowed: list[int],
         round_number: int,
     ) -> CounterChoice:
-        return await self.counter_llm.ainvoke(
-            [
-                SystemMessage(content=BUYER_SYSTEM_PROMPT),
-                HumanMessage(
-                    content=(
-                        f"Allowed counter targets: {allowed}. "
-                        f"Round: {round_number}. Offer: "
-                        f"{offer.model_dump_json()}. Mandate: "
-                        f"{mandate.model_dump_json()}"
-                    )
-                ),
-            ]
+        return cast(
+            CounterChoice,
+            await self.counter_llm.ainvoke(
+                [
+                    SystemMessage(content=BUYER_SYSTEM_PROMPT),
+                    HumanMessage(
+                        content=(
+                            f"Allowed counter targets: {allowed}. "
+                            f"Round: {round_number}. Offer: "
+                            f"{offer.model_dump_json()}. Mandate: "
+                            f"{mandate.model_dump_json()}"
+                        )
+                    ),
+                ]
+            ),
         )
 
     async def explain_award(self, award: AwardPackage) -> str:

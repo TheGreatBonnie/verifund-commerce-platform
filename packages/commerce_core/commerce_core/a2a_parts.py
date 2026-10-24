@@ -2,7 +2,9 @@ import uuid
 
 from a2a.types.a2a_pb2 import Artifact, Message, Part, Role
 from google.protobuf import json_format
-from google.protobuf.struct_pb2 import Value
+
+# protobuf ships this generated module without type information.
+from google.protobuf.struct_pb2 import Value  # ty: ignore[unresolved-import]
 
 
 def data_part(envelope: dict) -> Part:

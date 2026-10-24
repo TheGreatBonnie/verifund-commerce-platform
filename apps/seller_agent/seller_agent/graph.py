@@ -456,7 +456,8 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
 
 
 def build_graph():
-    builder = StateGraph(SellerState)
+    # ty cannot match TypedDicts against langgraph's StateLike protocol bound.
+    builder = StateGraph(SellerState)  # ty: ignore[invalid-argument-type]
     builder.add_node("classify", classify)
     builder.add_node("prepare", prepare)
     builder.add_node("decide", decide)

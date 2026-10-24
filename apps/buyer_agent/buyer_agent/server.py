@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import (
     add_a2a_routes_to_fastapi,
     create_agent_card_routes,
     create_jsonrpc_routes,
 )
-from a2a.server.tasks import DatabaseTaskStore
+from a2a.server.tasks.database_task_store import DatabaseTaskStore
 from ag_ui_langgraph import LangGraphAgent, add_langgraph_fastapi_endpoint
 from commerce_core.db import configure_sqlite
 from fastapi import FastAPI
@@ -17,14 +19,14 @@ from buyer_agent.card import build_buyer_agent_card
 from buyer_agent.executor import BuyerExecutor
 from buyer_agent.graph import build_buyer_graph
 from buyer_agent.planner import select_buyer_planner
-from buyer_agent.services import BuyerServices, build_services
+from buyer_agent.services import BuyerServicesLike, build_services
 from buyer_agent.settings import Settings
 
 
 def create_app(
     settings: Settings,
     checkpointer,
-    services: BuyerServices | None = None,
+    services: BuyerServicesLike | None = None,
 ) -> FastAPI:
     owns_services = services is None
     engine = getattr(services, "engine", None) if services is not None else None
@@ -43,7 +45,22 @@ def create_app(
         checkpointer=checkpointer,
         planner=planner,
     )
-    app = FastAPI(title="MarketMesh Buyer")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            await configure_sqlite(engine)
+            store = getattr(services, "store", None)
+            if store is not None:
+                await store.create_schema()
+            yield
+        finally:
+            registry = getattr(services, "registry", None)
+            if owns_services and registry is not None:
+                await registry.close()
+            await engine.dispose()
+
+    app = FastAPI(title="MarketMesh Buyer", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine
     app.state.services = services
@@ -87,19 +104,5 @@ def create_app(
         path="/agui",
     )
     app.include_router(console_api.router)
-
-    @app.on_event("startup")
-    async def startup() -> None:
-        await configure_sqlite(engine)
-        store = getattr(services, "store", None)
-        if store is not None:
-            await store.create_schema()
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        registry = getattr(services, "registry", None)
-        if owns_services and registry is not None:
-            await registry.close()
-        await engine.dispose()
 
     return app

@@ -61,8 +61,6 @@ async def test_gate_single_seller_call_round_trip(mediated_buyer_server, seller_
             obj = f.task if kind == "task" else (f.status_update if kind == "status_update" else None)
             if obj is None:
                 continue
-            for p in getattr(obj.status, "message", None).parts if hasattr(obj, "status") else []:
-                pass
             # inspect status message parts
             status_msg = obj.status.message if hasattr(obj, "status") else None
             if status_msg is None:

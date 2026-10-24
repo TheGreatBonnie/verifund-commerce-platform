@@ -928,7 +928,8 @@ async def finalize(state: BuyerState, config: dict) -> dict:
 
 def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
     default_planner = planner or ScriptedBuyerPlanner()
-    builder = StateGraph(BuyerState)
+    # ty cannot match TypedDicts against langgraph's StateLike protocol bound.
+    builder = StateGraph(BuyerState)  # ty: ignore[invalid-argument-type]
 
     async def _interpret(state, config):
         return await interpret_brief(state, config)

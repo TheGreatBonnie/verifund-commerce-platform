@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from commerce_core.contracts import (
@@ -13,7 +14,7 @@ from pydantic import ValidationError
 
 def make_offer(**overrides):
     now = datetime.now(UTC)
-    data = dict(  # noqa: C408
+    data: dict[str, Any] = dict(  # noqa: C408
         offer_id="offer-1",
         request_id="rfq-1",
         seller_id="northwind-audio",

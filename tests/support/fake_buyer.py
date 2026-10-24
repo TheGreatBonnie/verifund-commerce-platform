@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, TypedDict
 
 from a2a.types.a2a_pb2 import TaskState
 from buyer_agent.a2a_client import A2ATurn
@@ -38,7 +38,19 @@ def make_card(name: str, port: int, rating: float, sustainable: bool):
     return json_format.ParseDict(raw, build_test_card().__class__())
 
 
-SELLER_SPECS = {
+class SellerSpec(TypedDict):
+    name: str
+    port: int
+    rating: float
+    sustainable: bool
+    initial: int
+    final: int
+    delivery: int
+    warranty: int
+    returns: int
+
+
+SELLER_SPECS: dict[str, SellerSpec] = {
     "northwind-audio": {
         "name": "Northwind Audio",
         "port": 9201,
@@ -82,7 +94,7 @@ def _offer(
     unit_price_cents: int,
     status: OfferStatus,
     round_number: int,
-    spec: dict[str, Any],
+    spec: SellerSpec,
 ) -> Offer:
     quantity = 12
     line_item = OfferLineItem(

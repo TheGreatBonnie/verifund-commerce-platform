@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from commerce_core.cards import fetch_agent_card, validate_agent_card
@@ -57,7 +58,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     engine = create_async_engine(settings.database_url)
     store = RegistryStore(engine)
-    app = FastAPI(title="MarketMesh Registry")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            await store.create_schema()
+            yield
+        finally:
+            await engine.dispose()
+
+    app = FastAPI(title="MarketMesh Registry", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine
     app.state.store = store
@@ -74,14 +84,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, exc: HTTPException) -> JSONResponse:
         return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
-
-    @app.on_event("startup")
-    async def startup() -> None:
-        await store.create_schema()
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        await engine.dispose()
 
     @app.get("/health")
     async def health() -> dict[str, str]:

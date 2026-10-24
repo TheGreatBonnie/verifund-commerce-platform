@@ -68,6 +68,8 @@ class SellerExecutor(AgentExecutor):
     ) -> None:
         task_id, context_id = await self._start_task(context, event_queue)
         try:
+            if context.message is None:
+                raise ValueError("Seller request is missing a message.")
             turn = await self.service.handle_turn(
                 task_id, context_id, context.message
             )
