@@ -2640,7 +2640,9 @@
 .mm-sidebar {
   flex: 0 0 220px;
   width: 220px;
-  min-height: 100dvh;
+  height: 100dvh;
+  position: sticky;
+  top: 0;
   padding: 18px 14px;
   border-right: 1px solid var(--rule-strong);
   background: var(--panel);
