@@ -28,6 +28,7 @@ type ChatProps = {
   isRunning: boolean;
   isReady: boolean;
   onBuyerStateUpdate?: (state: BuyerState) => void;
+  variant?: "rail" | "embedded";
 };
 
 const SAMPLE_PROMPT =
@@ -105,7 +106,13 @@ function responseSummary(rawResult: string) {
   }
 }
 
-export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: ChatProps) {
+export function Chat({
+  onRunSample,
+  isRunning,
+  isReady,
+  onBuyerStateUpdate,
+  variant = "rail",
+}: ChatProps) {
   const { agent } = useAgent({ agentId: "a2a_chat" });
 
   useRenderTool({
@@ -214,35 +221,39 @@ export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: Ch
   });
 
   return (
-    <div className="mm-chat">
-      <header className="mm-rail-head">
-        <div>
-          <p className="mm-kicker">Buyer agent · AG-UI</p>
-          <h1>Brief desk</h1>
-        </div>
-        <span className="mm-agent-badge">
-          <span className="mm-live-dot is-live" aria-hidden="true" /> Live
-        </span>
-      </header>
+    <div className={`mm-chat ${variant === "embedded" ? "mm-chat-embedded" : ""}`}>
+      {variant === "rail" ? (
+        <>
+          <header className="mm-rail-head">
+            <div>
+              <p className="mm-kicker">Buyer agent · AG-UI</p>
+              <h1>Brief desk</h1>
+            </div>
+            <span className="mm-agent-badge">
+              <span className="mm-live-dot is-live" aria-hidden="true" /> Live
+            </span>
+          </header>
 
-      <div className="mm-sample-brief">
-        <div className="mm-sample-top">
-          <span className="mm-kicker">
-            <Sparkles size={12} aria-hidden="true" /> Demo mandate
-          </span>
-          <span className="mm-mono-note">consumer electronics</span>
-        </div>
-        <p>{SAMPLE_PROMPT}</p>
-        <button
-          type="button"
-          className="mm-button mm-button-ink"
-          onClick={onRunSample}
-          disabled={isRunning || !isReady}
-        >
-          {isRunning ? "Agents working…" : "Run sample brief"}
-          <ArrowUpRight size={14} aria-hidden="true" />
-        </button>
-      </div>
+          <div className="mm-sample-brief">
+            <div className="mm-sample-top">
+              <span className="mm-kicker">
+                <Sparkles size={12} aria-hidden="true" /> Demo mandate
+              </span>
+              <span className="mm-mono-note">consumer electronics</span>
+            </div>
+            <p>{SAMPLE_PROMPT}</p>
+            <button
+              type="button"
+              className="mm-button mm-button-ink"
+              onClick={onRunSample}
+              disabled={isRunning || !isReady}
+            >
+              {isRunning ? "Agents working…" : "Run sample brief"}
+              <ArrowUpRight size={14} aria-hidden="true" />
+            </button>
+          </div>
+        </>
+      ) : null}
 
       <div className="mm-chat-surface">
         <CopilotChat

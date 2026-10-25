@@ -6,7 +6,6 @@ import { ArrowLeft, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chat } from "@/features/chat/chat";
 import { shortId, stageLabel } from "@/lib/format";
-import { ApprovalCard } from "./components/approval-card";
 import { RunDetailWorkspace } from "./components/run-detail-workspace";
 import { StageStepper } from "./components/stage-stepper";
 import { useRunDetail } from "./hooks/use-run-detail";
@@ -14,16 +13,6 @@ import { useRunDetail } from "./hooks/use-run-detail";
 export function RunDetail({ runId }: { runId: string }) {
   const router = useRouter();
   const detail = useRunDetail(runId);
-  const approvalElement =
-    detail.state.status === "approval_required" ? (
-      <ApprovalCard
-        award={detail.award}
-        mandate={detail.mandate}
-        message={detail.state.message}
-        onApprove={(note) => detail.sendApproval(true, note)}
-        onReject={(note) => detail.sendApproval(false, note)}
-      />
-    ) : null;
 
   const handleNewRun = () => {
     if (detail.isRunning) return;
@@ -55,34 +44,35 @@ export function RunDetail({ runId }: { runId: string }) {
 
       <StageStepper stage={detail.stage} />
 
-      <div className="mm-run-detail-grid">
-        <aside className="mm-chat-rail" aria-label="Buyer chat">
+      <RunDetailWorkspace
+        state={detail.state}
+        runId={runId}
+        isReady={detail.isReady}
+        isRunning={detail.isRunning}
+        onRunSample={() => void detail.startRun()}
+        conversation={
           <Chat
+            variant="embedded"
             onRunSample={() => void detail.startRun()}
             isRunning={detail.isRunning}
             isReady={detail.isReady}
             onBuyerStateUpdate={detail.onBuyerStateUpdate}
           />
-          {approvalElement ? (
-            <div className="mm-chat-approval">{approvalElement}</div>
-          ) : null}
-        </aside>
-
-        <RunDetailWorkspace
-          state={detail.state}
-          runError={detail.runError}
-          onClearRunError={detail.clearRunError}
-          sellerFilter={detail.sellerFilter}
-          onSellerFilterChange={detail.setSellerFilter}
-          onViewWire={detail.onViewWire}
-          events={detail.events}
-          traceError={detail.traceError}
-          registry={detail.registry}
-          registryLoading={detail.registryLoading}
-          registryError={detail.registryError}
-          onRefreshRegistry={() => void detail.refreshRegistry()}
-        />
-      </div>
+        }
+        runError={detail.runError}
+        onClearRunError={detail.clearRunError}
+        sellerFilter={detail.sellerFilter}
+        onSellerFilterChange={detail.setSellerFilter}
+        onViewWire={detail.onViewWire}
+        onApprove={(note) => detail.sendApproval(true, note)}
+        onReject={(note) => detail.sendApproval(false, note)}
+        events={detail.events}
+        traceError={detail.traceError}
+        registry={detail.registry}
+        registryLoading={detail.registryLoading}
+        registryError={detail.registryError}
+        onRefreshRegistry={() => void detail.refreshRegistry()}
+      />
     </div>
   );
 }

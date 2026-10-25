@@ -163,10 +163,6 @@ export function useRunDetail(routeRunId: string) {
 
   const onViewWire = useCallback((sellerId: string) => {
     setSellerFilter(sellerId);
-    document.getElementById("a2a-wire")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
   }, []);
 
   const clearRunError = useCallback(() => setRunError(null), []);
