@@ -21,9 +21,6 @@ const model =
     ? "DeepSeek V4.1 Flash"
     : "Scripted demo";
 
-const AGENT_PROMO_BRIEF =
-  "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
-
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -33,11 +30,11 @@ export function Sidebar() {
   const openAgent = () => {
     const threadId = crypto.randomUUID();
     try {
-      window.sessionStorage.setItem("marketmesh:pendingBrief", AGENT_PROMO_BRIEF);
+      window.sessionStorage.removeItem("marketmesh:pendingBrief");
     } catch {
-      // Continue to the run page if session storage is unavailable.
+      // A fresh agent workspace can still open when session storage is unavailable.
     }
-    router.push(`/runs/${threadId}`);
+    router.push(`/agents/${threadId}`);
   };
 
   useEffect(() => {
