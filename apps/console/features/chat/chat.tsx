@@ -121,6 +121,7 @@ export function Chat({
 
   useHumanInTheLoop(
     {
+      agentId: "a2a_chat",
       name: "request_award_approval",
       description:
         "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the award and task ID from that Buyer response without changing them.",
