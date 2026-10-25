@@ -64,6 +64,22 @@ export default function Home() {
     router.push(`/runs/${threadId}`);
   };
 
+  const runProductBrief = (product: (typeof products)[number]) => {
+    const brief = [
+      `Find and negotiate the best terms for one ${product.name}.`,
+      `Product details: ${product.desc}.`,
+      `Use the listed price of $${product.price.toLocaleString("en-US")} as my target budget.`,
+      "Compare sellers, delivery, warranty, and returns. Do not place an order without my approval.",
+    ].join(" ");
+
+    try {
+      window.sessionStorage.setItem("marketmesh:pendingBrief", brief);
+    } catch {
+      // Open the fresh agent run even if session storage is unavailable.
+    }
+    router.push(`/agents/${crypto.randomUUID()}`);
+  };
+
   return (
     <div className="mm-home mm-home-dashboard">
       <Panel className="mm-dashboard-hero">
@@ -210,8 +226,8 @@ export default function Home() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mm-product-action"
-                  onClick={runSample}
+                  className="mm-product-action mm-button-signal"
+                  onClick={() => runProductBrief(product)}
                   leftIcon={<Handshake size={13} aria-hidden="true" />}
                 >
                   Ask agent

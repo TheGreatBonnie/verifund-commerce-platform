@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowRight, Bot, LayoutDashboard, History, MessageCircle, Store, Settings, HelpCircle } from "lucide-react";
+import { ArrowRight, Bot, LayoutDashboard, History, MessageCircle, ShoppingBag, Store, Settings, HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchRegistry } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 
 const NAV = [
   { href: "/", label: "Home", icon: LayoutDashboard },
+  { href: "/marketplace", label: "Marketplace", icon: ShoppingBag },
   { href: "/runs", label: "Runs", icon: History },
   { href: "/sellers", label: "Sellers", icon: Store },
   { href: "/settings", label: "Settings", icon: Settings },
