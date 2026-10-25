@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -90,3 +91,22 @@ async def get_trace(
         run_id, after_seq=max(0, after_seq), limit=max(1, min(limit, 500))
     )
     return [asdict(event) for event in events]
+
+
+@router.get("/api/sellers/{seller_id}/dashboard")
+async def get_seller_dashboard(seller_id: str, request: Request) -> dict:
+    settings = request.app.state.settings
+    expected = settings.console_api_token
+    provided = request.headers.get("x-marketmesh-console-token", "")
+    if not expected or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    registry = getattr(_services(request), "registry", None)
+    if registry is None:
+        raise HTTPException(status_code=503, detail="seller registry unavailable")
+    try:
+        return await registry.fetch_seller_dashboard(seller_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="seller dashboard unavailable") from exc

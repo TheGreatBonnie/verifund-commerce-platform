@@ -62,3 +62,7 @@ class Settings(BaseSettings):
             "BUYER_SELLER_TOKENS", "SELLER_TOKENS"
         ),
     )
+    console_api_token: str = Field(
+        default="dev-console",
+        validation_alias=AliasChoices("BUYER_CONSOLE_API_TOKEN"),
+    )

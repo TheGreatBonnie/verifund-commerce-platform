@@ -140,6 +140,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ]
         }
 
+    @app.get("/v1/sellers/{seller_id}")
+    async def get_seller(seller_id: str) -> dict[str, Any]:
+        row = await store.get(seller_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="seller not found")
+        return _seller_view(row, include_card=True)
+
     @app.post("/v1/discover")
     async def discover(body: DiscoverRequest) -> dict[str, Any]:
         rows = await store.discover(

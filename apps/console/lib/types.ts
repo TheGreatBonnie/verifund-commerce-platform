@@ -147,7 +147,10 @@ export type RegistrySeller = {
   healthy: boolean;
   last_error: string | null;
   card_json?: {
+    name?: string;
+    description?: string;
     version?: string;
+    provider?: { organization?: string; url?: string };
     supportedInterfaces?: Array<{
       url?: string;
       protocolBinding?: string;
@@ -155,8 +158,62 @@ export type RegistrySeller = {
     }>;
     capabilities?: {
       streaming?: boolean;
+      pushNotifications?: boolean;
       extensions?: Array<{ uri?: string; required?: boolean }>;
     };
+    skills?: Array<{
+      id?: string;
+      name?: string;
+      description?: string;
+      tags?: string[];
+      inputModes?: string[];
+      outputModes?: string[];
+    }>;
+    defaultInputModes?: string[];
+    defaultOutputModes?: string[];
     securitySchemes?: Record<string, unknown>;
   };
+};
+
+export type SellerDashboard = {
+  seller_id: string;
+  pricing: {
+    product_name: string;
+    sku: string;
+    currency: string;
+    list_unit_price_cents: number;
+    base_warranty_months: number;
+    warranty_addons_cents: Record<string, number>;
+    returns_days: number;
+    delivery_days: number;
+    rating: number;
+    sustainability_certified: boolean;
+  };
+  stock: {
+    on_hand: number;
+    incoming: number;
+    incoming_days: number | null;
+  };
+  recent_offers: Array<{
+    created_at: string;
+    offer: {
+      offer_id: string;
+      status: string;
+      currency: string;
+      total_cents: number;
+      line_items: Array<Pick<OfferLineItem, "quantity" | "name">>;
+    };
+  }>;
+  recent_orders: Array<{
+    created_at: string;
+    order: {
+      order_id: string;
+      status: string;
+      currency: string;
+      quantity: number;
+      total_cents: number;
+      eta: string;
+      fulfillment: { status: string };
+    };
+  }>;
 };

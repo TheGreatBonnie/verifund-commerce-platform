@@ -288,6 +288,9 @@ def buyer_environment(mode: str) -> dict[str, str]:
             "BUYER_DATABASE_URL": _buyer_database(),
             "BUYER_CHECKPOINT_PATH": _checkpoint_path(),
             "BUYER_SELLER_TOKENS": seller_tokens_json(),
+            "BUYER_CONSOLE_API_TOKEN": _env_value(
+                "BUYER_CONSOLE_API_TOKEN", "dev-console"
+            ),
             "ALLOWED_CARD_HOSTS": _env_value(
                 "ALLOWED_CARD_HOSTS",
                 '["127.0.0.1","localhost","northwind","circuitforge","aurora"]',
@@ -322,6 +325,9 @@ def console_environment(mode: str) -> dict[str, str]:
         {
             "BUYER_AGUI_URL": buyer_agui_url(),
             "BUYER_API_URL": buyer_url(),
+            "BUYER_CONSOLE_API_TOKEN": _env_value(
+                "BUYER_CONSOLE_API_TOKEN", "dev-console"
+            ),
             "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
             "REGISTRY_URL": registry_url(),
             "NEXT_TELEMETRY_DISABLED": "1",

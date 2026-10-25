@@ -172,6 +172,40 @@ class SellerStore:
                 incoming_days=row.incoming_days,
             )
 
+    async def list_offers(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.offers)
+                .order_by(self.offers.c.created_at.desc())
+                .limit(max(1, min(limit, 100)))
+            )
+            return [
+                {
+                    "created_at": row.created_at,
+                    "offer": Offer.model_validate(row.offer_json).model_dump(
+                        mode="json"
+                    ),
+                }
+                for row in result
+            ]
+
+    async def list_orders(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.orders)
+                .order_by(self.orders.c.created_at.desc())
+                .limit(max(1, min(limit, 100)))
+            )
+            return [
+                {
+                    "created_at": row.created_at,
+                    "order": Order.model_validate(row.order_json).model_dump(
+                        mode="json"
+                    ),
+                }
+                for row in result
+            ]
+
     async def set_stock(
         self,
         sku: str,

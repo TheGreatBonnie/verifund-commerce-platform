@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from commerce_core.cards import (
@@ -101,6 +102,39 @@ class RegistryClient:
             self._endpoints[seller_id] = endpoint
             endpoints.append(endpoint)
         return endpoints
+
+    async def fetch_seller_dashboard(self, seller_id: str) -> dict[str, Any]:
+        response = await self.http.get(
+            f"{self.registry_url}/v1/sellers/{quote(seller_id, safe='')}"
+        )
+        if response.status_code == 404:
+            raise LookupError(f"seller {seller_id!r} is not registered")
+        response.raise_for_status()
+        seller = response.json()
+        token = self.seller_tokens.get(seller_id)
+        if not token:
+            raise RuntimeError(f"missing buyer credential for seller {seller_id}")
+
+        card = await fetch_agent_card(
+            seller["card_url"],
+            client=self.http,
+            allowed_hosts=self.allowed_card_hosts,
+        )
+        errors = validate_agent_card(card)
+        if errors:
+            raise RuntimeError("seller Agent Card is invalid: " + "; ".join(errors))
+
+        dashboard_url = str(
+            httpx.URL(seller["card_url"]).copy_with(
+                path="/api/console/dashboard", query=None, fragment=None
+            )
+        )
+        dashboard = await self.http.get(
+            dashboard_url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        dashboard.raise_for_status()
+        return dashboard.json()
 
     async def _trace_invalid(
         self, result: dict[str, Any], reason: str

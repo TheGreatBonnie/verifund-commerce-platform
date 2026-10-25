@@ -9,6 +9,7 @@ export function useRegistry() {
   return {
     sellers: q.data ?? [],
     isLoading: q.isLoading,
+    isRefreshing: q.isFetching,
     error: q.error ? "Registry offline — Agent Cards unavailable." : null,
     refresh: () => qc.invalidateQueries({ queryKey: ["registry"] }),
   };

@@ -95,4 +95,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await conn.execute(text("SELECT 1"))
         return {"status": "ready"}
 
+    @app.get("/api/console/dashboard")
+    async def console_dashboard() -> dict:
+        stock = await store.get_stock(policy.sku)
+        offers = await store.list_offers(limit=20)
+        orders = await store.list_orders(limit=20)
+        return {
+            "seller_id": policy.seller_id,
+            "pricing": {
+                "product_name": policy.product_name,
+                "sku": policy.sku,
+                "currency": "USD",
+                "list_unit_price_cents": policy.list_unit_price_cents,
+                "base_warranty_months": policy.base_warranty_months,
+                "warranty_addons_cents": policy.warranty_addons_cents,
+                "returns_days": policy.returns_days,
+                "delivery_days": policy.delivery_days,
+                "rating": policy.rating,
+                "sustainability_certified": policy.sustainability_certified,
+            },
+            "stock": {
+                "on_hand": stock.on_hand,
+                "incoming": stock.incoming,
+                "incoming_days": stock.incoming_days,
+            },
+            "recent_offers": [
+                {
+                    "created_at": item["created_at"],
+                    "offer": {
+                        "offer_id": offer["offer_id"],
+                        "status": offer["status"],
+                        "currency": offer["currency"],
+                        "total_cents": offer["total_cents"],
+                        "line_items": [
+                            {"quantity": line["quantity"], "name": line["name"]}
+                            for line in offer["line_items"]
+                        ],
+                    },
+                }
+                for item in offers
+                for offer in [item["offer"]]
+            ],
+            "recent_orders": [
+                {
+                    "created_at": item["created_at"],
+                    "order": {
+                        "order_id": order["order_id"],
+                        "status": order["status"],
+                        "currency": order["currency"],
+                        "quantity": order["quantity"],
+                        "total_cents": order["total_cents"],
+                        "eta": order["eta"],
+                        "fulfillment": {"status": order["fulfillment"]["status"]},
+                    },
+                }
+                for item in orders
+                for order in [item["order"]]
+            ],
+        }
+
     return app

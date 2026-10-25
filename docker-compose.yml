@@ -128,6 +128,7 @@ services:
       REGISTRY_URL: http://registry:9105
       BUYER_DATABASE_URL: sqlite+aiosqlite:////app/data/buyer.db
       BUYER_CHECKPOINT_PATH: /app/data/buyer-checkpoints.db
+      BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
       ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora"]'
       BUYER_SELLER_TOKENS: '{"northwind-audio":"${SELLER_NORTHWIND_TOKEN:-dev-northwind}","circuitforge":"${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}","aurora-supply":"${SELLER_AURORA_TOKEN:-dev-aurora}"}'
     ports:
@@ -174,6 +175,7 @@ services:
     environment:
       BUYER_AGUI_URL: http://buyer:9100/agui
       BUYER_API_URL: http://buyer:9100
+      BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       REGISTRY_URL: http://registry:9105
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
