@@ -686,6 +686,17 @@
   padding: 0 16px 16px;
 }
 
+.mm-chat-approval-pending,
+.mm-chat-approval-result {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* Keep A2A routing labels from squeezing the message text in the chat rail. */
 .a2a-message-card {
   container-type: inline-size;

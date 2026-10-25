@@ -75,8 +75,6 @@ export function RunDetail({
         sellerFilter={detail.sellerFilter}
         onSellerFilterChange={detail.setSellerFilter}
         onViewWire={detail.onViewWire}
-        onApprove={(note) => detail.sendApproval(true, note)}
-        onReject={(note) => detail.sendApproval(false, note)}
         events={detail.events}
         traceError={detail.traceError}
         registry={detail.registry}

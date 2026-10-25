@@ -4,11 +4,13 @@ import { useEffect } from "react";
 import {
   CopilotChat,
   useAgent,
+  useHumanInTheLoop,
   useFrontendTool,
   useRenderTool,
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
+import { ApprovalCard } from "@/features/deal-room/components/approval-card";
 import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
 import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
 
@@ -114,6 +116,78 @@ export function Chat({
   variant = "rail",
 }: ChatProps) {
   const { agent } = useAgent({ agentId: "a2a_chat" });
+
+  useHumanInTheLoop(
+    {
+      name: "request_award_approval",
+      description:
+        "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the award and task ID from that Buyer response without changing them.",
+      parameters: z.object({
+        task_id: z.string(),
+        message: z.string(),
+        award: z.record(z.unknown()),
+        mandate: z.record(z.unknown()).optional(),
+      }),
+      render: ({ args, status, respond, result }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval-pending" role="status">
+              Preparing the award for your review…
+            </div>
+          );
+        }
+
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <ApprovalCard
+                award={args.award as any}
+                mandate={args.mandate as any}
+                message={args.message}
+                onApprove={(note) =>
+                  respond({
+                    approved: true,
+                    approved_by: "Demo Buyer",
+                    note,
+                    task_id: args.task_id,
+                  })
+                }
+                onReject={(note) =>
+                  respond({
+                    approved: false,
+                    approved_by: "Demo Buyer",
+                    note,
+                    task_id: args.task_id,
+                  })
+                }
+              />
+            </div>
+          );
+        }
+
+        if (status === "complete") {
+          let decision: { approved?: boolean } | null = null;
+          try {
+            decision = JSON.parse(result) as { approved?: boolean };
+          } catch {
+            // Keep the completed approval item visible if the result is malformed.
+          }
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              {decision?.approved === true
+                ? "Award approved. The Buyer is completing the order."
+                : decision?.approved === false
+                  ? "Award rejected. No order will be placed."
+                  : "Your decision was recorded. The Buyer is continuing."}
+            </p>
+          );
+        }
+
+        return null;
+      },
+    },
+    [],
+  );
 
   useRenderTool({
     name: "mediate_seller_call",

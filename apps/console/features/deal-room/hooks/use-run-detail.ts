@@ -121,33 +121,6 @@ export function useRunDetail(routeRunId: string) {
     setBuyerState((current) => ({ ...current, ...next }));
   }, []);
 
-  const sendApproval = useCallback(
-    async (approved: boolean, note: string) => {
-      const payload = {
-        approval: { approved, approved_by: "Demo Buyer", note },
-        task_id: buyerState.task_id ?? routeRunId,
-      };
-      agent.addMessage({
-        id: crypto.randomUUID(),
-        role: "user",
-        content: `MarketMesh approval response: ${JSON.stringify(payload)}`,
-      });
-      setIsRunning(true);
-      try {
-        await agent.runAgent();
-      } catch (error) {
-        setRunError(
-          error instanceof Error
-            ? error.message
-            : "The approval could not be submitted.",
-        );
-      } finally {
-        setIsRunning(false);
-      }
-    },
-    [agent, buyerState.task_id, routeRunId],
-  );
-
   const resetForRun = useCallback(
     (nextRunId: string) => {
       agent.threadId = nextRunId;
@@ -184,7 +157,6 @@ export function useRunDetail(routeRunId: string) {
     sellerFilter,
     setSellerFilter,
     onViewWire,
-    sendApproval,
     events,
     traceError,
     registry,

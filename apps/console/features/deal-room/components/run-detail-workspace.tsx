@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   Truck,
 } from "lucide-react";
-import { ApprovalCard } from "./approval-card";
 import { A2AWire } from "./a2a-wire";
 import { NegotiationFeed } from "./negotiation-feed";
 import { NegotiationSession } from "./negotiation-session";
@@ -31,8 +30,6 @@ type RunDetailWorkspaceProps = {
   sellerFilter: string;
   onSellerFilterChange: (sellerId: string) => void;
   onViewWire: (sellerId: string) => void;
-  onApprove: (note: string) => Promise<void>;
-  onReject: (note: string) => Promise<void>;
   events: TraceEvent[];
   traceError: string | null;
   registry: RegistrySeller[];
@@ -75,8 +72,6 @@ export function RunDetailWorkspace({
   sellerFilter,
   onSellerFilterChange,
   onViewWire,
-  onApprove,
-  onReject,
   events,
   traceError,
   registry,
@@ -90,16 +85,6 @@ export function RunDetailWorkspace({
   const negotiations = state.negotiations ?? [];
   const sellers = state.sellers ?? [];
   const stage = state.stage ?? "new";
-  const approvalElement = state.status === "approval_required" || stage === "awaiting_approval" ? (
-    <ApprovalCard
-      award={award}
-      mandate={mandate}
-      message={state.message}
-      onApprove={onApprove}
-      onReject={onReject}
-    />
-  ) : null;
-
   const logs = (
     <A2AWire
       events={events}
@@ -183,8 +168,7 @@ export function RunDetailWorkspace({
         ) : null}
       </main>
 
-      <aside className="mm-negotiation-sidebar" aria-label="Approval, order, and escrow details">
-        {approvalElement ? <div className="mm-deal-approval">{approvalElement}</div> : null}
+      <aside className="mm-negotiation-sidebar" aria-label="Order and escrow details">
         <OrderPanel state={state} />
         <EscrowGuide />
         <RegistryPanel
