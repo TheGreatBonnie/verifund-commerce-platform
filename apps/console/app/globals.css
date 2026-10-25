@@ -2822,6 +2822,13 @@
   margin: 0 auto;
 }
 
+.mm-run-detail-fill {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 48px);
+  min-height: 0;
+}
+
 .mm-run-detail-header {
   display: flex;
   align-items: center;
@@ -2881,6 +2888,17 @@
   margin-top: 16px;
 }
 
+.mm-run-detail-fill .mm-negotiation-layout {
+  flex: 1 1 auto;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.mm-run-detail-fill .mm-negotiation-main {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .mm-negotiation-main,
 .mm-negotiation-sidebar {
   display: flex;
@@ -2908,6 +2926,12 @@
   border-top: 3px solid var(--ink);
   border-radius: var(--radius);
   background: var(--panel);
+}
+
+.mm-run-detail-fill .mm-run-session {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
 }
 
 .mm-run-session-header {

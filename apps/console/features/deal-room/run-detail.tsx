@@ -14,10 +14,12 @@ export function RunDetail({
   runId,
   showNegotiationTimeline = true,
   showStageStepper = true,
+  fillViewport = false,
 }: {
   runId: string;
   showNegotiationTimeline?: boolean;
   showStageStepper?: boolean;
+  fillViewport?: boolean;
 }) {
   const router = useRouter();
   const detail = useRunDetail(runId);
@@ -30,7 +32,7 @@ export function RunDetail({
   };
 
   return (
-    <div className="mm-run-detail">
+    <div className={`mm-run-detail${fillViewport ? " mm-run-detail-fill" : ""}`}>
       <header className="mm-run-detail-header">
         <div className="mm-run-detail-title">
           <Link href="/runs" className="mm-run-back-link">

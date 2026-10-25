@@ -14,6 +14,7 @@ export default function AgentRunPage() {
       runId={runId}
       showNegotiationTimeline={false}
       showStageStepper={false}
+      fillViewport
     />
   );
 }
