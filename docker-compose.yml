@@ -153,6 +153,9 @@ services:
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       BUYER_A2A_URL: http://buyer:9100
       SELLER_URLS: http://northwind:9201,http://circuitforge:9202,http://aurora:9203
+      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
+      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
+      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
     ports:
       - "127.0.0.1:9000:9000"
     healthcheck:
@@ -178,6 +181,9 @@ services:
       BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       REGISTRY_URL: http://registry:9105
+      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
+      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
+      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
       NEXT_TELEMETRY_DISABLED: "1"
       COPILOTKIT_TELEMETRY_DISABLED: "true"

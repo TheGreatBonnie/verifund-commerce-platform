@@ -11,7 +11,7 @@ from commerce_core.contracts import (
 )
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 BUYER_SYSTEM_PROMPT = """You are the buyer's sourcing agent in MarketMesh.
 You never reveal or include the buyer's maximum total budget in any message to a
@@ -25,6 +25,28 @@ class CounterChoice(BaseModel):
     target_unit_price_cents: int
     requested_changes: dict[str, str | int | bool]
     rationale: str
+
+    @field_validator("requested_changes")
+    @classmethod
+    def validate_requested_changes(
+        cls, changes: dict[str, str | int | bool]
+    ) -> dict[str, str | int | bool]:
+        allowed = {"warranty_months", "split_shipment"}
+        unsupported = set(changes) - allowed
+        if unsupported:
+            raise ValueError(
+                f"unsupported requested changes: {sorted(unsupported)}"
+            )
+        if "warranty_months" in changes and (
+            not isinstance(changes["warranty_months"], int)
+            or isinstance(changes["warranty_months"], bool)
+        ):
+            raise ValueError("warranty_months must be an integer")
+        if "split_shipment" in changes and not isinstance(
+            changes["split_shipment"], bool
+        ):
+            raise ValueError("split_shipment must be a boolean")
+        return changes
 
 
 class BuyerPlanner(Protocol):

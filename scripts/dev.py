@@ -300,6 +300,10 @@ def buyer_environment(mode: str) -> dict[str, str]:
     return env
 
 
+def seller_auth_environment() -> dict[str, str]:
+    return {seller.token_var: seller.token for seller in SELLERS}
+
+
 def orchestrator_environment(mode: str) -> dict[str, str]:
     env = _base_env(mode)
     env.update(
@@ -314,6 +318,7 @@ def orchestrator_environment(mode: str) -> dict[str, str]:
             "OPENAI_BASE_URL": nebius_base_url(),
         }
     )
+    env.update(seller_auth_environment())
     if mode == "live":
         env["OPENAI_API_KEY"] = nebius_api_key()
     return env
@@ -334,6 +339,7 @@ def console_environment(mode: str) -> dict[str, str]:
             "COPILOTKIT_TELEMETRY_DISABLED": "true",
         }
     )
+    env.update(seller_auth_environment())
     return env
 
 

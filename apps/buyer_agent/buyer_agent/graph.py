@@ -659,8 +659,6 @@ async def _mediated_place_order(state: BuyerState, config: dict) -> dict:
     award = state.get("award") or {}
     winner = Offer.model_validate(award["winner"])
     endpoint = services.registry.endpoint(winner.seller_id)
-    negotiation = _negotiation_for(state, winner.seller_id) or {}
-    task_id = negotiation.get("task_id") or ""
     receipt = ApprovalReceipt(
         approval_id=str(uuid.uuid4()),
         approved_by=str(approval["approved_by"]),
@@ -678,32 +676,32 @@ async def _mediated_place_order(state: BuyerState, config: dict) -> dict:
         idempotency_key=f"{run_id}:{winner.offer_id}",
         expected_total_cents=winner.total_cents,
     )
-    # accept pause (only if we have a task_id to accept against)
-    if task_id:
-        accept = AcceptOffer(
-            offer_id=winner.offer_id,
-            round=winner.round,
-            accepted_total_cents=winner.total_cents,
-            accepted_by_buyer_task=run_id,
-        )
-        resumed = interrupt(
-            {
-                "reason": "seller_call",
-                "kind": "accept",
-                "seller_id": winner.seller_id,
-                "card_url": endpoint.card_url,
-                "request": wrap_payload("accept_offer", accept),
-                "run_id": run_id,
-                "context_id": run_id,
-                "seller_task_id": task_id,
-                "seller_context_id": run_id,
-                "message": f"Acceptance required for {winner.seller_id}.",
-            }
-        )
-        turn = _turn_from_resume(resumed)
-        if turn.get("error"):
-            await _upsert(services, run_id, stage="order_failed", error=turn["error"])
-            return {"stage": "order_failed", "order": None, "error": _error(turn["error"]), "messages": [AIMessage(content=f"I could not place the order: {turn['error']}")]}
+    # Accept by persisted offer ID in a fresh seller task. The negotiation task
+    # may already be terminal after a counter-offer or timeout.
+    accept = AcceptOffer(
+        offer_id=winner.offer_id,
+        round=winner.round,
+        accepted_total_cents=winner.total_cents,
+        accepted_by_buyer_task=run_id,
+    )
+    resumed = interrupt(
+        {
+            "reason": "seller_call",
+            "kind": "accept",
+            "seller_id": winner.seller_id,
+            "card_url": endpoint.card_url,
+            "request": wrap_payload("accept_offer", accept),
+            "run_id": run_id,
+            "context_id": run_id,
+            "seller_task_id": None,
+            "seller_context_id": run_id,
+            "message": f"Acceptance required for {winner.seller_id}.",
+        }
+    )
+    turn = _turn_from_resume(resumed)
+    if turn.get("error"):
+        await _upsert(services, run_id, stage="order_failed", error=turn["error"])
+        return {"stage": "order_failed", "order": None, "error": _error(turn["error"]), "messages": [AIMessage(content=f"I could not place the order: {turn['error']}")]}
 
     # order pause
     resumed = interrupt(

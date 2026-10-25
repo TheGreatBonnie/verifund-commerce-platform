@@ -240,19 +240,16 @@ async def decide(state: SellerState, config: RunnableConfig) -> dict:
     service = config["configurable"]["service"]
     planner: SellerPlanner = config["configurable"]["planner"]
     base_policy: SellerPolicy = service.policy
+    rfq = state.get("rfq")
     previous = state.get("previous_offer")
     sku = (
-        state.get("rfq").product_sku
-        if state.get("rfq") is not None
+        rfq.product_sku
+        if rfq is not None
         else previous.line_items[0].sku
         if previous is not None and previous.line_items
         else None
     )
-    hint = (
-        state.get("rfq").product_hint
-        if state.get("rfq") is not None
-        else ""
-    )
+    hint = rfq.product_hint if rfq is not None else ""
     policy: SellerPolicy = base_policy.for_product(sku, hint)
     context = _build_context(state, policy)
     fallback_used = False
@@ -423,9 +420,11 @@ async def accept_offer(state: SellerState, config: RunnableConfig) -> dict:
         accepted = parse_payload(
             "accept_offer", state["incoming"], AcceptOffer
         )
-        previous = await service.store.get_latest_offer(state["task_id"])
+        previous = await service.store.get_offer(accepted.offer_id)
         if previous is None:
-            raise CommerceProtocolError("no offer to accept")
+            raise CommerceProtocolError("offer to accept was not found")
+        if previous.seller_id != service.policy.seller_id:
+            raise CommerceProtocolError("offer belongs to another seller")
         if accepted.accepted_total_cents != previous.total_cents:
             raise CommerceProtocolError("accepted total does not match offer")
         updated = previous.model_copy(
