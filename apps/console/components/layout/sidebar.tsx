@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, History, Store, Settings, HelpCircle, RefreshCcw } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ArrowRight, Bot, LayoutDashboard, History, MessageCircle, Store, Settings, HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchRegistry } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
 
 const NAV = [
   { href: "/", label: "Home", icon: LayoutDashboard },
@@ -20,10 +21,24 @@ const model =
     ? "DeepSeek V4.1 Flash"
     : "Scripted demo";
 
+const AGENT_PROMO_BRIEF =
+  "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
+
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [healthy, setHealthy] = useState<number | null>(null);
   const [total, setTotal] = useState<number>(0);
+
+  const openAgent = () => {
+    const threadId = crypto.randomUUID();
+    try {
+      window.sessionStorage.setItem("marketmesh:pendingBrief", AGENT_PROMO_BRIEF);
+    } catch {
+      // Continue to the run page if session storage is unavailable.
+    }
+    router.push(`/runs/${threadId}`);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +95,25 @@ export function Sidebar() {
           })}
         </ul>
       </nav>
+
+      <section className="mm-sidebar-promo" aria-labelledby="sidebar-promo-title">
+        <div className="mm-sidebar-promo-head">
+          <span className="mm-sidebar-promo-icon" aria-hidden="true">
+            <Bot size={18} strokeWidth={1.7} />
+          </span>
+          <span className="mm-sidebar-promo-status">Buyer agent</span>
+        </div>
+        <h2 id="sidebar-promo-title">Your personal shopping agent is always on.</h2>
+        <p>Find products, negotiate offers, and keep every purchase protected.</p>
+        <Button
+          size="sm"
+          className="mm-sidebar-promo-button mm-button-signal"
+          onClick={openAgent}
+          leftIcon={<MessageCircle size={13} aria-hidden="true" />}
+        >
+          Chat with Agent <ArrowRight size={12} aria-hidden="true" />
+        </Button>
+      </section>
 
       <div className="mm-sidebar-footer">
         <span className="mm-registry-status" aria-live="polite">

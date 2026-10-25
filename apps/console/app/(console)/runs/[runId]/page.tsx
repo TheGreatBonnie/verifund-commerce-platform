@@ -1,7 +1,13 @@
 "use client";
 
-import { ConsoleShell } from "@/features/deal-room/console-shell";
+import { useParams } from "next/navigation";
+import { RunDetail } from "@/features/deal-room/run-detail";
 
 export default function RunDetailPage() {
-  return <ConsoleShell />;
+  const params = useParams();
+  const runId = params?.runId;
+
+  if (typeof runId !== "string") return null;
+
+  return <RunDetail runId={runId} />;
 }
