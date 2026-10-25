@@ -100,6 +100,16 @@ SELLERS = (
         default_token="dev-aurora",
         default_database="sqlite+aiosqlite:///./data/aurora.db",
     ),
+    SellerConfig(
+        seller_id="summit-tech",
+        profile="summit-tech.yaml",
+        port_var="SUMMIT_TECH_PORT",
+        token_var="SELLER_SUMMIT_TECH_TOKEN",
+        database_var="SUMMIT_TECH_DATABASE_URL",
+        default_port=9204,
+        default_token="dev-summit-tech",
+        default_database="sqlite+aiosqlite:///./data/summit-tech.db",
+    ),
 )
 
 
@@ -147,11 +157,18 @@ def nebius_model() -> str:
 
 def seller_tokens_json() -> str:
     configured = _env("BUYER_SELLER_TOKENS", "").strip()
-    if configured:
-        return configured
     import json
 
-    return json.dumps({seller.seller_id: seller.token for seller in SELLERS})
+    tokens = {seller.seller_id: seller.token for seller in SELLERS}
+    if configured:
+        try:
+            overrides = json.loads(configured)
+        except json.JSONDecodeError:
+            return configured
+        if not isinstance(overrides, dict):
+            return configured
+        tokens.update(overrides)
+    return json.dumps(tokens)
 
 
 def orchestrator_port() -> int:

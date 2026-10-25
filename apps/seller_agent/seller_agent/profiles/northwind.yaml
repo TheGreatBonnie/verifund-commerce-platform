@@ -136,3 +136,87 @@ products:
     rating: 4.6
     reviews: "318"
     tag: Limited offer
+  - sku: MM-USB-C-DOCK-12IN1
+    name: USB-C Docking Station 12-in-1
+    category: Electronics
+    description: Dual display output · 100W power delivery · Gigabit Ethernet
+    image_emoji: 🔌
+    color: "#edf3f4"
+    list_unit_price_cents: 18900
+    original_unit_price_cents: 21900
+    floor_unit_price_cents: 15000
+    initial_unit_price_cents: 17900
+    concession_ladder_cents: [17900, 16900, 15800]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 800}
+    returns_days: 30
+    delivery_days: 3
+    stock_on_hand: 22
+    incoming_stock: 8
+    incoming_days: 5
+    rating: 4.8
+    reviews: "364"
+    tag: Fast delivery
+  - sku: MM-PORTABLE-SSD-2TB
+    name: Portable SSD 2TB
+    category: Electronics
+    description: USB-C · Up to 1,050 MB/s · Rugged aluminum enclosure
+    image_emoji: 💾
+    color: "#f1eee7"
+    list_unit_price_cents: 16900
+    original_unit_price_cents: 18900
+    floor_unit_price_cents: 13500
+    initial_unit_price_cents: 15900
+    concession_ladder_cents: [15900, 14900, 14000]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 700}
+    returns_days: 30
+    delivery_days: 3
+    stock_on_hand: 34
+    incoming_stock: 10
+    incoming_days: 4
+    rating: 4.8
+    reviews: "518"
+    tag: Fast delivery
+  - sku: MM-4K-MONITOR-27
+    name: 27-inch 4K USB-C Monitor
+    category: Electronics
+    description: 4K UHD · USB-C hub · Adjustable stand
+    image_emoji: 🖥️
+    color: "#eaf0fb"
+    list_unit_price_cents: 42900
+    original_unit_price_cents: 47900
+    floor_unit_price_cents: 36000
+    initial_unit_price_cents: 40900
+    concession_ladder_cents: [40900, 39900, 38500]
+    base_warranty_months: 24
+    warranty_addons_cents: {24: 0, 36: 2200}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 15
+    incoming_stock: 6
+    incoming_days: 7
+    rating: 4.8
+    reviews: "287"
+    tag: Premium display
+  - sku: MM-MECH-KEYBOARD
+    name: Mechanical Keyboard
+    category: Electronics
+    description: Hot-swappable switches · Compact layout · USB-C
+    image_emoji: ⌨️
+    color: "#f4edf0"
+    list_unit_price_cents: 12900
+    original_unit_price_cents: 14900
+    floor_unit_price_cents: 9900
+    initial_unit_price_cents: 11900
+    concession_ladder_cents: [11900, 11200, 10500]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 700}
+    returns_days: 30
+    delivery_days: 3
+    stock_on_hand: 36
+    incoming_stock: 12
+    incoming_days: 5
+    rating: 4.9
+    reviews: "793"
+    tag: Fast delivery

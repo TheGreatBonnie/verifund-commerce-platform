@@ -25,4 +25,5 @@ class Settings(BaseSettings):
         "northwind",
         "circuitforge",
         "aurora",
+        "summit-tech",
     )

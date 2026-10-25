@@ -41,6 +41,7 @@ function sellerName(sellerId?: string, cardUrl?: string) {
     "northwind-audio": "Northwind Audio",
     circuitforge: "CircuitForge",
     "aurora-supply": "Aurora Supply",
+    "summit-tech": "Summit Tech Supply",
   };
   if (sellerId && names[sellerId]) return names[sellerId];
   let port = "";
@@ -53,6 +54,7 @@ function sellerName(sellerId?: string, cardUrl?: string) {
     "9201": "northwind-audio",
     "9202": "circuitforge",
     "9203": "aurora-supply",
+    "9204": "summit-tech",
   };
   return names[idByPort[port]] ?? sellerId ?? "Seller agent";
 }

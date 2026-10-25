@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from urllib.parse import urlsplit
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from a2a.client import ClientConfig, ClientFactory
@@ -65,10 +65,16 @@ def _resolve_seller_token(
         "northwind-audio": os.environ.get("SELLER_NORTHWIND_TOKEN", "dev-northwind"),
         "circuitforge": os.environ.get("SELLER_CIRCUITFORGE_TOKEN", "dev-circuitforge"),
         "aurora-supply": os.environ.get("SELLER_AURORA_TOKEN", "dev-aurora"),
+        "summit-tech": os.environ.get("SELLER_SUMMIT_TECH_TOKEN", "dev-summit-tech"),
     }
     if seller_id in seller_tokens:
         return seller_tokens[seller_id]
-    port_to_seller = {"9201": "northwind-audio", "9202": "circuitforge", "9203": "aurora-supply"}
+    port_to_seller = {
+        "9201": "northwind-audio",
+        "9202": "circuitforge",
+        "9203": "aurora-supply",
+        "9204": "summit-tech",
+    }
     seller_id = port_to_seller.get(urlsplit(seller_card_url).port or "")
     if seller_id in seller_tokens:
         return seller_tokens[seller_id]
