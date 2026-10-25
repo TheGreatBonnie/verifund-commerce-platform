@@ -601,7 +601,7 @@
 .mm-chat-embedded .mm-chat-surface {
   display: flex;
   flex: 1;
-  min-height: 380px;
+  min-height: 0;
   padding-top: 0;
 }
 
@@ -609,14 +609,18 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-height: 380px;
+  min-height: 0;
 }
 
-.mm-chat-embedded .mm-copilot-chat [data-testid="copilot-chat"] {
-  display: flex;
+.mm-chat-embedded .mm-copilot-chat[data-testid="copilot-chat"] {
   flex: 1;
-  flex-direction: column;
-  min-height: 380px;
+  height: 100%;
+  min-height: 0;
+}
+
+.mm-chat-embedded .mm-copilot-chat[data-testid="copilot-chat"] > :first-child {
+  flex: 1;
+  min-height: 0;
 }
 
 .mm-chat-embedded .mm-copilot-chat [data-testid="copilot-welcome-screen"] {
@@ -2895,6 +2899,10 @@
 }
 
 .mm-run-session {
+  display: flex;
+  flex-direction: column;
+  min-height: 520px;
+  max-height: calc(100dvh - 220px);
   overflow: hidden;
   border: 1px solid var(--rule-strong);
   border-top: 3px solid var(--ink);
@@ -2907,6 +2915,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  flex: 0 0 auto;
   padding: 14px 16px;
   border-bottom: 1px solid var(--rule);
 }
@@ -2995,12 +3004,18 @@
 .mm-run-session-body {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .mm-session-context {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   gap: 10px;
   padding: 14px;
   border-right: 1px solid var(--rule);
@@ -3124,8 +3139,9 @@
 .mm-session-conversation {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   min-width: 0;
-  min-height: 520px;
+  overflow: hidden;
   padding: 12px 14px;
 }
 
@@ -3775,6 +3791,23 @@
     position: static;
     max-height: none;
     overflow: visible;
+  }
+
+  .mm-run-session {
+    max-height: none;
+  }
+
+  .mm-run-session-body {
+    overflow: visible;
+  }
+
+  .mm-session-context {
+    overflow: visible;
+  }
+
+  .mm-session-conversation {
+    height: min(70dvh, 680px);
+    min-height: 420px;
   }
 }
 

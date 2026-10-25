@@ -21,6 +21,7 @@ import type { BuyerState, RegistrySeller, TraceEvent } from "@/lib/types";
 type RunDetailWorkspaceProps = {
   state: BuyerState;
   runId: string;
+  showNegotiationTimeline?: boolean;
   conversation: ReactNode;
   isReady: boolean;
   isRunning: boolean;
@@ -64,6 +65,7 @@ function EscrowGuide() {
 export function RunDetailWorkspace({
   state,
   runId,
+  showNegotiationTimeline = true,
   conversation,
   isReady,
   isRunning,
@@ -147,11 +149,13 @@ export function RunDetailWorkspace({
           {conversation}
         </NegotiationSession>
 
-        <NegotiationFeed
-          negotiations={negotiations}
-          trace={state.trace}
-          title="Negotiation timeline"
-        />
+        {showNegotiationTimeline ? (
+          <NegotiationFeed
+            negotiations={negotiations}
+            trace={state.trace}
+            title="Negotiation timeline"
+          />
+        ) : null}
 
         {negotiations.length > 0 ? (
           <OfferMatrix negotiations={negotiations} award={award} />

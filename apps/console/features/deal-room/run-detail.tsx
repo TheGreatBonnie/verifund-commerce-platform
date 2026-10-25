@@ -10,7 +10,15 @@ import { RunDetailWorkspace } from "./components/run-detail-workspace";
 import { StageStepper } from "./components/stage-stepper";
 import { useRunDetail } from "./hooks/use-run-detail";
 
-export function RunDetail({ runId }: { runId: string }) {
+export function RunDetail({
+  runId,
+  showNegotiationTimeline = true,
+  showStageStepper = true,
+}: {
+  runId: string;
+  showNegotiationTimeline?: boolean;
+  showStageStepper?: boolean;
+}) {
   const router = useRouter();
   const detail = useRunDetail(runId);
 
@@ -42,11 +50,12 @@ export function RunDetail({ runId }: { runId: string }) {
         </Button>
       </header>
 
-      <StageStepper stage={detail.stage} />
+      {showStageStepper ? <StageStepper stage={detail.stage} /> : null}
 
       <RunDetailWorkspace
         state={detail.state}
         runId={runId}
+        showNegotiationTimeline={showNegotiationTimeline}
         isReady={detail.isReady}
         isRunning={detail.isRunning}
         onRunSample={() => void detail.startRun()}

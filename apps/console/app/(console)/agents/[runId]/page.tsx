@@ -9,5 +9,11 @@ export default function AgentRunPage() {
 
   if (typeof runId !== "string") return null;
 
-  return <RunDetail runId={runId} />;
+  return (
+    <RunDetail
+      runId={runId}
+      showNegotiationTimeline={false}
+      showStageStepper={false}
+    />
+  );
 }
