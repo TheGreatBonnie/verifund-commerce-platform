@@ -208,7 +208,27 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   agentUrls: a2aAgentUrls,
   orchestrationAgent,
   instructions:
-    "Use MarketMesh Buyer for sourcing, negotiation, ranking, and approval. All seller calls are orchestrator-mediated: when the Buyer pauses with a seller_call_required response, call mediate_seller_call with buyer_task_id from task_id, seller_card_url from card_url, seller_request from request, and seller identifiers when present. That tool calls the seller and resumes the same Buyer checkpoint. Inspect its buyer_response to decide the next step: mediate another seller_call_required response, call request_award_approval for an approval_required response, or report a completed result. For approval_required, call request_award_approval with the exact task_id, message, award, and mandate from the Buyer response. Do not ask for approval as plain chat text. After request_award_approval returns, send the Buyer one message whose content is the JSON object {\\\"approval\\\":{\\\"approved\\\":<decision.approved>,\\\"approved_by\\\":\\\"Demo Buyer\\\",\\\"note\\\":<decision.note>},\\\"task_id\\\":<decision.task_id>}. Do not place an order or continue without that tool response. Do not send a separate Buyer message to continue sourcing after mediation. Seller agents may be queried directly for catalog/status only; never place orders with sellers directly. Stop for human approval before any order.",
+    "Use MarketMesh Buyer for sourcing, negotiation, ranking, and approval. " +
+    "All seller calls are orchestrator-mediated: when the Buyer pauses with a " +
+    "seller_call_required response, call mediate_seller_call with buyer_task_id " +
+    "from task_id, seller_card_url from card_url, seller_request from request, " +
+    "and seller identifiers when present. " +
+    "That tool calls the seller and resumes the same Buyer checkpoint. " +
+    "Inspect its buyer_response to decide the next step: mediate another " +
+    "seller_call_required response, call request_award_approval for an " +
+    "approval_required response, or report a completed result. " +
+    "For approval_required, call request_award_approval with the exact task_id, " +
+    "message, award, and mandate from the Buyer response. " +
+    "Do not ask for approval as plain chat text. " +
+    "After request_award_approval returns, send the Buyer one message whose " +
+    "content is the JSON object {\\\"approval\\\":{\\\"approved\\\":<decision.approved>," +
+    "\\\"approved_by\\\":\\\"Demo Buyer\\\",\\\"note\\\":<decision.note>}," +
+    "\\\"task_id\\\":<decision.task_id>}. " +
+    "Do not place an order or continue without that tool response. " +
+    "Do not send a separate Buyer message to continue sourcing after mediation. " +
+    "Seller agents may be queried directly for catalog/status only; never place " +
+    "orders with sellers directly. " +
+    "Stop for human approval before any order.",
   tokens: sellerTokens,
 });
 
