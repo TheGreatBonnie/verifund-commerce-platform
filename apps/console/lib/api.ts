@@ -1,6 +1,7 @@
 import type {
   RegistrySeller,
   SellerDashboard,
+  MarketplaceProduct,
   TraceEvent,
   Mandate,
   Award,
@@ -43,6 +44,13 @@ export async function fetchSellerDashboard(
     throw new Error(`Seller data request failed (${response.status})`);
   }
   return (await response.json()) as SellerDashboard;
+}
+
+export async function fetchMarketplaceProducts(): Promise<MarketplaceProduct[]> {
+  const response = await fetch("/api/marketplace/products", { cache: "no-store" });
+  if (!response.ok) throw new Error(`Marketplace request failed (${response.status})`);
+  const body = (await response.json()) as { products?: MarketplaceProduct[] };
+  return body.products ?? [];
 }
 
 export type BuyerRun = {

@@ -68,6 +68,28 @@ async def list_runs(request: Request, limit: int = 50) -> list[dict]:
     return [_run(row) for row in rows]
 
 
+@router.get("/api/marketplace/products")
+async def marketplace_products(request: Request) -> dict:
+    settings = request.app.state.settings
+    provided = request.headers.get("x-marketmesh-console-token", "")
+    if not settings.console_api_token or not secrets.compare_digest(
+        provided, settings.console_api_token
+    ):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    registry = getattr(_services(request), "registry", None)
+    if registry is None:
+        raise HTTPException(status_code=503, detail="seller registry unavailable")
+    try:
+        return {
+            "products": await registry.marketplace_products(
+                category=request.query_params.get("category"),
+                query=request.query_params.get("q"),
+            )
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="marketplace catalog unavailable") from exc
+
+
 @router.get("/api/runs/{run_id}")
 async def get_run(run_id: str, request: Request) -> dict:
     trace = getattr(_services(request), "trace", None)

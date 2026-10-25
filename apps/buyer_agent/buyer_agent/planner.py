@@ -172,7 +172,13 @@ def mandate_from_text(text: str) -> Mandate:
         re.IGNORECASE,
     )
     budget_match = re.search(r"\$\s*([0-9][0-9,]*)", text)
-    quantity = int(quantity_match.group(1)) if quantity_match else 12
+    sku_match = re.search(r"\bProduct SKU:\s*([A-Za-z0-9._-]+)", text, re.IGNORECASE)
+    product_match = re.search(
+        r"(?:negotiate for|source)\s+(.+?)(?:\.|\n|Product SKU:)",
+        text,
+        re.IGNORECASE,
+    )
+    quantity = int(quantity_match.group(1)) if quantity_match else (1 if sku_match else 12)
     max_total = 340000
     if budget_match:
         try:
@@ -183,11 +189,12 @@ def mandate_from_text(text: str) -> Mandate:
     return Mandate(
         run_id="demo-run",
         category="consumer-electronics",
-        product_hint="Nimbus NC-700 ANC Headset",
+        product_hint=product_match.group(1).strip() if product_match else "Nimbus NC-700 ANC Headset",
+        product_sku=sku_match.group(1) if sku_match else None,
         quantity=quantity,
         max_total_cents=max_total,
         deadline_days=14,
-        min_warranty_months=24,
+        min_warranty_months=12 if sku_match else 24,
         min_returns_days=30,
         preferences=Preferences(sustainability=True, color="black"),
     )

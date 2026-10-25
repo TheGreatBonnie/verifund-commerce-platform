@@ -5,6 +5,7 @@ import secrets
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
+import httpx
 from commerce_core.cards import fetch_agent_card, validate_agent_card
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -32,6 +33,7 @@ class DiscoverRequest(BaseModel):
     category: str
     required_extension: str
     limit: int = Field(default=20, ge=1, le=100)
+    product_sku: str | None = None
 
 
 def _slug(value: str) -> str:
@@ -52,6 +54,29 @@ def _seller_view(row: dict[str, Any], include_card: bool = False) -> dict[str, A
     if include_card:
         view["card_json"] = row["card_json"]
     return view
+
+
+async def _fetch_catalog(card_url: str) -> list[dict[str, Any]]:
+    catalog_url = str(
+        httpx.URL(card_url).copy_with(path="/api/catalog", query=None, fragment=None)
+    )
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(catalog_url)
+        response.raise_for_status()
+    products = response.json().get("products", [])
+    if not isinstance(products, list):
+        raise TypeError("seller catalog must contain a products list")
+    seen: set[str] = set()
+    for product in products:
+        if not isinstance(product, dict) or not all(
+            isinstance(product.get(field), str) and product[field]
+            for field in ("sku", "name", "category")
+        ):
+            raise ValueError("seller catalog entries require sku, name, and category")
+        if product["sku"] in seen:
+            raise ValueError(f"seller catalog contains duplicate SKU {product['sku']}")
+        seen.add(product["sku"])
+    return products
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -119,6 +144,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         card_json = json_format.MessageToDict(
             card, preserving_proto_field_name=False
         )
+        try:
+            listings = await _fetch_catalog(body.card_url)
+        except (httpx.HTTPError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"seller catalog unavailable: {exc}") from exc
         row = await store.upsert(
             seller_id=seller_id,
             name=card.name,
@@ -129,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             healthy=True,
             error=None,
         )
+        await store.replace_listings(seller_id, listings)
         return _seller_view(row, include_card=True)
 
     @app.get("/v1/sellers")
@@ -147,10 +177,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="seller not found")
         return _seller_view(row, include_card=True)
 
+    @app.get("/v1/products")
+    async def search_products(
+        category: str | None = None,
+        q: str | None = None,
+        sku: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        listings = await store.search_listings(
+            category=category, query=q, sku=sku, limit=limit
+        )
+        return {"products": listings}
+
     @app.post("/v1/discover")
     async def discover(body: DiscoverRequest) -> dict[str, Any]:
         rows = await store.discover(
-            body.category, body.required_extension, body.limit
+            body.category, body.required_extension, body.limit, body.product_sku
         )
         return {"sellers": [_seller_view(row) for row in rows]}
 
@@ -177,6 +219,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         card_json = json_format.MessageToDict(
             card, preserving_proto_field_name=False
         )
+        try:
+            listings = await _fetch_catalog(existing["card_url"])
+        except (httpx.HTTPError, TypeError, ValueError) as exc:
+            await store.mark_health(seller_id, False, str(exc))
+            raise HTTPException(status_code=400, detail=f"seller catalog unavailable: {exc}") from exc
         row = await store.upsert(
             seller_id=seller_id,
             name=card.name,
@@ -187,6 +234,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             healthy=True,
             error=None,
         )
+        await store.replace_listings(seller_id, listings)
         return _seller_view(row, include_card=True)
 
     return app

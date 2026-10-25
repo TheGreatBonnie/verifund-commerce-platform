@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   Heart,
@@ -12,12 +13,20 @@ import {
   Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { products } from "@/lib/data";
+import { fetchMarketplaceProducts } from "@/lib/api";
+import type { MarketplaceProduct } from "@/lib/types";
 
 type SortOrder = "Recommended" | "Price: low to high" | "Price: high to low";
 
 export default function MarketplacePage() {
   const router = useRouter();
+  const catalogQuery = useQuery({
+    queryKey: ["marketplace-products"],
+    queryFn: fetchMarketplaceProducts,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+  const products = catalogQuery.data ?? [];
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All products");
   const [sort, setSort] = useState<SortOrder>("Recommended");
@@ -25,31 +34,33 @@ export default function MarketplacePage() {
 
   const categories = useMemo(
     () => [...new Set(products.map((product) => product.category))],
-    [],
+    [products],
   );
   const visibleProducts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return products
       .filter((product) => {
         const matchesCategory = category === "All products" || product.category === category;
-        const matchesQuery = `${product.name} ${product.seller} ${product.desc}`
+        const matchesQuery = `${product.name} ${product.description} ${product.offers.map((offer) => offer.seller_name).join(" ")}`
           .toLowerCase()
           .includes(normalizedQuery);
         const matchesRating = !highlyRatedOnly || Number(product.rating) >= 4.8;
         return matchesCategory && matchesQuery && matchesRating;
       })
       .sort((first, second) => {
-        if (sort === "Price: low to high") return first.price - second.price;
-        if (sort === "Price: high to low") return second.price - first.price;
+        if (sort === "Price: low to high") return first.unit_price_cents - second.unit_price_cents;
+        if (sort === "Price: high to low") return second.unit_price_cents - first.unit_price_cents;
         return 0;
       });
   }, [category, highlyRatedOnly, query, sort]);
 
-  const startProductRun = (product: (typeof products)[number]) => {
+  const startProductRun = (product: MarketplaceProduct) => {
     const brief = [
       `Find and negotiate the best terms for ${product.name}.`,
-      `Product details: ${product.desc}.`,
-      `Use the listed price of $${product.price.toLocaleString("en-US")} as my target budget.`,
+      `Product SKU: ${product.sku}.`,
+      `Product details: ${product.description}.`,
+      `Use $${(product.unit_price_cents / 100).toLocaleString("en-US")} per unit as the listed target budget.`,
+      `Compare offers from ${product.offers.map((offer) => offer.seller_id).join(", ")}.`,
       "Compare sellers, delivery, warranty, and returns. Do not place an order without my approval.",
     ].join(" ");
 
@@ -118,10 +129,18 @@ export default function MarketplacePage() {
 
       <div className="mm-marketplace-results" aria-live="polite">
         <span>Showing <strong>{visibleProducts.length}</strong> products</span>
-        <span>Prices shown in USD</span>
+        <span>Live seller listings · prices shown in USD</span>
       </div>
 
-      {visibleProducts.length ? (
+      {catalogQuery.isLoading ? (
+        <div className="mm-marketplace-empty" aria-busy="true">Loading live seller catalogs…</div>
+      ) : catalogQuery.error ? (
+        <div className="mm-marketplace-empty" role="alert">
+          <h2>Marketplace catalog unavailable</h2>
+          <p>{catalogQuery.error.message}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => void catalogQuery.refetch()}>Retry</Button>
+        </div>
+      ) : visibleProducts.length ? (
         <section className="mm-marketplace-grid" aria-label="Marketplace products">
           {visibleProducts.map((product) => (
             <MarketplaceProductCard
@@ -146,7 +165,7 @@ function MarketplaceProductCard({
   product,
   onAskAgent,
 }: {
-  product: (typeof products)[number];
+  product: MarketplaceProduct;
   onAskAgent: () => void;
 }) {
   const [saved, setSaved] = useState(false);
@@ -157,7 +176,7 @@ function MarketplaceProductCard({
         className="mm-product-art mm-marketplace-product-art"
         style={{ backgroundColor: product.color }}
       >
-        <span aria-hidden="true">{product.emoji}</span>
+        <span aria-hidden="true">{product.image_emoji}</span>
         <small>{product.tag}</small>
         <button
           type="button"
@@ -173,17 +192,17 @@ function MarketplaceProductCard({
       <div className="mm-product-info mm-marketplace-product-info">
         <p className="mm-product-category">{product.category}</p>
         <h2>{product.name}</h2>
-        <p className="mm-product-description">{product.desc}</p>
+        <p className="mm-product-description">{product.description}</p>
         <div className="mm-product-price">
-          <strong>${product.price.toLocaleString("en-US")}</strong>
-          <del>${product.original.toLocaleString("en-US")}</del>
+          <strong>${(product.unit_price_cents / 100).toLocaleString("en-US")}</strong>
+          {product.original_unit_price_cents ? <del>${(product.original_unit_price_cents / 100).toLocaleString("en-US")}</del> : null}
         </div>
         <div className="mm-product-meta">
           <span className="mm-marketplace-rating">
             <Star size={12} aria-hidden="true" fill="currentColor" />
-            {product.rating} <span>({product.reviews})</span>
+            {product.rating.toFixed(1)} <span>({product.reviews || "new"})</span>
           </span>
-          <span>{product.seller}</span>
+          <span>{product.offers.length} seller{product.offers.length === 1 ? "" : "s"}</span>
         </div>
         <Button
           type="button"

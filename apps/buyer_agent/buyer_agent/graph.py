@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, TypedDict
@@ -201,6 +202,9 @@ async def interpret_brief(state: BuyerState, config: dict) -> dict:
                 ],
             }
     mandate = mandate.model_copy(update={"run_id": run_id})
+    sku_match = re.search(r"\bProduct SKU:\s*([A-Za-z0-9._-]+)", text, re.IGNORECASE)
+    if sku_match:
+        mandate = mandate.model_copy(update={"product_sku": sku_match.group(1)})
     source = "scripted.fallback" if fallback_used else "scripted.decision"
     rationale = (
         "Used regex fallback for the shopping brief."
@@ -238,7 +242,9 @@ async def discover_sellers(state: BuyerState, config: dict) -> dict:
     run_id = state["run_id"]
     mandate = Mandate.model_validate(state["mandate"])
     try:
-        endpoints = await services.registry.discover(mandate.category)
+        endpoints = await services.registry.discover(
+            mandate.category, mandate.product_sku
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             "stage": "failed",
@@ -334,6 +340,10 @@ def _trusted_offer(offer: Offer, mandate: Mandate, endpoint: Any, request_id: st
         return None, "offer seller_id does not match the validated card"
     if offer.request_id != request_id:
         return None, "offer request_id does not match the A2A task"
+    if mandate.product_sku and any(
+        item.sku != mandate.product_sku for item in offer.line_items
+    ):
+        return None, "offer SKU does not match the requested product"
     if _recompute_total(offer) != offer.subtotal_cents:
         return None, "offer total could not be recomputed"
     if offer.total_cents != offer.subtotal_cents + offer.shipping_cents:
@@ -450,6 +460,7 @@ async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
         run_id=run_id,
         category=mandate.category,
         product_hint=mandate.product_hint,
+        product_sku=mandate.product_sku,
         quantity=mandate.quantity,
         required_by=datetime.now(UTC) + timedelta(days=mandate.deadline_days),
         constraints=RFQConstraints(

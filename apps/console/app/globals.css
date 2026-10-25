@@ -2341,6 +2341,13 @@
   font-size: 8px;
 }
 
+.mm-seller-catalog-list { display: grid; gap: 6px; margin-top: 15px; }
+.mm-seller-catalog-list > .mm-kicker { margin: 0; }
+.mm-seller-catalog-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px; border: 1px solid var(--rule); background: var(--paper); }
+.mm-seller-catalog-list > div > span { display: grid; gap: 3px; min-width: 0; }
+.mm-seller-catalog-list strong { color: var(--ink); font-size: 8px; }
+.mm-seller-catalog-list small { color: var(--muted); font-size: 7px; }
+
 .mm-seller-stock-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4107,6 +4114,11 @@
   justify-content: space-between;
   margin-top: auto;
 }
+
+.mm-marketplace-offers { display: grid; gap: 4px; margin: 10px 0 12px; padding: 0; list-style: none; }
+.mm-marketplace-offers li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 6px 7px; border: 1px solid var(--rule); background: var(--paper); font-size: 8px; }
+.mm-marketplace-offers li > strong { color: var(--signal-deep); }
+.mm-marketplace-offers li > small { align-self: center; color: var(--muted); font-size: 7px; text-align: right; }
 
 .mm-marketplace-empty {
   display: flex;

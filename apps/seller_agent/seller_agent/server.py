@@ -70,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "/ready",
             "/metrics",
             "/.well-known/agent-card.json",
+            "/api/catalog",
         },
     )
     add_a2a_routes_to_fastapi(
@@ -97,23 +98,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/console/dashboard")
     async def console_dashboard() -> dict:
-        stock = await store.get_stock(policy.sku)
+        catalog = policy.catalog()
+        product_rows = []
+        for product in catalog:
+            product_stock = await store.get_stock(product.sku)
+            product_rows.append(
+                {
+                    "sku": product.sku,
+                    "product_name": product.name,
+                    "category": product.category,
+                    "description": product.description,
+                    "list_unit_price_cents": product.list_unit_price_cents,
+                    "currency": "USD",
+                    "stock": {
+                        "on_hand": product_stock.on_hand,
+                        "incoming": product_stock.incoming,
+                        "incoming_days": product_stock.incoming_days,
+                    },
+                }
+            )
+        featured = catalog[0]
+        stock = await store.get_stock(featured.sku)
         offers = await store.list_offers(limit=20)
         orders = await store.list_orders(limit=20)
         return {
             "seller_id": policy.seller_id,
             "pricing": {
-                "product_name": policy.product_name,
-                "sku": policy.sku,
+                "product_name": featured.name,
+                "sku": featured.sku,
                 "currency": "USD",
-                "list_unit_price_cents": policy.list_unit_price_cents,
-                "base_warranty_months": policy.base_warranty_months,
-                "warranty_addons_cents": policy.warranty_addons_cents,
-                "returns_days": policy.returns_days,
-                "delivery_days": policy.delivery_days,
-                "rating": policy.rating,
-                "sustainability_certified": policy.sustainability_certified,
+                "list_unit_price_cents": featured.list_unit_price_cents,
+                "base_warranty_months": featured.base_warranty_months,
+                "warranty_addons_cents": featured.warranty_addons_cents,
+                "returns_days": featured.returns_days,
+                "delivery_days": featured.delivery_days,
+                "rating": featured.rating,
+                "sustainability_certified": featured.sustainability_certified,
             },
+            "products": product_rows,
             "stock": {
                 "on_hand": stock.on_hand,
                 "incoming": stock.incoming,
@@ -153,5 +175,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for order in [item["order"]]
             ],
         }
+
+    @app.get("/api/catalog")
+    async def public_catalog() -> dict:
+        items = []
+        for product in policy.catalog():
+            stock = await store.get_stock(product.sku)
+            items.append(
+                {
+                    "sku": product.sku,
+                    "name": product.name,
+                    "category": product.category,
+                    "description": product.description,
+                    "image_emoji": product.image_emoji,
+                    "color": product.color,
+                    "list_unit_price_cents": product.list_unit_price_cents,
+                    "original_unit_price_cents": product.original_unit_price_cents,
+                    "base_warranty_months": product.base_warranty_months,
+                    "returns_days": product.returns_days,
+                    "delivery_days": product.delivery_days,
+                    "sustainability_certified": product.sustainability_certified,
+                    "rating": product.rating,
+                    "reviews": product.reviews,
+                    "tag": product.tag,
+                    "seller_id": policy.seller_id,
+                    "seller_name": policy.name,
+                    "currency": "USD",
+                    "on_hand": stock.on_hand,
+                    "incoming": stock.incoming,
+                    "incoming_days": stock.incoming_days,
+                }
+            )
+        return {"seller_id": policy.seller_id, "seller_name": policy.name, "products": items}
 
     return app

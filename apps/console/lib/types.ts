@@ -194,6 +194,15 @@ export type SellerDashboard = {
     incoming: number;
     incoming_days: number | null;
   };
+  products: Array<{
+    sku: string;
+    product_name: string;
+    category: string;
+    description: string;
+    list_unit_price_cents: number;
+    currency: string;
+    stock: { on_hand: number; incoming: number; incoming_days: number | null };
+  }>;
   recent_offers: Array<{
     created_at: string;
     offer: {
@@ -215,5 +224,30 @@ export type SellerDashboard = {
       eta: string;
       fulfillment: { status: string };
     };
+  }>;
+};
+
+export type MarketplaceProduct = {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  description: string;
+  image_emoji: string;
+  color: string;
+  original_unit_price_cents: number | null;
+  rating: number;
+  reviews: string;
+  tag: string;
+  unit_price_cents: number;
+  seller: string;
+  offers: Array<{
+    seller_id: string;
+    seller_name: string;
+    unit_price_cents: number;
+    currency: string;
+    available: boolean;
+    on_hand: number;
+    incoming: number;
   }>;
 };

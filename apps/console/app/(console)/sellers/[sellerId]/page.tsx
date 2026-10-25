@@ -138,6 +138,17 @@ export default function SellerDetailPage() {
                   <span className="mm-kicker">Warranty options</span>
                   <div>{Object.entries(dashboard.pricing.warranty_addons_cents).map(([months, addon]) => <span key={months}>{months} mo · {addon ? `+${currency(addon, dashboard.pricing.currency)}` : "included"}</span>)}</div>
                 </div>
+                {dashboard.products.length > 1 ? (
+                  <div className="mm-seller-catalog-list">
+                    <span className="mm-kicker">Full catalog · {dashboard.products.length} products</span>
+                    {dashboard.products.map((product) => (
+                      <div key={product.sku}>
+                        <span><strong>{product.product_name}</strong><small>{product.sku} · {product.stock.on_hand} in stock</small></span>
+                        <strong>{currency(product.list_unit_price_cents, product.currency)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </>
             ) : <DashboardSectionState loading={dashboardQuery.isLoading} error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} />}
           </Section>

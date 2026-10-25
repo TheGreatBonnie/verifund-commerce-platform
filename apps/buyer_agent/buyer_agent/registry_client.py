@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -55,12 +56,15 @@ class RegistryClient:
                 f"seller {seller_id!r} was not discovered or failed validation"
             ) from None
 
-    async def discover(self, category: str) -> list[SellerEndpoint]:
+    async def discover(
+        self, category: str, product_sku: str | None = None
+    ) -> list[SellerEndpoint]:
         response = await self.http.post(
             f"{self.registry_url}/v1/discover",
             json={
                 "category": category,
                 "required_extension": EXTENSION_URI,
+                "product_sku": product_sku,
             },
         )
         response.raise_for_status()
@@ -102,6 +106,99 @@ class RegistryClient:
             self._endpoints[seller_id] = endpoint
             endpoints.append(endpoint)
         return endpoints
+
+    async def marketplace_products(
+        self, *, category: str | None = None, query: str | None = None
+    ) -> list[dict[str, Any]]:
+        response = await self.http.get(
+            f"{self.registry_url}/v1/products",
+            params={key: value for key, value in {"category": category, "q": query}.items() if value},
+        )
+        response.raise_for_status()
+        listings = response.json().get("products", [])
+        grouped: dict[str, dict[str, Any]] = {}
+        for listing in listings:
+            sku = listing["sku"]
+            product = grouped.setdefault(
+                sku,
+                {
+                    "id": sku,
+                    "sku": sku,
+                    "name": listing["name"],
+                    "category": listing["category"],
+                    "description": listing.get("description", ""),
+                    "image_emoji": listing.get("image_emoji", "📦"),
+                    "color": listing.get("color", "#eef2ed"),
+                    "original_unit_price_cents": listing.get("original_unit_price_cents"),
+                    "rating": listing.get("rating", 0),
+                    "reviews": listing.get("reviews", ""),
+                    "tag": listing.get("tag", "Available"),
+                    "offers": [],
+                },
+            )
+            product["offers"].append(
+                {
+                    "seller_id": listing["seller_id"],
+                    "seller_name": listing["seller_name"],
+                    "unit_price_cents": listing["list_unit_price_cents"],
+                    "currency": "USD",
+                    "available": False,
+                    "on_hand": 0,
+                    "incoming": 0,
+                }
+            )
+
+        async def refresh_seller_catalog(seller_id: str, card_url: str) -> None:
+            token = self.seller_tokens.get(seller_id)
+            if not token:
+                return
+            catalog_url = str(
+                httpx.URL(card_url).copy_with(
+                    path="/api/catalog", query=None, fragment=None
+                )
+            )
+            try:
+                live = await self.http.get(
+                    catalog_url, headers={"Authorization": f"Bearer {token}"}
+                )
+                live.raise_for_status()
+                live_products = {
+                    product["sku"]: product
+                    for product in live.json().get("products", [])
+                }
+                for sku, product in grouped.items():
+                    item = live_products.get(sku)
+                    if item is None:
+                        continue
+                    offer = next(
+                        (entry for entry in product["offers"] if entry["seller_id"] == seller_id),
+                        None,
+                    )
+                    if offer is None:
+                        continue
+                    offer["available"] = item["on_hand"] > 0 or item["incoming"] > 0
+                    offer["on_hand"] = item["on_hand"]
+                    offer["incoming"] = item["incoming"]
+            except (httpx.HTTPError, KeyError, ValueError):
+                return
+
+        seller_urls = {
+            listing["seller_id"]: listing["card_url"] for listing in listings
+        }
+        await asyncio.gather(
+            *(
+                refresh_seller_catalog(seller_id, card_url)
+                for seller_id, card_url in seller_urls.items()
+            )
+        )
+        result = list(grouped.values())
+        for product in result:
+            product["offers"].sort(
+                key=lambda offer: (not offer["available"], offer["unit_price_cents"])
+            )
+            product["unit_price_cents"] = product["offers"][0]["unit_price_cents"]
+            product["seller"] = product["offers"][0]["seller_name"]
+        return result
 
     async def fetch_seller_dashboard(self, seller_id: str) -> dict[str, Any]:
         response = await self.http.get(

@@ -141,17 +141,18 @@ class SellerStore:
             await conn.run_sync(self.metadata.create_all)
 
     async def seed_catalog(self, policy: SellerPolicy) -> None:
-        statement = sqlite_insert(self.inventory).values(
-            sku=policy.sku,
-            on_hand=policy.stock_on_hand,
-            incoming=policy.incoming_stock,
-            incoming_days=policy.incoming_days,
-        )
-        statement = statement.on_conflict_do_nothing(
-            index_elements=["sku"]
-        )
-        async with self.engine.begin() as conn:
-            await conn.execute(statement)
+        for product in policy.catalog():
+            statement = sqlite_insert(self.inventory).values(
+                sku=product.sku,
+                on_hand=product.stock_on_hand,
+                incoming=product.incoming_stock,
+                incoming_days=product.incoming_days,
+            )
+            statement = statement.on_conflict_do_nothing(
+                index_elements=["sku"]
+            )
+            async with self.engine.begin() as conn:
+                await conn.execute(statement)
 
     @asynccontextmanager
     async def transaction(self):
