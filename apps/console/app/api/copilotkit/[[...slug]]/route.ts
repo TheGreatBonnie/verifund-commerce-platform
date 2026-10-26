@@ -59,6 +59,7 @@ class MarketMeshA2AClient extends (A2AClient as any) {
 // MarketMesh card path and authenticated seller clients.
 class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
   constructor(config: {
+    agentName: string;
     description: string;
     agentUrls: string[];
     orchestrationAgent: HttpAgent;
@@ -227,6 +228,7 @@ if (
 const orchestrationAgent = createDefaultAgent();
 
 const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
+  agentName: "marketmesh_orchestrator",
   description:
     "MarketMesh orchestrator with the buyer as commerce authority and independent seller A2A agents.",
   agentUrls: a2aAgentUrls,
@@ -350,7 +352,7 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
 
 const runtime = new CopilotRuntime({
   agents: {
-    a2a_chat: a2aMiddlewareAgent,
+    marketmesh_orchestrator: a2aMiddlewareAgent,
   },
   // --- copilotkit:intelligence (remove this block to opt out) ---
   ...(process.env.CPK_INTELLIGENCE_API_KEY

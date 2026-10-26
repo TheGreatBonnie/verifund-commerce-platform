@@ -60,7 +60,9 @@ function sellerName(sellerId?: string, cardUrl?: string) {
 }
 
 function requestSummary(request?: Record<string, unknown>) {
-  const payload = (request?.payload ?? request) as Record<string, unknown> | undefined;
+  const payload = (request?.payload ?? request) as
+    | Record<string, unknown>
+    | undefined;
   if (!payload) return "Seller request";
   if (payload.product_hint) {
     return `RFQ · ${payload.quantity ?? ""} ${payload.product_hint}`.trim();
@@ -71,7 +73,8 @@ function requestSummary(request?: Record<string, unknown>) {
   if (payload.accepted_total_cents) {
     return `Offer acceptance · $${(Number(payload.accepted_total_cents) / 100).toFixed(2)}`;
   }
-  if (payload.offer_id) return `Order request · offer ${String(payload.offer_id)}`;
+  if (payload.offer_id)
+    return `Order request · offer ${String(payload.offer_id)}`;
   return "Structured seller request";
 }
 
@@ -117,11 +120,11 @@ export function Chat({
   onBuyerStateUpdate,
   variant = "rail",
 }: ChatProps) {
-  const { agent } = useAgent({ agentId: "a2a_chat" });
+  const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
 
   useHumanInTheLoop(
     {
-      agentId: "a2a_chat",
+      agentId: "marketmesh_orchestrator",
       name: "request_award_approval",
       description:
         "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the award and task ID from that Buyer response without changing them.",
@@ -201,12 +204,16 @@ export function Chat({
     }),
     render: ({ parameters, status, result }) => {
       if (status === "inProgress") return null;
-      const agentName = sellerName(parameters.seller_id, parameters.seller_card_url);
+      const agentName = sellerName(
+        parameters.seller_id,
+        parameters.seller_card_url,
+      );
       const outgoing = {
         agentName,
         task: requestSummary(parameters.seller_request),
       };
-      const summary = status === "complete" ? responseSummary(result) : undefined;
+      const summary =
+        status === "complete" ? responseSummary(result) : undefined;
       return (
         <div data-testid="mediated-seller-exchange">
           <MessageToA2A
@@ -283,7 +290,9 @@ export function Chat({
     description: "Sends a message to an A2A agent",
     available: true,
     parameters: z.object({
-      agentName: z.string().describe("The name of the A2A agent to send the message to"),
+      agentName: z
+        .string()
+        .describe("The name of the A2A agent to send the message to"),
       task: z.string().describe("The message to send to the A2A agent"),
     }),
     render: (actionRenderProps: {
@@ -298,7 +307,8 @@ export function Chat({
   });
 
   return (
-    <div className={`mm-chat ${variant === "embedded" ? "mm-chat-embedded" : ""}`}>
+    <div
+      className={`mm-chat ${variant === "embedded" ? "mm-chat-embedded" : ""}`}>
       {variant === "rail" ? (
         <>
           <header className="mm-rail-head">
@@ -323,8 +333,7 @@ export function Chat({
               type="button"
               className="mm-button mm-button-ink"
               onClick={onRunSample}
-              disabled={isRunning || !isReady}
-            >
+              disabled={isRunning || !isReady}>
               {isRunning ? "Agents working…" : "Run sample brief"}
               <ArrowUpRight size={14} aria-hidden="true" />
             </button>
@@ -334,7 +343,7 @@ export function Chat({
 
       <div className="mm-chat-surface">
         <CopilotChat
-          agentId="a2a_chat"
+          agentId="marketmesh_orchestrator"
           className="mm-copilot-chat"
           labels={{
             welcomeMessageText:

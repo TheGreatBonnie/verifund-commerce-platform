@@ -13,7 +13,7 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
   return (
     <CopilotKitProvider runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
       <CopilotChatConfigurationProvider
-        agentId="a2a_chat"
+        agentId="marketmesh_orchestrator"
         labels={{
           modalHeaderTitle: "MarketMesh runs",
           chatInputPlaceholder:
@@ -22,8 +22,7 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
             "Tell me what your team needs. I’ll find independent sellers, negotiate structured offers, and stop for your approval before any order.",
           chatDisclaimerText:
             "Buyer agent · every order requires a human decision.",
-        }}
-      >
+        }}>
         {children}
       </CopilotChatConfigurationProvider>
     </CopilotKitProvider>

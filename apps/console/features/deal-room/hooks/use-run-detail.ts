@@ -36,7 +36,7 @@ function mergeRunState(state: BuyerState, run: BuyerRun | null): BuyerState {
 
 export function useRunDetail(routeRunId: string) {
   const { agent, isReady } = useAgent({
-    agentId: "a2a_chat",
+    agentId: "marketmesh_orchestrator",
     updates: [
       UseAgentUpdate.OnMessagesChanged,
       UseAgentUpdate.OnStateChanged,
@@ -49,7 +49,12 @@ export function useRunDetail(routeRunId: string) {
   const [runError, setRunError] = useState<string | null>(null);
   const [sellerFilter, setSellerFilter] = useState("all");
   const { run: buyerRun } = useRun(routeRunId);
-  const { sellers: registry, isLoading: registryLoading, error: registryError, refresh: refreshRegistry } = useRegistry();
+  const {
+    sellers: registry,
+    isLoading: registryLoading,
+    error: registryError,
+    refresh: refreshRegistry,
+  } = useRegistry();
 
   useEffect(() => {
     if (routeRunId) agent.threadId = routeRunId;
@@ -110,7 +115,8 @@ export function useRunDetail(routeRunId: string) {
     let pendingBrief: string | null = null;
     try {
       pendingBrief = window.sessionStorage.getItem("marketmesh:pendingBrief");
-      if (pendingBrief) window.sessionStorage.removeItem("marketmesh:pendingBrief");
+      if (pendingBrief)
+        window.sessionStorage.removeItem("marketmesh:pendingBrief");
     } catch {
       // Session storage is an optional bridge from the dashboard and sidebar.
     }

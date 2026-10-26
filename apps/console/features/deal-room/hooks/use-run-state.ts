@@ -6,13 +6,25 @@ import type { BuyerState } from "@/lib/types";
 import { parseBuyerStateFromMessages } from "@/lib/runs";
 
 export function useRunState() {
-  const { agent } = useAgent({ agentId: "a2a_chat", updates: [] });
+  const { agent } = useAgent({
+    agentId: "marketmesh_orchestrator",
+    updates: [],
+  });
   const state = useMemo(
-    () => parseBuyerStateFromMessages((agent.messages ?? []) as Array<{ role?: string; content?: unknown }>) ?? {},
+    () =>
+      parseBuyerStateFromMessages(
+        (agent.messages ?? []) as Array<{ role?: string; content?: unknown }>,
+      ) ?? {},
     [agent.messages],
   );
   const stage = (state as BuyerState).stage ?? "new";
-  const TERMINAL = new Set(["ordered", "rejected", "failed", "order_failed", "no_award"]);
+  const TERMINAL = new Set([
+    "ordered",
+    "rejected",
+    "failed",
+    "order_failed",
+    "no_award",
+  ]);
   return {
     agent,
     state: state as BuyerState,
@@ -22,6 +34,10 @@ export function useRunState() {
     mandate: (state as BuyerState).mandate ?? null,
     negotiations: (state as BuyerState).negotiations ?? [],
     sellers: (state as BuyerState).sellers ?? [],
-    runId: (state as BuyerState).task_id ?? (state as BuyerState).run_id ?? agent.threadId ?? "",
+    runId:
+      (state as BuyerState).task_id ??
+      (state as BuyerState).run_id ??
+      agent.threadId ??
+      "",
   };
 }

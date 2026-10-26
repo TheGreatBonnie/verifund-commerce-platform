@@ -17,17 +17,23 @@ from tests.support.a2a import (
     task_state,
 )
 
+PRODUCT_SKU = "MM-WIRELESS-HEADPHONES"
+PRODUCT_HINT = "Wireless Noise-Canceling Headphones"
+INITIAL_UNIT_PRICE_CENTS = 18900
+QUANTITY = 12
+
 
 def make_rfq() -> RFQ:
     return RFQ(
         request_id="rfq-1",
         run_id="run-1",
         category="consumer-electronics",
-        product_hint="Nimbus NC-700",
-        quantity=12,
+        product_hint=PRODUCT_HINT,
+        product_sku=PRODUCT_SKU,
+        quantity=QUANTITY,
         required_by=datetime.now(UTC) + timedelta(days=14),
         constraints=RFQConstraints(
-            min_warranty_months=24,
+            min_warranty_months=12,
             min_returns_days=30,
             color="black",
         ),
@@ -59,12 +65,13 @@ async def test_rfq_offer_and_counter(seller_session):
     offer = last_offer(events)
     assert offer["status"] == "proposed"
     assert offer["round"] == 1
-    assert offer["total_cents"] == 363600
+    assert offer["total_cents"] == INITIAL_UNIT_PRICE_CENTS * QUANTITY
+    assert offer["line_items"][0]["sku"] == PRODUCT_SKU
     assert task_state(events) == TaskState.TASK_STATE_INPUT_REQUIRED
 
     counter = CounterOffer(
         negotiation_round=2,
-        target_unit_price_cents=28790,
+        target_unit_price_cents=18500,
         requested_changes={},
         rationale="Can you improve the unit price?",
     )
@@ -89,7 +96,7 @@ async def test_task_ids_are_stable_and_context_is_shared(seller_session):
     client, _ = seller_session
     counter = CounterOffer(
         negotiation_round=2,
-        target_unit_price_cents=28790,
+        target_unit_price_cents=18500,
         requested_changes={},
         rationale="Can you improve the unit price?",
     )

@@ -194,7 +194,11 @@ def mandate_from_text(text: str) -> Mandate:
         re.IGNORECASE,
     )
     budget_match = re.search(r"\$\s*([0-9][0-9,]*)", text)
-    sku_match = re.search(r"\bProduct SKU:\s*([A-Za-z0-9._-]+)", text, re.IGNORECASE)
+    sku_match = re.search(
+        r"\bProduct SKU:\s*([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)",
+        text,
+        re.IGNORECASE,
+    )
     product_match = re.search(
         r"(?:negotiate for|source)\s+(.+?)(?:\.|\n|Product SKU:)",
         text,

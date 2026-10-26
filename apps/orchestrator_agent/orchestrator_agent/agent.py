@@ -70,11 +70,11 @@ that pause using the same procedure.
 
 # 5. Human Award Approval Protocol
 
-When the Buyer returns status approval_required:
+When the Buyer returns status `approval_required`, follow these steps:
 
 1. Extract the exact task_id, message, award, and mandate
    from the Buyer response.
-2. Call the frontend request_award_approval tool with
+2. Call the frontend `request_award_approval` tool with
    those exact values.
 3. Do not ask for approval through plain chat text.
 4. Wait for the actual tool result before continuing.
@@ -158,7 +158,7 @@ def build_agent(settings: Settings) -> LlmAgent:
         _skip_mcp_handler=True,
     )
     return LlmAgent(
-        name="MarketMeshOrchestrator",
+        name="marketmesh_orchestrator",
         model=model,
         tools=[_build_mediation_tool(settings), AGUIToolset()],
         instruction=MARKETMESH_ORCHESTRATOR_INSTRUCTION,
