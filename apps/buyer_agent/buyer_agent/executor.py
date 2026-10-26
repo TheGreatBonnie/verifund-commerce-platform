@@ -67,6 +67,23 @@ class BuyerExecutor(AgentExecutor):
             return {"brief": text}
         if not isinstance(value, dict):
             return {"brief": text}
+        # Callers may send the approval decision at the top level instead of
+        # nesting it under "approval". Normalise that shape rather than
+        # treating an approval as a new shopping brief.
+        if "approval" in value or "approved" in value:
+            task_id = value.get("task_id")
+            if not task_id:
+                return {"resume_error": "approval response requires task_id"}
+            if "approval" in value:
+                return value
+            return {
+                "approval": {
+                    field: value[field]
+                    for field in ("approved", "approved_by", "note")
+                    if field in value
+                },
+                "task_id": task_id,
+            }
         return value
 
     def _agent_message(
@@ -86,6 +103,36 @@ class BuyerExecutor(AgentExecutor):
         thread_id = context_id
         text = self._message_text(context.message)
         payload = self._payload(text)
+
+        if payload.get("resume_error"):
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    context_id=context_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_FAILED,
+                        message=self._agent_message(
+                            json.dumps(
+                                {
+                                    "status": "failed",
+                                    "task_id": task_id,
+                                    "message": payload["resume_error"],
+                                    "error": {
+                                        "code": "invalid_request",
+                                        "message": payload["resume_error"],
+                                        "retryable": False,
+                                        "details": {},
+                                    },
+                                }
+                            ),
+                            task_id,
+                            context_id,
+                            "application/json",
+                        ),
+                    ),
+                )
+            )
+            return
 
         await event_queue.enqueue_event(
             Task(

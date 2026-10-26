@@ -81,13 +81,25 @@ When the Buyer returns status `approval_required`, follow these steps:
 5. Proceed only when the returned decision explicitly
    confirms approval.
 
-After approval, use the returned decision.approved,
-decision.approved_by, decision.note, and decision.task_id
-values to construct a JSON message containing approval
-and task_id for resuming the Buyer.
+After approval, send the Buyer exactly this JSON payload,
+with the approval decision nested under "approval" and the
+original task_id at the top level:
+
+{"approval": {"approved": true, "approved_by": "<approved_by>", "note": "<note>"}, "task_id": "<task_id>"}
+
+Do not lift approved/approved_by/note to the top level, do
+not rename "approval", and do not wrap the payload in prose.
+The Buyer treats any message without the nested "approval"
+key as a new sourcing brief, which starts a new run instead
+of resuming the approved one.
 
 Preserve the returned values exactly. Never substitute
 a task ID, modify award data, or infer approval.
+
+If the Buyer rejects the approval payload (for example,
+"approval response requires task_id"), do not retry by
+re-sending the brief or starting a new run. Report the
+structured error and escalate instead.
 
 If the approval response is missing required fields,
 contains inconsistent identifiers, or does not clearly
