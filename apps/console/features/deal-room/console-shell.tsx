@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { UseAgentUpdate, useAgent } from "@copilotkit/react-core/v2";
+import { UseAgentUpdate, useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
 import {
   ArrowDownRight,
   CircleAlert,
@@ -103,13 +103,14 @@ function errorText(error: BuyerState["error"]) {
 export function ConsoleShell() {
   const routeRunId = useParams()?.runId as string | undefined;
   const { agent, isReady } = useAgent({
-    agentId: "a2a_chat",
+    agentId: "marketmesh_orchestrator",
     updates: [
       UseAgentUpdate.OnMessagesChanged,
       UseAgentUpdate.OnStateChanged,
       UseAgentUpdate.OnRunStatusChanged,
     ],
   });
+  const { copilotkit } = useCopilotKit();
   const [buyerState, setBuyerState] = useState<BuyerState>({});
   const { run: buyerRun } = useRun(routeRunId ?? "");
   useEffect(() => {
@@ -248,7 +249,7 @@ export function ConsoleShell() {
       });
       setIsRunning(true);
       try {
-        await agent.runAgent();
+        await copilotkit.runAgent({ agent });
       } catch (error) {
         setRunError(
           error instanceof Error
@@ -259,7 +260,7 @@ export function ConsoleShell() {
         setIsRunning(false);
       }
     },
-    [agent, isReady, isRunning, routeRunId],
+    [agent, copilotkit, isReady, isRunning, routeRunId],
   );
 
   useEffect(() => {
@@ -286,7 +287,7 @@ export function ConsoleShell() {
         content: `MarketMesh approval response: ${JSON.stringify(payload)}`,
       });
       try {
-        await agent.runAgent();
+        await copilotkit.runAgent({ agent });
       } catch (error) {
         setRunError(
           error instanceof Error
@@ -295,7 +296,7 @@ export function ConsoleShell() {
         );
       }
     },
-    [agent, buyerState.task_id],
+    [agent, copilotkit, buyerState.task_id],
   );
 
   const approvalElement =

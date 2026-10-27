@@ -1,6 +1,6 @@
 "use client";
 
-import { useAgent } from "@copilotkit/react-core/v2";
+import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
 import { useState } from "react";
 
 export function useApproval(taskId: string | undefined) {
@@ -8,6 +8,7 @@ export function useApproval(taskId: string | undefined) {
     agentId: "marketmesh_orchestrator",
     updates: [],
   });
+  const { copilotkit } = useCopilotKit();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const sendApproval = async (approved: boolean, note: string) => {
     if (!taskId) return;
@@ -22,7 +23,7 @@ export function useApproval(taskId: string | undefined) {
     });
     setIsSubmitting(true);
     try {
-      await agent.runAgent();
+      await copilotkit.runAgent({ agent });
     } finally {
       setIsSubmitting(false);
     }

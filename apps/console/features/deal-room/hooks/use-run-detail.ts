@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UseAgentUpdate, useAgent } from "@copilotkit/react-core/v2";
+import {
+  UseAgentUpdate,
+  useAgent,
+  useCopilotKit,
+} from "@copilotkit/react-core/v2";
 import type { BuyerRun } from "@/lib/api";
 import { parseBuyerStateFromMessages } from "@/lib/runs";
 import type { BuyerState } from "@/lib/types";
@@ -43,6 +47,7 @@ export function useRunDetail(routeRunId: string) {
       UseAgentUpdate.OnRunStatusChanged,
     ],
   });
+  const { copilotkit } = useCopilotKit();
   const [buyerState, setBuyerState] = useState<BuyerState>({});
   const [isRunning, setIsRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
@@ -96,7 +101,7 @@ export function useRunDetail(routeRunId: string) {
       });
       setIsRunning(true);
       try {
-        await agent.runAgent();
+        await copilotkit.runAgent({ agent });
       } catch (error) {
         setRunError(
           error instanceof Error
@@ -107,7 +112,7 @@ export function useRunDetail(routeRunId: string) {
         setIsRunning(false);
       }
     },
-    [agent, isReady, isRunning, routeRunId],
+    [agent, copilotkit, isReady, isRunning, routeRunId],
   );
 
   useEffect(() => {
