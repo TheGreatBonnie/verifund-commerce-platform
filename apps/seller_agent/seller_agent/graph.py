@@ -135,6 +135,7 @@ async def prepare(state: SellerState, config: RunnableConfig) -> dict:
     try:
         if kind == "rfq":
             rfq = parse_payload("rfq", state["incoming"], RFQ)
+            policy = policy.for_product(rfq.product_sku, rfq.product_hint)
             return {
                 "rfq": rfq,
                 "counter": None,
@@ -161,6 +162,9 @@ async def prepare(state: SellerState, config: RunnableConfig) -> dict:
                 raise CommerceProtocolError(
                     "counteroffer has no previous offer"
                 )
+            policy = policy.for_product(
+                previous.line_items[0].sku if previous.line_items else None
+            )
             allowed_warranties = sorted(policy.warranty_addons_cents)
             requested_warranty = _parse_requested_warranty(
                 counter.requested_changes, allowed_warranties
@@ -235,7 +239,18 @@ async def decide(state: SellerState, config: RunnableConfig) -> dict:
         return {}
     service = config["configurable"]["service"]
     planner: SellerPlanner = config["configurable"]["planner"]
-    policy: SellerPolicy = service.policy
+    base_policy: SellerPolicy = service.policy
+    rfq = state.get("rfq")
+    previous = state.get("previous_offer")
+    sku = (
+        rfq.product_sku
+        if rfq is not None
+        else previous.line_items[0].sku
+        if previous is not None and previous.line_items
+        else None
+    )
+    hint = rfq.product_hint if rfq is not None else ""
+    policy: SellerPolicy = base_policy.for_product(sku, hint)
     context = _build_context(state, policy)
     fallback_used = False
     try:
@@ -346,10 +361,20 @@ async def finalize_offer(state: SellerState, config: RunnableConfig) -> dict:
     if state.get("error"):
         return {}
     service = config["configurable"]["service"]
-    policy: SellerPolicy = service.policy
+    base_policy: SellerPolicy = service.policy
     decision = SellerDecision.model_validate(state["decision"])
     previous = state.get("previous_offer")
     rfq = state.get("rfq")
+    sku = (
+        rfq.product_sku
+        if rfq is not None
+        else previous.line_items[0].sku
+        if previous is not None and previous.line_items
+        else None
+    )
+    policy: SellerPolicy = base_policy.for_product(
+        sku, rfq.product_hint if rfq is not None else ""
+    )
     quantity = (
         rfq.quantity
         if rfq is not None
@@ -358,11 +383,15 @@ async def finalize_offer(state: SellerState, config: RunnableConfig) -> dict:
         else 0
     )
     try:
+        live_stock = await service.store.get_stock(policy.sku)
         quote = policy.quote(
             quantity=quantity,
             unit_price_cents=decision.unit_price_cents,
             warranty_months=decision.warranty_months,
             allow_split=state.get("allow_split", False),
+            stock_on_hand=live_stock.on_hand,
+            incoming_stock=live_stock.incoming,
+            incoming_days=live_stock.incoming_days,
         )
         offer = _offer_from_quote(
             policy=policy, state=state, quote=quote, decision=decision
@@ -391,9 +420,11 @@ async def accept_offer(state: SellerState, config: RunnableConfig) -> dict:
         accepted = parse_payload(
             "accept_offer", state["incoming"], AcceptOffer
         )
-        previous = await service.store.get_latest_offer(state["task_id"])
+        previous = await service.store.get_offer(accepted.offer_id)
         if previous is None:
-            raise CommerceProtocolError("no offer to accept")
+            raise CommerceProtocolError("offer to accept was not found")
+        if previous.seller_id != service.policy.seller_id:
+            raise CommerceProtocolError("offer belongs to another seller")
         if accepted.accepted_total_cents != previous.total_cents:
             raise CommerceProtocolError("accepted total does not match offer")
         updated = previous.model_copy(

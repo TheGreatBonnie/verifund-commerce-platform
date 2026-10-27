@@ -15,7 +15,8 @@ Northwind Audio, CircuitForge, and Aurora Supply.
 | Service | Port | Responsibility |
 | --- | --- | --- |
 | Console | 3000 | CopilotKit chat, Deal Room, A2A Wire, approval and order views |
-| Buyer agent | 9100 | AG-UI endpoint, LangGraph negotiation graph, approval interrupt, orders |
+| Orchestrator agent | 9000 | AG-UI entrypoint for the console; mediates buyer/seller calls |
+| Buyer agent | 9100 | LangGraph negotiation graph, approval interrupt, purchase orders |
 | Registry | 9105 | Agent Card index and discovery |
 | Northwind Audio | 9201 | Independent seller A2A service |
 | CircuitForge | 9202 | Independent seller A2A service |
@@ -24,20 +25,22 @@ Northwind Audio, CircuitForge, and Aurora Supply.
 ```mermaid
 flowchart LR
   Human[Human buyer] -->|AG-UI chat + approval| Console[Next.js console]
-  Console -->|AG-UI /agui| Buyer[Buyer agent]
+  Console -->|AG-UI| Orchestrator[Orchestrator agent]
+  Orchestrator -->|mediates| Buyer[Buyer agent]
   Buyer -->|A2A JSON-RPC + SSE| Registry[Registry]
-  Buyer -->|A2A JSON-RPC + SSE| Northwind[Northwind Audio]
-  Buyer -->|A2A JSON-RPC + SSE| CircuitForge[CircuitForge]
-  Buyer -->|A2A JSON-RPC + SSE| Aurora[Aurora Supply]
+  Orchestrator -->|A2A JSON-RPC + SSE| Northwind[Northwind Audio]
+  Orchestrator -->|A2A JSON-RPC + SSE| CircuitForge[CircuitForge]
+  Orchestrator -->|A2A JSON-RPC + SSE| Aurora[Aurora Supply]
   Registry -. indexes .-> Northwind
   Registry -. indexes .-> CircuitForge
   Registry -. indexes .-> Aurora
 ```
 
-The UI talks to the buyer over AG-UI. The buyer and sellers use A2A 1.x JSON-RPC with
-server-sent streaming. The human approval gate is outside the A2A order task: the buyer
-graph pauses with a LangGraph interrupt, the console resolves it, and only then does the
-buyer send an accepted offer and purchase order to the winning seller.
+The UI talks to the orchestrator over AG-UI. The orchestrator mediates buyer and seller
+calls; the buyer and sellers use A2A 1.x JSON-RPC with server-sent streaming. The human
+approval gate is outside the A2A order task: the buyer graph pauses with a LangGraph
+interrupt, the console resolves it, and only then does the buyer send an accepted offer
+and purchase order to the winning seller.
 
 ## Quick start
 
@@ -55,7 +58,8 @@ make dev
 
 Open <http://127.0.0.1:3000>, click **Run sample brief**, inspect the three seller lanes
 and the A2A Wire, then approve the recommended award. `make dev` starts the registry and
-sellers, seeds catalogs, registers Agent Cards, then starts the buyer and console.
+sellers, seeds catalogs, registers Agent Cards, then starts the buyer, orchestrator, and
+console.
 
 Stop everything with:
 
@@ -90,6 +94,8 @@ and stock reservation logic are real code paths.
 
 ## Using the console
 
+Routes: `/` (home + live run), `/runs`, `/runs/[runId]`, `/sellers`, `/settings`, `/help`.
+
 - **Brief desk** — the CopilotKit chat rail, connected to the buyer AG-UI endpoint.
   The sample button starts the same run as a typed brief.
 - **Seller lanes** — each independently operated seller in the registry, with quote
@@ -103,6 +109,15 @@ and stock reservation logic are real code paths.
   does not approve. Both approval surfaces share one resume path.
 - **Order desk** — approval receipt, order ID, ETA, tracking number, and simulated
   fulfillment timeline. Rejecting produces “No order was placed”.
+
+Runs are persisted by the buyer agent; `/runs` lists them and `/runs/[runId]` replays
+a run (metadata + trace) even after the browser thread is gone.
+
+### Tests
+
+- `cd apps/console && pnpm run test` — Vitest unit/component tests.
+- `cd apps/console && pnpm run typecheck` — TypeScript check.
+- `make e2e` — Playwright (starts the scripted stack).
 
 ## Adding a fourth seller
 
@@ -123,8 +138,10 @@ a trust shortcut.
 
 ## Live and scripted modes
 
-The deterministic scripted mode is the default and works without network access. It
-selects planner decisions from explicit policy options, which makes the demo repeatable.
+The deterministic scripted mode works without network access and is used automatically when
+no Nebius key is configured. It selects planner decisions from explicit policy options,
+which makes the demo repeatable. (`.env.example` requests live mode, but `make dev` falls
+back to scripted mode if `NEBIUS_API_KEY` is absent.)
 
 To use Nebius token factory:
 

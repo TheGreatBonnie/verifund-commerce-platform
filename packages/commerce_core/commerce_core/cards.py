@@ -65,6 +65,7 @@ DEFAULT_CARD_HOSTS = (
     "northwind",
     "circuitforge",
     "aurora",
+    "summit-tech",
 )
 
 

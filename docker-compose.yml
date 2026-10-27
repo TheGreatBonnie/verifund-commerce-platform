@@ -23,7 +23,7 @@ services:
       PORT: 9105
       REGISTRY_DATABASE_URL: sqlite+aiosqlite:////app/data/registry.db
       REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
-      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora"]'
+      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech"]'
     ports:
       - "127.0.0.1:9105:9105"
     healthcheck:
@@ -89,6 +89,25 @@ services:
       timeout: 3s
       retries: 20
 
+  summit-tech:
+    <<: *python-service
+    command: python -m seller_agent
+    environment:
+      <<: *model-env
+      HOST: 0.0.0.0
+      PORT: 9204
+      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/summit-tech.yaml
+      PUBLIC_BASE_URL: http://summit-tech:9204
+      SELLER_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
+      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/summit-tech.db
+    ports:
+      - "127.0.0.1:9204:9204"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9204/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   seed:
     build:
       context: .
@@ -103,15 +122,19 @@ services:
         condition: service_healthy
       aurora:
         condition: service_healthy
+      summit-tech:
+        condition: service_healthy
     environment:
       REGISTRY_URL: http://registry:9105
       REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
       NORTHWIND_DATABASE_URL: sqlite+aiosqlite:////app/data/northwind.db
       CIRCUITFORGE_DATABASE_URL: sqlite+aiosqlite:////app/data/circuitforge.db
       AURORA_DATABASE_URL: sqlite+aiosqlite:////app/data/aurora.db
+      SUMMIT_TECH_DATABASE_URL: sqlite+aiosqlite:////app/data/summit-tech.db
       NORTHWIND_PUBLIC_BASE_URL: http://northwind:9201
       CIRCUITFORGE_PUBLIC_BASE_URL: http://circuitforge:9202
       AURORA_PUBLIC_BASE_URL: http://aurora:9203
+      SUMMIT_TECH_PUBLIC_BASE_URL: http://summit-tech:9204
     volumes:
       - marketmesh-data:/app/data
 
@@ -128,8 +151,9 @@ services:
       REGISTRY_URL: http://registry:9105
       BUYER_DATABASE_URL: sqlite+aiosqlite:////app/data/buyer.db
       BUYER_CHECKPOINT_PATH: /app/data/buyer-checkpoints.db
-      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora"]'
-      BUYER_SELLER_TOKENS: '{"northwind-audio":"${SELLER_NORTHWIND_TOKEN:-dev-northwind}","circuitforge":"${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}","aurora-supply":"${SELLER_AURORA_TOKEN:-dev-aurora}"}'
+      BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
+      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech"]'
+      BUYER_SELLER_TOKENS: '{"northwind-audio":"${SELLER_NORTHWIND_TOKEN:-dev-northwind}","circuitforge":"${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}","aurora-supply":"${SELLER_AURORA_TOKEN:-dev-aurora}","summit-tech":"${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}"}'
     ports:
       - "127.0.0.1:9100:9100"
     healthcheck:
@@ -151,7 +175,11 @@ services:
       ORCHESTRATOR_URL: http://orchestrator:9000
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       BUYER_A2A_URL: http://buyer:9100
-      SELLER_URLS: http://northwind:9201,http://circuitforge:9202,http://aurora:9203
+      SELLER_URLS: http://northwind:9201,http://circuitforge:9202,http://aurora:9203,http://summit-tech:9204
+      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
+      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
+      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
+      SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
     ports:
       - "127.0.0.1:9000:9000"
     healthcheck:
@@ -174,8 +202,17 @@ services:
     environment:
       BUYER_AGUI_URL: http://buyer:9100/agui
       BUYER_API_URL: http://buyer:9100
+      BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       REGISTRY_URL: http://registry:9105
+      NORTHWIND_A2A_URL: http://northwind:9201
+      CIRCUITFORGE_A2A_URL: http://circuitforge:9202
+      AURORA_A2A_URL: http://aurora:9203
+      SUMMIT_TECH_A2A_URL: http://summit-tech:9204
+      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
+      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
+      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
+      SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
       NEXT_TELEMETRY_DISABLED: "1"
       COPILOTKIT_TELEMETRY_DISABLED: "true"

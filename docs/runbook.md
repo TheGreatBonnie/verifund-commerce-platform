@@ -5,6 +5,7 @@
 | Service | URL | Health |
 | --- | --- | --- |
 | Console | <http://127.0.0.1:3000> | `/` |
+| Orchestrator | <http://127.0.0.1:9000> | `/health`, `/ready` |
 | Buyer | <http://127.0.0.1:9100> | `/health`, `/ready`, `/metrics` |
 | Registry | <http://127.0.0.1:9105> | `/health`, `/ready`, `/metrics` |
 | Northwind Audio | <http://127.0.0.1:9201> | `/health`, `/ready`, card at `/.well-known/agent-card.json` |
@@ -76,6 +77,7 @@ The registry never receives seller bearer tokens. The console never receives the
 | `database is locked` | Multiple writers or a stale stack | Stop the stack, wait, retry; keep one buyer per buyer DB |
 | Registry dot offline | Registry process died | Check `.dev-logs/registry.log` |
 | Live mode falls back | Missing or malformed Nebius key | Set `NEBIUS_API_KEY` and check the buyer log |
+| Orchestrator not ready | Live mode without a Nebius key | Set `NEBIUS_API_KEY` or run scripted mode |
 
 ## Logs and traces
 

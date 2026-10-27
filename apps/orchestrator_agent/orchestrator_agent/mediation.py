@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from a2a.client import ClientConfig, ClientFactory
@@ -53,21 +54,34 @@ def _buyer_response(frames: list) -> dict[str, Any] | None:
     return response
 
 
-def _resolve_seller_token(seller_card_url: str, seller_token: str | None) -> str:
+def _resolve_seller_token(
+    seller_card_url: str, seller_token: str | None, seller_id: str | None = None
+) -> str:
     # Prefer an explicitly supplied, non-default token (e.g. tests).
     if seller_token and seller_token != "dev-seller":
         return seller_token
-    # Otherwise resolve from per-seller config by port.
-    try:
-        port = seller_card_url.split("://", 1)[-1].split("/", 1)[0].split(":")[-1]
-    except Exception:  # noqa: BLE001
-        port = ""
-    port_map = {
-        "9201": os.environ.get("SELLER_NORTHWIND_TOKEN", "dev-northwind"),
-        "9202": os.environ.get("SELLER_CIRCUITFORGE_TOKEN", "dev-circuitforge"),
-        "9203": os.environ.get("SELLER_AURORA_TOKEN", "dev-aurora"),
+    # Resolve by stable seller ID first, then by port for older callers.
+    seller_tokens = {
+        "northwind-audio": os.environ.get("SELLER_NORTHWIND_TOKEN", "dev-northwind"),
+        "circuitforge": os.environ.get("SELLER_CIRCUITFORGE_TOKEN", "dev-circuitforge"),
+        "aurora-supply": os.environ.get("SELLER_AURORA_TOKEN", "dev-aurora"),
+        "summit-tech": os.environ.get("SELLER_SUMMIT_TECH_TOKEN", "dev-summit-tech"),
     }
-    return port_map.get(port, os.environ.get("SELLER_TOKEN", "dev-seller"))
+    if seller_id in seller_tokens:
+        return seller_tokens[seller_id]
+    port_to_seller = {
+        "9201": "northwind-audio",
+        "9202": "circuitforge",
+        "9203": "aurora-supply",
+        "9204": "summit-tech",
+    }
+    seller_id = port_to_seller.get(urlsplit(seller_card_url).port or "")
+    if seller_id in seller_tokens:
+        return seller_tokens[seller_id]
+    fallback = os.environ.get("SELLER_TOKEN")
+    if fallback:
+        return fallback
+    raise ValueError(f"No seller authentication token configured for {seller_card_url}")
 
 
 async def mediate_seller_call(
@@ -91,7 +105,7 @@ async def mediate_seller_call(
             task_id=seller_task_id,
             envelope=request_envelope if request_envelope else None,
         )
-        token = _resolve_seller_token(seller_card_url, seller_token)
+        token = _resolve_seller_token(seller_card_url, seller_token, seller_id)
         frames = await _a2a_send(seller_base, msg, token=token)
 
         offers: list[dict[str, Any]] = []

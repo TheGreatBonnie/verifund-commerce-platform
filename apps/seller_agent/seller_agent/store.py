@@ -141,17 +141,18 @@ class SellerStore:
             await conn.run_sync(self.metadata.create_all)
 
     async def seed_catalog(self, policy: SellerPolicy) -> None:
-        statement = sqlite_insert(self.inventory).values(
-            sku=policy.sku,
-            on_hand=policy.stock_on_hand,
-            incoming=policy.incoming_stock,
-            incoming_days=policy.incoming_days,
-        )
-        statement = statement.on_conflict_do_nothing(
-            index_elements=["sku"]
-        )
-        async with self.engine.begin() as conn:
-            await conn.execute(statement)
+        for product in policy.catalog():
+            statement = sqlite_insert(self.inventory).values(
+                sku=product.sku,
+                on_hand=product.stock_on_hand,
+                incoming=product.incoming_stock,
+                incoming_days=product.incoming_days,
+            )
+            statement = statement.on_conflict_do_nothing(
+                index_elements=["sku"]
+            )
+            async with self.engine.begin() as conn:
+                await conn.execute(statement)
 
     @asynccontextmanager
     async def transaction(self):
@@ -171,6 +172,40 @@ class SellerStore:
                 incoming=row.incoming,
                 incoming_days=row.incoming_days,
             )
+
+    async def list_offers(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.offers)
+                .order_by(self.offers.c.created_at.desc())
+                .limit(max(1, min(limit, 100)))
+            )
+            return [
+                {
+                    "created_at": row.created_at,
+                    "offer": Offer.model_validate(row.offer_json).model_dump(
+                        mode="json"
+                    ),
+                }
+                for row in result
+            ]
+
+    async def list_orders(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.orders)
+                .order_by(self.orders.c.created_at.desc())
+                .limit(max(1, min(limit, 100)))
+            )
+            return [
+                {
+                    "created_at": row.created_at,
+                    "order": Order.model_validate(row.order_json).model_dump(
+                        mode="json"
+                    ),
+                }
+                for row in result
+            ]
 
     async def set_stock(
         self,

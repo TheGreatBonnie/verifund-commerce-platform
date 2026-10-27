@@ -4,13 +4,15 @@ import { useEffect } from "react";
 import {
   CopilotChat,
   useAgent,
+  useHumanInTheLoop,
   useFrontendTool,
   useRenderTool,
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { MessageToA2A } from "./a2a/MessageToA2A";
-import { MessageFromA2A } from "./a2a/MessageFromA2A";
+import { ApprovalCard } from "@/features/deal-room/components/approval-card";
+import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
+import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
 
 type BuyerState = {
   status?: string;
@@ -28,6 +30,7 @@ type ChatProps = {
   isRunning: boolean;
   isReady: boolean;
   onBuyerStateUpdate?: (state: BuyerState) => void;
+  variant?: "rail" | "embedded";
 };
 
 const SAMPLE_PROMPT =
@@ -38,6 +41,7 @@ function sellerName(sellerId?: string, cardUrl?: string) {
     "northwind-audio": "Northwind Audio",
     circuitforge: "CircuitForge",
     "aurora-supply": "Aurora Supply",
+    "summit-tech": "Summit Tech Supply",
   };
   if (sellerId && names[sellerId]) return names[sellerId];
   let port = "";
@@ -50,12 +54,15 @@ function sellerName(sellerId?: string, cardUrl?: string) {
     "9201": "northwind-audio",
     "9202": "circuitforge",
     "9203": "aurora-supply",
+    "9204": "summit-tech",
   };
   return names[idByPort[port]] ?? sellerId ?? "Seller agent";
 }
 
 function requestSummary(request?: Record<string, unknown>) {
-  const payload = (request?.payload ?? request) as Record<string, unknown> | undefined;
+  const payload = (request?.payload ?? request) as
+    | Record<string, unknown>
+    | undefined;
   if (!payload) return "Seller request";
   if (payload.product_hint) {
     return `RFQ · ${payload.quantity ?? ""} ${payload.product_hint}`.trim();
@@ -66,7 +73,8 @@ function requestSummary(request?: Record<string, unknown>) {
   if (payload.accepted_total_cents) {
     return `Offer acceptance · $${(Number(payload.accepted_total_cents) / 100).toFixed(2)}`;
   }
-  if (payload.offer_id) return `Order request · offer ${String(payload.offer_id)}`;
+  if (payload.offer_id)
+    return `Order request · offer ${String(payload.offer_id)}`;
   return "Structured seller request";
 }
 
@@ -105,8 +113,87 @@ function responseSummary(rawResult: string) {
   }
 }
 
-export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: ChatProps) {
-  const { agent } = useAgent({ agentId: "a2a_chat" });
+export function Chat({
+  onRunSample,
+  isRunning,
+  isReady,
+  onBuyerStateUpdate,
+  variant = "rail",
+}: ChatProps) {
+  const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_award_approval",
+      description:
+        "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the award and task ID from that Buyer response without changing them.",
+      parameters: z.object({
+        task_id: z.string(),
+        message: z.string(),
+        award: z.record(z.unknown()),
+        mandate: z.record(z.unknown()).optional(),
+      }),
+      render: ({ args, status, respond, result }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval-pending" role="status">
+              Preparing the award for your review…
+            </div>
+          );
+        }
+
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <ApprovalCard
+                award={args.award as any}
+                mandate={args.mandate as any}
+                message={args.message}
+                onApprove={(note) =>
+                  respond({
+                    approved: true,
+                    approved_by: "Demo Buyer",
+                    note,
+                    task_id: args.task_id,
+                  })
+                }
+                onReject={(note) =>
+                  respond({
+                    approved: false,
+                    approved_by: "Demo Buyer",
+                    note,
+                    task_id: args.task_id,
+                  })
+                }
+              />
+            </div>
+          );
+        }
+
+        if (status === "complete") {
+          let decision: { approved?: boolean } | null = null;
+          try {
+            decision = JSON.parse(result) as { approved?: boolean };
+          } catch {
+            // Keep the completed approval item visible if the result is malformed.
+          }
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              {decision?.approved === true
+                ? "Award approved. The Buyer is completing the order."
+                : decision?.approved === false
+                  ? "Award rejected. No order will be placed."
+                  : "Your decision was recorded. The Buyer is continuing."}
+            </p>
+          );
+        }
+
+        return null;
+      },
+    },
+    [],
+  );
 
   useRenderTool({
     name: "mediate_seller_call",
@@ -117,12 +204,16 @@ export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: Ch
     }),
     render: ({ parameters, status, result }) => {
       if (status === "inProgress") return null;
-      const agentName = sellerName(parameters.seller_id, parameters.seller_card_url);
+      const agentName = sellerName(
+        parameters.seller_id,
+        parameters.seller_card_url,
+      );
       const outgoing = {
         agentName,
         task: requestSummary(parameters.seller_request),
       };
-      const summary = status === "complete" ? responseSummary(result) : undefined;
+      const summary =
+        status === "complete" ? responseSummary(result) : undefined;
       return (
         <div data-testid="mediated-seller-exchange">
           <MessageToA2A
@@ -199,7 +290,9 @@ export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: Ch
     description: "Sends a message to an A2A agent",
     available: true,
     parameters: z.object({
-      agentName: z.string().describe("The name of the A2A agent to send the message to"),
+      agentName: z
+        .string()
+        .describe("The name of the A2A agent to send the message to"),
       task: z.string().describe("The message to send to the A2A agent"),
     }),
     render: (actionRenderProps: {
@@ -214,39 +307,43 @@ export function Chat({ onRunSample, isRunning, isReady, onBuyerStateUpdate }: Ch
   });
 
   return (
-    <div className="mm-chat">
-      <header className="mm-rail-head">
-        <div>
-          <p className="mm-kicker">Buyer agent · AG-UI</p>
-          <h1>Brief desk</h1>
-        </div>
-        <span className="mm-agent-badge">
-          <span className="mm-live-dot is-live" aria-hidden="true" /> Live
-        </span>
-      </header>
+    <div
+      className={`mm-chat ${variant === "embedded" ? "mm-chat-embedded" : ""}`}>
+      {variant === "rail" ? (
+        <>
+          <header className="mm-rail-head">
+            <div>
+              <p className="mm-kicker">Buyer agent · AG-UI</p>
+              <h1>Brief desk</h1>
+            </div>
+            <span className="mm-agent-badge">
+              <span className="mm-live-dot is-live" aria-hidden="true" /> Live
+            </span>
+          </header>
 
-      <div className="mm-sample-brief">
-        <div className="mm-sample-top">
-          <span className="mm-kicker">
-            <Sparkles size={12} aria-hidden="true" /> Demo mandate
-          </span>
-          <span className="mm-mono-note">consumer electronics</span>
-        </div>
-        <p>{SAMPLE_PROMPT}</p>
-        <button
-          type="button"
-          className="mm-button mm-button-ink"
-          onClick={onRunSample}
-          disabled={isRunning || !isReady}
-        >
-          {isRunning ? "Agents working…" : "Run sample brief"}
-          <ArrowUpRight size={14} aria-hidden="true" />
-        </button>
-      </div>
+          <div className="mm-sample-brief">
+            <div className="mm-sample-top">
+              <span className="mm-kicker">
+                <Sparkles size={12} aria-hidden="true" /> Demo mandate
+              </span>
+              <span className="mm-mono-note">consumer electronics</span>
+            </div>
+            <p>{SAMPLE_PROMPT}</p>
+            <button
+              type="button"
+              className="mm-button mm-button-ink"
+              onClick={onRunSample}
+              disabled={isRunning || !isReady}>
+              {isRunning ? "Agents working…" : "Run sample brief"}
+              <ArrowUpRight size={14} aria-hidden="true" />
+            </button>
+          </div>
+        </>
+      ) : null}
 
       <div className="mm-chat-surface">
         <CopilotChat
-          agentId="a2a_chat"
+          agentId="marketmesh_orchestrator"
           className="mm-copilot-chat"
           labels={{
             welcomeMessageText:

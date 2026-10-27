@@ -24,6 +24,20 @@ async def registry_client(tmp_path: Path, seller_card_json: dict):
         mock.get(
             "http://127.0.0.1:9201/.well-known/agent-card.json"
         ).mock(return_value=httpx.Response(200, json=seller_card_json))
+        mock.get("http://127.0.0.1:9201/api/catalog").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "products": [
+                        {
+                            "sku": "NC-700-BLK",
+                            "name": "Nimbus NC-700 ANC Headset",
+                            "category": "consumer-electronics",
+                        }
+                    ]
+                },
+            )
+        )
         settings = Settings(
             database_url=f"sqlite+aiosqlite:///{tmp_path / 'registry.db'}",
             admin_token="test-admin",
@@ -57,6 +71,9 @@ async def test_register_and_discover(registry_client, seller_card_json):
     )
     assert found.status_code == 200
     assert found.json()["sellers"][0]["seller_id"] == "northwind-audio"
+    products = await registry_client.get("/v1/products")
+    assert products.status_code == 200
+    assert products.json()["products"][0]["seller_id"] == "northwind-audio"
 
 
 async def test_registry_rejects_bad_admin_token(

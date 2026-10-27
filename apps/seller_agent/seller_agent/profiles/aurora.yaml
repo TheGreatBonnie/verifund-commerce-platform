@@ -16,3 +16,67 @@ incoming_days: 10
 split_shipment: true
 sustainability_certified: true
 rating: 4.6
+products:
+  - sku: MM-WIRELESS-HEADPHONES
+    name: Wireless Noise-Canceling Headphones
+    category: Electronics
+    description: Adaptive audio · 30-hour battery · Wireless
+    image_emoji: 🎧
+    color: "#f1edff"
+    list_unit_price_cents: 20900
+    original_unit_price_cents: 24900
+    floor_unit_price_cents: 18500
+    initial_unit_price_cents: 19900
+    concession_ladder_cents: [19900, 19200, 18800]
+    base_warranty_months: 24
+    warranty_addons_cents: {24: 0, 36: 1200}
+    returns_days: 30
+    delivery_days: 10
+    stock_on_hand: 8
+    incoming_stock: 4
+    incoming_days: 10
+    rating: 4.6
+    reviews: "856"
+    tag: Popular
+  - sku: MM-ERGONOMIC-MESH-CHAIR
+    name: Ergonomic Mesh Office Chair
+    category: Home & Living
+    description: Adjustable lumbar support · Breathable mesh
+    image_emoji: 🪑
+    color: "#e7f7f2"
+    list_unit_price_cents: 27900
+    original_unit_price_cents: 34900
+    floor_unit_price_cents: 24500
+    initial_unit_price_cents: 26900
+    concession_ladder_cents: [26900, 25900, 24900]
+    base_warranty_months: 24
+    warranty_addons_cents: {24: 0, 36: 1200}
+    returns_days: 30
+    delivery_days: 10
+    stock_on_hand: 8
+    incoming_stock: 4
+    incoming_days: 10
+    rating: 4.6
+    reviews: "932"
+    tag: Negotiable
+  - sku: MM-ERGOLIFT-STANDING-DESK
+    name: ErgoLift Standing Desk
+    category: Home & Living
+    description: Electric height adjustment · Memory presets
+    image_emoji: 🪵
+    color: "#edf6fa"
+    list_unit_price_cents: 44900
+    original_unit_price_cents: 52900
+    floor_unit_price_cents: 40500
+    initial_unit_price_cents: 43900
+    concession_ladder_cents: [43900, 42900, 41500]
+    base_warranty_months: 24
+    warranty_addons_cents: {24: 0, 36: 2200}
+    returns_days: 30
+    delivery_days: 12
+    stock_on_hand: 4
+    incoming_stock: 8
+    incoming_days: 8
+    rating: 4.7
+    reviews: "421"
+    tag: Agent pick

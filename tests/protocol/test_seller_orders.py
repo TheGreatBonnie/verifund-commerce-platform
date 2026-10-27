@@ -18,15 +18,25 @@ from tests.support.a2a import send_purchase_order
 POLICY_PATH = Path(
     "apps/seller_agent/seller_agent/profiles/northwind.yaml"
 )
+PRODUCT_SKU = "MM-WIRELESS-HEADPHONES"
+QUANTITY = 12
+
+
+def product_policy():
+    return load_policy(POLICY_PATH).for_product(PRODUCT_SKU)
 
 
 def build_offer(*, valid_until: datetime, suffix: str) -> Offer:
-    policy = load_policy(POLICY_PATH)
-    quote = policy.quote(12, 30300, 36)
+    policy = product_policy()
+    quote = policy.quote(
+        QUANTITY,
+        policy.initial_unit_price_cents,
+        policy.base_warranty_months,
+    )
     line_item = OfferLineItem(
         sku=policy.sku,
         name=policy.product_name,
-        quantity=12,
+        quantity=QUANTITY,
         unit_price_cents=quote.base_unit_price_cents,
         list_unit_price_cents=policy.list_unit_price_cents,
         warranty_addon_cents=quote.warranty_addon_cents,
@@ -89,7 +99,7 @@ def make_purchase_order(offer: dict, idempotency_key: str) -> PurchaseOrderReque
         run_id="run-1",
         offer_id=offer["offer_id"],
         seller_id=offer["seller_id"],
-        quantity=12,
+        quantity=QUANTITY,
         shipping_address=ShippingAddress(
             name="Demo Buyer",
             line1="1 Market Street",
@@ -124,8 +134,8 @@ async def test_duplicate_does_not_double_reserve(
     po = make_purchase_order(accepted_offer, idempotency_key="idem-2")
     await send_purchase_order(seller_session, po)
     await send_purchase_order(seller_session, po)
-    stock = await seller_session.store.get_stock("NC-700-BLK")
-    assert stock.on_hand == 40 - 12
+    stock = await seller_session.store.get_stock(PRODUCT_SKU)
+    assert stock.on_hand == product_policy().stock_on_hand - QUANTITY
 
 
 async def test_expired_offer_is_rejected(seller_session, expired_offer):
@@ -140,7 +150,7 @@ async def test_expired_offer_is_rejected(seller_session, expired_offer):
 async def test_out_of_stock_returns_retryable_error(
     seller_session, accepted_offer
 ):
-    await seller_session.store.set_stock("NC-700-BLK", 0, 0)
+    await seller_session.store.set_stock(PRODUCT_SKU, 0, 0)
     response = await send_purchase_order(
         seller_session,
         make_purchase_order(accepted_offer, idempotency_key="idem-4"),

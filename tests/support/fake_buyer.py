@@ -168,7 +168,9 @@ class FakeRegistry:
                 sustainability_certified=spec["sustainable"],
             )
 
-    async def discover(self, category: str) -> list[SellerEndpoint]:
+    async def discover(
+        self, category: str, product_sku: str | None = None
+    ) -> list[SellerEndpoint]:
         return list(self._endpoints.values())
 
     def endpoint(self, seller_id: str) -> SellerEndpoint:

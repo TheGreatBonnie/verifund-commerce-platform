@@ -15,13 +15,14 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from config import (
     ROOT,
     SELLERS,
     admin_token,
-    buyer_agui_url,
     buyer_a2a_url,
+    buyer_agui_url,
     buyer_url,
     console_port,
     llm_mode,
@@ -257,6 +258,7 @@ def registry_environment(mode: str) -> dict[str, str]:
             "DATABASE_URL": _registry_database(),
             "REGISTRY_DATABASE_URL": _registry_database(),
             "REGISTRY_ADMIN_TOKEN": admin_token(),
+            "ALLOWED_CARD_HOSTS": allowed_card_hosts_json(),
         }
     )
     return env
@@ -288,13 +290,38 @@ def buyer_environment(mode: str) -> dict[str, str]:
             "BUYER_DATABASE_URL": _buyer_database(),
             "BUYER_CHECKPOINT_PATH": _checkpoint_path(),
             "BUYER_SELLER_TOKENS": seller_tokens_json(),
-            "ALLOWED_CARD_HOSTS": _env_value(
-                "ALLOWED_CARD_HOSTS",
-                '["127.0.0.1","localhost","northwind","circuitforge","aurora"]',
+            "BUYER_CONSOLE_API_TOKEN": _env_value(
+                "BUYER_CONSOLE_API_TOKEN", "dev-console"
             ),
+            "ALLOWED_CARD_HOSTS": allowed_card_hosts_json(),
         }
     )
     return env
+
+
+def allowed_card_hosts_json() -> str:
+    configured = _env_value(
+        "ALLOWED_CARD_HOSTS",
+        '["127.0.0.1","localhost","northwind","circuitforge","aurora"]',
+    )
+    try:
+        configured_hosts = json.loads(configured)
+    except (json.JSONDecodeError, TypeError):
+        configured_hosts = None
+    hosts = (
+        {host for host in configured_hosts if isinstance(host, str)}
+        if isinstance(configured_hosts, list)
+        else {"127.0.0.1", "localhost"}
+    )
+    for seller in SELLERS:
+        hostname = urlsplit(seller.base_url).hostname
+        if hostname:
+            hosts.add(hostname)
+    return json.dumps(sorted(hosts))
+
+
+def seller_auth_environment() -> dict[str, str]:
+    return {seller.token_var: seller.token for seller in SELLERS}
 
 
 def orchestrator_environment(mode: str) -> dict[str, str]:
@@ -311,6 +338,7 @@ def orchestrator_environment(mode: str) -> dict[str, str]:
             "OPENAI_BASE_URL": nebius_base_url(),
         }
     )
+    env.update(seller_auth_environment())
     if mode == "live":
         env["OPENAI_API_KEY"] = nebius_api_key()
     return env
@@ -322,12 +350,16 @@ def console_environment(mode: str) -> dict[str, str]:
         {
             "BUYER_AGUI_URL": buyer_agui_url(),
             "BUYER_API_URL": buyer_url(),
+            "BUYER_CONSOLE_API_TOKEN": _env_value(
+                "BUYER_CONSOLE_API_TOKEN", "dev-console"
+            ),
             "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
             "REGISTRY_URL": registry_url(),
             "NEXT_TELEMETRY_DISABLED": "1",
             "COPILOTKIT_TELEMETRY_DISABLED": "true",
         }
     )
+    env.update(seller_auth_environment())
     return env
 
 

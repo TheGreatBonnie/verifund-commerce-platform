@@ -23,15 +23,16 @@ async def seed_seller(config) -> tuple[str, int]:
     store = SellerStore(engine)
     try:
         await store.create_schema()
-        await store.set_stock(
-            policy.sku,
-            policy.stock_on_hand,
-            policy.incoming_stock,
-            policy.incoming_days,
-        )
+        for product in policy.catalog():
+            await store.set_stock(
+                product.sku,
+                product.stock_on_hand or 0,
+                product.incoming_stock or 0,
+                product.incoming_days,
+            )
     finally:
         await engine.dispose()
-    return policy.seller_id, policy.stock_on_hand
+    return policy.seller_id, len(policy.catalog())
 
 
 def register_seller(
@@ -43,7 +44,10 @@ def register_seller(
         json={
             "seller_id": config.seller_id,
             "card_url": config.card_url,
-            "categories": ["consumer-electronics", "audio"],
+            "categories": sorted(
+                set(load_policy(config.profile_path).categories)
+                | {product.category for product in load_policy(config.profile_path).catalog()}
+            ),
         },
     )
     response.raise_for_status()
@@ -58,7 +62,7 @@ async def main() -> int:
     for seller in SELLERS:
         seller_id, stock = await seed_seller(seller)
         seeded.append((seller_id, stock))
-        print(f"seeded {seller_id}: {stock} units of NC-700-BLK")
+        print(f"seeded {seller_id}: {stock} catalog items")
 
     try:
         with httpx.Client(timeout=20.0) as client:

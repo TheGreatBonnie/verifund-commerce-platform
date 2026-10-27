@@ -29,6 +29,10 @@ class Settings(BaseSettings):
         default="dev-aurora",
         validation_alias=AliasChoices("SELLER_AURORA_TOKEN"),
     )
+    seller_summit_tech_token: str = Field(
+        default="dev-summit-tech",
+        validation_alias=AliasChoices("SELLER_SUMMIT_TECH_TOKEN"),
+    )
     llm_mode: str = Field(
         default="live",
         validation_alias=AliasChoices("MARKETMESH_LLM_MODE", "LLM_MODE"),

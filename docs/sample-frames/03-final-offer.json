@@ -35,7 +35,7 @@
       "sustainability_certified": false,
       "stock_confidence": 1.0,
       "split_shipment": false,
-      "notes": "Holding the current policy price."
+      "notes": null
     },
     "status": "final",
     "round": 2,

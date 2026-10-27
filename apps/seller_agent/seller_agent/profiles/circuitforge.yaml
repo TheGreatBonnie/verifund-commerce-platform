@@ -13,3 +13,164 @@ delivery_days: 7
 stock_on_hand: 25
 sustainability_certified: false
 rating: 4.4
+products:
+  - sku: MM-WIRELESS-HEADPHONES
+    name: Wireless Noise-Canceling Headphones
+    category: Electronics
+    description: Adaptive audio · 30-hour battery · Wireless
+    image_emoji: 🎧
+    color: "#f1edff"
+    list_unit_price_cents: 18900
+    original_unit_price_cents: 24900
+    floor_unit_price_cents: 16500
+    initial_unit_price_cents: 17900
+    concession_ladder_cents: [17900, 17200, 16800]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 600, 36: 1200}
+    returns_days: 30
+    delivery_days: 7
+    stock_on_hand: 25
+    rating: 4.4
+    reviews: "856"
+    tag: Popular
+  - sku: MM-MACBOOK-AIR-M4-13
+    name: MacBook Air M4 13-inch
+    category: Electronics
+    description: Apple M4 · 16GB memory · 256GB SSD · Space Gray
+    image_emoji: 💻
+    color: "#eaf0fb"
+    list_unit_price_cents: 102900
+    original_unit_price_cents: 119900
+    floor_unit_price_cents: 94000
+    initial_unit_price_cents: 99900
+    concession_ladder_cents: [99900, 97900, 95900]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 1400}
+    returns_days: 30
+    delivery_days: 7
+    stock_on_hand: 8
+    rating: 4.6
+    reviews: "1.2k"
+    tag: Best deal
+  - sku: MM-SMARTWATCH-SERIES-10
+    name: Smartwatch Series 10
+    category: Electronics
+    description: Health tracking · GPS · All-day battery
+    image_emoji: ⌚
+    color: "#fff3e7"
+    list_unit_price_cents: 38900
+    original_unit_price_cents: 44900
+    floor_unit_price_cents: 34500
+    initial_unit_price_cents: 37900
+    concession_ladder_cents: [37900, 36900, 35900]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 900}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 14
+    rating: 4.5
+    reviews: "742"
+    tag: New
+  - sku: MM-MIRRORLESS-CREATOR-CAMERA
+    name: Mirrorless Creator Camera
+    category: Electronics
+    description: 4K video · Interchangeable lens · Compact body
+    image_emoji: 📷
+    color: "#f8eef2"
+    list_unit_price_cents: 82900
+    original_unit_price_cents: 99900
+    floor_unit_price_cents: 76000
+    initial_unit_price_cents: 80900
+    concession_ladder_cents: [80900, 78900, 76900]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 1600}
+    returns_days: 30
+    delivery_days: 6
+    stock_on_hand: 10
+    rating: 4.5
+    reviews: "318"
+    tag: Limited offer
+  - sku: MM-USB-C-DOCK-12IN1
+    name: USB-C Docking Station 12-in-1
+    category: Electronics
+    description: Dual display output · 100W power delivery · Gigabit Ethernet
+    image_emoji: 🔌
+    color: "#edf3f4"
+    list_unit_price_cents: 16900
+    original_unit_price_cents: 18900
+    floor_unit_price_cents: 13000
+    initial_unit_price_cents: 15900
+    concession_ladder_cents: [15900, 14900, 14000]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 700}
+    returns_days: 30
+    delivery_days: 6
+    stock_on_hand: 30
+    incoming_stock: 8
+    incoming_days: 8
+    rating: 4.5
+    reviews: "364"
+    tag: Value pick
+  - sku: MM-PORTABLE-SSD-2TB
+    name: Portable SSD 2TB
+    category: Electronics
+    description: USB-C · Up to 1,050 MB/s · Rugged aluminum enclosure
+    image_emoji: 💾
+    color: "#f1eee7"
+    list_unit_price_cents: 14900
+    original_unit_price_cents: 16900
+    floor_unit_price_cents: 11000
+    initial_unit_price_cents: 13900
+    concession_ladder_cents: [13900, 12900, 12000]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 500}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 26
+    incoming_stock: 12
+    incoming_days: 6
+    rating: 4.6
+    reviews: "518"
+    tag: Value pick
+  - sku: MM-4K-MONITOR-27
+    name: 27-inch 4K USB-C Monitor
+    category: Electronics
+    description: 4K UHD · USB-C hub · Adjustable stand
+    image_emoji: 🖥️
+    color: "#eaf0fb"
+    list_unit_price_cents: 39900
+    original_unit_price_cents: 44900
+    floor_unit_price_cents: 33000
+    initial_unit_price_cents: 37900
+    concession_ladder_cents: [37900, 36900, 35000]
+    base_warranty_months: 24
+    warranty_addons_cents: {24: 0, 36: 1800}
+    returns_days: 30
+    delivery_days: 6
+    stock_on_hand: 11
+    incoming_stock: 5
+    incoming_days: 9
+    rating: 4.6
+    reviews: "287"
+    tag: Value pick
+  - sku: MM-MECH-KEYBOARD
+    name: Mechanical Keyboard
+    category: Electronics
+    description: Hot-swappable switches · Compact layout · USB-C
+    image_emoji: ⌨️
+    color: "#f4edf0"
+    list_unit_price_cents: 10900
+    original_unit_price_cents: 12900
+    floor_unit_price_cents: 7900
+    initial_unit_price_cents: 9900
+    concession_ladder_cents: [9900, 9200, 8500]
+    base_warranty_months: 12
+    warranty_addons_cents: {12: 0, 24: 500}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 44
+    incoming_stock: 16
+    incoming_days: 5
+    rating: 4.5
+    reviews: "793"
+    tag: Value pick

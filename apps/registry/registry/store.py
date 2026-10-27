@@ -38,6 +38,14 @@ class RegistryStore:
             Column("healthy", Boolean, nullable=False, default=True),
             Column("last_error", String, nullable=True),
         )
+        self.listings = Table(
+            "seller_listings",
+            self.metadata,
+            Column("seller_id", String(64), primary_key=True),
+            Column("sku", String(128), primary_key=True),
+            Column("category", String(128), nullable=False),
+            Column("listing_json", JSON, nullable=False),
+        )
 
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
@@ -98,15 +106,91 @@ class RegistryStore:
             row = result.first()
             return dict(row._mapping) if row else None
 
+    async def replace_listings(
+        self, seller_id: str, listings: list[dict[str, Any]]
+    ) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.listings.delete().where(self.listings.c.seller_id == seller_id)
+            )
+            if listings:
+                await conn.execute(
+                    self.listings.insert(),
+                    [
+                        {
+                            "seller_id": seller_id,
+                            "sku": item["sku"],
+                            "category": item["category"],
+                            "listing_json": item,
+                        }
+                        for item in listings
+                    ],
+                )
+
+    async def search_listings(
+        self, *, category: str | None = None, query: str | None = None,
+        sku: str | None = None, limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        statement = (
+            select(
+                self.listings.c.listing_json,
+                self.sellers.c.seller_id,
+                self.sellers.c.name.label("seller_name"),
+                self.sellers.c.card_url,
+                self.sellers.c.healthy,
+            )
+            .join(self.sellers, self.sellers.c.seller_id == self.listings.c.seller_id)
+            .where(self.sellers.c.healthy.is_(True))
+            .order_by(self.listings.c.sku, self.sellers.c.name)
+            .limit(max(1, min(limit, 500)))
+        )
+        if category:
+            statement = statement.where(self.listings.c.category == category)
+        if sku:
+            statement = statement.where(self.listings.c.sku == sku)
+        async with self.engine.connect() as conn:
+            result = await conn.execute(statement)
+            rows = [
+                {
+                    **row.listing_json,
+                    "seller_id": row.seller_id,
+                    "seller_name": row.seller_name,
+                    "card_url": row.card_url,
+                    "healthy": row.healthy,
+                }
+                for row in result
+            ]
+        if query:
+            needle = query.casefold()
+            rows = [
+                row for row in rows
+                if needle in " ".join(
+                    str(row.get(key, "")) for key in ("name", "sku", "description", "category", "seller_name")
+                ).casefold()
+            ]
+        return rows
+
     async def discover(
         self,
         category: str,
         extension_uri: str,
         limit: int = 20,
+        product_sku: str | None = None,
     ) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []
+        listing_sellers = None
+        if product_sku:
+            async with self.engine.connect() as conn:
+                rows = await conn.execute(
+                    select(self.listings.c.seller_id).where(
+                        self.listings.c.sku == product_sku
+                    )
+                )
+                listing_sellers = {row.seller_id for row in rows}
         for seller in await self.list_sellers():
-            if category not in seller["categories"]:
+            if not product_sku and category not in seller["categories"]:
+                continue
+            if listing_sellers is not None and seller["seller_id"] not in listing_sellers:
                 continue
             extensions = (
                 seller["card_json"].get("capabilities", {}).get("extensions", [])

@@ -11,7 +11,7 @@ from commerce_core.contracts import (
 )
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 BUYER_SYSTEM_PROMPT = """You are the buyer's sourcing agent in MarketMesh.
 You never reveal or include the buyer's maximum total budget in any message to a
@@ -25,6 +25,28 @@ class CounterChoice(BaseModel):
     target_unit_price_cents: int
     requested_changes: dict[str, str | int | bool]
     rationale: str
+
+    @field_validator("requested_changes")
+    @classmethod
+    def validate_requested_changes(
+        cls, changes: dict[str, str | int | bool]
+    ) -> dict[str, str | int | bool]:
+        allowed = {"warranty_months", "split_shipment"}
+        unsupported = set(changes) - allowed
+        if unsupported:
+            raise ValueError(
+                f"unsupported requested changes: {sorted(unsupported)}"
+            )
+        if "warranty_months" in changes and (
+            not isinstance(changes["warranty_months"], int)
+            or isinstance(changes["warranty_months"], bool)
+        ):
+            raise ValueError("warranty_months must be an integer")
+        if "split_shipment" in changes and not isinstance(
+            changes["split_shipment"], bool
+        ):
+            raise ValueError("split_shipment must be a boolean")
+        return changes
 
 
 class BuyerPlanner(Protocol):
@@ -172,7 +194,17 @@ def mandate_from_text(text: str) -> Mandate:
         re.IGNORECASE,
     )
     budget_match = re.search(r"\$\s*([0-9][0-9,]*)", text)
-    quantity = int(quantity_match.group(1)) if quantity_match else 12
+    sku_match = re.search(
+        r"\bProduct SKU:\s*([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)",
+        text,
+        re.IGNORECASE,
+    )
+    product_match = re.search(
+        r"(?:negotiate for|source)\s+(.+?)(?:\.|\n|Product SKU:)",
+        text,
+        re.IGNORECASE,
+    )
+    quantity = int(quantity_match.group(1)) if quantity_match else (1 if sku_match else 12)
     max_total = 340000
     if budget_match:
         try:
@@ -183,11 +215,12 @@ def mandate_from_text(text: str) -> Mandate:
     return Mandate(
         run_id="demo-run",
         category="consumer-electronics",
-        product_hint="Nimbus NC-700 ANC Headset",
+        product_hint=product_match.group(1).strip() if product_match else "Nimbus NC-700 ANC Headset",
+        product_sku=sku_match.group(1) if sku_match else None,
         quantity=quantity,
         max_total_cents=max_total,
         deadline_days=14,
-        min_warranty_months=24,
+        min_warranty_months=12 if sku_match else 24,
         min_returns_days=30,
         preferences=Preferences(sustainability=True, color="black"),
     )

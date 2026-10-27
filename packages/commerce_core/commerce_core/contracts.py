@@ -47,6 +47,7 @@ class Mandate(CommerceModel):
     buyer_id: str = "demo-buyer"
     category: str
     product_hint: str
+    product_sku: str | None = None
     quantity: int = Field(gt=0)
     max_total_cents: int = Field(gt=0)
     deadline_days: int = Field(gt=0)
@@ -77,6 +78,7 @@ class RFQ(CommerceModel):
     run_id: str
     category: str
     product_hint: str
+    product_sku: str | None = None
     quantity: int = Field(gt=0)
     required_by: datetime
     constraints: RFQConstraints = Field(default_factory=RFQConstraints)

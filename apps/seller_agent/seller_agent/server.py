@@ -70,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "/ready",
             "/metrics",
             "/.well-known/agent-card.json",
+            "/api/catalog",
         },
     )
     add_a2a_routes_to_fastapi(
@@ -94,5 +95,117 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return {"status": "ready"}
+
+    @app.get("/api/console/dashboard")
+    async def console_dashboard() -> dict:
+        catalog = policy.catalog()
+        product_rows = []
+        for product in catalog:
+            product_stock = await store.get_stock(product.sku)
+            product_rows.append(
+                {
+                    "sku": product.sku,
+                    "product_name": product.name,
+                    "category": product.category,
+                    "description": product.description,
+                    "list_unit_price_cents": product.list_unit_price_cents,
+                    "currency": "USD",
+                    "stock": {
+                        "on_hand": product_stock.on_hand,
+                        "incoming": product_stock.incoming,
+                        "incoming_days": product_stock.incoming_days,
+                    },
+                }
+            )
+        featured = catalog[0]
+        stock = await store.get_stock(featured.sku)
+        offers = await store.list_offers(limit=20)
+        orders = await store.list_orders(limit=20)
+        return {
+            "seller_id": policy.seller_id,
+            "pricing": {
+                "product_name": featured.name,
+                "sku": featured.sku,
+                "currency": "USD",
+                "list_unit_price_cents": featured.list_unit_price_cents,
+                "base_warranty_months": featured.base_warranty_months,
+                "warranty_addons_cents": featured.warranty_addons_cents,
+                "returns_days": featured.returns_days,
+                "delivery_days": featured.delivery_days,
+                "rating": featured.rating,
+                "sustainability_certified": featured.sustainability_certified,
+            },
+            "products": product_rows,
+            "stock": {
+                "on_hand": stock.on_hand,
+                "incoming": stock.incoming,
+                "incoming_days": stock.incoming_days,
+            },
+            "recent_offers": [
+                {
+                    "created_at": item["created_at"],
+                    "offer": {
+                        "offer_id": offer["offer_id"],
+                        "status": offer["status"],
+                        "currency": offer["currency"],
+                        "total_cents": offer["total_cents"],
+                        "line_items": [
+                            {"quantity": line["quantity"], "name": line["name"]}
+                            for line in offer["line_items"]
+                        ],
+                    },
+                }
+                for item in offers
+                for offer in [item["offer"]]
+            ],
+            "recent_orders": [
+                {
+                    "created_at": item["created_at"],
+                    "order": {
+                        "order_id": order["order_id"],
+                        "status": order["status"],
+                        "currency": order["currency"],
+                        "quantity": order["quantity"],
+                        "total_cents": order["total_cents"],
+                        "eta": order["eta"],
+                        "fulfillment": {"status": order["fulfillment"]["status"]},
+                    },
+                }
+                for item in orders
+                for order in [item["order"]]
+            ],
+        }
+
+    @app.get("/api/catalog")
+    async def public_catalog() -> dict:
+        items = []
+        for product in policy.catalog():
+            stock = await store.get_stock(product.sku)
+            items.append(
+                {
+                    "sku": product.sku,
+                    "name": product.name,
+                    "category": product.category,
+                    "description": product.description,
+                    "image_emoji": product.image_emoji,
+                    "color": product.color,
+                    "list_unit_price_cents": product.list_unit_price_cents,
+                    "original_unit_price_cents": product.original_unit_price_cents,
+                    "base_warranty_months": product.base_warranty_months,
+                    "returns_days": product.returns_days,
+                    "delivery_days": product.delivery_days,
+                    "sustainability_certified": product.sustainability_certified,
+                    "rating": product.rating,
+                    "reviews": product.reviews,
+                    "tag": product.tag,
+                    "seller_id": policy.seller_id,
+                    "seller_name": policy.name,
+                    "currency": "USD",
+                    "on_hand": stock.on_hand,
+                    "incoming": stock.incoming,
+                    "incoming_days": stock.incoming_days,
+                }
+            )
+        return {"seller_id": policy.seller_id, "seller_name": policy.name, "products": items}
 
     return app

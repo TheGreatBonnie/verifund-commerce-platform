@@ -68,6 +68,17 @@ export function getAgentStyle(agentName: string): AgentStyle {
     };
   }
 
+  // Summit Tech Supply (green)
+  if (nameLower.includes("summit tech") || nameLower.includes("summit-tech")) {
+    return {
+      bgColor: "bg-gradient-to-r from-emerald-100 to-teal-100",
+      textColor: "text-emerald-800",
+      borderColor: "border-emerald-400",
+      icon: "⛰️",
+      framework: "Seller",
+    };
+  }
+
   // Default
   return {
     bgColor: "bg-gray-100",

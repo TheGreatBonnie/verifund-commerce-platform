@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  UseAgentUpdate,
-  useAgent,
-} from "@copilotkit/react-core/v2";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "next/navigation";
+import { UseAgentUpdate, useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
 import {
   ArrowDownRight,
   CircleAlert,
@@ -12,21 +10,23 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import { A2AWire } from "./a2a-wire";
-import { ApprovalCard } from "./approval-card";
-import { Chat } from "./chat";
-import { NegotiationFeed } from "./negotiation-feed";
-import { OfferMatrix } from "./offer-matrix";
-import { OrderPanel } from "./order-panel";
-import { RegistryPanel } from "./registry-panel";
-import { SellerLane } from "./seller-lane";
-import { StageStepper } from "./stage-stepper";
+import { A2AWire } from "./components/a2a-wire";
+import { ApprovalCard } from "./components/approval-card";
+import { Chat } from "@/features/chat/chat";
+import { NegotiationFeed } from "./components/negotiation-feed";
+import { OfferMatrix } from "./components/offer-matrix";
+import { OrderPanel } from "./components/order-panel";
+import { RegistryPanel } from "./components/registry-panel";
+import { SellerLane } from "./components/seller-lane";
+import { StageStepper } from "./components/stage-stepper";
 import { fetchRegistry, fetchTrace } from "@/lib/api";
+import { useRun } from "@/features/runs/use-run";
 import { money, scoreLabel, stageLabel } from "@/lib/format";
 import type {
   Award,
   BuyerState,
   Mandate,
+  Order,
   RegistrySeller,
   TraceEvent,
 } from "@/lib/types";
@@ -101,15 +101,18 @@ function errorText(error: BuyerState["error"]) {
 }
 
 export function ConsoleShell() {
+  const routeRunId = useParams()?.runId as string | undefined;
   const { agent, isReady } = useAgent({
-    agentId: "a2a_chat",
+    agentId: "marketmesh_orchestrator",
     updates: [
       UseAgentUpdate.OnMessagesChanged,
       UseAgentUpdate.OnStateChanged,
       UseAgentUpdate.OnRunStatusChanged,
     ],
   });
+  const { copilotkit } = useCopilotKit();
   const [buyerState, setBuyerState] = useState<BuyerState>({});
+  const { run: buyerRun } = useRun(routeRunId ?? "");
   useEffect(() => {
     let latest: BuyerState | null = null;
     for (const message of agent.messages ?? []) {
@@ -127,9 +130,11 @@ export function ConsoleShell() {
       let candidate = parsed as BuyerState;
 
       // Check for A2A Task format: { id, status: { message: { parts: [{ text: "{\"status\":\"...\"}" }] } } }
-      const taskMessageText =
-        (parsed as { status?: { message?: { parts?: Array<{ text?: string }> } } })
-          ?.status?.message?.parts?.[0]?.text;
+      const taskMessageText = (
+        parsed as {
+          status?: { message?: { parts?: Array<{ text?: string }> } };
+        }
+      )?.status?.message?.parts?.[0]?.text;
       if (typeof taskMessageText === "string") {
         try {
           const nested = JSON.parse(taskMessageText);
@@ -154,13 +159,33 @@ export function ConsoleShell() {
     if (latest) setBuyerState(latest);
   }, [agent.messages]);
 
-  const state = buyerState;
+  // Resume a thread when arriving via /runs/[runId], and auto-start a pending brief.
+  useEffect(() => {
+    if (routeRunId) {
+      agent.threadId = routeRunId;
+    }
+  }, [agent, routeRunId]);
+
+  const state = useMemo<BuyerState>(() => {
+    if (!buyerRun) return buyerState;
+    return {
+      ...buyerState,
+      task_id: buyerRun.run_id ?? buyerState.task_id,
+      run_id: buyerRun.run_id ?? buyerState.run_id,
+      stage: buyerRun.stage ?? buyerState.stage,
+      mandate: (buyerRun.mandate as Mandate | null) ?? buyerState.mandate,
+      award: (buyerRun.award as Award | null) ?? buyerState.award,
+      order: (buyerRun.order as Order | null) ?? buyerState.order,
+      error: buyerRun.error ?? buyerState.error,
+    };
+  }, [buyerState, buyerRun]);
   const stage = state.stage ?? "new";
   const award = state.award ?? null;
   const mandate = state.mandate ?? null;
   const negotiations = state.negotiations ?? [];
   const sellers = state.sellers ?? [];
-  const runId = state.task_id ?? state.run_id ?? agent.threadId ?? "";
+  const runId =
+    routeRunId ?? state.task_id ?? state.run_id ?? agent.threadId ?? "";
   const terminal = TERMINAL.has(stage);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -209,7 +234,7 @@ export function ConsoleShell() {
   const startRun = useCallback(
     async (brief: string) => {
       if (isRunning || !isReady) return;
-      const threadId = crypto.randomUUID();
+      const threadId = routeRunId ?? crypto.randomUUID();
       agent.threadId = threadId;
       agent.setMessages([]);
       agent.setState({});
@@ -224,7 +249,7 @@ export function ConsoleShell() {
       });
       setIsRunning(true);
       try {
-        await agent.runAgent();
+        await copilotkit.runAgent({ agent });
       } catch (error) {
         setRunError(
           error instanceof Error
@@ -235,8 +260,16 @@ export function ConsoleShell() {
         setIsRunning(false);
       }
     },
-    [agent, isReady, isRunning],
+    [agent, copilotkit, isReady, isRunning, routeRunId],
   );
+
+  useEffect(() => {
+    if (!isReady) return;
+    const pending = window.sessionStorage.getItem("marketmesh:pendingBrief");
+    if (!pending) return;
+    window.sessionStorage.removeItem("marketmesh:pendingBrief");
+    void startRun(pending);
+  }, [isReady, startRun]);
 
   const sendApproval = useCallback(
     async (approved: boolean, note: string) => {
@@ -254,7 +287,7 @@ export function ConsoleShell() {
         content: `MarketMesh approval response: ${JSON.stringify(payload)}`,
       });
       try {
-        await agent.runAgent();
+        await copilotkit.runAgent({ agent });
       } catch (error) {
         setRunError(
           error instanceof Error
@@ -263,7 +296,7 @@ export function ConsoleShell() {
         );
       }
     },
-    [agent, buyerState.task_id],
+    [agent, copilotkit, buyerState.task_id],
   );
 
   const approvalElement =
@@ -300,11 +333,7 @@ export function ConsoleShell() {
     <div className="mm-shell">
       <header className="mm-topbar">
         <div className="mm-brand">
-          <svg
-            viewBox="0 0 32 32"
-            className="mm-brand-mark"
-            aria-hidden="true"
-          >
+          <svg viewBox="0 0 32 32" className="mm-brand-mark" aria-hidden="true">
             <circle cx="7" cy="8" r="3.2" />
             <circle cx="25" cy="7" r="2.4" />
             <circle cx="22" cy="25" r="3.2" />
@@ -338,8 +367,7 @@ export function ConsoleShell() {
             type="button"
             className="mm-button mm-button-outline"
             onClick={handleNewRun}
-            disabled={isRunning}
-          >
+            disabled={isRunning}>
             <RefreshCcw size={13} aria-hidden="true" /> New run
           </button>
         </div>
@@ -374,7 +402,9 @@ export function ConsoleShell() {
             <section className="mm-award-banner" aria-labelledby="award-title">
               <div className="mm-award-copy">
                 <p className="mm-kicker">
-                  {stage === "rejected" ? "Award rejected" : "Recommended award"}
+                  {stage === "rejected"
+                    ? "Award rejected"
+                    : "Recommended award"}
                 </p>
                 <h2 id="award-title">
                   {award.winner.seller_name}
@@ -407,7 +437,9 @@ export function ConsoleShell() {
               </span>
             </section>
           ) : (
-            <section className="mm-deal-intro" aria-labelledby="deal-intro-title">
+            <section
+              className="mm-deal-intro"
+              aria-labelledby="deal-intro-title">
               <div>
                 <p className="mm-kicker">Sourcing desk · {stageLabel(stage)}</p>
                 <h2 id="deal-intro-title">
@@ -466,7 +498,8 @@ export function ConsoleShell() {
                   <h2 id="seller-lanes-title">Seller lanes</h2>
                 </div>
                 <span className="mm-mono-note">
-                  {sellers.length || negotiations.length} Agent Cards · private tasks
+                  {sellers.length || negotiations.length} Agent Cards · private
+                  tasks
                 </span>
               </header>
               <div className="mm-lane-grid">

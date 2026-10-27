@@ -13,16 +13,21 @@ type DecisionTrace = {
 type NegotiationFeedProps = {
   negotiations: Negotiation[];
   trace?: DecisionTrace[];
+  title?: string;
 };
 
-export function NegotiationFeed({ negotiations, trace = [] }: NegotiationFeedProps) {
+export function NegotiationFeed({
+  negotiations,
+  trace = [],
+  title = "Negotiation ledger",
+}: NegotiationFeedProps) {
   if (negotiations.length === 0) {
     return (
       <section className="mm-panel" aria-labelledby="negotiation-title">
         <header className="mm-panel-head">
           <div>
             <p className="mm-kicker">Buyer ⇄ seller</p>
-            <h2 id="negotiation-title">Negotiation ledger</h2>
+            <h2 id="negotiation-title">{title}</h2>
           </div>
         </header>
         <p className="mm-empty">
@@ -37,7 +42,7 @@ export function NegotiationFeed({ negotiations, trace = [] }: NegotiationFeedPro
       <header className="mm-panel-head">
         <div>
           <p className="mm-kicker">Buyer ⇄ seller</p>
-          <h2 id="negotiation-title">Negotiation ledger</h2>
+          <h2 id="negotiation-title">{title}</h2>
         </div>
         <span className="mm-mono-note">private A2A tasks</span>
       </header>
