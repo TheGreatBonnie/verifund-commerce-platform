@@ -319,6 +319,19 @@ class Repository:
             updated_at=_dt(row.updated_at),
         )
 
+    async def get_agreement(self, transaction_id: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.agreements).where(
+                        self.agreements.c.transaction_id == transaction_id
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError("not_found", "agreement not found", status_code=404)
+        return row.payload
+
     async def count_transactions(self) -> int:
         async with self.engine.connect() as conn:
             result = await conn.execute(select(self.transactions.c.transaction_id))
@@ -706,6 +719,8 @@ class Repository:
         transaction_id: str,
         seller_id: str,
         item: EvidenceItem,
+        *,
+        captured_at: datetime | None = None,
     ) -> tuple[EvidenceItem, bool]:
         statement = (
             sqlite_insert(self.evidence)
@@ -719,7 +734,7 @@ class Repository:
                 size_bytes=item.size_bytes,
                 original_filename=item.original_filename,
                 note=item.note,
-                captured_at=None,
+                captured_at=_iso(captured_at) if captured_at else None,
                 created_at=_iso(item.created_at),
             )
             .on_conflict_do_nothing(index_elements=["transaction_id", "sha256"])

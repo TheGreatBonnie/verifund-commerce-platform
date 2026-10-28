@@ -6,8 +6,9 @@ from typing import Callable
 
 from fastapi import FastAPI
 
-from verifund_control_plane.api import health, ops
+from verifund_control_plane.api import health, ops, seller
 from verifund_control_plane.db import configure_sqlite, create_engine
+from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.service import VerifundService
@@ -26,13 +27,20 @@ def create_app(
     engine = create_engine(settings.database_url)
     repo = Repository(engine)
     settings.evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_store = EvidenceStore(
+        settings.evidence_dir, max_bytes=settings.max_evidence_bytes
+    )
     tokens = SellerTokenService(
         settings.seller_token_secret,
         ttl_hours=settings.seller_token_ttl_hours,
         clock=now,
     )
     service = VerifundService(
-        repo=repo, settings=settings, clock=now, tokens=tokens
+        repo=repo,
+        settings=settings,
+        clock=now,
+        tokens=tokens,
+        evidence_store=evidence_store,
     )
 
     @asynccontextmanager
@@ -52,7 +60,9 @@ def create_app(
     app.state.repo = repo
     app.state.tokens = tokens
     app.state.service = service
+    app.state.evidence_store = evidence_store
     app.add_exception_handler(VerifundError, verifund_error_handler)
     app.include_router(health.router)
     app.include_router(ops.router)
+    app.include_router(seller.router)
     return app

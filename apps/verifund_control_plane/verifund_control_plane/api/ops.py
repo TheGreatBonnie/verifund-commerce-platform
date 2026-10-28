@@ -3,7 +3,9 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
+
+from verifund_contracts import EvidenceList
 
 from verifund_contracts import (
     AcceptRequest,
@@ -160,4 +162,30 @@ async def cancel(
         body,
         actor=actor(request),
         idempotency_key=idempotency_key(request),
+    )
+
+
+@router.get(
+    "/transactions/{transaction_id}/evidence", dependencies=[Depends(require_ops)]
+)
+async def list_evidence(transaction_id: str, request: Request) -> dict[str, Any]:
+    await _service(request).repo.get_transaction(transaction_id)
+    items = await _service(request).repo.list_evidence(transaction_id)
+    return EvidenceList(items=items).model_dump(mode="json")
+
+
+@router.get(
+    "/transactions/{transaction_id}/evidence/{evidence_id}",
+    dependencies=[Depends(require_ops)],
+)
+async def download_evidence(
+    transaction_id: str, evidence_id: str, request: Request
+) -> Response:
+    item = await _service(request).repo.get_evidence(transaction_id, evidence_id)
+    return Response(
+        content=request.app.state.evidence_store.read(item.sha256),
+        media_type=item.media_type,
+        headers={
+            "content-disposition": f'attachment; filename="{item.original_filename}"'
+        },
     )

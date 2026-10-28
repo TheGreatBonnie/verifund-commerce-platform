@@ -8,16 +8,21 @@ from verifund_contracts import (
     AcceptRequest,
     AgreementProjection,
     ApproveRequest,
+    AwardLineItem,
     AwardRequest,
     BuyerAgreementReviewRequest,
     CancelRequest,
     EvidenceItem,
+    EvidenceKind,
     EvidenceSummary,
+    ReviewReason,
     RejectRequest,
+    SellerProjection,
     TransactionProjection,
     TransactionState,
 )
 from verifund_control_plane.domain import (
+    EVIDENCE_UPLOAD_STATES,
     REQUIRED_EVIDENCE,
     TransactionRecord,
     agreement_hash,
@@ -27,6 +32,8 @@ from verifund_control_plane.domain import (
     sha256_hex,
     validate_award,
 )
+from verifund_control_plane.evidence import EvidenceStore
+from verifund_control_plane.policy import evaluate
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.repository import (
     AgreementReviewInput,
@@ -48,11 +55,13 @@ class VerifundService:
         settings: Settings,
         clock: Callable[[], datetime],
         tokens: SellerTokenService,
+        evidence_store: EvidenceStore,
     ) -> None:
         self.repo = repo
         self.settings = settings
         self.clock = clock
         self.tokens = tokens
+        self.evidence_store = evidence_store
 
     def _now(self) -> datetime:
         return self.clock()
@@ -808,3 +817,300 @@ class VerifundService:
             body=request.model_dump(mode="json"),
             operation=operation,
         )
+
+    async def add_evidence(
+        self,
+        transaction_id: str,
+        *,
+        seller_id: str,
+        agreement_hash: str,
+        kind: str,
+        media_type: str,
+        original_filename: str,
+        data: bytes,
+        note: str | None,
+        captured_at: datetime | None,
+        actor: str,
+    ) -> EvidenceItem:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        if record.agreement_hash != agreement_hash:
+            raise VerifundError(
+                "hash_mismatch", "seller token hash is stale", status_code=409
+            )
+        if record.state not in EVIDENCE_UPLOAD_STATES:
+            raise VerifundError(
+                "invalid_state",
+                "evidence cannot be uploaded in the current state",
+                status_code=409,
+            )
+        item = await self.evidence_store.put(
+            transaction_id=transaction_id,
+            seller_id=seller_id,
+            kind=kind,
+            media_type=media_type,
+            original_filename=original_filename,
+            data=data,
+            note=note,
+            captured_at=captured_at,
+        )
+        new_state = record.state
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state not in EVIDENCE_UPLOAD_STATES:
+                raise VerifundError(
+                    "invalid_state",
+                    "evidence cannot be uploaded in the current state",
+                    status_code=409,
+                )
+            stored, created = await self.repo.add_evidence(
+                conn,
+                transaction_id,
+                seller_id,
+                item,
+                captured_at=captured_at,
+            )
+            if not created:
+                return stored
+            event = EventInput(
+                "evidence_received",
+                {
+                    "evidence_id": stored.evidence_id,
+                    "kind": stored.kind,
+                    "sha256": stored.sha256,
+                },
+                actor,
+            )
+            if current.state == TransactionState.FULFILLMENT_PENDING:
+                updated = await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.VERIFICATION_PENDING,
+                    changes={},
+                    events=[event],
+                    audit=AuditInput(actor, "evidence_received"),
+                )
+                new_state = updated.state
+            else:
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={},
+                    events=[event],
+                    audit=AuditInput(actor, "evidence_received"),
+                )
+        if new_state == TransactionState.VERIFICATION_PENDING:
+            await self.verify_if_ready(transaction_id, actor="system")
+        return stored
+
+    async def seller_projection(
+        self, transaction_id: str, *, seller_id: str
+    ) -> SellerProjection:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        agreement = await self.repo.get_agreement(transaction_id)
+        items = await self.repo.list_evidence(transaction_id)
+        received = sorted({item.kind for item in items})
+        deadlines = {
+            key: (
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if isinstance(value, str)
+                else value
+            )
+            for key, value in (record.deadlines or {}).items()
+        }
+        return SellerProjection(
+            transaction_id=record.transaction_id,
+            run_id=record.run_id,
+            state=record.state,
+            seller_id=record.seller_id,
+            amount_cents=record.amount_cents,
+            currency=record.currency,
+            agreement_hash=record.agreement_hash,
+            agreement_version=record.agreement_version,
+            quantity=agreement["quantity"],
+            line_items=[
+                AwardLineItem.model_validate(item)
+                for item in agreement["line_items"]
+            ],
+            delivery_days=agreement["delivery_days"],
+            warranty_months=agreement["warranty_months"],
+            returns_days=agreement["returns_days"],
+            purchase_order=self._pick(
+                record.purchase_order,
+                ("seller_order_id", "tracking_number", "carrier", "eta"),
+            ),
+            evidence=EvidenceSummary(
+                required=list(REQUIRED_EVIDENCE),
+                received=received,
+                complete=all(kind in received for kind in REQUIRED_EVIDENCE),
+                deadline=deadlines.get("evidence"),
+                items=items,
+            ),
+            deadlines=deadlines,
+            allowed_actions=allowed_actions(record.state, "seller"),
+            updated_at=record.updated_at,
+        )
+
+    async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state != TransactionState.VERIFICATION_PENDING:
+            return
+        items = await self.repo.list_evidence(transaction_id)
+        received = {item.kind for item in items}
+        if not {"shipment_manifest", "delivery_confirmation"}.issubset(received):
+            return
+        await self.verify(transaction_id, actor=actor)
+
+    async def verify(self, transaction_id: str, *, actor: str) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state in {
+            TransactionState.RELEASE_PERMITTED,
+            TransactionState.REVIEW_REQUIRED,
+        }:
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        items = await self.repo.list_evidence(transaction_id)
+        if record.state == TransactionState.FULFILLMENT_PENDING:
+            if not items:
+                return (
+                    await self._projection_for(transaction_id, "buyer")
+                ).model_dump(mode="json")
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                if current.state == TransactionState.FULFILLMENT_PENDING:
+                    await self.repo.transition(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        expected_state=TransactionState.FULFILLMENT_PENDING,
+                        new_state=TransactionState.VERIFICATION_PENDING,
+                        changes={},
+                        audit=AuditInput(actor, "verification_started"),
+                    )
+            record = await self.repo.get_transaction(transaction_id)
+        if record.state != TransactionState.VERIFICATION_PENDING:
+            raise VerifundError(
+                "invalid_state", "transaction is not awaiting verification", status_code=409
+            )
+        balances = await self.repo.ledger_balances(transaction_id)
+        result = evaluate(
+            record,
+            items,
+            self.evidence_store,
+            self._now(),
+            inspection_window_hours=self.settings.inspection_window_hours,
+            ledger_balances=balances,
+        )
+        if result.waiting:
+            deadline = result.inspection_deadline or (
+                self._now()
+                + timedelta(hours=self.settings.inspection_window_hours)
+            )
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={
+                        "verification": {
+                            "status": "pending",
+                            "reasons": [reason.value for reason in result.reasons],
+                            "checked_at": self._iso(self._now()),
+                            "override_allowed": False,
+                        },
+                        "deadlines": {
+                            **(current.deadlines or {}),
+                            "inspection": self._iso(deadline),
+                        },
+                    },
+                )
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        deadline = None
+        raw_deadline = (record.deadlines or {}).get("evidence")
+        if raw_deadline:
+            try:
+                deadline = datetime.fromisoformat(
+                    str(raw_deadline).replace("Z", "+00:00")
+                )
+            except ValueError:
+                deadline = None
+        if not result.evidence_complete and deadline is not None and self._now() <= deadline:
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        reasons = list(result.reasons)
+        if not result.evidence_complete and deadline is not None and self._now() > deadline:
+            reasons.append(ReviewReason.EVIDENCE_DEADLINE_MISSED)
+        if result.passed:
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                updated = await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=TransactionState.VERIFICATION_PENDING,
+                    new_state=TransactionState.RELEASE_PERMITTED,
+                    changes={
+                        "verification": {
+                            "status": "passed",
+                            "reasons": [],
+                            "checked_at": self._iso(self._now()),
+                            "override_allowed": False,
+                        }
+                    },
+                    events=[
+                        EventInput("verification_passed", {}, actor),
+                        EventInput("release_permitted", {}, actor),
+                    ],
+                    audit=AuditInput(actor, "verification_passed"),
+                )
+            return (
+                await self._projection(updated, "buyer", items=items)
+            ).model_dump(mode="json")
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            updated = await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                expected_state=TransactionState.VERIFICATION_PENDING,
+                new_state=TransactionState.REVIEW_REQUIRED,
+                changes={
+                    "verification": {
+                        "status": "failed",
+                        "reasons": [reason.value for reason in reasons],
+                        "checked_at": self._iso(self._now()),
+                        "override_allowed": result.override_allowed,
+                    }
+                },
+                events=[
+                    EventInput(
+                        "verification_failed",
+                        {"reasons": [reason.value for reason in reasons]},
+                        actor,
+                    ),
+                    EventInput("review_required", {}, actor),
+                ],
+                audit=AuditInput(
+                    actor,
+                    "verification_failed",
+                    payload={"reasons": [reason.value for reason in reasons]},
+                ),
+            )
+        return (
+            await self._projection(updated, "buyer", items=items)
+        ).model_dump(mode="json")
