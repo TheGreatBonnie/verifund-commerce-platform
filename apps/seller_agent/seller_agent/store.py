@@ -531,3 +531,19 @@ SellerStore.mark_evidence_sent = mark_evidence_sent
 SellerStore.reschedule_evidence = reschedule_evidence
 SellerStore.fail_evidence = fail_evidence
 SellerStore.get_evidence_outbox = get_evidence_outbox
+
+
+async def list_settlement_tokens(self, limit: int = 5) -> list[dict[str, Any]]:
+    async with self.engine.connect() as conn:
+        result = await conn.execute(
+            select(
+                self.settlement_tokens.c.transaction_id,
+                self.settlement_tokens.c.seller_id,
+                self.settlement_tokens.c.updated_at,
+            )
+            .order_by(self.settlement_tokens.c.updated_at.desc())
+            .limit(max(1, min(limit, 20)))
+        )
+        return [dict(row._mapping) for row in result]
+
+SellerStore.list_settlement_tokens = list_settlement_tokens

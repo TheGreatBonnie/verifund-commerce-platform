@@ -427,6 +427,11 @@ async def accept_offer(state: SellerState, config: RunnableConfig) -> dict:
             raise CommerceProtocolError("offer belongs to another seller")
         if accepted.accepted_total_cents != previous.total_cents:
             raise CommerceProtocolError("accepted total does not match offer")
+        if service.settlement_enabled:
+            await service.validate_acceptance(
+                accepted,
+                token=config["configurable"].get("settlement_token"),
+            )
         updated = previous.model_copy(
             update={"status": OfferStatus.ACCEPTED}
         )
@@ -465,7 +470,18 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
         po = parse_payload(
             "purchase_order", state["incoming"], PurchaseOrderRequest
         )
-        created = await service.order_service.create_order(po)
+        validator = None
+        if service.settlement_enabled:
+            async def validator(request):
+                await service.validate_purchase_order(
+                    request,
+                    token=config["configurable"].get("settlement_token"),
+                )
+
+        created = await service.order_service.create_order(
+            po, settlement_validator=validator
+        )
+        await service.queue_evidence(created, po)
     except Exception as exc:  # noqa: BLE001
         code = getattr(exc, "code", CommerceErrorCode.INVALID_REQUEST)
         retryable = getattr(exc, "retryable", False)
