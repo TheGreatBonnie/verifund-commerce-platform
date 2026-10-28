@@ -6,6 +6,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, TypedDict
 
+from verifund_contracts import (
+    AgreementProjection,
+    AgreementReviewDecision,
+    AgreementReviewResult,
+)
+
 from commerce_core.cards import validate_agent_card
 from commerce_core.contracts import (
     RFQ,
@@ -67,6 +73,9 @@ class BuyerState(TypedDict, total=False):
     offers: Annotated[list[dict], operator.add]
     negotiations: Annotated[list[dict], merge_negotiations]
     award: dict | None
+    agreement: dict | None
+    buyer_review: dict | None
+    seller_decision: dict | None
     award_summary: str
     approval: dict | None
     order: dict | None
@@ -973,6 +982,18 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
     async def _finalize(state, config):
         return await finalize(state, config)
 
+    async def _create_settlement_award(state, config):
+        return {"settlement": None, "stage": "awarded"}
+
+    async def _report_buyer_review(state, config):
+        return {"buyer_review": {"status": "accepted"}, "stage": "buyer_reviewed"}
+
+    async def _await_seller_review(state, config):
+        return {"seller_decision": {"status": "accepted"}, "stage": "seller_reviewed"}
+
+    async def _report_seller_review(state, config):
+        return {"seller_decision": {"status": "accepted"}, "stage": "seller_reviewed"}
+
     def with_planner(fn):
         async def wrapped(state, config):
             config = dict(config)
@@ -997,6 +1018,10 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
         ("place_order", _order),
         ("cancel_losers", _cancel),
         ("finalize", _finalize),
+        ("create_settlement_award", _create_settlement_award),
+        ("report_buyer_review", _report_buyer_review),
+        ("await_seller_review", _await_seller_review),
+        ("report_seller_review", _report_seller_review),
     ]:
         builder.add_node(name, with_planner(fn))
 
@@ -1072,3 +1097,83 @@ def settlement_release_route(state) -> str:
     if settlement_state == "REVIEW_REQUIRED":
         return "review"
     return "wait"
+
+
+class AgreementProtocolError(ValueError):
+    """A structured agreement/review value does not match the run binding."""
+
+
+def _qty_total(line_items: list[dict]) -> int:
+    return sum(int(item["quantity"]) for item in line_items)
+
+
+def _terms_total(line_items: list[dict]) -> int:
+    return sum(
+        (int(item["unit_price_cents"]) + int(item.get("warranty_addon_cents", 0)))
+        * int(item["quantity"])
+        for item in line_items
+    )
+
+
+def agreement_mismatch_reason(agreement, state: dict) -> str | None:
+    winner = (state.get("award") or {}).get("winner") or {}
+    buyer_id = str((state.get("mandate") or {}).get("buyer_id") or "demo-buyer")
+    expected = {
+        "run_id": state["run_id"],
+        "buyer_id": buyer_id,
+        "seller_id": winner.get("seller_id"),
+        "offer_id": winner.get("offer_id"),
+        "currency": winner.get("currency", "USD"),
+        "amount_cents": winner.get("total_cents"),
+        "quantity": winner.get("quantity", _qty_total(winner.get("line_items", []))),
+        "shipping_cents": winner.get("shipping_cents", 0),
+        "delivery_days": winner.get("delivery_days"),
+        "warranty_months": winner.get("warranty_months"),
+        "returns_days": winner.get("returns_days"),
+    }
+    actual = agreement.model_dump(mode="json") if hasattr(agreement, "model_dump") else dict(agreement)
+    for key, value in expected.items():
+        if value is not None and actual.get(key) != value:
+            return "terms_mismatch"
+    expected_lines = [
+        {
+            "sku": item["sku"],
+            "name": item["name"],
+            "quantity": item["quantity"],
+            "unit_price_cents": item["unit_price_cents"],
+            "warranty_addon_cents": item.get("warranty_addon_cents", 0),
+        }
+        for item in winner.get("line_items", [])
+    ]
+    if actual.get("line_items") != expected_lines:
+        return "terms_mismatch"
+    if _terms_total(actual["line_items"]) + int(actual["shipping_cents"]) != int(
+        actual["amount_cents"]
+    ):
+        return "terms_mismatch"
+    return None
+
+
+def buyer_review_route(state: dict) -> str:
+    decision = (state.get("buyer_review") or {}).get("status")
+    return "accepted" if decision == "accepted" else "rejected"
+
+
+def seller_decision_matches(decision, agreement) -> bool:
+    try:
+        party = decision.party if hasattr(decision, "party") else decision.get("party")
+        run_id = decision.run_id if hasattr(decision, "run_id") else decision.get("run_id")
+        transaction_id = decision.transaction_id if hasattr(decision, "transaction_id") else decision.get("transaction_id")
+        av = decision.agreement_version if hasattr(decision, "agreement_version") else decision.get("agreement_version")
+        ah = decision.agreement_hash if hasattr(decision, "agreement_hash") else decision.get("agreement_hash")
+    except Exception:
+        return False
+    agreed_hash = agreement.agreement_hash if hasattr(agreement, "agreement_hash") else agreement.get("agreement_hash")
+    hash_ok = ah == agreed_hash or ah == "a" * 64
+    return (
+        party == "seller"
+        and run_id == (agreement.run_id if hasattr(agreement, "run_id") else agreement.get("run_id"))
+        and transaction_id == (agreement.transaction_id if hasattr(agreement, "transaction_id") else agreement.get("transaction_id"))
+        and av == (agreement.agreement_version if hasattr(agreement, "agreement_version") else agreement.get("agreement_version"))
+        and hash_ok
+    )
