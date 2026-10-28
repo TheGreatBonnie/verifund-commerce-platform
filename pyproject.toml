@@ -43,6 +43,7 @@ members = [
   "apps/seller_agent",
   "apps/buyer_agent",
   "apps/orchestrator_agent",
+  "apps/verifund_control_plane",
 ]
 
 [tool.uv]
