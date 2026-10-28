@@ -67,7 +67,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("BUYER_CONSOLE_API_TOKEN"),
     )
     verifund_mode: Literal["off", "fake", "sandbox"] = Field(
-        default="off",
+        default="sandbox",
         validation_alias=AliasChoices("VERIFUND_MODE"),
     )
     verifund_url: str = Field(

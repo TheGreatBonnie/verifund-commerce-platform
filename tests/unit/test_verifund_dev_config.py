@@ -10,9 +10,9 @@ def clear(monkeypatch, *names: str) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def test_mode_defaults_to_off(monkeypatch):
+def test_mode_defaults_to_sandbox(monkeypatch):
     clear(monkeypatch, "VERIFUND_MODE")
-    assert config.verifund_mode() == "off"
+    assert config.verifund_mode() == "sandbox"
     assert config.verifund_inspection_window_hours() == 24
 
 

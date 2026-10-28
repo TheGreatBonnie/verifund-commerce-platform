@@ -13,9 +13,8 @@ def test_compose_defines_the_verifund_profile_services():
     agent = compose["services"]["verifund-agent"]
     registration = compose["services"]["verifund-register"]
 
-    assert service["profiles"] == ["verifund"]
+    assert service["environment"]["VERIFUND_MODE"] == "${VERIFUND_MODE:-sandbox}"
     assert "127.0.0.1:9300:9300" in service["ports"]
-    assert service["environment"]["VERIFUND_MODE"] == "${VERIFUND_MODE:-fake}"
     assert service["environment"]["VERIFUND_ALLOW_PUBLIC_BIND"] == "1"
     assert (
         service["environment"]["VERIFUND_DATABASE_URL"]
@@ -23,7 +22,6 @@ def test_compose_defines_the_verifund_profile_services():
     )
     assert service["environment"]["VERIFUND_EVIDENCE_DIR"] == "/app/data/evidence"
 
-    assert agent["profiles"] == ["verifund"]
     assert "127.0.0.1:9301:9301" in agent["ports"]
     assert agent["environment"]["BUYER_INTERNAL_URL"] == "http://buyer:9100"
     assert (
@@ -51,7 +49,6 @@ def test_compose_defines_the_verifund_profile_services():
     assert "PAYPAL_CLIENT_SECRET" not in agent["environment"]
     assert "SELLER_TOKEN" not in agent["environment"]
 
-    assert registration["profiles"] == ["verifund"]
     assert registration["command"] == "python -m verifund_agent.register"
     assert registration["restart"] == "no"
     assert registration["environment"]["REGISTRY_URL"] == "http://registry:9105"
@@ -71,7 +68,7 @@ def test_compose_wires_settlement_settings_into_existing_services():
     assert "verifund-agent" in registry["ALLOWED_CARD_HOSTS"]
 
     buyer = compose["services"]["buyer"]["environment"]
-    assert buyer["VERIFUND_MODE"] == "${VERIFUND_MODE:-off}"
+    assert buyer["VERIFUND_MODE"] == "${VERIFUND_MODE:-sandbox}"
     assert buyer["VERIFUND_URL"] == "http://verifund:9300"
     assert (
         buyer["BUYER_INTERNAL_TOKEN"]
@@ -84,7 +81,7 @@ def test_compose_wires_settlement_settings_into_existing_services():
 
     for name in ("northwind", "circuitforge", "aurora", "summit-tech"):
         seller = compose["services"][name]["environment"]
-        assert seller["VERIFUND_MODE"] == "${VERIFUND_MODE:-off}"
+        assert seller["VERIFUND_MODE"] == "${VERIFUND_MODE:-sandbox}"
         assert seller["VERIFUND_URL"] == "http://verifund:9300"
 
     orchestrator = compose["services"]["orchestrator"]["environment"]
@@ -93,7 +90,7 @@ def test_compose_wires_settlement_settings_into_existing_services():
         orchestrator["BUYER_INTERNAL_TOKEN"]
         == "${BUYER_INTERNAL_TOKEN:-dev-buyer-internal}"
     )
-    assert orchestrator["VERIFUND_MODE"] == "${VERIFUND_MODE:-off}"
+    assert orchestrator["VERIFUND_MODE"] == "${VERIFUND_MODE:-sandbox}"
     assert orchestrator["VERIFUND_AGENT_URL"] == "http://verifund-agent:9301"
     assert (
         orchestrator["VERIFUND_AGENT_CARD_URL"]
@@ -105,7 +102,7 @@ def test_compose_wires_settlement_settings_into_existing_services():
     )
 
     console = compose["services"]["console"]["environment"]
-    assert console["VERIFUND_MODE"] == "${VERIFUND_MODE:-off}"
+    assert console["VERIFUND_MODE"] == "${VERIFUND_MODE:-sandbox}"
 
 
 def test_dockerfile_copies_the_verifund_services():

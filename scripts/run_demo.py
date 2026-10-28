@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nSample brief:\n  {BRIEF}")
     print("\nApprove the recommended award to place the order.")
     print("Stop the stack with `make down`.")
-    settlement_mode = args.verifund or os.environ.get("VERIFUND_MODE", "off")
+    settlement_mode = args.verifund or os.environ.get("VERIFUND_MODE", "sandbox")
     if settlement_mode in {"fake", "sandbox"}:
         print(
             "Review the agreement in chat, approve funding, complete checkout, "

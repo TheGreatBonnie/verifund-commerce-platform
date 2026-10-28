@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     )
 
     verifund_mode: str = Field(
-        default="off",
+        default="sandbox",
         validation_alias=AliasChoices("VERIFUND_MODE"),
     )
     verifund_agent_url: str = Field(

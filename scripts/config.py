@@ -132,7 +132,7 @@ SELLER_PAYOUT_EMAILS = {
 
 
 def verifund_mode() -> str:
-    mode = _env("VERIFUND_MODE", "off").strip().lower()
+    mode = _env("VERIFUND_MODE", "sandbox").strip().lower()
     return mode if mode in VERIFUND_MODES else "off"
 
 

@@ -67,8 +67,8 @@ exception or terminal states. Policy computes `RELEASE_PERMITTED`; a reviewer
 performs the audited release. Funding mismatches, ledger inconsistencies, and late
 captures cannot be overridden and are resolved in PayPal.
 
-`VERIFUND_MODE=off` keeps the service boundaries and behavior in the rest of this
-document unchanged.
+`VERIFUND_MODE` defaults to `sandbox`; `off` remains an escape hatch that keeps the service
+boundaries and behavior in the rest of this document unchanged.
 
 ## Buyer graph
 

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const MODE = process.env.VERIFUND_MODE ?? "off";
+const MODE = process.env.VERIFUND_MODE ?? "sandbox";
 
 test.skip(MODE !== "fake", "Verifund fake mode only");
 

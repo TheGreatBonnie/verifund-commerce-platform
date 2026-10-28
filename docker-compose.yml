@@ -43,7 +43,7 @@ services:
       PUBLIC_BASE_URL: http://northwind:9201
       SELLER_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/northwind.db
-      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_URL: http://verifund:9300
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
       VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
@@ -67,7 +67,7 @@ services:
       PUBLIC_BASE_URL: http://circuitforge:9202
       SELLER_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/circuitforge.db
-      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_URL: http://verifund:9300
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
       VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
@@ -91,7 +91,7 @@ services:
       PUBLIC_BASE_URL: http://aurora:9203
       SELLER_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/aurora.db
-      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_URL: http://verifund:9300
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
       VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
@@ -115,7 +115,7 @@ services:
       PUBLIC_BASE_URL: http://summit-tech:9204
       SELLER_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/summit-tech.db
-      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_URL: http://verifund:9300
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
       VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
@@ -173,7 +173,7 @@ services:
       BUYER_CHECKPOINT_PATH: /app/data/buyer-checkpoints.db
       BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
       ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech","verifund-agent"]'
-      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_URL: http://verifund:9300
       VERIFUND_OPS_TOKEN: ${VERIFUND_OPS_TOKEN:-dev-verifund-ops}
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
@@ -209,7 +209,7 @@ services:
       SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
       BUYER_INTERNAL_URL: http://buyer:9100
       BUYER_INTERNAL_TOKEN: ${BUYER_INTERNAL_TOKEN:-dev-buyer-internal}
-      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_AGENT_URL: http://verifund-agent:9301
       VERIFUND_AGENT_CARD_URL: http://verifund-agent:9301/.well-known/agent-card.json
       VERIFUND_AGENT_A2A_TOKEN: ${VERIFUND_AGENT_A2A_TOKEN:-dev-verifund-agent-a2a}
@@ -248,7 +248,7 @@ services:
       SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
       SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
-      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       NEXT_TELEMETRY_DISABLED: "1"
       COPILOTKIT_TELEMETRY_DISABLED: "true"
     ports:
@@ -263,12 +263,11 @@ services:
   verifund:
     <<: *python-service
     command: python -m verifund_control_plane
-    profiles: ["verifund"]
     environment:
       HOST: 0.0.0.0
       VERIFUND_PORT: 9300
       PORT: 9300
-      VERIFUND_MODE: ${VERIFUND_MODE:-fake}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_PUBLIC_BASE_URL: ${VERIFUND_PUBLIC_BASE_URL:-http://127.0.0.1:9300}
       VERIFUND_CONSOLE_BASE_URL: ${VERIFUND_CONSOLE_BASE_URL:-http://127.0.0.1:3000}
       VERIFUND_ALLOW_PUBLIC_BIND: "1"
@@ -312,11 +311,10 @@ services:
   verifund-agent:
     <<: *python-service
     command: python -m verifund_agent
-    profiles: ["verifund"]
     environment:
       HOST: 0.0.0.0
       PORT: 9301
-      VERIFUND_MODE: ${VERIFUND_MODE:-fake}
+      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       BUYER_INTERNAL_URL: http://buyer:9100
       VERIFUND_AGENT_URL: http://verifund-agent:9301
       VERIFUND_AGENT_A2A_TOKEN: ${VERIFUND_AGENT_A2A_TOKEN:-dev-verifund-agent-a2a}
@@ -340,7 +338,6 @@ services:
   verifund-register:
     <<: *python-service
     command: python -m verifund_agent.register
-    profiles: ["verifund"]
     restart: "no"
     environment:
       REGISTRY_URL: http://registry:9105

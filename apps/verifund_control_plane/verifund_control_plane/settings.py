@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     )
 
     mode: Literal["off", "fake", "sandbox"] = Field(
-        default="off", validation_alias="VERIFUND_MODE"
+        default="sandbox", validation_alias="VERIFUND_MODE"
     )
     service_name: str = "verifund-control-plane"
     host: str = Field(default="127.0.0.1", validation_alias="HOST")

@@ -722,7 +722,7 @@ async def test_verifund_protocol_errors_are_not_successes() -> None:
         raise VerifundProtocolError("Verifund returned no structured result")
 
 
-def test_settings_default_to_off_and_keep_verifund_credentials_separate(
+def test_settings_default_to_sandbox_and_keep_verifund_credentials_separate(
     monkeypatch,
 ) -> None:
     for key in (
@@ -732,7 +732,7 @@ def test_settings_default_to_off_and_keep_verifund_credentials_separate(
     ):
         monkeypatch.delenv(key, raising=False)
     settings = Settings(_env_file=None)
-    assert settings.verifund_mode == "off"
+    assert settings.verifund_mode == "sandbox"
     assert settings.verifund_agent_url.endswith(":9301")
     assert settings.verifund_agent_a2a_token
     assert settings.verifund_agent_a2a_token != settings.buyer_internal_token

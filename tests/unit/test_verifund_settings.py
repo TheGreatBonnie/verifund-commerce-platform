@@ -35,9 +35,9 @@ def sandbox_settings(**overrides: Any) -> Settings:
     return Settings(**values)
 
 
-def test_default_mode_is_off(monkeypatch):
+def test_default_mode_is_sandbox(monkeypatch):
     monkeypatch.delenv("VERIFUND_MODE", raising=False)
-    assert Settings(_env_file=None).mode == "off"
+    assert Settings(_env_file=None).mode == "sandbox"
 
 
 def test_sandbox_rejects_default_ops_token():

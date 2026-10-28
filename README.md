@@ -117,15 +117,18 @@ Routes: `/` (home + live run), `/runs`, `/runs/[runId]`, `/sellers`, `/settings`
 Runs are persisted by the buyer agent; `/runs` lists them and `/runs/[runId]` replays
 a run (metadata + trace) even after the browser thread is gone.
 
-## Verifund settlement (optional)
+For the complete end-to-end flow (from "Ask agent to negotiate" through seller payout and
+receipt), see [`docs/workflow.md`](docs/workflow.md).
 
-`VERIFUND_MODE` selects the settlement behavior:
+## Verifund settlement (always on)
+
+`VERIFUND_MODE` selects the settlement behavior (default: `sandbox`):
 
 | Mode | Behavior |
 | --- | --- |
-| `off` (default) | Existing MarketMesh negotiation and order flow only. No control plane, no settlement fields, no extra processes. |
+| `off` | Escape hatch: disables settlement entirely (offline dev). No control plane, no settlement fields, no extra processes. |
 | `fake` | Local control plane on port 9300 and registered Verifund A2A agent on port 9301 with fake checkout and payouts. The chat-led agreement → funding → evidence → release → receipt lifecycle runs without network access. |
-| `sandbox` | Real PayPal Sandbox Orders, Capture, Payouts, and webhooks. Manual testing only; the control plane refuses the live PayPal host. |
+| `sandbox` (default) | Real PayPal Sandbox Orders, Capture, Payouts, and webhooks. Manual testing only; the control plane refuses the live PayPal host. |
 
 When enabled, the registered Verifund A2A agent works with the CopilotKit
 orchestrator in chat. The user reviews the control-plane agreement and approves

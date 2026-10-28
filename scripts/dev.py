@@ -252,7 +252,7 @@ def registry_environment(mode: str) -> dict[str, str]:
     return env
 
 
-def seller_environment(mode: str, seller, verifund_mode: str = "off") -> dict[str, str]:
+def seller_environment(mode: str, seller, verifund_mode: str = "sandbox") -> dict[str, str]:
     env = _base_env(mode)
     env.update(
         {
@@ -271,7 +271,7 @@ def seller_environment(mode: str, seller, verifund_mode: str = "off") -> dict[st
     return env
 
 
-def buyer_environment(mode: str, verifund_mode: str = "off") -> dict[str, str]:
+def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, str]:
     env = _base_env(mode)
     env.update(
         {
@@ -321,7 +321,7 @@ def seller_auth_environment() -> dict[str, str]:
     return {seller.token_var: seller.token for seller in SELLERS}
 
 
-def orchestrator_environment(mode: str, verifund_mode: str = "off") -> dict[str, str]:
+def orchestrator_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, str]:
     env = _base_env(mode)
     env.update(
         {
@@ -360,6 +360,7 @@ def console_environment(mode: str) -> dict[str, str]:
             "REGISTRY_URL": registry_url(),
             "NEXT_TELEMETRY_DISABLED": "1",
             "COPILOTKIT_TELEMETRY_DISABLED": "true",
+            "VERIFUND_MODE": "sandbox",
         }
     )
     env.update(seller_auth_environment())
@@ -483,7 +484,7 @@ def run_seed(mode: str) -> None:
 
 
 def _write_pids(
-    children: list[Child], mode: str, verifund_mode: str = "off"
+    children: list[Child], mode: str, verifund_mode: str = "sandbox"
 ) -> None:
     payload = {
         "started_at": datetime.now(UTC).isoformat(),

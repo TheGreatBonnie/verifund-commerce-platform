@@ -1,5 +1,5 @@
 export const config = {
-  verifundMode: (process.env.NEXT_PUBLIC_VERIFUND_MODE ?? "off") as
+  verifundMode: (process.env.NEXT_PUBLIC_VERIFUND_MODE ?? "sandbox") as
     | "off"
     | "fake"
     | "sandbox",

@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     )
 
     verifund_mode: Literal["off", "fake", "sandbox"] = Field(
-        default="off",
+        default="sandbox",
         validation_alias=AliasChoices("VERIFUND_MODE"),
     )
     verifund_url: str = Field(
