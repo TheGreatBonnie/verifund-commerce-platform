@@ -162,6 +162,9 @@ class AcceptOffer(CommerceModel):
     round: int = Field(ge=1)
     accepted_total_cents: int = Field(gt=0)
     accepted_by_buyer_task: str | None = None
+    settlement_transaction_id: str | None = None
+    agreement_hash: str | None = None
+    settlement_token: str | None = None
 
 
 class ApprovalReceipt(CommerceModel):
@@ -191,6 +194,9 @@ class PurchaseOrderRequest(CommerceModel):
     approval: ApprovalReceipt
     idempotency_key: str
     expected_total_cents: int = Field(gt=0)
+    settlement_transaction_id: str | None = None
+    agreement_hash: str | None = None
+    settlement_token: str | None = None
 
 
 class Fulfillment(CommerceModel):
