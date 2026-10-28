@@ -38,6 +38,7 @@ dev = [
 [tool.uv.workspace]
 members = [
   "packages/commerce_core",
+  "packages/verifund_contracts",
   "apps/registry",
   "apps/seller_agent",
   "apps/buyer_agent",
@@ -49,6 +50,7 @@ package = false
 
 [tool.uv.sources]
 marketmesh-commerce-core = { workspace = true }
+verifund-contracts = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
