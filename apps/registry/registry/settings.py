@@ -26,4 +26,7 @@ class Settings(BaseSettings):
         "circuitforge",
         "aurora",
         "summit-tech",
+        "buyer",
+        "verifund-agent",
+        "host.docker.internal",
     )
