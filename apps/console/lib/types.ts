@@ -110,6 +110,8 @@ export type BuyerState = {
     note?: string;
   } | null;
   order?: Order | null;
+  settlement?: SettlementProjection | null;
+  settlement_receipt?: SettlementReceipt | null;
   error?: { code?: string; message?: string } | string | null;
   award_summary?: string;
   message?: string;
@@ -225,6 +227,16 @@ export type SellerDashboard = {
       fulfillment: { status: string };
     };
   }>;
+  settlement?: Array<{
+    transaction_id: string;
+    seller_id: string;
+    state: string;
+    amount_cents?: number | null;
+    currency?: string | null;
+    deadlines?: { evidence?: string | null; inspection?: string | null };
+    evidence?: SettlementProjection["evidence"];
+    unavailable?: boolean;
+  }>;
 };
 
 export type MarketplaceProduct = {
@@ -250,4 +262,144 @@ export type MarketplaceProduct = {
     on_hand: number;
     incoming: number;
   }>;
+};
+
+export type SettlementState =
+  | "AWARDED"
+  | "AGREED"
+  | "FUNDING_PENDING"
+  | "FUNDED"
+  | "FULFILLMENT_PENDING"
+  | "VERIFICATION_PENDING"
+  | "RELEASE_PERMITTED"
+  | "PAYOUT_PENDING"
+  | "RELEASED"
+  | "REVIEW_REQUIRED"
+  | "CANCELED"
+  | "FAILED";
+
+export type SettlementReviewReason =
+  | "missing_evidence"
+  | "invalid_evidence_hash"
+  | "seller_mismatch"
+  | "agreement_mismatch"
+  | "tracking_mismatch"
+  | "delivery_in_future"
+  | "inspection_not_elapsed"
+  | "funding_mismatch"
+  | "evidence_deadline_missed"
+  | "ledger_incomplete"
+  | "manual_flag"
+  | "late_capture";
+
+export type CancelReasonCode =
+  | "buyer_rejected"
+  | "buyer_cancelled"
+  | "reviewer_cancelled";
+
+export type SettlementEvidenceItem = {
+  evidence_id: string;
+  kind: string;
+  sha256: string;
+  media_type: string;
+  size_bytes: number;
+  original_filename: string;
+  note?: string | null;
+  created_at: string;
+};
+
+export type SettlementProjection = {
+  transaction_id: string;
+  run_id: string;
+  state: SettlementState;
+  last_seq: number;
+  amount_cents: number;
+  currency: string;
+  buyer_id: string;
+  seller_id: string;
+  agreement_hash: string;
+  agreement_version: number;
+  seller_decision: {
+    status: string;
+    reported_at: string;
+    reason_code?: string | null;
+    note?: string | null;
+  } | null;
+  approval: {
+    approved_by: string;
+    approved_at: string;
+    note?: string | null;
+  } | null;
+  cancellation: {
+    reason_code: string;
+    note?: string | null;
+    at: string;
+  } | null;
+  funding: {
+    status: string;
+    provider_order_id?: string | null;
+    capture_id?: string | null;
+    payer_action_url?: string | null;
+    completed_at?: string | null;
+  } | null;
+  purchase_order: {
+    seller_order_id: string;
+    tracking_number?: string | null;
+    carrier?: string | null;
+    eta?: string | null;
+  } | null;
+  evidence: {
+    required: string[];
+    received: string[];
+    complete: boolean;
+    deadline?: string | null;
+    items: SettlementEvidenceItem[];
+  } | null;
+  verification: {
+    status: string;
+    reasons: string[];
+    checked_at?: string | null;
+    override_allowed: boolean;
+  } | null;
+  payout: {
+    status: string;
+    batch_id?: string | null;
+    item_id?: string | null;
+    amount_cents?: number | null;
+    updated_at?: string | null;
+  } | null;
+  receipt_available: boolean;
+  deadlines: {
+    evidence?: string | null;
+    inspection?: string | null;
+  };
+  allowed_actions: string[];
+  updated_at: string;
+  settlement_unavailable?: boolean;
+};
+
+export type SettlementReceipt = {
+  payload: {
+    receipt_version: number;
+    transaction_id: string;
+    agreement_hash: string;
+    amount_cents: number;
+    currency: string;
+    buyer_id: string;
+    seller_id: string;
+    capture_id: string;
+    payout_item_id: string;
+    evidence_hashes: string[];
+    released_at: string;
+  };
+  payload_hash: string;
+  signature: string;
+  kid: string;
+  verified: boolean;
+};
+
+export type SettlementResponse = {
+  run_id: string;
+  settlement: SettlementProjection;
+  interrupt?: Record<string, unknown> | null;
 };
