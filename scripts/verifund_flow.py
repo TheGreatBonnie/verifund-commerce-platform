@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Self
@@ -69,7 +69,7 @@ def delivery_payload(*, tracking_number: str, delivered_at: datetime) -> dict[st
     }
 
 
-def summarize_ledger(rows: list[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+def summarize_ledger(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
     summary: dict[str, dict[str, int]] = {}
     for row in rows:
         bucket = summary.setdefault(str(row["account"]), {"debit": 0, "credit": 0})

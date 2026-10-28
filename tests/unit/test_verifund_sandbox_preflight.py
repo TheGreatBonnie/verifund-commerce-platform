@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 from verifund_control_plane.settings import Settings
 
 from scripts.verifund_sandbox_preflight import preflight
 
 
-def sandbox_settings(**overrides):
-    values = {
+def sandbox_settings(**overrides: Any) -> Settings:
+    values: dict[str, Any] = {
         "_env_file": None,
         "mode": "sandbox",
         "host": "127.0.0.1",

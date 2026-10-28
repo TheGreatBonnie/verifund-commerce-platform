@@ -290,7 +290,7 @@ class VerifundAgentService:
             )
             if self._poll_is_ready(pending, projection):
                 output = await self.graph.ainvoke(
-                    Command(resume={"projection": projection}),
+                    Command[dict[str, Any]](resume={"projection": projection}),
                     self._config(task_id),
                 )
                 return self._output_result(
@@ -431,7 +431,7 @@ class VerifundAgentService:
         task_id: str,
         run_id: str,
     ) -> VerifundTaskResult:
-        common = {
+        common: dict[str, Any] = {
             "skill": skill,
             "task_id": task_id,
             "run_id": payload.get("run_id") or run_id,

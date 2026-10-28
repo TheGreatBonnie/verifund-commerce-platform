@@ -141,6 +141,7 @@ async def test_create_award_stores_the_seller_secret_and_projection():
     settlement = await create_award(
         value, "run-1", {"buyer_id": "demo-buyer"}, award_payload()
     )
+    assert settlement is not None
     assert settlement["transaction_id"] == "vf_1"
     assert settlement["agreement_hash"] == "a" * 64
     assert value.store.settlement.saved["seller_token"] == "v1.token"
@@ -154,6 +155,7 @@ async def test_report_acceptance_uses_the_bound_hash_and_total():
     settlement = await create_award(
         value, "run-1", {"buyer_id": "demo-buyer"}, award_payload()
     )
+    assert settlement is not None
     await report_acceptance(
         value, settlement, seller_task_id="seller-task-1", accepted_at=NOW
     )
@@ -168,6 +170,7 @@ async def test_start_funding_uses_console_return_and_cancel_urls():
     settlement = await create_award(
         value, "run-1", {"buyer_id": "demo-buyer"}, award_payload()
     )
+    assert settlement is not None
     funded = await start_funding(value, "run-1", settlement)
     assert funded["state"] == "FUNDING_PENDING"
     request = value.settlement.funds[0]["request"]
@@ -181,6 +184,7 @@ async def test_purchase_order_report_carries_settlement_fields():
     settlement = await create_award(
         value, "run-1", {"buyer_id": "demo-buyer"}, award_payload()
     )
+    assert settlement is not None
     order = {
         "order_id": "MM-1",
         "offer_id": "offer-1",

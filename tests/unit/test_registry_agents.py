@@ -69,7 +69,9 @@ async def test_agent_store_is_separate_from_sellers(tmp_path):
     )
     assert [row["agent_id"] for row in await store.list_agents()] == ["verifund"]
     assert await store.list_sellers() == []
-    assert (await store.get_agent("verifund"))["name"] == "Verifund"
+    agent = await store.get_agent("verifund")
+    assert agent is not None
+    assert agent["name"] == "Verifund"
     assert [row["agent_id"] for row in await store.list_agents(skill="verifund.agreement.create")] == ["verifund"]
     assert await store.list_agents(skill="verifund.unknown") == []
     await engine.dispose()

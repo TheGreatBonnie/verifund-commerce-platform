@@ -96,6 +96,7 @@ async def test_mediate_seller_call_injects_and_redacts_the_token(monkeypatch):
     from commerce_core.a2a_parts import first_envelope
 
     sent = first_envelope(captured[0][1])
+    assert sent is not None
     assert sent["payload"]["settlement_token"] == "v1.secret"
     assert result["resumed"] is True
     assert "v1.secret" not in json.dumps(result)
@@ -123,6 +124,7 @@ async def test_mediate_seller_call_keeps_legacy_requests_unmodified(monkeypatch)
     from commerce_core.a2a_parts import first_envelope
 
     sent = first_envelope(captured[0][1])
+    assert sent is not None
     assert "settlement_token" not in sent["payload"]
     assert result["resumed"] is True
 

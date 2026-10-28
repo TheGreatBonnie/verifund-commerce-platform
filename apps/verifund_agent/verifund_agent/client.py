@@ -38,11 +38,15 @@ class BuyerInternalClient:
         await self._client.aclose()
 
     async def _request(self, method: str, path: str, *, json: Any = None) -> Any:
-        kwargs = {}
         if json is not None:
-            kwargs["content"] = __import__("json").dumps(json).encode("utf-8")
-            kwargs["headers"] = {"content-type": "application/json"}
-        response = await self._client.request(method, self.base_url + path, **kwargs)
+            response = await self._client.request(
+                method,
+                self.base_url + path,
+                json=json,
+                headers={"content-type": "application/json"},
+            )
+        else:
+            response = await self._client.request(method, self.base_url + path)
         if response.status_code >= 400:
             raise BuyerAPIError(
                 f"buyer returned HTTP {response.status_code}",

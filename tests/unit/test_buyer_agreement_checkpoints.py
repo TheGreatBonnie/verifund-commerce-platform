@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from verifund_contracts import AgreementProjection, AgreementReviewResult
@@ -18,7 +19,7 @@ HASH = "a" * 64
 
 
 def agreement(**overrides) -> AgreementProjection:
-    payload = {
+    payload: dict[str, Any] = {
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",
@@ -99,7 +100,7 @@ def test_agreement_mismatch_reason_binds_terms_to_the_award() -> None:
 
 
 def result(**overrides) -> AgreementReviewResult:
-    payload = {
+    payload: dict[str, Any] = {
         "party": "seller",
         "status": "accepted",
         "run_id": "run-1",

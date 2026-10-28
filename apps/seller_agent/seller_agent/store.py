@@ -380,6 +380,71 @@ class SellerStore:
                 return {"split_shipment": True, "on_hand": 0}
             raise ValueError("out_of_stock")
 
+    async def save_settlement_token(
+        self, transaction_id: str, seller_id: str, token: str
+    ) -> None:
+        await save_settlement_token(self, transaction_id, seller_id, token)
+
+    async def get_settlement_token(self, transaction_id: str) -> str | None:
+        return await get_settlement_token(self, transaction_id)
+
+    async def enqueue_evidence(
+        self,
+        *,
+        transaction_id: str,
+        seller_id: str,
+        kind: str,
+        content: bytes,
+        media_type: str,
+        filename: str,
+        note: str = "",
+        captured_at: str | None = None,
+        created_at: datetime | None = None,
+    ) -> bool:
+        return await enqueue_evidence(
+            self,
+            transaction_id=transaction_id,
+            seller_id=seller_id,
+            kind=kind,
+            content=content,
+            media_type=media_type,
+            filename=filename,
+            note=note,
+            captured_at=captured_at,
+            created_at=created_at,
+        )
+
+    async def list_due_evidence(
+        self, *, now: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return await list_due_evidence(self, now=now, limit=limit)
+
+    async def mark_evidence_sent(self, evidence_key: str, *, sent_at: str) -> None:
+        await mark_evidence_sent(self, evidence_key, sent_at=sent_at)
+
+    async def reschedule_evidence(
+        self, evidence_key: str, *, next_attempt_at: str, error: str
+    ) -> None:
+        await reschedule_evidence(
+            self,
+            evidence_key,
+            next_attempt_at=next_attempt_at,
+            error=error,
+        )
+
+    async def fail_evidence(self, evidence_key: str, *, error: str) -> None:
+        await fail_evidence(self, evidence_key, error=error)
+
+    async def get_evidence_outbox(
+        self, transaction_id: str, kind: str
+    ) -> dict[str, Any] | None:
+        return await get_evidence_outbox(self, transaction_id, kind)
+
+    async def list_settlement_tokens(
+        self, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        return await list_settlement_tokens(self, limit)
+
 
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
@@ -523,16 +588,6 @@ async def get_evidence_outbox(self, transaction_id: str, kind: str) -> dict[str,
         row = result.first()
         return dict(row._mapping) if row else None
 
-SellerStore.save_settlement_token = save_settlement_token
-SellerStore.get_settlement_token = get_settlement_token
-SellerStore.enqueue_evidence = enqueue_evidence
-SellerStore.list_due_evidence = list_due_evidence
-SellerStore.mark_evidence_sent = mark_evidence_sent
-SellerStore.reschedule_evidence = reschedule_evidence
-SellerStore.fail_evidence = fail_evidence
-SellerStore.get_evidence_outbox = get_evidence_outbox
-
-
 async def list_settlement_tokens(self, limit: int = 5) -> list[dict[str, Any]]:
     async with self.engine.connect() as conn:
         result = await conn.execute(
@@ -546,4 +601,3 @@ async def list_settlement_tokens(self, limit: int = 5) -> list[dict[str, Any]]:
         )
         return [dict(row._mapping) for row in result]
 
-SellerStore.list_settlement_tokens = list_settlement_tokens

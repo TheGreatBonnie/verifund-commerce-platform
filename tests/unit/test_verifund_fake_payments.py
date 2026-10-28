@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 
 from verifund_control_plane.db import configure_sqlite, create_engine
+from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.paypal.fake import FakePaymentPort
 from verifund_control_plane.repository import Repository
@@ -35,7 +37,7 @@ async def repo(tmp_path):
 async def test_fake_order_and_capture(repo):
     port = FakePaymentPort(repo, scenario="success", clock=lambda: NOW)
     order = await port.create_order(
-        Txn(),
+        cast(TransactionRecord, Txn()),
         return_url="http://test/checkout/fake/token",
         cancel_url="http://test/cancel/token",
         idempotency_key="fund:vf_1:v1",
@@ -55,7 +57,7 @@ async def test_fake_scenarios(repo):
     failed = FakePaymentPort(repo, scenario="order_create_failed", clock=lambda: NOW)
     with pytest.raises(VerifundError) as raised:
         await failed.create_order(
-            Txn(),
+            cast(TransactionRecord, Txn()),
             return_url="http://test/checkout/fake/token",
             cancel_url="http://test/cancel/token",
             idempotency_key="fund:vf_1:v1",
@@ -64,7 +66,7 @@ async def test_fake_scenarios(repo):
 
     mismatch = FakePaymentPort(repo, scenario="amount_mismatch", clock=lambda: NOW)
     order = await mismatch.create_order(
-        Txn(),
+        cast(TransactionRecord, Txn()),
         return_url="http://test/checkout/fake/token",
         cancel_url="http://test/cancel/token",
         idempotency_key="fund:vf_1:v2",

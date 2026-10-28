@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from a2a.server.events import EventQueue
 from a2a.types.a2a_pb2 import Message, Part, Role
 from buyer_agent.executor import BuyerExecutor
 from buyer_agent.settings import Settings
@@ -83,7 +85,7 @@ async def test_flat_approval_resumes_the_approved_run():
     graph = SpyGraph()
     queue = RecordingQueue()
 
-    await _executor(graph).execute(_context(FLAT_APPROVAL_MESSAGE), queue)
+    await _executor(graph).execute(_context(FLAT_APPROVAL_MESSAGE), cast(EventQueue, queue))
 
     assert len(graph.calls) == 1
     payload, config = graph.calls[0]
@@ -108,7 +110,7 @@ async def test_nested_approval_resumes_the_approved_run():
         }
     )
 
-    await _executor(graph).execute(_context(text), queue)
+    await _executor(graph).execute(_context(text), cast(EventQueue, queue))
 
     assert len(graph.calls) == 1
     payload, config = graph.calls[0]
@@ -125,7 +127,7 @@ async def test_approval_without_task_id_does_not_start_a_sourcing_run():
         {"approved": True, "approved_by": "Demo Buyer", "note": "looks good"}
     )
 
-    await _executor(graph).execute(_context(text), queue)
+    await _executor(graph).execute(_context(text), cast(EventQueue, queue))
 
     assert graph.calls == []
     response = _status_responses(queue)[-1]
@@ -142,7 +144,7 @@ async def test_nested_approval_without_task_id_does_not_start_a_sourcing_run():
         {"approval": {"approved": True, "approved_by": "Demo Buyer", "note": ""}}
     )
 
-    await _executor(graph).execute(_context(text), queue)
+    await _executor(graph).execute(_context(text), cast(EventQueue, queue))
 
     assert graph.calls == []
     response = _status_responses(queue)[-1]
@@ -155,10 +157,13 @@ async def test_plain_brief_still_starts_a_new_sourcing_run():
     graph = SpyGraph(result={"stage": "awaiting_approval", "messages": []})
     queue = RecordingQueue()
 
-    await _executor(graph).execute(_context("Buy one MacBook Air M4."), queue)
+    await _executor(graph).execute(
+        _context("Buy one MacBook Air M4."), cast(EventQueue, queue)
+    )
 
     assert len(graph.calls) == 1
     payload, config = graph.calls[0]
     assert not isinstance(payload, Command)
+    assert isinstance(payload, dict)
     assert payload["messages"][0].content == "Buy one MacBook Air M4."
     assert config["configurable"]["thread_id"] == "a2a-ctx"

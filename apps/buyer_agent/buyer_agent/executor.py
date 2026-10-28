@@ -106,13 +106,15 @@ class BuyerExecutor(AgentExecutor):
         text = self._message_text(context.message)
         payload = self._payload(text)
 
-        envelope = first_envelope(context.message) if context.message is not None else None
+        message = context.message
+        envelope = first_envelope(message) if message is not None else None
         review_request = None
         if envelope is not None and str(envelope.get("schema", "")).endswith(
             "/agreement-review-request.json"
         ):
+            assert message is not None
             try:
-                review_request = parse_review_envelope(context.message)
+                review_request = parse_review_envelope(message)
             except ValueError as exc:
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
@@ -207,6 +209,10 @@ class BuyerExecutor(AgentExecutor):
 
         try:
             if payload.get("_review_resume"):
+                if review_request is None:
+                    raise ValueError(
+                        "agreement review resume request is missing"
+                    )
                 thread_id = str(payload["task_id"])
                 config["configurable"]["thread_id"] = thread_id
                 result = await self.graph.ainvoke(

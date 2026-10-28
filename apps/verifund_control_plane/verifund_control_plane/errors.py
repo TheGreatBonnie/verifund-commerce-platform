@@ -50,5 +50,7 @@ def error_response(
     )
 
 
-async def verifund_error_handler(request: Request, exc: VerifundError) -> JSONResponse:
+async def verifund_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    if not isinstance(exc, VerifundError):
+        raise exc
     return error_response(exc, request)

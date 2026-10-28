@@ -77,7 +77,9 @@ class BuyerSettlementClient:
             actor=self.actor,
             idempotency_key=idempotency_key,
         )
-        return projection.model_dump(mode="json")
+        if hasattr(projection, "model_dump"):
+            return projection.model_dump(mode="json")
+        return projection
 
     async def accept(
         self,

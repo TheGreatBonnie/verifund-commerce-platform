@@ -4,7 +4,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 from sqlalchemy import (
     JSON,
@@ -301,7 +301,7 @@ class Repository:
             await conn.run_sync(self.metadata.create_all)
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[AsyncConnection]:
+    async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
         async with transaction(self.engine) as conn:
             yield conn
 

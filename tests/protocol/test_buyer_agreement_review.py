@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from a2a.types.a2a_pb2 import Message, Role
@@ -18,7 +19,7 @@ HASH = "a" * 64
 
 
 def agreement() -> AgreementProjection:
-    payload = {
+    payload: dict[str, Any] = {
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",

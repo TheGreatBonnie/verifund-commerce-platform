@@ -96,12 +96,14 @@ def test_agreement_projection_hash_binds_every_term() -> None:
 
 def test_award_response_requires_the_agreement_projection() -> None:
     with pytest.raises(ValidationError):
-        AwardResponse(
-            transaction_id="vf_1",
-            state="AWARDED",
-            agreement_hash=HASH,
-            seller_token="v1.token",
-            expires_at=NOW,
+        AwardResponse.model_validate(
+            {
+                "transaction_id": "vf_1",
+                "state": "AWARDED",
+                "agreement_hash": HASH,
+                "seller_token": "v1.token",
+                "expires_at": NOW,
+            }
         )
 
 
@@ -266,15 +268,15 @@ def test_task_result_binds_status_checkpoint_and_approval_type() -> None:
     assert funding.checkpoint == "funding_approval_required"
 
     with pytest.raises(ValidationError):
-        VerifundTaskResult(
-            **{
+        VerifundTaskResult.model_validate(
+            {
                 **funding.model_dump(),
                 "checkpoint": "release_approval_required",
             }
         )
     with pytest.raises(ValidationError):
-        VerifundTaskResult(
-            **{
+        VerifundTaskResult.model_validate(
+            {
                 **funding.model_dump(),
                 "approval_type": None,
             }
@@ -373,8 +375,8 @@ def test_buyer_purchase_order_contract_binds_and_hides_the_token() -> None:
     )
     assert "settlement_token" not in response.purchase_order
     with pytest.raises(ValidationError):
-        BuyerPurchaseOrderResponse(
-            **{
+        BuyerPurchaseOrderResponse.model_validate(
+            {
                 **response.model_dump(),
                 "purchase_order": {
                     **response.purchase_order,
@@ -383,8 +385,8 @@ def test_buyer_purchase_order_contract_binds_and_hides_the_token() -> None:
             }
         )
     with pytest.raises(ValidationError):
-        BuyerPurchaseOrderResponse(
-            **{
+        BuyerPurchaseOrderResponse.model_validate(
+            {
                 **response.model_dump(),
                 "purchase_order": {
                     **response.purchase_order,

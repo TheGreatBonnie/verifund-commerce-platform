@@ -45,6 +45,15 @@ def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _order_datetime(order: dict[str, Any], field: str) -> datetime:
+    value = order.get(field)
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    raise AgreementBindingError(f"order {field} is missing", status_code=409)
+
+
 def shipping_address() -> ShippingAddress:
     return ShippingAddress(
         name="Demo Buyer",
@@ -317,8 +326,8 @@ class BuyerAgreementService:
             currency=agreement.currency,
             tracking_number=str(order.get("tracking_number") or ""),
             carrier=str((order.get("fulfillment") or {}).get("carrier") or ""),
-            reserved_at=order.get("reserved_at"),
-            eta=order.get("eta"),
+            reserved_at=_order_datetime(order, "reserved_at"),
+            eta=_order_datetime(order, "eta"),
             line_items=line_items,
         )
         result = await self.client.purchase_order(

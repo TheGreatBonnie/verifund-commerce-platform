@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from langgraph.checkpoint.memory import MemorySaver
 
 from verifund_agent.graph import build_graph
 from verifund_agent.service import VerifundAgentService
+from verifund_agent.client import BuyerInternalClient
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewResult,
@@ -20,7 +22,7 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 
 def award(**overrides):
-    payload = {
+    payload: dict[str, Any] = {
         "run_id": "run-1",
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
@@ -177,7 +179,7 @@ class Buyer:
 def service() -> tuple[VerifundAgentService, Buyer]:
     buyer = Buyer()
     graph = build_graph(MemorySaver())
-    return VerifundAgentService(graph=graph, buyer=buyer), buyer
+    return VerifundAgentService(graph=graph, buyer=cast(BuyerInternalClient, buyer)), buyer
 
 
 async def test_agreement_create_stops_at_the_buyer_review() -> None:

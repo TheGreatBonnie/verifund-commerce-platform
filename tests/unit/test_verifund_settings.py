@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
@@ -9,8 +10,8 @@ from verifund_control_plane.settings import Settings
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 
-def sandbox_settings(**overrides):
-    values = {
+def sandbox_settings(**overrides: Any) -> Settings:
+    values: dict[str, Any] = {
         "mode": "sandbox",
         "ops_token": "x" * 40,
         "seller_token_secret": "s" * 40,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
@@ -23,7 +24,7 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 
 def award(**overrides):
-    payload = {
+    payload: dict[str, Any] = {
         "run_id": "run-1",
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",

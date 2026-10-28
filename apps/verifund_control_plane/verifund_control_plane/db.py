@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 from sqlalchemy import event
 from sqlalchemy.exc import OperationalError
@@ -34,7 +34,7 @@ async def configure_sqlite(engine: AsyncEngine) -> None:
 
 
 @asynccontextmanager
-async def transaction(engine: AsyncEngine) -> AsyncIterator[AsyncConnection]:
+async def transaction(engine: AsyncEngine) -> AsyncGenerator[AsyncConnection, None]:
     try:
         async with engine.begin() as conn:
             yield conn

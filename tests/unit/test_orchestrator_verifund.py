@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any, Literal, cast
 
 import pytest
 from a2a.types.a2a_pb2 import TaskArtifactUpdateEvent
@@ -40,7 +41,7 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 
 def agreement() -> AgreementProjection:
-    payload = {
+    payload: dict[str, Any] = {
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",
@@ -87,7 +88,10 @@ def binding() -> dict:
     }
 
 
-def review(party: str, status: str = "accepted") -> AgreementReviewResult:
+def review(
+    party: Literal["buyer", "seller"],
+    status: Literal["accepted", "rejected"] = "accepted",
+) -> AgreementReviewResult:
     return AgreementReviewResult(
         party=party,
         status=status,
@@ -104,11 +108,11 @@ def review(party: str, status: str = "accepted") -> AgreementReviewResult:
 def task_result(
     *,
     skill: VerifundSkill = VerifundSkill.AGREEMENT_CREATE,
-    status: str = "input_required",
+    status: Literal["completed", "input_required", "approval_required", "failed"] = "input_required",
     checkpoint: VerifundCheckpoint | None = None,
-    approval_type: str | None = None,
+    approval_type: Literal["funding", "release"] | None = None,
     state: TransactionState | None = None,
-    data: dict | None = None,
+    data: dict[str, Any] | None = None,
     message: str = "",
 ) -> VerifundTaskResult:
     return VerifundTaskResult(
@@ -317,9 +321,9 @@ def lifecycle(
     seller: FakeSeller | None = None,
 ) -> VerifundLifecycle:
     return VerifundLifecycle(
-        verifund=verifund,
-        buyer=buyer or FakeBuyer(),
-        seller=seller or FakeSeller(),
+        verifund=cast(VerifundA2AClient, verifund),
+        buyer=cast(BuyerA2AAgents, buyer or FakeBuyer()),
+        seller=cast(SellerA2AClient, seller or FakeSeller()),
         buyer_internal_url="http://buyer",
         buyer_internal_token="internal-token",
     )
@@ -616,6 +620,7 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
     async def send(base_url, message, token=None):
         sent.append(message)
         envelope = first_envelope(message)
+        assert envelope is not None
         if envelope["schema"].endswith("/resume-request.json"):
             result = task_result(
                 checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
@@ -659,7 +664,9 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
     assert sent[1].context_id == "vf-context-1"
     assert sent[2].task_id == "vf-task-1"
     assert sent[2].context_id == "vf-context-1"
-    resume = parse_verifund_resume_request(first_envelope(sent[2]))
+    resume_envelope = first_envelope(sent[2])
+    assert resume_envelope is not None
+    resume = parse_verifund_resume_request(resume_envelope)
     assert resume.task_id == "vf-task-1"
     assert resume.checkpoint is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
 
@@ -681,6 +688,7 @@ async def test_seller_purchase_order_injects_the_token_and_never_returns_it() ->
     async def send(base_url, message, token=None):
         sent.append((base_url, message, token))
         envelope = first_envelope(message)
+        assert envelope is not None
         assert envelope["payload"]["settlement_token"] == "v1.secret"
         return [
             TaskArtifactUpdateEvent(

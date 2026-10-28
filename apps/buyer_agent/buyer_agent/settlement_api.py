@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, AsyncIterator, Literal
+from typing import Any, AsyncGenerator, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from langgraph.types import Command
@@ -139,7 +139,9 @@ def _error(exc: Exception) -> HTTPException:
 
 
 @asynccontextmanager
-async def _run_lock(request: Request, run_id: str) -> AsyncIterator[None]:
+async def _run_lock(
+    request: Request, run_id: str
+) -> AsyncGenerator[None, None]:
     coordinator = getattr(_services(request), "coordinator", None)
     if coordinator is None:
         yield
