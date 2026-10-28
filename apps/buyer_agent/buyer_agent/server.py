@@ -65,7 +65,6 @@ def create_app(
     app.state.engine = engine
     app.state.services = services
     app.state.graph = graph
-    app.state.executor = executor
     app.state.owns_services = owns_services
 
     card = build_buyer_agent_card(settings.public_base_url)
@@ -76,6 +75,7 @@ def create_app(
         checkpointer=checkpointer,
         graph=graph,
     )
+    app.state.executor = executor
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=task_store,
