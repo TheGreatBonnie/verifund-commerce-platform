@@ -1001,10 +1001,14 @@ git commit -m "feat(verifund): add shared contracts package and typed client"
 - Test: `tests/unit/test_verifund_a2a_contracts.py`
 
 **Interfaces:**
-- Produces: `AgreementProjection`, `BuyerAgreementRequest`, `BuyerAgreementResponse`, `FundingApprovalDecision`, `ReleaseApprovalDecision`, `AgreementReviewRequest`, `AgreementReviewResult`, `VerifundTaskRequest`, `VerifundTaskResult`, `VerifundSkill`, the A2A schema constants, and the `wrap_*`/`parse_*` envelope helpers; `AwardResponse.agreement`, `AwardResponse.agreement_version`, and `VerifundClient.buyer_review`.
+- Produces: `AgreementProjection`, `BuyerAgreementRequest`, `BuyerAgreementResponse`, `BuyerOrderReportRequest`, `BuyerOrderReportResponse`, `BuyerPurchaseOrderRequest`, `BuyerPurchaseOrderResponse`, `FundingApprovalDecision`, `ReleaseApprovalDecision`, `AgreementReviewRequest`, `AgreementReviewResult`, `VerifundTaskRequest`, `VerifundTaskResult`, `VerifundResumeRequest`, `VerifundCheckpoint`, `VerifundSkill`, the A2A schema constants, and the `wrap_*`/`parse_*` envelope helpers; `AwardResponse.agreement`, `AwardResponse.agreement_version`, and `VerifundClient.buyer_review`.
+- `BuyerPurchaseOrderResponse.purchase_order` is the exact `PurchaseOrderRequest` payload built by the Buyer. The response binds its run, seller, offer, total, transaction, and hash, and rejects any payload that already contains a `settlement_token`; the orchestrator injects that token later.
 - `AgreementProjection.canonical_payload()` excludes only `agreement_hash`; `created_at` is stored as an ISO-8601 string so the buyer, Verifund, and control plane hash the identical bytes.
 - `FundingApprovalDecision` and `ReleaseApprovalDecision` are the only structured human-authorization inputs. `ReleaseApprovalDecision` requires a note when `override` is true.
 - `AgreementReviewRequest.party` is `buyer` or `seller`; `AgreementReviewResult.party` must match it. A result that does not echo the same transaction, version, and hash is rejected by `parse_agreement_review_result`.
+- `VerifundCheckpoint` enumerates the seven lifecycle stops: `buyer_review_required`, `seller_review_required`, `funding_approval_required`, `funding_pending`, `purchase_order_required`, `evidence_pending`, `release_approval_required`.
+- `VerifundResumeRequest` is the only body accepted by a resumed Verifund A2A task. It carries `run_id`, `task_id`, `checkpoint`, `value`, and `idempotency_key`. It rejects a checkpoint of `funding_pending` or `evidence_pending` because those are polled through `verifund.transaction.status`, not resumed.
+- `VerifundTaskResult` gains `task_id`, `checkpoint`, and `approval_type`. `status="input_required"` requires one of the three review/order checkpoints; `status="approval_required"` requires `approval_type` to match the funding or release checkpoint; `approval_type` is absent on every other status.
 
 - [ ] **Step 1: Write the failing contract tests**
 
@@ -1029,14 +1033,24 @@ from verifund_contracts import (
     AwardResponse,
     BuyerAgreementRequest,
     BuyerAgreementResponse,
+    BuyerOrderReportRequest,
+    BuyerOrderReportResponse,
+    BuyerPurchaseOrderRequest,
+    BuyerPurchaseOrderResponse,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
+    VERIFUND_RESUME_REQUEST_SCHEMA,
+    VerifundCheckpoint,
     VerifundClient,
+    VerifundResumeRequest,
     VerifundSkill,
     VerifundTaskRequest,
+    VerifundTaskResult,
     parse_agreement_review_result,
+    parse_verifund_resume_request,
     parse_verifund_task_request,
     wrap_agreement_review_request,
+    wrap_verifund_resume_request,
     wrap_verifund_task_request,
 )
 
@@ -1215,6 +1229,82 @@ def test_verifund_task_envelope_round_trips_and_requires_known_skill() -> None:
         )
 
 
+def test_resume_envelope_round_trips_and_rejects_polling_checkpoints() -> None:
+    resume = VerifundResumeRequest(
+        run_id="run-1",
+        task_id="task-1",
+        checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+        value={
+            "party": "buyer",
+            "status": "accepted",
+            "transaction_id": "vf_1",
+            "agreement_version": 1,
+            "agreement_hash": HASH,
+            "task_id": "buyer-task-1",
+            "context_id": "run-1",
+        },
+        idempotency_key="resume:task-1:buyer-review",
+    )
+    envelope = wrap_verifund_resume_request(resume)
+    assert envelope["schema"] == VERIFUND_RESUME_REQUEST_SCHEMA
+    assert envelope["schema_version"] == "1.0"
+    parsed = parse_verifund_resume_request(envelope)
+    assert parsed.checkpoint == "buyer_review_required"
+    assert parsed.value["status"] == "accepted"
+
+    for polling in ("funding_pending", "evidence_pending"):
+        with pytest.raises(ValidationError):
+            VerifundResumeRequest(
+                run_id="run-1",
+                task_id="task-1",
+                checkpoint=polling,
+                value={},
+                idempotency_key="resume:task-1:poll",
+            )
+
+
+def test_task_result_binds_status_checkpoint_and_approval_type() -> None:
+    funding = VerifundTaskResult(
+        skill=VerifundSkill.TRANSACTION_FUND,
+        status="approval_required",
+        task_id="task-1",
+        checkpoint=VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+        approval_type="funding",
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement_version=1,
+        agreement_hash=HASH,
+        state="AGREED",
+        data={"approval_type": "funding"},
+        message="Funding requires a human decision.",
+        next_action="approve_funding",
+    )
+    assert funding.checkpoint == "funding_approval_required"
+
+    with pytest.raises(ValidationError):
+        VerifundTaskResult(
+            **{
+                **funding.model_dump(),
+                "checkpoint": "release_approval_required",
+            }
+        )
+    with pytest.raises(ValidationError):
+        VerifundTaskResult(
+            **{
+                **funding.model_dump(),
+                "approval_type": None,
+            }
+        )
+    with pytest.raises(ValidationError):
+        VerifundTaskResult(
+            skill=VerifundSkill.AGREEMENT_CREATE,
+            status="input_required",
+            task_id="task-1",
+            run_id="run-1",
+            approval_type="release",
+        )
+
+
 def test_buyer_agreement_contracts_carry_the_secret_reference_only() -> None:
     request = BuyerAgreementRequest(
         award=AwardRequest(
@@ -1255,6 +1345,117 @@ def test_buyer_agreement_contracts_carry_the_secret_reference_only() -> None:
     assert dumped["seller_token_ref"] == "run:run-1:transaction:vf_1"
 
 
+def test_buyer_purchase_order_contract_binds_and_hides_the_token() -> None:
+    request = BuyerPurchaseOrderRequest(
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement_version=1,
+        agreement_hash=HASH,
+        idempotency_key="po:run-1:offer-1",
+    )
+    response = BuyerPurchaseOrderResponse(
+        run_id=request.run_id,
+        transaction_id=request.transaction_id,
+        agreement_version=request.agreement_version,
+        agreement_hash=request.agreement_hash,
+        seller_id="northwind-audio",
+        offer_id="offer-1",
+        amount_cents=123400,
+        seller_token_ref="run:run-1:transaction:vf_1",
+        purchase_order={
+            "request_id": "po-run-1-offer-1",
+            "run_id": "run-1",
+            "offer_id": "offer-1",
+            "seller_id": "northwind-audio",
+            "quantity": 12,
+            "shipping_address": {
+                "name": "Demo Buyer",
+                "line1": "1 Market Street",
+                "city": "San Francisco",
+                "region": "CA",
+                "postal_code": "94105",
+                "country": "US",
+            },
+            "approval": {
+                "approval_id": "approval-1",
+                "approved_by": "demo-reviewer",
+                "approved_at": NOW.isoformat(),
+            },
+            "idempotency_key": "run-1:offer-1",
+            "expected_total_cents": 123400,
+            "settlement_transaction_id": "vf_1",
+            "agreement_hash": HASH,
+        },
+    )
+    assert "settlement_token" not in response.purchase_order
+    with pytest.raises(ValidationError):
+        BuyerPurchaseOrderResponse(
+            **{
+                **response.model_dump(),
+                "purchase_order": {
+                    **response.purchase_order,
+                    "settlement_token": "v1.secret",
+                },
+            }
+        )
+    with pytest.raises(ValidationError):
+        BuyerPurchaseOrderResponse(
+            **{
+                **response.model_dump(),
+                "purchase_order": {
+                    **response.purchase_order,
+                    "run_id": "run-2",
+                },
+            }
+        )
+
+
+def test_buyer_order_report_contract_binds_the_placed_order() -> None:
+    request = BuyerOrderReportRequest(
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement_version=1,
+        agreement_hash=HASH,
+        idempotency_key="order:vf_1",
+        order={
+            "order_id": "ord-1",
+            "offer_id": "offer-1",
+            "seller_id": "northwind-audio",
+            "quantity": 12,
+            "total_cents": 123400,
+            "currency": "USD",
+            "tracking_number": "TRK-1",
+            "reserved_at": NOW.isoformat(),
+            "eta": "2026-11-03T12:00:00Z",
+            "line_items": [],
+        },
+    )
+    response = BuyerOrderReportResponse(
+        run_id=request.run_id,
+        transaction_id=request.transaction_id,
+        agreement_version=1,
+        agreement_hash=HASH,
+        state="FULFILLMENT_PENDING",
+        projection={
+            "transaction_id": "vf_1",
+            "state": "FULFILLMENT_PENDING",
+        },
+    )
+    assert response.state == "FULFILLMENT_PENDING"
+    with pytest.raises(ValidationError):
+        BuyerOrderReportResponse(
+            run_id=request.run_id,
+            transaction_id="vf_other",
+            agreement_version=1,
+            agreement_hash=HASH,
+            state="FULFILLMENT_PENDING",
+            projection={
+                "transaction_id": "vf_1",
+                "state": "FULFILLMENT_PENDING",
+            },
+        )
+
+
 @respx.mock
 async def test_client_posts_buyer_review_with_actor_and_idempotency() -> None:
     route = respx.post(
@@ -1283,7 +1484,7 @@ async def test_client_posts_buyer_review_with_actor_and_idempotency() -> None:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/unit/test_verifund_a2a_contracts.py -v`
-Expected: FAIL with `ImportError` for `AgreementProjection`, `FundingApprovalDecision`, and the A2A helpers.
+Expected: FAIL with `ImportError` for `AgreementProjection`, `FundingApprovalDecision`, `VerifundCheckpoint`, `VerifundResumeRequest`, and the A2A helpers.
 
 - [ ] **Step 3: Add the shared models**
 
@@ -1365,6 +1566,70 @@ class BuyerAgreementResponse(VerifundModel):
         return self
 
 
+class BuyerPurchaseOrderRequest(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    idempotency_key: str = Field(min_length=1)
+
+
+class BuyerPurchaseOrderResponse(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    seller_id: str = Field(min_length=1)
+    offer_id: str = Field(min_length=1)
+    amount_cents: int = Field(gt=0)
+    seller_token_ref: str = Field(min_length=1)
+    purchase_order: dict[str, Any]
+
+    @model_validator(mode="after")
+    def _purchase_order_must_match(self) -> BuyerPurchaseOrderResponse:
+        po = self.purchase_order
+        expected = {
+            "run_id": self.run_id,
+            "seller_id": self.seller_id,
+            "offer_id": self.offer_id,
+            "expected_total_cents": self.amount_cents,
+            "settlement_transaction_id": self.transaction_id,
+            "agreement_hash": self.agreement_hash,
+        }
+        for key, value in expected.items():
+            if po.get(key) != value:
+                raise ValueError(f"purchase order {key} does not match")
+        if po.get("settlement_token"):
+            raise ValueError("buyer purchase order must not contain a token")
+        return self
+
+
+class BuyerOrderReportRequest(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    idempotency_key: str = Field(min_length=1)
+    order: dict[str, Any]
+
+
+class BuyerOrderReportResponse(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    state: TransactionState
+    projection: dict[str, Any]
+
+    @model_validator(mode="after")
+    def _projection_must_match(self) -> BuyerOrderReportResponse:
+        if self.projection.get("transaction_id") != self.transaction_id:
+            raise ValueError("projection transaction does not match")
+        if self.projection.get("state") != self.state:
+            raise ValueError("projection state does not match")
+        return self
+
+
 class FundingApprovalDecision(VerifundModel):
     run_id: str = Field(min_length=1)
     transaction_id: str = Field(min_length=1)
@@ -1423,6 +1688,7 @@ AGREEMENT_REVIEW_REQUEST_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/agreement-review-requ
 AGREEMENT_REVIEW_RESULT_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/agreement-review-result.json"
 VERIFUND_TASK_REQUEST_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/task-request.json"
 VERIFUND_TASK_RESULT_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/task-result.json"
+VERIFUND_RESUME_REQUEST_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/resume-request.json"
 
 
 class VerifundSkill(StrEnum):
@@ -1432,6 +1698,16 @@ class VerifundSkill(StrEnum):
     EVIDENCE_REVIEW = "verifund.evidence.review"
     TRANSACTION_RELEASE = "verifund.transaction.release"
     RECEIPT_GET = "verifund.receipt.get"
+
+
+class VerifundCheckpoint(StrEnum):
+    BUYER_REVIEW_REQUIRED = "buyer_review_required"
+    SELLER_REVIEW_REQUIRED = "seller_review_required"
+    FUNDING_APPROVAL_REQUIRED = "funding_approval_required"
+    FUNDING_PENDING = "funding_pending"
+    PURCHASE_ORDER_REQUIRED = "purchase_order_required"
+    EVIDENCE_PENDING = "evidence_pending"
+    RELEASE_APPROVAL_REQUIRED = "release_approval_required"
 
 
 class AgreementReviewRequest(VerifundModel):
@@ -1486,9 +1762,33 @@ class VerifundTaskRequest(VerifundModel):
     idempotency_key: str = Field(min_length=1)
 
 
+class VerifundResumeRequest(VerifundModel):
+    run_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    checkpoint: VerifundCheckpoint
+    value: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _polling_checkpoints_are_not_resumed(self) -> VerifundResumeRequest:
+        if self.checkpoint in {
+            VerifundCheckpoint.FUNDING_PENDING,
+            VerifundCheckpoint.EVIDENCE_PENDING,
+        }:
+            raise ValueError(
+                "funding_pending and evidence_pending are polled, not resumed"
+            )
+        return self
+
+
 class VerifundTaskResult(VerifundModel):
     skill: VerifundSkill
-    status: Literal["completed", "input_required", "failed"]
+    status: Literal[
+        "completed", "input_required", "approval_required", "failed"
+    ]
+    task_id: str | None = None
+    checkpoint: VerifundCheckpoint | None = None
+    approval_type: Literal["funding", "release"] | None = None
     run_id: str = Field(min_length=1)
     transaction_id: str | None = None
     agreement_version: int | None = None
@@ -1498,6 +1798,32 @@ class VerifundTaskResult(VerifundModel):
     message: str = ""
     retryable: bool = False
     next_action: str | None = None
+
+    @model_validator(mode="after")
+    def _checkpoint_contract(self) -> VerifundTaskResult:
+        if self.status == "approval_required":
+            expected = {
+                VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: "funding",
+                VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: "release",
+            }.get(self.checkpoint)
+            if expected is None or self.approval_type != expected:
+                raise ValueError(
+                    "approval_required requires a matching approval_type"
+                )
+        elif self.status == "input_required":
+            if self.checkpoint not in {
+                VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+                VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+                VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+            }:
+                raise ValueError(
+                    "input_required requires a review or order checkpoint"
+                )
+            if self.approval_type is not None:
+                raise ValueError("approval_type is only valid for approvals")
+        elif self.approval_type is not None:
+            raise ValueError("approval_type is only valid for approvals")
+        return self
 
 
 def _wrap(schema: str, model: VerifundModel) -> dict[str, Any]:
@@ -1576,6 +1902,18 @@ def wrap_verifund_task_result(result: VerifundTaskResult) -> dict[str, Any]:
 def parse_verifund_task_result(envelope: dict[str, Any]) -> VerifundTaskResult:
     return VerifundTaskResult.model_validate(
         _unwrap(envelope, VERIFUND_TASK_RESULT_SCHEMA)
+    )
+
+
+def wrap_verifund_resume_request(request: VerifundResumeRequest) -> dict[str, Any]:
+    return _wrap(VERIFUND_RESUME_REQUEST_SCHEMA, request)
+
+
+def parse_verifund_resume_request(
+    envelope: dict[str, Any],
+) -> VerifundResumeRequest:
+    return VerifundResumeRequest.model_validate(
+        _unwrap(envelope, VERIFUND_RESUME_REQUEST_SCHEMA)
     )
 ```
 
@@ -13602,18 +13940,20 @@ Update `await_approval` to include the settlement binding in its payload:
 Update `finalize` with:
 
 ```python
-    elif stage == "released":
-        receipt = state.get("settlement_receipt") or {}
-        payload = receipt.get("payload") or {}
+    elif stage == "agreed":
+        agreement = state.get("agreement") or {}
         summary = (
-            f"Funds released for transaction {payload.get('transaction_id', '')}. "
-            f"Receipt verified: {receipt.get('verified', False)}."
+            f"Buyer and Seller agreed to transaction "
+            f"{agreement.get('transaction_id', '')}. Verifund owns funding, "
+            f"purchase order, evidence review, release, and the receipt."
         )
-    elif stage == "review_required":
-        summary = "Settlement is paused for reviewer resolution."
-    elif stage == "canceled":
-        summary = "The agreement was canceled before funding."
+    elif stage == "rejected":
+        summary = "The agreement was rejected; no settlement was funded."
 ```
+
+Remove the `settlement` field from the `await_approval` payload in Task 16.
+Funding and the settlement binding belong to the Verifund task, not the Buyer's
+off-mode order approval.
 
 - [ ] **Step 7: Update the executor for new interrupts**
 
@@ -13691,27 +14031,27 @@ git commit -m "feat(buyer): add settlement lifecycle graph and interrupts"
 
 ---
 
-### Task 16A: Replace direct award creation with agreement review checkpoints
+### Task 16A: End the Buyer graph at the bilateral agreement
 
-Task 16's temporary nodes call `create_award()` and `accept_settlement()` directly.
-That cannot work once Verifund owns proposal assembly and the Seller owns its
-own A2A review. This task replaces those bodies with the canonical graph
-protocol:
+Task 16's temporary nodes continue from agreement review into funding,
+purchase-order placement, and release. That cannot stand now that the Verifund
+lifecycle graph owns every post-agreement stage. This task removes that work
+from the Buyer completely. The Buyer graph ends at `AGREED` (or `rejected`):
 
 ```text
-create_settlement_award       -> interrupt agreement_create_required
-report_buyer_review           -> buyer validates award/mandate, records POST /buyer-review
-await_seller_review           -> interrupt seller_review_required
-report_seller_review          -> buyer reports Seller accept/reject through its client
-await_funding_approval        -> interrupt funding_approval_required
-report_settlement_approval    -> cancel or approve
-fund_settlement               -> interrupt funding_required with checkout URL
-settlement_place_order        -> seller order, evidence, verification
-await_release                 -> interrupt settlement_release
+create_settlement_award  -> interrupt agreement_create_required
+report_buyer_review      -> validate award/mandate, record POST /buyer-review
+await_seller_review      -> interrupt seller_review_required
+report_seller_review     -> record the Seller accept/reject through the buyer client
+finalize                 -> stage agreed or rejected
 ```
 
-`VERIFUND_MODE=off` still bypasses all settlement nodes and keeps the existing
-approval-only path.
+Funding HITL, funding, purchase-order placement, evidence review, release, and
+receipt belong to the Verifund lifecycle graph (Tasks 22B-22D) and are only
+mediated by the orchestrator (Task 22G). The Buyer records the Seller decision
+because it owns the run projection, then stops. `VERIFUND_MODE=off` still
+bypasses all settlement nodes and keeps the existing approval-only purchase
+path.
 
 **Files:**
 - Modify: `apps/buyer_agent/buyer_agent/graph.py`
@@ -13722,9 +14062,10 @@ approval-only path.
 - Test: `tests/unit/test_buyer_executor.py` (extend)
 
 **Interfaces:**
-- Produces: `AgreementProtocolError`, `agreement_mismatch_reason`, `buyer_review_route`, `seller_review_route`, `funding_approval_matches`, `create_settlement_award`, `report_buyer_review`, `await_seller_review`, `report_seller_review`, `await_funding_approval`; `BuyerState` fields `agreement`, `buyer_review`, `seller_decision`, `funding_approval`; buyer Agent Card skill `commerce.agreement.review`.
-- Consumes: `AgreementProjection`, `AgreementReviewRequest`/`Result`, `FundingApprovalDecision`, `BuyerSettlementClient.buyer_review`, `AcceptRequest`/`RejectRequest` through the buyer client.
-- Resume keys are exactly `agreement` (with `seller_token_ref`), `seller_decision`, and `funding_approval`. There is no `buyer_review_required` interrupt: the Buyer records its own review immediately after the canonical agreement resumes the task.
+- Produces: `AgreementProtocolError`, `agreement_mismatch_reason`, `buyer_review_route`, `seller_decision_matches`, `create_settlement_award`, `report_buyer_review`, `await_seller_review`, `report_seller_review`; `BuyerState` fields `agreement`, `buyer_review`, `seller_decision`; buyer Agent Card skill `commerce.agreement.review`.
+- Removes: `await_funding_approval`, `report_settlement_approval`, `fund_settlement`, `settlement_place_order`, `await_release`, `settlement_approval_route`, `settlement_funding_route`, `settlement_release_route`, `funding_approval_matches`, `BuyerState.funding_approval`, and `BuyerState.settlement_receipt`. Do not leave dead nodes or resume branches behind.
+- Consumes: `AgreementProjection`, `AgreementReviewResult`, `AgreementReviewDecision`, `BuyerSettlementClient.buyer_review`, and the Buyer client's accept/reject calls.
+- Resume keys are exactly `agreement` and `seller_decision`. The `agreement` resume carries the canonical projection; the Buyer derives the seller token reference deterministically as `run:{run_id}:transaction:{transaction_id}`, matching the Verifund checkpoint. The Buyer never accepts a funding or release resume; those checkpoints belong to the Verifund task. There is no `buyer_review_required` interrupt: the Buyer records its own review immediately after the canonical agreement resumes the task.
 
 - [ ] **Step 1: Write failing checkpoint and routing tests**
 
@@ -13736,18 +14077,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from verifund_contracts import (
-    AgreementProjection,
-    AgreementReviewResult,
-    FundingApprovalDecision,
-)
+from verifund_contracts import AgreementProjection, AgreementReviewResult
 
 from buyer_agent.graph import (
     AgreementProtocolError,
     agreement_mismatch_reason,
+    build_buyer_graph,
     buyer_review_route,
-    funding_approval_matches,
-    seller_review_route,
+    seller_decision_matches,
 )
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -13835,70 +14172,52 @@ def test_agreement_mismatch_reason_binds_terms_to_the_award() -> None:
     )
 
 
-def test_review_routes_use_only_structured_decisions() -> None:
+def result(**overrides) -> AgreementReviewResult:
+    payload = {
+        "party": "seller",
+        "status": "accepted",
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": HASH,
+        "task_id": "seller-task-1",
+        "context_id": "run-1",
+        "reviewed_at": NOW,
+    }
+    payload.update(overrides)
+    return AgreementReviewResult(**payload)
+
+
+def test_buyer_review_route_requires_a_structured_acceptance() -> None:
     assert buyer_review_route({"buyer_review": {"status": "accepted"}}) == "accepted"
     assert buyer_review_route({"buyer_review": {"status": "rejected"}}) == "rejected"
-    assert seller_review_route({"seller_decision": {"status": "accepted"}}) == "accepted"
-    assert seller_review_route({"seller_decision": {"status": "rejected"}}) == "rejected"
     assert buyer_review_route({}) == "rejected"
-    assert seller_review_route({}) == "rejected"
 
 
-def test_funding_approval_must_match_the_agreed_transaction() -> None:
-    agreed = {
-        "transaction_id": "vf_1",
-        "agreement_version": 1,
-        "agreement_hash": HASH,
-        "state": "AGREED",
-    }
-    approval = FundingApprovalDecision(
-        run_id="run-1",
-        transaction_id="vf_1",
-        agreement_version=1,
-        agreement_hash=HASH,
-        approved=True,
-        approved_by="demo-reviewer",
-        decided_at=NOW,
-        idempotency_key="fund:vf_1:1",
-    )
-    assert funding_approval_matches(approval, agreed) is True
-    stale = approval.model_copy(update={"agreement_hash": "b" * 64})
-    assert funding_approval_matches(stale, agreed) is False
-    not_agreed = {**agreed, "state": "AWARDED"}
-    assert funding_approval_matches(approval, not_agreed) is False
+def test_seller_decision_must_echo_the_frozen_agreement() -> None:
+    agreed = agreement()
+    assert seller_decision_matches(result(), agreed) is True
+    assert seller_decision_matches(result(party="buyer"), agreed) is False
+    assert seller_decision_matches(result(run_id="run-2"), agreed) is False
+    assert seller_decision_matches(result(agreement_version=2), agreed) is False
+    assert seller_decision_matches(result(agreement_hash="b" * 64), agreed) is False
 
 
-def test_seller_review_rejects_a_stale_or_wrong_party_result() -> None:
-    agreed = {
-        "transaction_id": "vf_1",
-        "agreement_version": 1,
-        "agreement_hash": HASH,
-    }
-    result = AgreementReviewResult(
-        party="seller",
-        status="accepted",
-        run_id="run-1",
-        transaction_id="vf_1",
-        agreement_version=1,
-        agreement_hash=HASH,
-        task_id="seller-task-1",
-        context_id="run-1",
-        reviewed_at=NOW,
-    )
-    # The graph validates by field before accepting; parse helpers are covered
-    # in Task 1A. Here the structural route must treat a missing decision as a
-    # rejection, never as consent.
-    assert seller_review_route({"seller_decision": result.model_dump(mode="json")}) == "accepted"
-    stale = result.model_copy(update={"agreement_hash": "c" * 64})
-    assert seller_review_route(
-        {
-            "seller_decision": stale.model_dump(mode="json"),
-            "settlement": {
-                "agreement_hash": HASH,
-                "agreement_version": 1,
-            },
-        }
-    ) == "rejected"
+def test_buyer_graph_ends_at_the_bilateral_agreement() -> None:
+    nodes = set(build_buyer_graph().get_graph().nodes)
+    assert {
+        "create_settlement_award",
+        "report_buyer_review",
+        "await_seller_review",
+        "report_seller_review",
+    } <= nodes
+    assert not {
+        "await_funding_approval",
+        "report_settlement_approval",
+        "fund_settlement",
+        "settlement_place_order",
+        "await_release",
+    } & nodes
 
 
 def test_agreement_protocol_error_is_not_a_success_value() -> None:
@@ -13909,7 +14228,7 @@ def test_agreement_protocol_error_is_not_a_success_value() -> None:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/unit/test_buyer_agreement_checkpoints.py tests/unit/test_buyer_executor.py -v`
-Expected: FAIL with missing `AgreementProtocolError` and checkpoint helpers, and executor assertions for the new interrupt reasons.
+Expected: FAIL with missing `AgreementProtocolError`, `seller_decision_matches`, and the graph-reduction assertion, plus executor assertions for the new interrupt reasons.
 
 - [ ] **Step 3: Add state fields, validation helpers, and routes**
 
@@ -13922,8 +14241,6 @@ from verifund_contracts import (
     AgreementReviewResult,
     CancelReason,
     CancelRequest,
-    FundingApprovalDecision,
-    FlagReviewRequest,
 )
 ```
 
@@ -13933,7 +14250,6 @@ Add `BuyerState` fields:
     agreement: dict | None
     buyer_review: dict | None
     seller_decision: dict | None
-    funding_approval: dict | None
 ```
 
 Add near the existing routing helpers:
@@ -14001,36 +14317,23 @@ def buyer_review_route(state: dict) -> str:
     return "accepted" if decision == AgreementReviewDecision.ACCEPTED.value else "rejected"
 
 
-def seller_review_route(state: dict) -> str:
-    decision = (state.get("seller_decision") or {}).get("status")
-    binding = state.get("settlement") or {}
-    if (
-        decision != AgreementReviewDecision.ACCEPTED.value
-        or not binding
-        or (state.get("seller_decision") or {}).get("agreement_hash")
-        != binding.get("agreement_hash")
-        or (state.get("seller_decision") or {}).get("agreement_version")
-        != binding.get("agreement_version")
-    ):
-        return "rejected"
-    return "accepted"
-
-
-def funding_approval_matches(
-    approval: FundingApprovalDecision, settlement: dict
+def seller_decision_matches(
+    decision: AgreementReviewResult, agreement: AgreementProjection
 ) -> bool:
     return (
-        settlement.get("state") == "AGREED"
-        and approval.run_id == settlement.get("run_id", approval.run_id)
-        and approval.transaction_id == settlement.get("transaction_id")
-        and approval.agreement_version == settlement.get("agreement_version")
-        and approval.agreement_hash == settlement.get("agreement_hash")
+        decision.party == "seller"
+        and decision.run_id == agreement.run_id
+        and decision.transaction_id == agreement.transaction_id
+        and decision.agreement_version == agreement.agreement_version
+        and decision.agreement_hash == agreement.agreement_hash
     )
 ```
 
-- [ ] **Step 4: Replace the settlement node bodies**
+- [ ] **Step 4: Replace the settlement node bodies and delete the post-agreement nodes**
 
-Replace `create_settlement_award` and `accept_settlement` from Task 16 with:
+Replace `create_settlement_award` and `accept_settlement` from Task 16 with the
+four nodes below. Then delete every funding, purchase-order, evidence, release,
+and receipt node, helper, and route function listed in the Interfaces section.
 
 ```python
 async def create_settlement_award(state, config):
@@ -14159,13 +14462,10 @@ async def await_seller_review(state, config):
         decision = AgreementReviewResult.model_validate(payload.get("seller_decision"))
     except Exception as exc:  # noqa: BLE001
         raise AgreementProtocolError("seller review result is invalid") from exc
-    if (
-        decision.party != "seller"
-        or decision.transaction_id != agreement.transaction_id
-        or decision.agreement_version != agreement.agreement_version
-        or decision.agreement_hash != agreement.agreement_hash
-    ):
-        raise AgreementProtocolError("seller review result does not match the agreement")
+    if not seller_decision_matches(decision, agreement):
+        raise AgreementProtocolError(
+            "seller review result does not match the agreement"
+        )
     return {"seller_decision": decision.model_dump(mode="json")}
 
 
@@ -14173,7 +14473,8 @@ async def report_seller_review(state, config):
     services = _services(config)
     settlement = state["settlement"]
     decision = AgreementReviewResult.model_validate(state["seller_decision"])
-    if decision.status == AgreementReviewDecision.ACCEPTED:
+    accepted = decision.status == AgreementReviewDecision.ACCEPTED
+    if accepted:
         projection = await services.settlement.accept(
             settlement["transaction_id"],
             seller_id=settlement["agreement"]["seller_id"],
@@ -14182,6 +14483,7 @@ async def report_seller_review(state, config):
             seller_task_id=decision.task_id,
             accepted_at=decision.reviewed_at.isoformat().replace("+00:00", "Z"),
         )
+        stage = "agreed"
     else:
         projection = await services.settlement.reject(
             settlement["transaction_id"],
@@ -14192,67 +14494,32 @@ async def report_seller_review(state, config):
             seller_task_id=decision.task_id,
             rejected_at=decision.reviewed_at.isoformat().replace("+00:00", "Z"),
         )
+        stage = "rejected"
     updated = {
         **settlement,
         "state": projection["state"],
         "funding_state": projection["state"],
     }
-    await _upsert(
-        services,
-        state["run_id"],
-        stage="agreed" if decision.status == AgreementReviewDecision.ACCEPTED else "rejected",
-    )
+    await _upsert(services, state["run_id"], stage=stage)
+    # The Buyer run is complete once both agents accepted or one rejected.
+    # Funding, purchase order, evidence, release, and receipt belong to the
+    # Verifund lifecycle task.
     return {
         "seller_decision": decision.model_dump(mode="json"),
         "settlement": updated,
-        "stage": "agreed" if decision.status == AgreementReviewDecision.ACCEPTED else "rejected",
+        "stage": stage,
     }
 
 
-async def await_funding_approval(state, config):
-    services = _services(config)
-    settlement = state["settlement"]
-    projection = await fetch_state(services, settlement)
-    if projection["state"] != "AGREED":
-        raise AgreementProtocolError(
-            f"funding approval requires AGREED, got {projection['state']}"
-        )
-    resumed = interrupt(
-        {
-            "reason": "funding_approval_required",
-            "message": "Approve or reject funding for the agreed transaction.",
-            "run_id": state["run_id"],
-            "transaction_id": settlement["transaction_id"],
-            "agreement_version": settlement["agreement_version"],
-            "agreement_hash": settlement["agreement_hash"],
-            "agreement": settlement["agreement"],
-            "buyer_agent_review": projection.get("buyer_agent_review"),
-            "seller_decision": projection.get("seller_decision"),
-            "responseSchema": FundingApprovalDecision.model_json_schema(),
-        }
-    )
-    payload = resumed if isinstance(resumed, dict) else {}
-    try:
-        approval = FundingApprovalDecision.model_validate(payload.get("funding_approval"))
-    except Exception as exc:  # noqa: BLE001
-        raise AgreementProtocolError("funding approval is invalid") from exc
-    agreed = {**settlement, **projection, "state": projection["state"]}
-    if not funding_approval_matches(approval, agreed):
-        raise AgreementProtocolError("funding approval does not match the agreed transaction")
-    return {
-        "funding_approval": approval.model_dump(mode="json"),
-        "approval": {
-            "approved": approval.approved,
-            "approved_by": approval.approved_by,
-            "note": approval.note,
-        },
-        "settlement": {
-            **settlement,
-            "state": projection["state"],
-            "projection": projection,
-        },
-    }
 ```
+
+Delete `await_funding_approval`, `report_settlement_approval`, `fund_settlement`,
+`settlement_place_order`, and `await_release` from Task 16, together with
+`settlement_approval_route`, `settlement_funding_route`,
+`settlement_release_route`, and `fetch_state` if nothing else uses it. The
+Buyer must not call the control plane's `approve`, `fund`, `purchase_order`,
+`release`, or `receipt` methods after agreement. Those calls belong to
+Verifund's lifecycle graph.
 
 - [ ] **Step 5: Rewire the graph edges and node registry**
 
@@ -14275,33 +14542,12 @@ Replace the Task 16 edge block with:
         {"accepted": "await_seller_review", "rejected": "finalize"},
     )
     builder.add_edge("await_seller_review", "report_seller_review")
-    builder.add_conditional_edges(
-        "report_seller_review",
-        seller_review_route,
-        {"accepted": "await_funding_approval", "rejected": "finalize"},
-    )
-    builder.add_conditional_edges(
-        "await_funding_approval",
-        settlement_approval_route,
-        {"settlement": "report_settlement_approval", "off": "place_order", "rejected": "cancel_losers"},
-    )
-    builder.add_conditional_edges(
-        "report_settlement_approval",
-        settlement_funding_route,
-        {"order": "fund_settlement", "wait": "fund_settlement", "failed": "finalize"},
-    )
-    builder.add_conditional_edges(
-        "fund_settlement",
-        settlement_funding_route,
-        {"order": "settlement_place_order", "wait": "fund_settlement", "failed": "finalize"},
-    )
-    builder.add_edge("settlement_place_order", "await_release")
-    builder.add_conditional_edges(
-        "await_release",
-        settlement_release_route,
-        {"done": "finalize", "review": "finalize", "wait": "await_release"},
-    )
+    builder.add_edge("report_seller_review", "finalize")
 ```
+
+Keep the Task 16 off-mode edges `await_approval -> place_order | cancel_losers`
+and `place_order -> finalize` unchanged so `VERIFUND_MODE=off` still purchases
+without settlement.
 
 Register:
 
@@ -14310,14 +14556,12 @@ Register:
         ("report_buyer_review", report_buyer_review),
         ("await_seller_review", await_seller_review),
         ("report_seller_review", report_seller_review),
-        ("await_funding_approval", await_funding_approval),
-        ("report_settlement_approval", report_settlement_approval),
-        ("fund_settlement", fund_settlement),
-        ("settlement_place_order", settlement_place_order),
-        ("await_release", await_release),
 ```
 
-Do not register `accept_settlement`; delete the function. `await_approval` remains only for `VERIFUND_MODE=off`.
+Do not register `accept_settlement`, `await_funding_approval`,
+`report_settlement_approval`, `fund_settlement`, `settlement_place_order`, or
+`await_release`; delete those functions. `await_approval` remains only for
+`VERIFUND_MODE=off`.
 
 `settlement_award_route` becomes:
 
@@ -14342,12 +14586,7 @@ When the incoming message contains a `verifund` envelope, the executor selects t
 AGREEMENT_REASONS = {
     "agreement_create_required": "agreement",
     "seller_review_required": "seller_decision",
-    "funding_approval_required": "funding_approval",
 }
-
-
-def _resume_key(reason: str) -> str | None:
-    return AGREEMENT_REASONS.get(reason)
 
 
 def _agreement_resume_value(reason: str, envelope: dict) -> dict:
@@ -14359,7 +14598,7 @@ def _agreement_resume_value(reason: str, envelope: dict) -> dict:
         }
     if reason == "seller_review_required":
         return {"seller_decision": payload}
-    return {"funding_approval": payload}
+    raise ValueError(f"unexpected buyer agreement interrupt: {reason}")
 ```
 
 In the existing `execute` method, before invoking the graph, inspect the current interrupt:
@@ -14405,24 +14644,34 @@ Map the new interrupts to task states in `_interrupt_response`:
                 "buyer_agent_review": value.get("buyer_agent_review"),
                 "message": value.get("message"),
             }
-        if reason == "funding_approval_required":
-            return {
-                "status": "funding_approval_required",
-                "reason": reason,
-                "task_id": thread_id,
-                "run_id": value.get("run_id"),
-                "transaction_id": value.get("transaction_id"),
-                "agreement_version": value.get("agreement_version"),
-                "agreement_hash": value.get("agreement_hash"),
-                "agreement": value.get("agreement"),
-                "buyer_agent_review": value.get("buyer_agent_review"),
-                "seller_decision": value.get("seller_decision"),
-                "responseSchema": value.get("responseSchema"),
-                "message": value.get("message"),
-            }
 ```
 
-Keep the existing `funding_required` and `settlement_release` branches. If the graph is not currently interrupted, a review envelope must fail with `status="failed"` and `reason="no_pending_review"`; never create a new task from an unsolicited review.
+The task-completion response must also carry the agreement and both reviews. A
+Buyer rejection finalizes without a `seller_review_required` interrupt, and the
+orchestrator must be able to relay that structured rejection without inventing
+one:
+
+```python
+        response = {
+            "status": stage,
+            "stage": stage,
+            "task_id": thread_id,
+            "message": final_message,
+            "award": result.get("award"),
+            "order": result.get("order"),
+            "agreement": result.get("agreement"),
+            "buyer_agent_review": result.get("buyer_review"),
+            "seller_decision": result.get("seller_decision"),
+            "error": result.get("error"),
+        }
+```
+
+There is no funding or release interrupt in the Buyer graph. A resume envelope
+whose reason is not `agreement_create_required` or `seller_review_required`
+must fail with `status="failed"` and `reason="not_a_buyer_checkpoint"`. If the
+graph is not currently interrupted, a review envelope must fail with
+`status="failed"` and `reason="no_pending_review"`; never create a new task
+from an unsolicited review.
 
 Add `commerce.agreement.review` to `build_buyer_agent_card`:
 
@@ -14444,13 +14693,13 @@ Add `commerce.agreement.review` to `build_buyer_agent_card`:
 - [ ] **Step 7: Run the checkpoint and executor tests**
 
 Run: `uv run pytest tests/unit/test_buyer_agreement_checkpoints.py tests/unit/test_buyer_executor.py tests/unit/test_buyer_graph.py -v`
-Expected: PASS. Off-mode graph tests must still show `rank_offers -> create_settlement_award -> await_approval`.
+Expected: PASS. Off-mode graph tests must still show `rank_offers -> create_settlement_award -> await_approval -> place_order`. Settlement-mode tests must end at `report_seller_review -> finalize` and assert that no funding, purchase-order, evidence, release, or receipt node exists.
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add apps/buyer_agent/buyer_agent/{graph.py,executor.py,card.py,settlement.py} tests/unit/test_buyer_agreement_checkpoints.py tests/unit/test_buyer_executor.py
-git commit -m "feat(buyer): require canonical agreement and bilateral review before funding"
+git commit -m "feat(buyer): end the buyer graph at the bilateral agreement"
 ```
 
 ---
@@ -14458,7 +14707,7 @@ git commit -m "feat(buyer): require canonical agreement and bilateral review bef
 ### Task 17: Buyer settlement API, internal seller-token endpoint, and run projection
 
 Add the console-facing settlement routes and the existing
-`POST /internal/settlement/seller-token` route. The six authenticated
+`POST /internal/settlement/seller-token` route. The seven authenticated
 Verifund-agent internal routes are added by Task 17A; do not duplicate them
 here. Do not add a Verifund endpoint for recording reviews: the resumed Buyer
 A2A task records its own review through `POST /buyer-review`, and reports the
@@ -15284,14 +15533,18 @@ git commit -m "feat(buyer): expose settlement API and internal seller-token endp
 ### Task 17A: Buyer internal Verifund routes and agreement binding
 
 The Verifund A2A service must never hold `VERIFUND_OPS_TOKEN`,
-`SELLER_TRANSACTION_TOKEN_SECRET`, PayPal credentials, or the seller token.
-The buyer exposes six authenticated internal routes that translate Verifund's
-requests into its own control-plane client calls:
+`SELLER_TRANSACTION_TOKEN_SECRET`, PayPal credentials, or the seller token. It
+may relay the Buyer-built purchase order, including its shipping address, but
+never a settlement token or an ops credential. The buyer exposes eight
+authenticated internal routes that translate Verifund's requests into its own
+control-plane client calls:
 
 ```text
 GET  /internal/runs/{run_id}/settlement
 POST /internal/runs/{run_id}/settlement/agreement
 POST /internal/runs/{run_id}/settlement/approve-funding
+POST /internal/runs/{run_id}/settlement/purchase-order
+POST /internal/runs/{run_id}/settlement/order
 POST /internal/runs/{run_id}/settlement/release
 GET  /internal/runs/{run_id}/settlement/receipt
 GET  /internal/runs/{run_id}/settlement/evidence/{evidence_id}
@@ -15300,7 +15553,13 @@ GET  /internal/runs/{run_id}/settlement/evidence/{evidence_id}
 Every route requires `x-verifund-agent-token: $VERIFUND_AGENT_INTERNAL_TOKEN`
 and verifies that the request's run, transaction, version, and hash match the
 stored agreement. The routes are not mounted through Next.js and never return
-the seller token or the ops token.
+the seller token or the ops token. The purchase-order route builds the exact
+`PurchaseOrderRequest` inside the Buyer process and returns it with a
+`seller_token_ref`; the orchestrator resolves and injects the token before
+calling the Seller. The order route accepts the Seller's confirmed order back
+from the orchestrator, converts it to a `PurchaseOrderReport`, and records it
+with the control plane so the transaction reaches `FULFILLMENT_PENDING`.
+Verifund relays the order but never receives the token or the ops credential.
 
 **Files:**
 - Create: `apps/buyer_agent/buyer_agent/agreement_service.py`
@@ -15312,8 +15571,8 @@ the seller token or the ops token.
 - Test: `tests/integration/test_buyer_verifund_api.py`
 
 **Interfaces:**
-- Produces: `BuyerAgreementService.create_agreement`, `view`, `approve_funding`, `release`, `receipt`, `evidence`; `SettlementStore.save_agreement`, `get_agreement`; `Settings.verifund_agent_internal_token`; the six internal routes.
-- Consumes: `BuyerSettlementClient`, `SettlementStore`, `BuyerAgreementRequest`/`Response`, `FundingApprovalDecision`, `ReleaseApprovalDecision`, `ApproveRequest`, `FundRequest`, `CancelRequest`, and `ReleaseRequest`.
+- Produces: `BuyerAgreementService.create_agreement`, `view`, `approve_funding`, `purchase_order`, `order`, `release`, `receipt`, `evidence`; `SettlementStore.save_agreement`, `get_agreement`; `Settings.verifund_agent_internal_token`; the eight internal routes.
+- Consumes: `BuyerSettlementClient`, `SettlementStore`, `BuyerAgreementRequest`/`Response`, `BuyerPurchaseOrderRequest`/`Response`, `BuyerOrderReportRequest`/`Response`, `FundingApprovalDecision`, `ReleaseApprovalDecision`, `PurchaseOrderRequest`, `PurchaseOrderReport`, `PurchaseOrderLineItem`, `ApprovalReceipt`, `ApproveRequest`, `FundRequest`, `CancelRequest`, and `ReleaseRequest`.
 
 - [ ] **Step 1: Write the failing internal-route tests**
 
@@ -15330,6 +15589,13 @@ import pytest
 from fastapi import FastAPI
 
 from buyer_agent import settlement_api
+from buyer_agent.agreement_service import AgreementBindingError, BuyerAgreementService
+from verifund_contracts import (
+    AgreementProjection,
+    BuyerOrderReportRequest,
+    BuyerPurchaseOrderRequest,
+    ReleaseApprovalDecision,
+)
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 HASH = "a" * 64
@@ -15393,6 +15659,14 @@ def agreement() -> dict:
     }
 
 
+def valid_agreement() -> dict:
+    body = {key: value for key, value in agreement().items() if key != "agreement_hash"}
+    probe = AgreementProjection.model_construct(**body, agreement_hash="0" * 64)
+    return AgreementProjection(
+        **body, agreement_hash=probe.recompute_hash()
+    ).model_dump(mode="json")
+
+
 class Agreements:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
@@ -15427,6 +15701,43 @@ class Agreements:
             "projection": projection("FUNDING_PENDING"),
             "checkout_url": "http://paypal.test/checkout/1",
             "expires_at": "2026-10-27T12:30:00Z",
+        }
+
+    async def purchase_order(self, run_id, request):
+        self.calls.append(("purchase_order", run_id, request))
+        return {
+            "run_id": run_id,
+            "transaction_id": "vf_1",
+            "agreement_version": 1,
+            "agreement_hash": HASH,
+            "seller_id": "northwind-audio",
+            "offer_id": "offer-1",
+            "amount_cents": 123400,
+            "seller_token_ref": "run:run-1:transaction:vf_1",
+            "purchase_order": {
+                "request_id": "po-run-1-offer-1",
+                "run_id": run_id,
+                "offer_id": "offer-1",
+                "seller_id": "northwind-audio",
+                "quantity": 12,
+                "expected_total_cents": 123400,
+                "settlement_transaction_id": "vf_1",
+                "agreement_hash": HASH,
+            },
+        }
+
+    async def order(self, run_id, request):
+        self.calls.append(("order", run_id, request))
+        return {
+            "run_id": run_id,
+            "transaction_id": "vf_1",
+            "agreement_version": 1,
+            "agreement_hash": HASH,
+            "state": "FULFILLMENT_PENDING",
+            "projection": {
+                "transaction_id": "vf_1",
+                "state": "FULFILLMENT_PENDING",
+            },
         }
 
     async def release(self, run_id, decision):
@@ -15592,6 +15903,228 @@ async def test_approve_funding_forwards_the_structured_decision(api):
     assert call[2].approved is True
 
 
+def po_request(**overrides) -> BuyerPurchaseOrderRequest:
+    payload = {
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": HASH,
+        "idempotency_key": "po:run-1:offer-1",
+    }
+    payload.update(overrides)
+    return BuyerPurchaseOrderRequest(**payload)
+
+
+class PurchaseOrderStore:
+    def __init__(self, state: str = "FUNDED") -> None:
+        self.projection = {
+            **projection(state),
+            "approval": {
+                "approval_id": "approval-1",
+                "approved_by": "demo-reviewer",
+                "approved_at": "2026-10-27T12:00:00Z",
+                "note": "approved",
+            },
+        }
+        self.agreement = valid_agreement()
+
+    async def get_projection(self, run_id):
+        return self.projection if run_id == "run-1" else None
+
+    async def get_agreement(self, run_id):
+        return self.agreement if run_id == "run-1" else None
+
+    async def save_projection(self, run_id, projection):
+        self.projection = projection
+        return True
+
+
+async def test_purchase_order_builds_the_exact_request_from_the_funded_agreement():
+    service = BuyerAgreementService(
+        client=None,
+        store=PurchaseOrderStore(),
+        console_base_url="http://console",
+    )
+    response = await service.purchase_order("run-1", po_request())
+    po = response["purchase_order"]
+    assert po["request_id"] == "po-run-1-offer-1"
+    assert po["run_id"] == "run-1"
+    assert po["offer_id"] == "offer-1"
+    assert po["seller_id"] == "northwind-audio"
+    assert po["quantity"] == 12
+    assert po["expected_total_cents"] == 123400
+    assert po["settlement_transaction_id"] == "vf_1"
+    assert po["agreement_hash"] == response["agreement_hash"]
+    assert po["approval"]["approved_by"] == "demo-reviewer"
+    assert "settlement_token" not in po
+    assert response["seller_token_ref"] == "run:run-1:transaction:vf_1"
+
+
+async def test_purchase_order_requires_a_funded_agreement():
+    service = BuyerAgreementService(
+        client=None,
+        store=PurchaseOrderStore(state="AGREED"),
+        console_base_url="http://console",
+    )
+    with pytest.raises(AgreementBindingError) as raised:
+        await service.purchase_order("run-1", po_request())
+    assert raised.value.status_code == 409
+
+
+async def test_purchase_order_route_returns_the_buyer_built_order(api):
+    http, services = api
+    response = await http.post(
+        "/internal/runs/run-1/settlement/purchase-order",
+        headers=HEADERS,
+        json=po_request().model_dump(mode="json"),
+    )
+    assert response.status_code == 200, response.text
+    dumped = response.json()
+    assert dumped["purchase_order"]["settlement_transaction_id"] == "vf_1"
+    assert "settlement_token" not in dumped
+    assert services.agreements.calls[-1][0] == "purchase_order"
+
+
+async def test_purchase_order_route_requires_the_agent_token(api):
+    http, _ = api
+    refused = await http.post(
+        "/internal/runs/run-1/settlement/purchase-order",
+        json=po_request().model_dump(mode="json"),
+    )
+    assert refused.status_code == 401
+
+
+def order_request(**overrides) -> BuyerOrderReportRequest:
+    payload = {
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": HASH,
+        "idempotency_key": "order:vf_1",
+        "order": {
+            "order_id": "ord-1",
+            "offer_id": "offer-1",
+            "seller_id": "northwind-audio",
+            "quantity": 12,
+            "total_cents": 123400,
+            "currency": "USD",
+            "tracking_number": "TRK-1",
+            "reserved_at": "2026-10-27T12:00:00Z",
+            "eta": "2026-11-03T12:00:00Z",
+            "fulfillment": {"carrier": "UPS", "status": "confirmed"},
+            "line_items": [
+                {
+                    "sku": "NC-700",
+                    "quantity": 12,
+                    "unit_price_cents": 10000,
+                    "warranty_addon_cents": 0,
+                }
+            ],
+        },
+    }
+    payload.update(overrides)
+    return BuyerOrderReportRequest.model_validate(payload)
+
+
+class OrderClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def purchase_order(self, transaction_id, report, *, idempotency_key):
+        self.calls.append((transaction_id, report, idempotency_key))
+        return {
+            "transaction_id": transaction_id,
+            "state": "FULFILLMENT_PENDING",
+            "agreement_hash": report.agreement_hash,
+        }
+
+
+async def test_order_report_records_the_sellers_confirmation():
+    client = OrderClient()
+    service = BuyerAgreementService(
+        client=client,
+        store=PurchaseOrderStore(),
+        console_base_url="http://console",
+    )
+    response = await service.order("run-1", order_request())
+    assert response["state"] == "FULFILLMENT_PENDING"
+    assert "seller_token" not in response
+    transaction_id, report, key = client.calls[0]
+    assert transaction_id == "vf_1"
+    assert report.seller_order_id == "ord-1"
+    assert report.agreement_hash == HASH
+    assert report.carrier == "UPS"
+    assert key == "order:vf_1"
+
+
+async def test_order_report_must_match_the_agreed_terms():
+    service = BuyerAgreementService(
+        client=OrderClient(),
+        store=PurchaseOrderStore(),
+        console_base_url="http://console",
+    )
+    broken = order_request()
+    broken.order["total_cents"] = 1
+    with pytest.raises(AgreementBindingError) as raised:
+        await service.order("run-1", broken)
+    assert raised.value.status_code == 409
+
+
+async def test_order_route_records_the_sellers_confirmation(api):
+    http, services = api
+    response = await http.post(
+        "/internal/runs/run-1/settlement/order",
+        headers=HEADERS,
+        json=order_request().model_dump(mode="json"),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["state"] == "FULFILLMENT_PENDING"
+    assert services.agreements.calls[-1][0] == "order"
+
+
+async def test_order_route_requires_the_agent_token(api):
+    http, _ = api
+    refused = await http.post(
+        "/internal/runs/run-1/settlement/order",
+        json=order_request().model_dump(mode="json"),
+    )
+    assert refused.status_code == 401
+
+
+class ReleaseClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def flag_review(self, transaction_id, request, *, actor):
+        self.calls.append(("flag_review", transaction_id, request, actor))
+        return projection("REVIEW_REQUIRED")
+
+
+async def test_release_rejection_flags_manual_review():
+    client = ReleaseClient()
+    service = BuyerAgreementService(
+        client=client,
+        store=PurchaseOrderStore(),
+        console_base_url="http://console",
+    )
+    decision = ReleaseApprovalDecision(
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement_version=1,
+        agreement_hash=HASH,
+        approved=False,
+        released_by="demo-reviewer",
+        note="evidence missing",
+        decided_at=NOW,
+        idempotency_key="release:run-1:vf_1",
+    )
+    response = await service.release("run-1", decision)
+    assert response["state"] == "REVIEW_REQUIRED"
+    assert [call[0] for call in client.calls] == ["flag_review"]
+    assert client.calls[0][2].reason.value == "manual_flag"
+    assert client.calls[0][2].note == "evidence missing"
+
+
 async def test_release_requires_an_override_note(api):
     http, _ = api
     body = {
@@ -15685,17 +16218,31 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from commerce_core.contracts import (
+    ApprovalReceipt,
+    PurchaseOrderRequest,
+    ShippingAddress,
+)
 from verifund_contracts import (
     AgreementProjection,
     ApproveRequest,
     BuyerAgreementRequest,
     BuyerAgreementResponse,
+    BuyerOrderReportRequest,
+    BuyerOrderReportResponse,
+    BuyerPurchaseOrderRequest,
+    BuyerPurchaseOrderResponse,
     CancelReason,
     CancelRequest,
+    FlagReviewRequest,
     FundRequest,
     FundingApprovalDecision,
+    PurchaseOrderLineItem,
+    PurchaseOrderReport,
     ReleaseApprovalDecision,
     ReleaseRequest,
+    ReviewReason,
+    TransactionState,
 )
 
 from buyer_agent.settlement_client import BuyerSettlementClient
@@ -15710,6 +16257,17 @@ class AgreementBindingError(Exception):
 
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def shipping_address() -> ShippingAddress:
+    return ShippingAddress(
+        name="Demo Buyer",
+        line1="1 Market Street",
+        city="San Francisco",
+        region="CA",
+        postal_code="94105",
+        country="US",
+    )
 
 
 class BuyerAgreementService:
@@ -15847,6 +16405,160 @@ class BuyerAgreementService:
             "expires_at": funded["expires_at"],
         }
 
+    async def purchase_order(
+        self, run_id: str, request: BuyerPurchaseOrderRequest
+    ) -> dict[str, Any]:
+        projection, agreement_payload = await self._binding(run_id)
+        self._require_binding(
+            run_id=run_id,
+            projection=projection,
+            transaction_id=request.transaction_id,
+            agreement_version=request.agreement_version,
+            agreement_hash=request.agreement_hash,
+        )
+        if projection.get("state") != "FUNDED":
+            raise AgreementBindingError(
+                "purchase order requires a funded transaction", status_code=409
+            )
+        agreement = AgreementProjection.model_validate(agreement_payload)
+        approval = projection.get("approval") or {}
+        approved_by = str(approval.get("approved_by") or "").strip()
+        if not approved_by:
+            raise AgreementBindingError(
+                "funding approval is missing from the projection", status_code=409
+            )
+        try:
+            decided_at = datetime.fromisoformat(
+                str(approval.get("approved_at") or "").replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise AgreementBindingError(
+                "funding approval is malformed", status_code=409
+            ) from exc
+        po = PurchaseOrderRequest(
+            request_id=f"po-{run_id}-{agreement.offer_id}",
+            run_id=run_id,
+            offer_id=agreement.offer_id,
+            seller_id=agreement.seller_id,
+            quantity=agreement.quantity,
+            shipping_address=shipping_address(),
+            approval=ApprovalReceipt(
+                approval_id=str(approval.get("approval_id") or uuid.uuid4()),
+                approved_by=approved_by,
+                approved_at=decided_at,
+                note=approval.get("note") or None,
+            ),
+            idempotency_key=f"{run_id}:{agreement.offer_id}",
+            expected_total_cents=agreement.amount_cents,
+            settlement_transaction_id=agreement.transaction_id,
+            agreement_hash=agreement.agreement_hash,
+        )
+        return BuyerPurchaseOrderResponse(
+            run_id=run_id,
+            transaction_id=agreement.transaction_id,
+            agreement_version=agreement.agreement_version,
+            agreement_hash=agreement.agreement_hash,
+            seller_id=agreement.seller_id,
+            offer_id=agreement.offer_id,
+            amount_cents=agreement.amount_cents,
+            seller_token_ref=f"run:{run_id}:transaction:{agreement.transaction_id}",
+            purchase_order=po.model_dump(mode="json", exclude_none=True),
+        ).model_dump(mode="json")
+
+    async def order(
+        self, run_id: str, request: BuyerOrderReportRequest
+    ) -> dict[str, Any]:
+        projection, agreement_payload = await self._binding(run_id)
+        self._require_binding(
+            run_id=run_id,
+            projection=projection,
+            transaction_id=request.transaction_id,
+            agreement_version=request.agreement_version,
+            agreement_hash=request.agreement_hash,
+        )
+        if projection.get("state") not in {
+            TransactionState.FUNDED.value,
+            TransactionState.FULFILLMENT_PENDING.value,
+            TransactionState.VERIFICATION_PENDING.value,
+        }:
+            raise AgreementBindingError(
+                "order requires a funded transaction", status_code=409
+            )
+        agreement = AgreementProjection.model_validate(agreement_payload)
+        order = request.order
+        expected = {
+            "offer_id": agreement.offer_id,
+            "seller_id": agreement.seller_id,
+            "quantity": agreement.quantity,
+            "total_cents": agreement.amount_cents,
+            "currency": agreement.currency,
+        }
+        actual = {
+            "offer_id": order.get("offer_id"),
+            "seller_id": order.get("seller_id"),
+            "quantity": order.get("quantity"),
+            "total_cents": order.get("total_cents"),
+            "currency": order.get("currency", "USD"),
+        }
+        for field, expected_value in expected.items():
+            if actual.get(field) != expected_value:
+                raise AgreementBindingError(
+                    f"order {field} does not match the agreement",
+                    status_code=409,
+                )
+        line_items = [
+            PurchaseOrderLineItem(
+                sku=str(item.get("sku") or ""),
+                quantity=int(item.get("quantity") or 0),
+                unit_price_cents=int(item.get("unit_price_cents") or 0),
+                warranty_addon_cents=int(
+                    item.get("warranty_addon_cents") or 0
+                ),
+            )
+            for item in order.get("line_items") or []
+            if isinstance(item, dict)
+        ]
+        if not line_items:
+            raise AgreementBindingError(
+                "order has no line items", status_code=409
+            )
+        report = PurchaseOrderReport(
+            agreement_hash=agreement.agreement_hash,
+            seller_order_id=str(order.get("order_id") or ""),
+            offer_id=agreement.offer_id,
+            quantity=agreement.quantity,
+            total_cents=agreement.amount_cents,
+            currency=agreement.currency,
+            tracking_number=str(order.get("tracking_number") or ""),
+            carrier=str((order.get("fulfillment") or {}).get("carrier") or ""),
+            reserved_at=order.get("reserved_at"),
+            eta=order.get("eta"),
+            line_items=line_items,
+        )
+        result = await self.client.purchase_order(
+            agreement.transaction_id,
+            report,
+            idempotency_key=request.idempotency_key,
+        )
+        projection = {
+            **result,
+            "run_id": run_id,
+            "transaction_id": agreement.transaction_id,
+            "agreement_version": agreement.agreement_version,
+            "agreement_hash": agreement.agreement_hash,
+            "state": result.get("state")
+            or TransactionState.FULFILLMENT_PENDING.value,
+        }
+        await self.store.save_projection(run_id, projection)
+        return BuyerOrderReportResponse(
+            run_id=run_id,
+            transaction_id=agreement.transaction_id,
+            agreement_version=agreement.agreement_version,
+            agreement_hash=agreement.agreement_hash,
+            state=projection["state"],
+            projection=projection,
+        ).model_dump(mode="json")
+
     async def release(
         self, run_id: str, decision: ReleaseApprovalDecision
     ) -> dict[str, Any]:
@@ -15859,9 +16571,16 @@ class BuyerAgreementService:
             agreement_hash=decision.agreement_hash,
         )
         if not decision.approved:
-            raise AgreementBindingError(
-                "release rejection does not change control-plane state", status_code=409
+            flagged = await self.client.flag_review(
+                decision.transaction_id,
+                FlagReviewRequest(
+                    reason=ReviewReason.MANUAL_FLAG,
+                    note=decision.note or "release rejected by reviewer",
+                ),
+                actor="console:reviewer",
             )
+            await self.store.save_projection(run_id, flagged)
+            return flagged
         result = await self.client.release(
             decision.transaction_id,
             ReleaseRequest(
@@ -15891,6 +16610,10 @@ class BuyerAgreementService:
         )
 ```
 
+Move `_shipping_address()` out of `graph.py` into `agreement_service.py` as
+`shipping_address()` and import it from there in `graph.py`, so the Buyer has
+one address source for both off-mode orders and Verifund purchase orders.
+
 In `services.py`, build `BuyerAgreementService` next to `BuyerSettlementClient`
 and expose it as `services.agreements`. In `server.py`, no router change is
 needed because `settlement_api.router` is already included.
@@ -15902,6 +16625,8 @@ Append to `settlement_api.py`:
 ```python
 from verifund_contracts import (
     BuyerAgreementRequest,
+    BuyerOrderReportRequest,
+    BuyerPurchaseOrderRequest,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
 )
@@ -15969,6 +16694,32 @@ async def internal_approve_funding(
         raise _binding_error(exc) from exc
 
 
+@router.post("/internal/runs/{run_id}/settlement/purchase-order")
+async def internal_purchase_order(
+    run_id: str, body: BuyerPurchaseOrderRequest, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    if body.run_id != run_id:
+        raise HTTPException(status_code=403, detail="run does not match the request")
+    try:
+        return await _agreements(request).purchase_order(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/order")
+async def internal_order(
+    run_id: str, body: BuyerOrderReportRequest, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    if body.run_id != run_id:
+        raise HTTPException(status_code=403, detail="run does not match the request")
+    try:
+        return await _agreements(request).order(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
 @router.post("/internal/runs/{run_id}/settlement/release")
 async def internal_release(
     run_id: str, body: ReleaseApprovalDecision, request: Request
@@ -16012,7 +16763,7 @@ async def internal_evidence(
 - [ ] **Step 6: Run the internal-route tests**
 
 Run: `uv run pytest tests/integration/test_buyer_verifund_api.py tests/integration/test_buyer_settlement_api.py -v`
-Expected: PASS. Verify no route in this module returns `seller_token` or `ops_token`.
+Expected: PASS. Verify no route in this module returns `seller_token` or `ops_token`, and the purchase-order route returns only a `seller_token_ref` plus the Buyer-built order.
 
 - [ ] **Step 7: Run the buyer suite**
 
@@ -18918,13 +19669,14 @@ token (`VERIFUND_AGENT_A2A_TOKEN`). It must not read
 
 **Files:**
 - Create: `apps/verifund_agent/pyproject.toml`
-- Create: `apps/verifund_agent/verifund_agent/{__init__.py,__main__.py,settings.py,card.py,auth.py,client.py,service.py,executor.py,server.py}`
+- Create: `apps/verifund_agent/verifund_agent/{__init__.py,__main__.py,settings.py,card.py,auth.py,client.py,graph.py,service.py,executor.py,server.py}`
 - Modify: root `pyproject.toml`
 - Test: `tests/unit/test_verifund_agent_package.py`
 
 **Interfaces:**
-- Produces: `Settings` (`agent_port`, `public_url`, `a2a_token`, `buyer_base_url`, `buyer_internal_token`, `request_timeout_seconds`); `build_card(base_url)` with all six skills; `BuyerInternalClient` with `create_agreement`, `get_settlement`, `approve_funding`, `release`, `receipt`, `evidence`; `VerifundExecutor`; `create_app(settings)`.
-- Consumes: `verifund_contracts` A2A envelopes and buyer routes from Task 17A.
+- Produces: `Settings` (`agent_port`, `public_url`, `a2a_token`, `buyer_base_url`, `buyer_internal_token`, `request_timeout_seconds`, `database_url`, `checkpoint_path`); `build_card(base_url)` with all six skills; `BuyerInternalClient` with `create_agreement`, `get_settlement`, `approve_funding`, `purchase_order`, `report_order`, `release`, `receipt`, `evidence`; `VerifundState`, `build_graph(checkpointer)`; `VerifundExecutor`; `create_app(settings, checkpointer)`.
+- Consumes: `verifund_contracts` A2A envelopes and buyer routes from Task 17A; `langgraph`, `langgraph-checkpoint-sqlite`, and `a2a-sdk`'s `DatabaseTaskStore`, mirroring the Buyer service.
+- The A2A task store and LangGraph checkpointer are both durable SQLite stores. A funding or evidence wait must survive a Verifund restart with the same `task_id` and `checkpoint`.
 
 - [ ] **Step 1: Write the failing package tests**
 
@@ -18936,10 +19688,18 @@ from __future__ import annotations
 import httpx
 import respx
 
+from langgraph.checkpoint.memory import MemorySaver
+
 from verifund_agent.card import build_card
 from verifund_agent.client import BuyerInternalClient
+from verifund_agent.graph import VerifundState, build_graph
 from verifund_agent.settings import Settings
-from verifund_contracts import AwardRequest, BuyerAgreementRequest
+from verifund_contracts import (
+    AwardRequest,
+    BuyerAgreementRequest,
+    BuyerOrderReportRequest,
+    BuyerPurchaseOrderRequest,
+)
 
 REQUIRED_SKILLS = {
     "verifund.agreement.create",
@@ -18975,6 +19735,16 @@ def test_settings_hold_no_control_plane_seller_or_paypal_credentials() -> None:
     assert settings.buyer_internal_token
     assert settings.a2a_token
     assert settings.a2a_token != settings.buyer_internal_token
+
+
+def test_graph_compiles_with_a_durable_checkpointer() -> None:
+    saver = MemorySaver()
+    graph = build_graph(saver)
+    assert graph.checkpointer is saver
+    assert "initialize" in graph.get_graph().nodes
+    assert {"run_id", "task_id", "checkpoint", "agreement"} <= set(
+        VerifundState.__annotations__
+    )
 
 
 @respx.mock
@@ -19046,12 +19816,95 @@ async def test_buyer_client_creates_an_agreement_with_the_exact_award() -> None:
     assert route.calls[0].request.headers["x-verifund-agent-token"] == "agent-internal"
 
 
+@respx.mock
+async def test_buyer_client_requests_the_exact_purchase_order() -> None:
+    route = respx.post(
+        "http://buyer/internal/runs/run-1/settlement/purchase-order"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "run_id": "run-1",
+                "transaction_id": "vf_1",
+                "agreement_version": 1,
+                "agreement_hash": "a" * 64,
+                "seller_id": "northwind-audio",
+                "offer_id": "offer-1",
+                "amount_cents": 123400,
+                "seller_token_ref": "run:run-1:transaction:vf_1",
+                "purchase_order": {},
+            },
+        )
+    )
+    client = BuyerInternalClient(
+        "http://buyer",
+        internal_token="agent-internal",
+    )
+    request = BuyerPurchaseOrderRequest(
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement_version=1,
+        agreement_hash="a" * 64,
+        idempotency_key="po:run-1:offer-1",
+    )
+    await client.purchase_order("run-1", request)
+    body = route.calls[0].request.read().decode()
+    assert '"idempotency_key": "po:run-1:offer-1"' in body
+    assert route.calls[0].request.headers["x-verifund-agent-token"] == "agent-internal"
+
+
+@respx.mock
+async def test_buyer_client_reports_the_sellers_confirmed_order() -> None:
+    route = respx.post(
+        "http://buyer/internal/runs/run-1/settlement/order"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "run_id": "run-1",
+                "transaction_id": "vf_1",
+                "agreement_version": 1,
+                "agreement_hash": "a" * 64,
+                "state": "FULFILLMENT_PENDING",
+                "projection": {
+                    "transaction_id": "vf_1",
+                    "state": "FULFILLMENT_PENDING",
+                },
+            },
+        )
+    )
+    client = BuyerInternalClient(
+        "http://buyer",
+        internal_token="agent-internal",
+    )
+    request = BuyerOrderReportRequest(
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement_version=1,
+        agreement_hash="a" * 64,
+        idempotency_key="order:vf_1",
+        order={"order_id": "ord-1", "offer_id": "offer-1"},
+    )
+    await client.report_order("run-1", request)
+    body = route.calls[0].request.read().decode()
+    assert '"order_id": "ord-1"' in body
+    assert '"idempotency_key": "order:vf_1"' in body
+    assert route.calls[0].request.headers["x-verifund-agent-token"] == "agent-internal"
+
+
 def test_server_requires_the_a2a_bearer_token() -> None:
     from fastapi.testclient import TestClient
 
     from verifund_agent.server import create_app
 
-    app = create_app(Settings(a2a_token="a2a-secret"))
+    app = create_app(
+        Settings(
+            a2a_token="a2a-secret",
+            database_url="sqlite+aiosqlite:///:memory:",
+        ),
+        MemorySaver(),
+    )
+    assert app.state.task_store.__class__.__name__ == "DatabaseTaskStore"
     with TestClient(app) as http:
         refused = http.post("/a2a", json={})
         assert refused.status_code == 401
@@ -19083,6 +19936,10 @@ dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
   "a2a-sdk[http-server,fastapi]==1.2.3",
+  "langgraph>=1.2,<2",
+  "langgraph-checkpoint-sqlite>=3.0,<4",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "aiosqlite>=0.20,<1",
   "httpx>=0.27,<1",
   "pydantic-settings>=2.6,<3",
 ]
@@ -19108,6 +19965,8 @@ Add `"apps/verifund_agent"` to the root workspace members and
 `apps/verifund_agent/verifund_agent/settings.py`:
 
 ```python
+from pathlib import Path
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19145,6 +20004,18 @@ class Settings(BaseSettings):
         default=20.0,
         validation_alias=AliasChoices("VERIFUND_AGENT_TIMEOUT_SECONDS"),
     )
+    database_url: str = Field(
+        default="sqlite+aiosqlite:///./data/verifund-agent.db",
+        validation_alias=AliasChoices(
+            "VERIFUND_AGENT_DATABASE_URL", "DATABASE_URL"
+        ),
+    )
+    checkpoint_path: Path = Field(
+        default=Path("./data/verifund-agent-checkpoints.db"),
+        validation_alias=AliasChoices(
+            "VERIFUND_AGENT_CHECKPOINT_PATH", "CHECKPOINT_PATH"
+        ),
+    )
 ```
 
 `apps/verifund_agent/verifund_agent/card.py`:
@@ -19164,11 +20035,11 @@ from a2a.types.a2a_pb2 import (
 from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
 
 SKILLS = (
-    ("verifund.agreement.create", "Create agreement", "Assemble the agreement from the exact Buyer award and canonicalize it through the buyer."),
-    ("verifund.transaction.status", "Transaction status", "Return the buyer-confirmed transaction projection."),
-    ("verifund.transaction.fund", "Fund transaction", "Submit the structured human funding decision and return the checkout handoff."),
-    ("verifund.evidence.review", "Review evidence", "Summarize evidence metadata and deterministic verification outcome."),
-    ("verifund.transaction.release", "Release transaction", "Submit the structured human release decision through the buyer."),
+    ("verifund.agreement.create", "Create agreement", "Start the lifecycle: assemble the agreement from the exact Buyer award and return the first checkpoint."),
+    ("verifund.transaction.status", "Transaction status", "Poll the durable lifecycle task and return its current checkpoint or projection."),
+    ("verifund.transaction.fund", "Fund transaction", "Resume the funding checkpoint with the structured human decision and return the checkout handoff."),
+    ("verifund.evidence.review", "Review evidence", "Advance the purchase-order and evidence checkpoints and return verification status."),
+    ("verifund.transaction.release", "Release transaction", "Resume the release checkpoint with the structured human decision."),
     ("verifund.receipt.get", "Get receipt", "Return the verified signed receipt after release."),
 )
 
@@ -19222,6 +20093,8 @@ import httpx
 
 from verifund_contracts import (
     BuyerAgreementRequest,
+    BuyerOrderReportRequest,
+    BuyerPurchaseOrderRequest,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
 )
@@ -19284,6 +20157,24 @@ class BuyerInternalClient:
             json=decision.model_dump(mode="json"),
         )
 
+    async def purchase_order(
+        self, run_id: str, request: BuyerPurchaseOrderRequest
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/internal/runs/{run_id}/settlement/purchase-order",
+            json=request.model_dump(mode="json"),
+        )
+
+    async def report_order(
+        self, run_id: str, request: BuyerOrderReportRequest
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/internal/runs/{run_id}/settlement/order",
+            json=request.model_dump(mode="json"),
+        )
+
     async def release(
         self, run_id: str, decision: ReleaseApprovalDecision
     ) -> dict[str, Any]:
@@ -19321,11 +20212,68 @@ class BuyerInternalClient:
         )
 ```
 
-- [ ] **Step 5: Implement the service skeleton, executor, and server**
+- [ ] **Step 5: Implement the graph skeleton, service, executor, and server**
 
-`service.py` starts as an explicit unsupported-skill skeleton so the package is
-importable and the executor can be wired without a circular dependency. Task
-22C replaces the `handle` body with the agreement and status handlers.
+`graph.py` defines the lifecycle state and a one-node skeleton. Task 22C adds
+the agreement and review nodes; Task 22D adds the post-agreement nodes. The
+state shape and builder signature do not change.
+
+```python
+from __future__ import annotations
+
+from typing import TypedDict
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, START, StateGraph
+
+
+class VerifundState(TypedDict, total=False):
+    task_id: str
+    context_id: str
+    run_id: str
+    transaction_id: str
+    agreement_version: int
+    agreement_hash: str
+    seller_token_ref: str
+    award: dict
+    buyer_task_id: str
+    buyer_context_id: str
+    agreement: dict
+    buyer_review: dict
+    seller_decision: dict
+    funding_approval: dict
+    funding_projection: dict
+    checkout_url: str
+    expires_at: str
+    purchase_order: dict
+    order: dict
+    evidence: dict
+    verification: dict
+    release_approval: dict
+    release_projection: dict
+    projection: dict
+    receipt: dict
+    checkpoint: str
+    approval_type: str
+    stage: str
+    error: str
+
+
+async def initialize(state: VerifundState, config: RunnableConfig) -> dict:
+    return {"stage": "initialized"}
+
+
+def build_graph(checkpointer):
+    builder = StateGraph(VerifundState)
+    builder.add_node("initialize", initialize)
+    builder.add_edge(START, "initialize")
+    builder.add_edge("initialize", END)
+    return builder.compile(checkpointer=checkpointer)
+```
+
+`service.py` is an explicit unsupported-skill skeleton until Task 22C. It
+already accepts the graph and buyer dependencies so the executor and server
+wiring do not change later.
 
 ```python
 from __future__ import annotations
@@ -19338,13 +20286,23 @@ from verifund_agent.client import BuyerInternalClient
 
 
 class VerifundAgentService:
-    def __init__(self, *, buyer: BuyerInternalClient) -> None:
+    def __init__(
+        self, *, graph: Any, buyer: BuyerInternalClient
+    ) -> None:
+        self.graph = graph
         self.buyer = buyer
 
-    async def handle(self, request: VerifundTaskRequest) -> VerifundTaskResult:
+    async def handle(
+        self,
+        request: VerifundTaskRequest,
+        *,
+        task_id: str,
+        context_id: str,
+    ) -> VerifundTaskResult:
         return VerifundTaskResult(
             skill=request.skill,
             status="failed",
+            task_id=task_id,
             run_id=request.run_id,
             transaction_id=request.transaction_id,
             agreement_version=request.agreement_version,
@@ -19353,11 +20311,12 @@ class VerifundAgentService:
         )
 ```
 
-`executor.py` mirrors the seller executor: emit a working task, call
-`VerifundAgentService.handle(...)`, emit a data artifact with the
-`VerifundTaskResult` envelope, then a terminal status. Failures map to
-`TASK_STATE_FAILED`; `input_required` maps to
-`TASK_STATE_INPUT_REQUIRED` only for a human-gated result.
+`executor.py` mirrors the seller executor: parse the `VerifundTaskRequest`
+envelope, call `VerifundAgentService.handle(...)` with the A2A task ID and
+context ID, emit a data artifact containing the `VerifundTaskResult` envelope,
+then a status update. Failures map to `TASK_STATE_FAILED`; `input_required`
+and `approval_required` map to `TASK_STATE_INPUT_REQUIRED`. Task 22C adds the
+`VerifundResumeRequest` branch and the same-task resume.
 
 `server.py`:
 
@@ -19370,42 +20329,58 @@ from a2a.server.routes import (
     create_agent_card_routes,
     create_jsonrpc_routes,
 )
-from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
+from a2a.server.tasks.database_task_store import DatabaseTaskStore
+from commerce_core.db import configure_sqlite
 from fastapi import FastAPI
+from langgraph.checkpoint.memory import MemorySaver
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from verifund_agent.auth import BearerAuthMiddleware
 from verifund_agent.card import build_card
 from verifund_agent.client import BuyerInternalClient
 from verifund_agent.executor import VerifundExecutor
+from verifund_agent.graph import build_graph
 from verifund_agent.service import VerifundAgentService
 from verifund_agent.settings import Settings
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    checkpointer=None,
+) -> FastAPI:
     settings = settings or Settings()
+    checkpointer = checkpointer or MemorySaver()
+    engine = create_async_engine(settings.database_url)
+    graph = build_graph(checkpointer)
     card = build_card(settings.public_url)
     buyer = BuyerInternalClient(
         settings.buyer_base_url,
         internal_token=settings.buyer_internal_token,
         timeout=settings.request_timeout_seconds,
     )
-    service = VerifundAgentService(buyer=buyer)
+    service = VerifundAgentService(graph=graph, buyer=buyer)
     executor = VerifundExecutor(service)
+    task_store = DatabaseTaskStore(engine=engine, create_table=True)
     handler = DefaultRequestHandler(
         agent_executor=executor,
-        task_store=InMemoryTaskStore(),
+        task_store=task_store,
         agent_card=card,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
+            await configure_sqlite(engine)
             yield
         finally:
             await buyer.close()
+            await engine.dispose()
 
     app = FastAPI(title="MarketMesh Verifund Agent", lifespan=lifespan)
     app.state.settings = settings
+    app.state.engine = engine
+    app.state.graph = graph
+    app.state.task_store = task_store
     app.state.buyer = buyer
     app.state.service = service
     app.add_middleware(
@@ -19437,7 +20412,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 Copy `apps/seller_agent/seller_agent/auth.py` to
 `apps/verifund_agent/verifund_agent/auth.py`.
 
-`__main__.py` starts uvicorn on `settings.host:settings.agent_port`.
+`__main__.py` mirrors the Buyer entrypoint: create the checkpoint parent
+directory, open `AsyncSqliteSaver.from_conn_string(str(settings.checkpoint_path))`,
+pass it to `create_app`, and serve uvicorn on
+`settings.host:settings.agent_port`. The same `settings.database_url` holds the
+A2A task store, so a restarted agent recovers both the task record and the graph
+checkpoint.
 
 - [ ] **Step 6: Run the package tests**
 
@@ -19453,18 +20433,319 @@ git commit -m "feat(verifund): add standalone agent package, card, and authentic
 
 ---
 
-### Task 22C: Implement `verifund.agreement.create` and `verifund.transaction.status`
+### Task 22C: Drive agreement creation and bilateral review on one A2A task
+
+The Verifund agent is a deterministic LangGraph lifecycle, not a request/response
+skill dispatcher. This task installs the first half of the graph. One A2A task
+(one `thread_id`) runs from `create_agreement` through both review checkpoints to
+the funding approval checkpoint; every later message resumes that same task:
+
+```text
+START -> initialize -> create_agreement -> await_buyer_review
+                                             | accepted -> await_seller_review
+                                             | rejected -> finalize_rejected
+await_seller_review -- accepted -> await_funding_approval -> END
+                    \-- rejected -> finalize_rejected -> END
+```
+
+`create_agreement` is a separate node from `await_buyer_review` on purpose. A
+LangGraph interrupt node replays from its first line when it is resumed, so the
+side-effecting Buyer call lives in a predecessor node whose checkpoint commits
+before the interrupt. The Buyer is called once per task, no matter how many
+resumes follow.
+
+The service derives every result from the graph, never from the request alone:
+the pending node selects the checkpoint, and `transaction.status` reconstructs
+the same envelope from the saved graph state. A resume whose checkpoint does not
+match the pending node fails without touching the graph. A stale resume for an
+earlier checkpoint returns the current checkpoint instead of replaying a review.
 
 **Files:**
+- Modify: `apps/verifund_agent/verifund_agent/graph.py`
 - Modify: `apps/verifund_agent/verifund_agent/service.py`
 - Modify: `apps/verifund_agent/verifund_agent/executor.py`
+- Test: `tests/unit/test_verifund_agent_graph.py`
 - Test: `tests/unit/test_verifund_agent_service.py`
 
 **Interfaces:**
-- Produces: `VerifundAgentService.handle(request: VerifundTaskRequest) -> VerifundTaskResult`; `agreement.create` and `transaction.status` handlers.
-- Consumes: `BuyerInternalClient`, `AgreementProjection`, `BuyerAgreementRequest`, `VerifundTaskRequest`/`Result`, and `AgreementReviewResult` only for validation of review envelopes; Verifund never submits a review decision.
+- Produces: `VerifundProtocolError`, `buyer_review_matches`, `seller_review_matches`, `funding_approval_matches`, `buyer_review_route`, `seller_review_route`, `buyer_review_payload`, `seller_review_payload`, `funding_approval_payload`, `PENDING_CHECKPOINTS`, `create_agreement`, `await_buyer_review`, `await_seller_review`, `await_funding_approval`, `finalize_rejected`.
+- Produces: `VerifundAgentService.handle(request, *, task_id, context_id)`, `VerifundAgentService.resume(resume, *, task_id, context_id)`, and an executor that parses both envelope types and resumes the same A2A task.
+- Consumes: `BuyerInternalClient.create_agreement`, `AgreementProjection`, `BuyerAgreementRequest`/`Response`, `AgreementReviewResult`, `FundingApprovalDecision`, and `VerifundResumeRequest`/`VerifundCheckpoint`.
+- Checkpoints: `buyer_review_required` and `seller_review_required` return `status="input_required"`; `funding_approval_required` returns `status="approval_required"` with `approval_type="funding"`. A rejected agreement ends the task with `status="completed"` and `state="CANCELED"`.
 
-- [ ] **Step 1: Write the failing service tests**
+- [ ] **Step 1: Write the failing graph tests**
+
+`tests/unit/test_verifund_agent_graph.py`:
+
+```python
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import pytest
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Command
+
+from verifund_agent.graph import (
+    VerifundProtocolError,
+    build_graph,
+    buyer_review_route,
+    funding_approval_matches,
+    seller_review_route,
+)
+from verifund_contracts import (
+    AgreementProjection,
+    AgreementReviewResult,
+    FundingApprovalDecision,
+)
+
+NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
+
+
+def award(**overrides):
+    payload = {
+        "run_id": "run-1",
+        "buyer_id": "demo-buyer",
+        "seller_id": "northwind-audio",
+        "offer_id": "offer-1",
+        "currency": "USD",
+        "amount_cents": 123400,
+        "shipping_cents": 3400,
+        "quantity": 12,
+        "line_items": [
+            {
+                "sku": "NC-700",
+                "name": "Nimbus NC-700 ANC Headset",
+                "quantity": 12,
+                "unit_price_cents": 10000,
+                "warranty_addon_cents": 0,
+            }
+        ],
+        "delivery_days": 7,
+        "warranty_months": 24,
+        "returns_days": 30,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def agreement(**overrides) -> AgreementProjection:
+    payload = {
+        "agreement_version": 1,
+        "transaction_id": "vf_1",
+        "run_id": "run-1",
+        "buyer_id": "demo-buyer",
+        "seller_id": "northwind-audio",
+        "offer_id": "offer-1",
+        "currency": "USD",
+        "amount_cents": 123400,
+        "quantity": 12,
+        "line_items": award()["line_items"],
+        "shipping_cents": 3400,
+        "delivery_days": 7,
+        "warranty_months": 24,
+        "returns_days": 30,
+        "created_at": "2026-10-27T12:00:00Z",
+    }
+    payload.update(overrides)
+    probe = AgreementProjection.model_construct(
+        **payload, agreement_hash="0" * 64
+    )
+    return AgreementProjection(
+        **payload, agreement_hash=probe.recompute_hash()
+    )
+
+
+AGREEMENT = agreement()
+AGREEMENT_HASH = AGREEMENT.agreement_hash
+
+
+def review(party: str, **overrides) -> AgreementReviewResult:
+    payload = {
+        "party": party,
+        "status": "accepted",
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": AGREEMENT_HASH,
+        "task_id": f"{party}-task-1",
+        "context_id": "run-1",
+        "reviewed_at": NOW,
+    }
+    payload.update(overrides)
+    return AgreementReviewResult.model_validate(payload)
+
+
+def funding_decision(**overrides) -> FundingApprovalDecision:
+    payload = {
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": AGREEMENT_HASH,
+        "approved": True,
+        "approved_by": "demo-reviewer",
+        "note": "approved in the console",
+        "decided_at": NOW,
+        "idempotency_key": "fund:vf_1:1",
+    }
+    payload.update(overrides)
+    return FundingApprovalDecision.model_validate(payload)
+
+
+class Buyer:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def create_agreement(self, run_id, request):
+        self.calls.append(("create_agreement", run_id, request))
+        return {
+            "transaction_id": "vf_1",
+            "state": "AWARDED",
+            "agreement": AGREEMENT.model_dump(mode="json"),
+            "agreement_version": 1,
+            "agreement_hash": AGREEMENT_HASH,
+            "seller_token_ref": "run:run-1:transaction:vf_1",
+        }
+
+
+def initial_state(**overrides):
+    payload = {
+        "task_id": "task-1",
+        "context_id": "run-1",
+        "run_id": "run-1",
+        "award": award(),
+        "buyer_task_id": "buyer-task-1",
+        "buyer_context_id": "run-1",
+        "stage": "initialized",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def config(buyer: Buyer) -> dict:
+    return {"configurable": {"thread_id": "task-1", "buyer": buyer}}
+
+
+async def test_graph_stops_for_buyer_then_seller_then_funding() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+
+    first = await graph.ainvoke(initial_state(), runtime)
+    buyer_stop = first["__interrupt__"][0].value
+    assert buyer_stop["reason"] == "buyer_review_required"
+    assert buyer_stop["agreement_hash"] == AGREEMENT_HASH
+    assert buyer_stop["agreement"]["transaction_id"] == "vf_1"
+    assert buyer_stop["responseSchema"]["title"] == "AgreementReviewResult"
+
+    second = await graph.ainvoke(
+        Command(resume=review("buyer").model_dump(mode="json")), runtime
+    )
+    seller_stop = second["__interrupt__"][0].value
+    assert seller_stop["reason"] == "seller_review_required"
+    assert seller_stop["buyer_review"]["status"] == "accepted"
+    assert seller_stop["agreement_hash"] == AGREEMENT_HASH
+
+    third = await graph.ainvoke(
+        Command(resume=review("seller").model_dump(mode="json")), runtime
+    )
+    funding_stop = third["__interrupt__"][0].value
+    assert funding_stop["reason"] == "funding_approval_required"
+    assert funding_stop["seller_decision"]["status"] == "accepted"
+    assert funding_stop["responseSchema"]["title"] == "FundingApprovalDecision"
+
+    done = await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+    assert "__interrupt__" not in done
+    assert done["funding_approval"]["approved"] is True
+    assert done["stage"] == "agreed"
+    assert len(buyer.calls) == 1
+
+
+async def test_the_buyer_is_called_once_across_every_resume() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await graph.ainvoke(initial_state(), runtime)
+    await graph.ainvoke(
+        Command(resume=review("buyer").model_dump(mode="json")), runtime
+    )
+    await graph.ainvoke(
+        Command(resume=review("seller").model_dump(mode="json")), runtime
+    )
+    assert [call[0] for call in buyer.calls] == ["create_agreement"]
+
+
+async def test_buyer_rejection_ends_before_the_seller_is_asked() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await graph.ainvoke(initial_state(), runtime)
+    done = await graph.ainvoke(
+        Command(
+            resume=review("buyer", status="rejected").model_dump(mode="json")
+        ),
+        runtime,
+    )
+    assert "__interrupt__" not in done
+    assert done["stage"] == "rejected"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"agreement_hash": "b" * 64}, {"party": "seller"}],
+)
+async def test_resume_must_echo_the_frozen_agreement(overrides) -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await graph.ainvoke(initial_state(), runtime)
+    with pytest.raises(VerifundProtocolError):
+        await graph.ainvoke(
+            Command(
+                resume=review("buyer", **overrides).model_dump(mode="json")
+            ),
+            runtime,
+        )
+
+
+def test_review_routes_never_treat_a_missing_decision_as_consent() -> None:
+    assert buyer_review_route({}) == "rejected"
+    assert seller_review_route({}) == "rejected"
+    assert buyer_review_route(
+        {"buyer_review": {"status": "accepted"}}
+    ) == "accepted"
+    assert seller_review_route(
+        {"seller_decision": {"status": "accepted"}}
+    ) == "accepted"
+
+
+def test_funding_approval_must_match_the_agreement() -> None:
+    approval = funding_decision()
+    assert funding_approval_matches(approval, AGREEMENT) is True
+    assert (
+        funding_approval_matches(
+            approval.model_copy(update={"run_id": "run-2"}), AGREEMENT
+        )
+        is False
+    )
+    assert (
+        funding_approval_matches(
+            approval.model_copy(update={"agreement_version": 2}), AGREEMENT
+        )
+        is False
+    )
+    assert (
+        funding_approval_matches(
+            approval.model_copy(update={"agreement_hash": "c" * 64}),
+            AGREEMENT,
+        )
+        is False
+    )
+```
+
+- [ ] **Step 2: Write the failing service tests**
 
 `tests/unit/test_verifund_agent_service.py`:
 
@@ -19473,12 +20754,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
+from langgraph.checkpoint.memory import MemorySaver
 
+from verifund_agent.graph import build_graph
 from verifund_agent.service import VerifundAgentService
 from verifund_contracts import (
     AgreementProjection,
-    BuyerAgreementRequest,
+    AgreementReviewResult,
+    FundingApprovalDecision,
+    VerifundCheckpoint,
+    VerifundResumeRequest,
     VerifundSkill,
     VerifundTaskRequest,
 )
@@ -19513,6 +20798,106 @@ def award(**overrides):
     return payload
 
 
+def agreement() -> AgreementProjection:
+    payload = {
+        "agreement_version": 1,
+        "transaction_id": "vf_1",
+        "run_id": "run-1",
+        "buyer_id": "demo-buyer",
+        "seller_id": "northwind-audio",
+        "offer_id": "offer-1",
+        "currency": "USD",
+        "amount_cents": 123400,
+        "quantity": 12,
+        "line_items": award()["line_items"],
+        "shipping_cents": 3400,
+        "delivery_days": 7,
+        "warranty_months": 24,
+        "returns_days": 30,
+        "created_at": "2026-10-27T12:00:00Z",
+    }
+    probe = AgreementProjection.model_construct(
+        **payload, agreement_hash="0" * 64
+    )
+    return AgreementProjection(
+        **payload, agreement_hash=probe.recompute_hash()
+    )
+
+
+AGREEMENT = agreement()
+AGREEMENT_HASH = AGREEMENT.agreement_hash
+
+
+def review(party: str, **overrides) -> AgreementReviewResult:
+    payload = {
+        "party": party,
+        "status": "accepted",
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": AGREEMENT_HASH,
+        "task_id": f"{party}-task-1",
+        "context_id": "run-1",
+        "reviewed_at": NOW,
+    }
+    payload.update(overrides)
+    return AgreementReviewResult.model_validate(payload)
+
+
+def funding_decision(**overrides) -> FundingApprovalDecision:
+    payload = {
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": AGREEMENT_HASH,
+        "approved": True,
+        "approved_by": "demo-reviewer",
+        "note": "approved in the console",
+        "decided_at": NOW,
+        "idempotency_key": "fund:vf_1:1",
+    }
+    payload.update(overrides)
+    return FundingApprovalDecision.model_validate(payload)
+
+
+def task_request(**overrides) -> VerifundTaskRequest:
+    payload = {
+        "skill": VerifundSkill.AGREEMENT_CREATE,
+        "run_id": "run-1",
+        "payload": {
+            "award": award(),
+            "buyer_task_id": "buyer-task-1",
+            "buyer_context_id": "run-1",
+        },
+        "idempotency_key": "agreement:run-1:offer-1",
+    }
+    payload.update(overrides)
+    return VerifundTaskRequest.model_validate(payload)
+
+
+def status_request(**overrides) -> VerifundTaskRequest:
+    payload = {
+        "skill": VerifundSkill.TRANSACTION_STATUS,
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "idempotency_key": "status:run-1:vf_1",
+    }
+    payload.update(overrides)
+    return VerifundTaskRequest.model_validate(payload)
+
+
+def resume_request(checkpoint, value, **overrides) -> VerifundResumeRequest:
+    payload = {
+        "run_id": "run-1",
+        "task_id": "task-1",
+        "checkpoint": checkpoint,
+        "value": value,
+        "idempotency_key": f"resume:task-1:{checkpoint}",
+    }
+    payload.update(overrides)
+    return VerifundResumeRequest.model_validate(payload)
+
+
 class Buyer:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
@@ -19522,80 +20907,527 @@ class Buyer:
         return {
             "transaction_id": "vf_1",
             "state": "AWARDED",
-            "agreement": {},
+            "agreement": AGREEMENT.model_dump(mode="json"),
             "agreement_version": 1,
-            "agreement_hash": "a" * 64,
+            "agreement_hash": AGREEMENT_HASH,
             "seller_token_ref": "run:run-1:transaction:vf_1",
         }
 
-    async def get_settlement(self, run_id):
-        self.calls.append(("get_settlement", run_id))
-        return {
-            "run_id": run_id,
-            "transaction_id": "vf_1",
-            "projection": {"state": "AGREED", "transaction_id": "vf_1"},
-        }
 
-
-@pytest.fixture
-def service():
+def service() -> tuple[VerifundAgentService, Buyer]:
     buyer = Buyer()
-    return VerifundAgentService(buyer=buyer), buyer
+    graph = build_graph(MemorySaver())
+    return VerifundAgentService(graph=graph, buyer=buyer), buyer
 
 
-async def test_agreement_create_uses_the_exact_award_and_returns_the_projection(service):
-    value, buyer = service
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.AGREEMENT_CREATE,
-        run_id="run-1",
-        payload={"award": award(), "buyer_task_id": "buyer-task-1", "buyer_context_id": "run-1"},
-        idempotency_key="agreement:run-1:offer-1",
+async def test_agreement_create_stops_at_the_buyer_review() -> None:
+    value, buyer = service()
+    result = await value.handle(
+        task_request(), task_id="task-1", context_id="run-1"
     )
-    result = await value.handle(request)
-    assert result.status == "completed"
+    assert result.status == "input_required"
+    assert result.checkpoint == "buyer_review_required"
     assert result.next_action == "buyer_review"
-    assert result.data["seller_token_ref"] == "run:run-1:transaction:vf_1"
-    call = buyer.calls[0]
-    assert call[0] == "create_agreement"
-    assert call[2].award.model_dump(mode="json") == award()
-    assert call[2].buyer_task_id == "buyer-task-1"
+    assert result.task_id == "task-1"
+    assert result.state == "AWARDED"
+    assert result.data["agreement"]["agreement_hash"] == AGREEMENT_HASH
+    assert result.data["responseSchema"]["title"] == "AgreementReviewResult"
+    assert len(buyer.calls) == 1
+    assert buyer.calls[0][2].buyer_task_id == "buyer-task-1"
 
 
-async def test_agreement_create_rejects_a_run_mismatch(service):
-    value, buyer = service
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.AGREEMENT_CREATE,
-        run_id="run-2",
-        payload={"award": award(), "buyer_task_id": "buyer-task-1", "buyer_context_id": "run-1"},
-        idempotency_key="agreement:run-2:offer-1",
+async def test_status_returns_the_pending_checkpoint_without_a_second_buyer_call() -> None:
+    value, buyer = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    status = await value.handle(
+        status_request(), task_id="task-1", context_id="run-1"
     )
-    result = await value.handle(request)
+    assert status.status == "input_required"
+    assert status.checkpoint == "buyer_review_required"
+    assert len(buyer.calls) == 1
+
+
+async def test_resume_advances_the_same_task_to_the_seller_review() -> None:
+    value, buyer = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    resumed = await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert resumed.status == "input_required"
+    assert resumed.checkpoint == "seller_review_required"
+    assert resumed.next_action == "seller_review"
+    assert resumed.data["buyer_review"]["status"] == "accepted"
+    assert len(buyer.calls) == 1
+
+
+async def test_seller_acceptance_opens_the_funding_approval() -> None:
+    value, _ = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    funding = await value.resume(
+        resume_request(
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            review("seller").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert funding.status == "approval_required"
+    assert funding.checkpoint == "funding_approval_required"
+    assert funding.approval_type == "funding"
+    assert funding.state == "AGREED"
+    assert funding.data["seller_decision"]["status"] == "accepted"
+
+
+async def test_a_stale_resume_returns_the_current_checkpoint() -> None:
+    value, _ = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    repeated = await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert repeated.status == "input_required"
+    assert repeated.checkpoint == "seller_review_required"
+
+
+async def test_a_skipped_checkpoint_is_rejected() -> None:
+    value, _ = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    skipped = await value.resume(
+        resume_request(
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            review("seller").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert skipped.status == "failed"
+    assert "does not match" in skipped.message
+
+
+async def test_resume_requires_the_original_task() -> None:
+    value, _ = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    refused = await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer").model_dump(mode="json"),
+            task_id="task-2",
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert refused.status == "failed"
+    assert "task" in refused.message.lower()
+
+
+async def test_agreement_create_rejects_a_run_mismatch() -> None:
+    value, buyer = service()
+    result = await value.handle(
+        task_request(run_id="run-2"),
+        task_id="task-1",
+        context_id="run-1",
+    )
     assert result.status == "failed"
     assert "run" in result.message.lower()
     assert buyer.calls == []
 
 
-async def test_status_returns_the_buyer_projection(service):
-    value, buyer = service
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.TRANSACTION_STATUS,
-        run_id="run-1",
-        transaction_id="vf_1",
-        idempotency_key="status:run-1:vf_1",
+async def test_agreement_create_is_idempotent_for_the_same_task() -> None:
+    value, buyer = service()
+    first = await value.handle(
+        task_request(), task_id="task-1", context_id="run-1"
     )
-    result = await value.handle(request)
-    assert result.status == "completed"
-    assert result.state == "AGREED"
-    assert result.data["projection"]["state"] == "AGREED"
-    assert buyer.calls == [("get_settlement", "run-1")]
+    second = await value.handle(
+        task_request(), task_id="task-1", context_id="run-1"
+    )
+    assert first.checkpoint == second.checkpoint == "buyer_review_required"
+    assert len(buyer.calls) == 1
+
+
+async def test_buyer_rejection_finishes_the_task() -> None:
+    value, _ = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    rejected = await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer", status="rejected").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert rejected.status == "completed"
+    assert rejected.state == "CANCELED"
+    assert rejected.checkpoint is None
+
+
+async def test_status_reports_the_funding_approval() -> None:
+    value, _ = service()
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    status = await value.handle(
+        status_request(), task_id="task-1", context_id="run-1"
+    )
+    assert status.checkpoint == "seller_review_required"
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            review("seller").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    funding = await value.handle(
+        status_request(), task_id="task-1", context_id="run-1"
+    )
+    assert funding.status == "approval_required"
+    assert funding.approval_type == "funding"
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `uv run pytest tests/unit/test_verifund_agent_service.py -v`
-Expected: FAIL with missing `verifund_agent.service`.
+Run: `uv run pytest tests/unit/test_verifund_agent_graph.py tests/unit/test_verifund_agent_service.py -v`
+Expected: FAIL with `ImportError` for `VerifundProtocolError`, the payload builders, and `VerifundAgentService.resume`.
 
-- [ ] **Step 3: Implement the service**
+- [ ] **Step 4: Implement the graph**
+
+Replace `apps/verifund_agent/verifund_agent/graph.py` with:
+
+```python
+from __future__ import annotations
+
+from typing import Any, Literal, TypedDict
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
+
+from verifund_agent.client import BuyerInternalClient
+from verifund_contracts import (
+    AgreementProjection,
+    AgreementReviewDecision,
+    AgreementReviewResult,
+    BuyerAgreementRequest,
+    BuyerAgreementResponse,
+    FundingApprovalDecision,
+    VerifundCheckpoint,
+)
+
+
+class VerifundProtocolError(RuntimeError):
+    pass
+
+
+class VerifundState(TypedDict, total=False):
+    task_id: str
+    context_id: str
+    run_id: str
+    transaction_id: str
+    agreement_version: int
+    agreement_hash: str
+    seller_token_ref: str
+    award: dict
+    buyer_task_id: str
+    buyer_context_id: str
+    agreement: dict
+    buyer_review: dict
+    seller_decision: dict
+    funding_approval: dict
+    purchase_order: dict
+    order: dict
+    projection: dict
+    receipt: dict
+    checkpoint: str
+    approval_type: str
+    stage: str
+    error: str
+
+
+PENDING_CHECKPOINTS = {
+    "await_buyer_review": VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+    "await_seller_review": VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+    "await_funding_approval": VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+}
+
+
+async def initialize(state: VerifundState, config: RunnableConfig) -> dict:
+    return {"stage": state.get("stage") or "initialized"}
+
+
+def _buyer(config: RunnableConfig) -> BuyerInternalClient:
+    configurable = config.get("configurable") or {}
+    buyer = configurable.get("buyer")
+    if buyer is None:
+        raise VerifundProtocolError("buyer client is not configured")
+    return buyer
+
+
+def _agreement(state: VerifundState) -> AgreementProjection:
+    payload = state.get("agreement")
+    if not payload:
+        raise VerifundProtocolError("lifecycle has no agreement")
+    return AgreementProjection.model_validate(payload)
+
+
+def _binding(agreement: AgreementProjection) -> dict[str, Any]:
+    return {
+        "run_id": agreement.run_id,
+        "transaction_id": agreement.transaction_id,
+        "agreement_version": agreement.agreement_version,
+        "agreement_hash": agreement.agreement_hash,
+        "agreement": agreement.model_dump(mode="json"),
+    }
+
+
+def buyer_review_matches(
+    review: AgreementReviewResult, agreement: AgreementProjection
+) -> bool:
+    return (
+        review.party == "buyer"
+        and review.run_id == agreement.run_id
+        and review.transaction_id == agreement.transaction_id
+        and review.agreement_version == agreement.agreement_version
+        and review.agreement_hash == agreement.agreement_hash
+    )
+
+
+def seller_review_matches(
+    review: AgreementReviewResult, agreement: AgreementProjection
+) -> bool:
+    return (
+        review.party == "seller"
+        and review.run_id == agreement.run_id
+        and review.transaction_id == agreement.transaction_id
+        and review.agreement_version == agreement.agreement_version
+        and review.agreement_hash == agreement.agreement_hash
+    )
+
+
+def funding_approval_matches(
+    approval: FundingApprovalDecision, agreement: AgreementProjection
+) -> bool:
+    return (
+        approval.run_id == agreement.run_id
+        and approval.transaction_id == agreement.transaction_id
+        and approval.agreement_version == agreement.agreement_version
+        and approval.agreement_hash == agreement.agreement_hash
+    )
+
+
+def buyer_review_route(state: VerifundState) -> Literal["accepted", "rejected"]:
+    review = state.get("buyer_review") or {}
+    if review.get("status") == AgreementReviewDecision.ACCEPTED.value:
+        return "accepted"
+    return "rejected"
+
+
+def seller_review_route(state: VerifundState) -> Literal["accepted", "rejected"]:
+    decision = state.get("seller_decision") or {}
+    if decision.get("status") == AgreementReviewDecision.ACCEPTED.value:
+        return "accepted"
+    return "rejected"
+
+
+def buyer_review_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "buyer_review_required",
+        "message": "The Buyer must review the canonical agreement.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "buyer_task_id": state.get("buyer_task_id"),
+        **_binding(agreement),
+        "seller_token_ref": state.get("seller_token_ref"),
+        "responseSchema": AgreementReviewResult.model_json_schema(),
+    }
+
+
+def seller_review_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "seller_review_required",
+        "message": "The Seller must accept or reject the canonical agreement.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "buyer_review": state.get("buyer_review"),
+        **_binding(agreement),
+        "responseSchema": AgreementReviewResult.model_json_schema(),
+    }
+
+
+def funding_approval_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "funding_approval_required",
+        "message": "Approve or reject funding for the agreed transaction.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "buyer_review": state.get("buyer_review"),
+        "seller_decision": state.get("seller_decision"),
+        **_binding(agreement),
+        "responseSchema": FundingApprovalDecision.model_json_schema(),
+    }
+
+
+async def create_agreement(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    buyer = _buyer(config)
+    award = state.get("award") or {}
+    run_id = state.get("run_id") or ""
+    if award.get("run_id") != run_id:
+        raise VerifundProtocolError("award run does not match the lifecycle task")
+    buyer_task_id = state.get("buyer_task_id") or ""
+    buyer_context_id = state.get("buyer_context_id") or ""
+    if not buyer_task_id or not buyer_context_id:
+        raise VerifundProtocolError(
+            "agreement creation requires the original Buyer task and context"
+        )
+    response = await buyer.create_agreement(
+        run_id,
+        BuyerAgreementRequest(
+            award=award,
+            buyer_task_id=buyer_task_id,
+            buyer_context_id=buyer_context_id,
+            idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
+        ),
+    )
+    created = BuyerAgreementResponse.model_validate(response)
+    agreement = created.agreement
+    if (
+        agreement.run_id != run_id
+        or agreement.transaction_id != created.transaction_id
+        or agreement.agreement_version != created.agreement_version
+        or agreement.agreement_hash != created.agreement_hash
+    ):
+        raise VerifundProtocolError("buyer returned a mismatched agreement")
+    return {
+        "transaction_id": agreement.transaction_id,
+        "agreement_version": agreement.agreement_version,
+        "agreement_hash": agreement.agreement_hash,
+        "seller_token_ref": created.seller_token_ref,
+        "agreement": agreement.model_dump(mode="json"),
+        "stage": "awarded",
+    }
+
+
+async def await_buyer_review(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(buyer_review_payload(state))
+    review = AgreementReviewResult.model_validate(value)
+    agreement = _agreement(state)
+    if not buyer_review_matches(review, agreement):
+        raise VerifundProtocolError(
+            "buyer review does not match the agreement"
+        )
+    return {"buyer_review": review.model_dump(mode="json")}
+
+
+async def await_seller_review(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(seller_review_payload(state))
+    review = AgreementReviewResult.model_validate(value)
+    agreement = _agreement(state)
+    if not seller_review_matches(review, agreement):
+        raise VerifundProtocolError(
+            "seller review does not match the agreement"
+        )
+    accepted = review.status == AgreementReviewDecision.ACCEPTED
+    return {
+        "seller_decision": review.model_dump(mode="json"),
+        "stage": "agreed" if accepted else "awarded",
+    }
+
+
+async def await_funding_approval(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(funding_approval_payload(state))
+    approval = FundingApprovalDecision.model_validate(value)
+    agreement = _agreement(state)
+    if not funding_approval_matches(approval, agreement):
+        raise VerifundProtocolError(
+            "funding approval does not match the agreement"
+        )
+    return {"funding_approval": approval.model_dump(mode="json")}
+
+
+async def finalize_rejected(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    return {"stage": "rejected"}
+
+
+def build_graph(checkpointer):
+    builder = StateGraph(VerifundState)
+    builder.add_node("initialize", initialize)
+    builder.add_node("create_agreement", create_agreement)
+    builder.add_node("await_buyer_review", await_buyer_review)
+    builder.add_node("await_seller_review", await_seller_review)
+    builder.add_node("await_funding_approval", await_funding_approval)
+    builder.add_node("finalize_rejected", finalize_rejected)
+    builder.add_edge(START, "initialize")
+    builder.add_edge("initialize", "create_agreement")
+    builder.add_edge("create_agreement", "await_buyer_review")
+    builder.add_conditional_edges(
+        "await_buyer_review",
+        buyer_review_route,
+        {
+            "accepted": "await_seller_review",
+            "rejected": "finalize_rejected",
+        },
+    )
+    builder.add_conditional_edges(
+        "await_seller_review",
+        seller_review_route,
+        {
+            "accepted": "await_funding_approval",
+            "rejected": "finalize_rejected",
+        },
+    )
+    builder.add_edge("await_funding_approval", END)
+    builder.add_edge("finalize_rejected", END)
+    return builder.compile(checkpointer=checkpointer)
+```
+
+The `buyer` client travels in `config["configurable"]["buyer"]`; it is a runtime
+dependency and is never written to the checkpoint. The graph state holds only
+JSON-safe values.
+
+- [ ] **Step 5: Implement the service and executor**
 
 Replace `apps/verifund_agent/verifund_agent/service.py` with:
 
@@ -19604,148 +21436,620 @@ from __future__ import annotations
 
 from typing import Any
 
+from langgraph.types import Command
+from pydantic import ValidationError
+
+from verifund_agent.client import BuyerAPIError, BuyerInternalClient
+from verifund_agent.graph import (
+    PENDING_CHECKPOINTS,
+    VerifundProtocolError,
+    buyer_review_payload,
+    funding_approval_payload,
+    seller_review_payload,
+)
 from verifund_contracts import (
-    BuyerAgreementRequest,
+    TransactionState,
+    VerifundCheckpoint,
+    VerifundResumeRequest,
     VerifundSkill,
     VerifundTaskRequest,
     VerifundTaskResult,
 )
 
-from verifund_agent.client import BuyerAPIError, BuyerInternalClient
+
+CHECKPOINT_ORDER = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: 1,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: 2,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: 3,
+}
+
+CHECKPOINT_SKILLS = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: VerifundSkill.TRANSACTION_FUND,
+}
+
+PAYLOAD_BUILDERS = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: buyer_review_payload,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: seller_review_payload,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: funding_approval_payload,
+}
+
+CHECKPOINT_STATES = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: TransactionState.AWARDED,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: TransactionState.AWARDED,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: TransactionState.AGREED,
+}
 
 
 class VerifundAgentService:
-    def __init__(self, *, buyer: BuyerInternalClient) -> None:
+    def __init__(
+        self, *, graph: Any, buyer: BuyerInternalClient
+    ) -> None:
+        self.graph = graph
         self.buyer = buyer
 
-    async def handle(self, request: VerifundTaskRequest) -> VerifundTaskResult:
-        try:
-            if request.skill == VerifundSkill.AGREEMENT_CREATE:
-                return await self._agreement_create(request)
-            if request.skill == VerifundSkill.TRANSACTION_STATUS:
-                return await self._transaction_status(request)
-        except BuyerAPIError as exc:
-            return self._failed(
-                request,
-                message=str(exc),
-                retryable=exc.retryable,
-            )
-        return self._failed(request, message="unsupported Verifund skill")
-
-    def _base(self, request: VerifundTaskRequest) -> dict[str, Any]:
+    def _config(self, task_id: str) -> dict[str, Any]:
         return {
-            "skill": request.skill,
-            "run_id": request.run_id,
-            "transaction_id": request.transaction_id,
-            "agreement_version": request.agreement_version,
-            "agreement_hash": request.agreement_hash,
+            "configurable": {
+                "thread_id": task_id,
+                "buyer": self.buyer,
+            }
         }
 
-    def _failed(
+    async def handle(
         self,
         request: VerifundTaskRequest,
         *,
-        message: str,
-        retryable: bool = False,
-        next_action: str | None = None,
+        task_id: str,
+        context_id: str,
     ) -> VerifundTaskResult:
-        return VerifundTaskResult(
-            **self._base(request),
-            status="failed",
-            message=message,
-            retryable=retryable,
-            next_action=next_action,
+        try:
+            if request.skill == VerifundSkill.AGREEMENT_CREATE:
+                return await self._agreement_create(
+                    request, task_id=task_id, context_id=context_id
+                )
+            if request.skill == VerifundSkill.TRANSACTION_STATUS:
+                return await self._transaction_status(
+                    request, task_id=task_id, context_id=context_id
+                )
+        except BuyerAPIError as exc:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message=str(exc),
+                retryable=exc.retryable,
+            )
+        except (VerifundProtocolError, ValidationError) as exc:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message=str(exc),
+            )
+        return self._failed(
+            skill=request.skill,
+            task_id=task_id,
+            run_id=request.run_id,
+            message="skill is not available at this lifecycle stage",
+        )
+
+    async def resume(
+        self,
+        resume: VerifundResumeRequest,
+        *,
+        task_id: str,
+        context_id: str,
+    ) -> VerifundTaskResult:
+        skill = CHECKPOINT_SKILLS[resume.checkpoint]
+        if resume.task_id != task_id:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="resume task does not match the A2A task",
+            )
+        config = self._config(task_id)
+        snapshot = await self.graph.aget_state(config)
+        if not snapshot.values:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="no lifecycle task exists for this resume",
+            )
+        if snapshot.values.get("run_id") != resume.run_id:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="resume run does not match the lifecycle task",
+            )
+        pending = [
+            PENDING_CHECKPOINTS[node]
+            for node in snapshot.next
+            if node in PENDING_CHECKPOINTS
+        ]
+        if not pending:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="the lifecycle task is not waiting at a checkpoint",
+            )
+        current = pending[0]
+        if resume.checkpoint != current:
+            if CHECKPOINT_ORDER.get(resume.checkpoint, 99) < CHECKPOINT_ORDER[current]:
+                return self._snapshot_result(
+                    snapshot, skill=skill, task_id=task_id
+                )
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message=(
+                    f"resume checkpoint {resume.checkpoint} does not match "
+                    f"the pending {current}"
+                ),
+            )
+        try:
+            output = await self.graph.ainvoke(
+                Command(resume=resume.value), config
+            )
+        except BuyerAPIError as exc:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message=str(exc),
+                retryable=exc.retryable,
+            )
+        except (VerifundProtocolError, ValidationError) as exc:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message=str(exc),
+            )
+        return self._output_result(
+            output, skill=skill, task_id=task_id, run_id=resume.run_id
         )
 
     async def _agreement_create(
-        self, request: VerifundTaskRequest
+        self,
+        request: VerifundTaskRequest,
+        *,
+        task_id: str,
+        context_id: str,
     ) -> VerifundTaskResult:
         award = request.payload.get("award") or {}
         if award.get("run_id") != request.run_id:
             return self._failed(
-                request, message="award run does not match the task run"
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="award run does not match the task run",
             )
-        body = BuyerAgreementRequest(
-            award=award,
-            buyer_task_id=str(request.payload.get("buyer_task_id") or ""),
-            buyer_context_id=str(request.payload.get("buyer_context_id") or ""),
-            idempotency_key=request.idempotency_key,
-        )
-        response = await self.buyer.create_agreement(request.run_id, body)
-        return VerifundTaskResult(
-            **self._base(request),
-            status="completed",
-            transaction_id=response["transaction_id"],
-            agreement_version=response["agreement_version"],
-            agreement_hash=response["agreement_hash"],
-            state=response["state"],
-            data={
-                "agreement": response["agreement"],
-                "seller_token_ref": response["seller_token_ref"],
+        buyer_task_id = str(request.payload.get("buyer_task_id") or "")
+        buyer_context_id = str(request.payload.get("buyer_context_id") or "")
+        if not buyer_task_id or not buyer_context_id:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="agreement requires the original Buyer task and context",
+            )
+        config = self._config(task_id)
+        snapshot = await self.graph.aget_state(config)
+        if snapshot.values:
+            if snapshot.values.get("run_id") != request.run_id:
+                return self._failed(
+                    skill=request.skill,
+                    task_id=task_id,
+                    run_id=request.run_id,
+                    message="A2A task already owns a different run",
+                )
+            return self._snapshot_result(
+                snapshot, skill=request.skill, task_id=task_id
+            )
+        output = await self.graph.ainvoke(
+            {
+                "task_id": task_id,
+                "context_id": context_id,
+                "run_id": request.run_id,
+                "award": award,
+                "buyer_task_id": buyer_task_id,
+                "buyer_context_id": buyer_context_id,
+                "stage": "initialized",
             },
-            next_action="buyer_review",
-            message="Canonical agreement created; resume the Buyer task for review.",
+            config,
+        )
+        return self._output_result(
+            output, skill=request.skill, task_id=task_id, run_id=request.run_id
         )
 
     async def _transaction_status(
-        self, request: VerifundTaskRequest
+        self,
+        request: VerifundTaskRequest,
+        *,
+        task_id: str,
+        context_id: str,
     ) -> VerifundTaskResult:
-        view = await self.buyer.get_settlement(request.run_id)
-        projection = view.get("projection") or {}
+        snapshot = await self.graph.aget_state(self._config(task_id))
+        if not snapshot.values:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="no lifecycle task exists for this run",
+            )
+        if snapshot.values.get("run_id") != request.run_id:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="run does not match the lifecycle task",
+            )
+        return self._snapshot_result(
+            snapshot, skill=request.skill, task_id=task_id
+        )
+
+    def _snapshot_result(
+        self,
+        snapshot: Any,
+        *,
+        skill: VerifundSkill,
+        task_id: str,
+    ) -> VerifundTaskResult:
+        pending = [
+            PENDING_CHECKPOINTS[node]
+            for node in snapshot.next
+            if node in PENDING_CHECKPOINTS
+        ]
+        if pending:
+            payload = PAYLOAD_BUILDERS[pending[0]](dict(snapshot.values))
+            return self._checkpoint_result(
+                payload,
+                checkpoint=pending[0],
+                skill=skill,
+                task_id=task_id,
+                run_id=str(snapshot.values.get("run_id") or ""),
+            )
+        return self._completed_result(
+            dict(snapshot.values),
+            skill=skill,
+            task_id=task_id,
+            run_id=str(snapshot.values.get("run_id") or ""),
+        )
+
+    def _output_result(
+        self,
+        output: dict[str, Any],
+        *,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
+    ) -> VerifundTaskResult:
+        interrupts = output.get("__interrupt__") or []
+        if not interrupts:
+            return self._completed_result(
+                output, skill=skill, task_id=task_id, run_id=run_id
+            )
+        payload = interrupts[0].value
+        checkpoint = PENDING_CHECKPOINTS.get(str(payload.get("reason")))
+        if checkpoint is None:
+            raise VerifundProtocolError(
+                f"unknown lifecycle interrupt: {payload.get('reason')}"
+            )
+        return self._checkpoint_result(
+            payload,
+            checkpoint=checkpoint,
+            skill=skill,
+            task_id=task_id,
+            run_id=run_id,
+        )
+
+    def _checkpoint_result(
+        self,
+        payload: dict[str, Any],
+        *,
+        checkpoint: VerifundCheckpoint,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
+    ) -> VerifundTaskResult:
+        common = {
+            "skill": skill,
+            "task_id": task_id,
+            "run_id": payload.get("run_id") or run_id,
+            "transaction_id": payload.get("transaction_id"),
+            "agreement_version": payload.get("agreement_version"),
+            "agreement_hash": payload.get("agreement_hash"),
+            "state": CHECKPOINT_STATES[checkpoint],
+            "data": payload,
+            "message": payload.get("message", ""),
+        }
+        if checkpoint is VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED:
+            return VerifundTaskResult(
+                **common,
+                status="approval_required",
+                checkpoint=checkpoint,
+                approval_type="funding",
+                next_action="approve_funding",
+            )
         return VerifundTaskResult(
-            **self._base(request),
+            **common,
+            status="input_required",
+            checkpoint=checkpoint,
+            next_action=(
+                "buyer_review"
+                if checkpoint is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+                else "seller_review"
+            ),
+        )
+
+    def _completed_result(
+        self,
+        values: dict[str, Any],
+        *,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
+    ) -> VerifundTaskResult:
+        stage = str(values.get("stage") or "completed")
+        if stage == "rejected":
+            state = TransactionState.CANCELED
+            message = "The agreement was rejected; no funds moved."
+        elif stage == "agreed":
+            state = TransactionState.AGREED
+            message = "Buyer and Seller agreed; funding is the next checkpoint."
+        else:
+            state = TransactionState.AWARDED
+            message = f"Lifecycle stage {stage}."
+        return VerifundTaskResult(
+            skill=skill,
             status="completed",
-            transaction_id=projection.get("transaction_id") or view.get("transaction_id"),
-            agreement_version=projection.get("agreement_version") or view.get("agreement_version"),
-            agreement_hash=projection.get("agreement_hash") or view.get("agreement_hash"),
-            state=projection.get("state"),
-            data={"projection": projection, "seller_token_ref": view.get("seller_token_ref")},
-            message=f"Transaction is {projection.get('state', 'unknown')}.",
+            task_id=task_id,
+            run_id=str(values.get("run_id") or run_id),
+            transaction_id=values.get("transaction_id"),
+            agreement_version=values.get("agreement_version"),
+            agreement_hash=values.get("agreement_hash"),
+            state=state,
+            data={"stage": stage},
+            message=message,
+        )
+
+    def _failed(
+        self,
+        *,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
+        message: str,
+        retryable: bool = False,
+    ) -> VerifundTaskResult:
+        return VerifundTaskResult(
+            skill=skill,
+            status="failed",
+            task_id=task_id,
+            run_id=run_id or "unknown",
+            message=message,
+            retryable=retryable,
         )
 ```
 
-`executor.py` calls `service.handle()` after parsing the envelope:
+`CHECKPOINT_PAYLOADS` is exported for documentation symmetry but the service
+uses `PAYLOAD_BUILDERS`; delete `CHECKPOINT_PAYLOADS` from the import list and
+from `graph.py` if the linter flags an unused name.
+
+Replace `apps/verifund_agent/verifund_agent/executor.py` with:
 
 ```python
-        envelope = first_envelope(context.message)
-        request = parse_verifund_task_request(envelope)
-        result = await self.service.handle(request)
+from __future__ import annotations
+
+import uuid
+
+from a2a.server.agent_execution import AgentExecutor, RequestContext
+from a2a.server.events import EventQueue
+from a2a.types.a2a_pb2 import (
+    Message,
+    Part,
+    Role,
+    TaskArtifactUpdateEvent,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+)
+from commerce_core.a2a_parts import first_envelope, make_artifact
+
+from verifund_agent.service import VerifundAgentService
+from verifund_contracts import (
+    VERIFUND_RESUME_REQUEST_SCHEMA,
+    VerifundTaskResult,
+    parse_verifund_resume_request,
+    parse_verifund_task_request,
+    wrap_verifund_task_result,
+)
+
+POLLING_CHECKPOINTS = {"funding_pending", "evidence_pending"}
+
+
+def task_state(result: VerifundTaskResult) -> TaskState:
+    if result.status == "failed":
+        return TaskState.TASK_STATE_FAILED
+    if result.status in {"input_required", "approval_required"}:
+        return TaskState.TASK_STATE_INPUT_REQUIRED
+    if result.checkpoint in POLLING_CHECKPOINTS:
+        return TaskState.TASK_STATE_WORKING
+    return TaskState.TASK_STATE_COMPLETED
+
+
+class VerifundExecutor(AgentExecutor):
+    def __init__(self, service: VerifundAgentService) -> None:
+        self.service = service
+
+    def _agent_message(
+        self, text: str, task_id: str, context_id: str
+    ) -> Message:
+        return Message(
+            message_id=str(uuid.uuid4()),
+            task_id=task_id,
+            context_id=context_id,
+            role=Role.ROLE_AGENT,
+            parts=[Part(text=text, media_type="text/plain")],
+        )
+
+    async def execute(
+        self, context: RequestContext, event_queue: EventQueue
+    ) -> None:
+        task_id = context.task_id or str(uuid.uuid4())
+        context_id = context.context_id or task_id
+        try:
+            if context.message is None:
+                raise ValueError("Verifund request is missing a message.")
+            envelope = first_envelope(context.message)
+            if envelope is None:
+                raise ValueError(
+                    "Verifund request requires a structured envelope."
+                )
+            if envelope.get("schema") == VERIFUND_RESUME_REQUEST_SCHEMA:
+                resume = parse_verifund_resume_request(envelope)
+                result = await self.service.resume(
+                    resume, task_id=task_id, context_id=context_id
+                )
+            else:
+                request = parse_verifund_task_request(envelope)
+                result = await self.service.handle(
+                    request, task_id=task_id, context_id=context_id
+                )
+        except Exception:  # noqa: BLE001
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    context_id=context_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_FAILED,
+                        message=self._agent_message(
+                            "The Verifund agent could not process this request.",
+                            task_id,
+                            context_id,
+                        ),
+                    ),
+                )
+            )
+            return
+
         await event_queue.enqueue_event(
             TaskArtifactUpdateEvent(
                 task_id=task_id,
                 context_id=context_id,
-                artifact=make_artifact("verifund-result", wrap_verifund_task_result(result)),
+                artifact=make_artifact(
+                    "verifund-result", wrap_verifund_task_result(result)
+                ),
                 last_chunk=True,
+            )
+        )
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=task_id,
+                context_id=context_id,
+                status=TaskStatus(
+                    state=task_state(result),
+                    message=self._agent_message(
+                        result.message or result.status,
+                        task_id,
+                        context_id,
+                    ),
+                ),
+            )
+        )
+
+    async def cancel(
+        self, context: RequestContext, event_queue: EventQueue
+    ) -> None:
+        task_id = context.task_id or str(uuid.uuid4())
+        context_id = context.context_id or task_id
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=task_id,
+                context_id=context_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_CANCELED,
+                    message=self._agent_message(
+                        "Verifund task canceled.", task_id, context_id
+                    ),
+                ),
             )
         )
 ```
 
-- [ ] **Step 4: Run the service tests**
+The executor never creates a task from a resume envelope. A new message is a new
+task only when it carries no `task_id`; a message with the original `task_id`
+and `context_id` resumes the existing named task and its graph thread.
 
-Run: `uv run pytest tests/unit/test_verifund_agent_service.py tests/unit/test_verifund_agent_package.py -v`
-Expected: PASS.
+- [ ] **Step 6: Run the tests**
 
-- [ ] **Step 5: Commit**
+Run: `uv run pytest tests/unit/test_verifund_agent_graph.py tests/unit/test_verifund_agent_service.py tests/unit/test_verifund_agent_package.py -v`
+Expected: PASS. `test_graph_compiles_with_a_durable_checkpointer` still finds the `initialize` node.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add apps/verifund_agent/verifund_agent/{service.py,executor.py} tests/unit/test_verifund_agent_service.py
-git commit -m "feat(verifund): create canonical agreements and report transaction status"
+git add apps/verifund_agent/verifund_agent/{graph.py,service.py,executor.py} tests/unit/test_verifund_agent_graph.py tests/unit/test_verifund_agent_service.py
+git commit -m "feat(verifund): run agreement creation and bilateral review on one lifecycle task"
 ```
 
 ---
 
-### Task 22D: Implement fund, evidence review, release, and receipt skills
+### Task 22D: Own funding, purchase order, evidence, release, and receipt on the same task
+
+Task 22C ends at the funding approval interrupt. This task extends the same
+graph through every remaining lifecycle stage:
+
+```text
+await_funding_approval -> fund_transaction
+                            | approved -> await_funding_settlement
+                            | rejected -> finalize_rejected
+await_funding_settlement -> request_purchase_order -> await_purchase_order
+                         -> report_purchase_order -> await_evidence
+                         -> await_release -> release_transaction
+                                              | approved -> get_receipt
+                                              | rejected -> finalize_review
+```
+
+`funding_pending` and `evidence_pending` are polled checkpoints, not resume
+envelopes. `verifund.transaction.status` calls the Buyer settlement view, and
+when the projection is ready it resumes the same graph thread internally with
+`Command(resume={"projection": ...})`. A caller can never skip a poll by
+sending a resume envelope for those checkpoints; `VerifundResumeRequest`
+rejects them.
+
+`purchase_order_required` is an orchestration checkpoint, not a human one. The
+Verifund graph asks the Buyer to build the exact purchase order, then returns
+`status="input_required"` with `next_action="purchase_order"`. The orchestrator
+resolves the Seller card and settlement token, calls the Seller, and resumes the
+same Verifund task with the Seller's confirmed order. Verifund relays the order
+back through the Buyer's internal route; it never sees the token.
+
+The release checkpoint is the second human gate. `release_approval_required`
+returns `status="approval_required"` with `approval_type="release"` and the
+`ReleaseApprovalDecision` schema. A denied release is recorded by the Buyer as
+`flag_review(reason="manual_flag")`, so the lifecycle completes in
+`REVIEW_REQUIRED` instead of raising.
 
 **Files:**
+- Modify: `apps/verifund_agent/verifund_agent/graph.py`
 - Modify: `apps/verifund_agent/verifund_agent/service.py`
 - Test: `tests/unit/test_verifund_agent_settlement.py`
 
 **Interfaces:**
-- Produces: handlers for `verifund.transaction.fund`, `verifund.evidence.review`, `verifund.transaction.release`, `verifund.receipt.get`.
-- `transaction.fund` accepts only `payload.funding_approval` validated by `FundingApprovalDecision`; `transaction.release` accepts only `payload.release_approval` validated by `ReleaseApprovalDecision`. Both must echo the request transaction/version/hash and never infer a decision from prose.
-- `evidence.review` returns `next_action="release_approval"` only when the buyer projection is `RELEASE_PERMITTED` or `REVIEW_REQUIRED`; it never releases by itself.
+- Produces: `fund_transaction`, `await_funding_settlement`, `request_purchase_order`, `await_purchase_order`, `report_purchase_order`, `await_evidence`, `await_release`, `release_transaction`, `get_receipt`, `finalize_review`; `funding_decision_route`, `release_decision_route`, `release_approval_matches`, `funding_pending_payload`, `purchase_order_payload`, `evidence_pending_payload`, `release_approval_payload`.
+- Produces: `VerifundAgentService.handle` support for `verifund.receipt.get`; `VerifundAgentService.resume` support for `purchase_order_required` and `release_approval_required`; internal polling of `funding_pending` and `evidence_pending` from `verifund.transaction.status`.
+- Consumes: `BuyerInternalClient.approve_funding`, `get_settlement`, `purchase_order`, `report_order`, `release`, `receipt`; `BuyerPurchaseOrderRequest`/`Response`, `BuyerOrderReportRequest`/`Response`, `FundingApprovalDecision`, `ReleaseApprovalDecision`, `TransactionState`.
+- Checkpoints: `funding_pending` and `evidence_pending` return `status="completed"` with a polling checkpoint; the executor maps them to `TASK_STATE_WORKING`. `purchase_order_required` returns `status="input_required"`. `release_approval_required` returns `status="approval_required"` with `approval_type="release"`.
 
-- [ ] **Step 1: Write the failing skill tests**
+- [ ] **Step 1: Write the failing lifecycle tests**
 
 `tests/unit/test_verifund_agent_settlement.py`:
 
@@ -19755,70 +22059,143 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Command
+from pydantic import ValidationError
 
+from verifund_agent.client import BuyerAPIError
+from verifund_agent.graph import (
+    VerifundProtocolError,
+    build_graph,
+    funding_decision_route,
+    release_approval_matches,
+    release_decision_route,
+)
 from verifund_agent.service import VerifundAgentService
 from verifund_contracts import (
+    AgreementProjection,
+    AgreementReviewResult,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
+    TransactionState,
+    VerifundCheckpoint,
+    VerifundResumeRequest,
     VerifundSkill,
     VerifundTaskRequest,
 )
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
-HASH = "a" * 64
 
 
-class Buyer:
-    def __init__(self) -> None:
-        self.calls: list[tuple] = []
-
-    async def approve_funding(self, run_id, decision):
-        self.calls.append(("fund", run_id, decision))
-        return {
-            "projection": {"state": "FUNDING_PENDING", "transaction_id": "vf_1"},
-            "checkout_url": "http://paypal.test/checkout/1",
-            "expires_at": "2026-10-27T12:30:00Z",
-        }
-
-    async def release(self, run_id, decision):
-        self.calls.append(("release", run_id, decision))
-        return {"state": "PAYOUT_PENDING", "transaction_id": "vf_1"}
-
-    async def get_settlement(self, run_id):
-        self.calls.append(("view", run_id))
-        return {
-            "run_id": run_id,
-            "transaction_id": "vf_1",
-            "agreement_version": 1,
-            "agreement_hash": HASH,
-            "projection": {
-                "state": "RELEASE_PERMITTED",
-                "transaction_id": "vf_1",
-                "evidence": {
-                    "required": ["shipment_manifest", "delivery_confirmation"],
-                    "received": ["shipment_manifest", "delivery_confirmation"],
-                    "complete": True,
-                    "items": [
-                        {"evidence_id": "ev_1", "kind": "shipment_manifest"},
-                        {"evidence_id": "ev_2", "kind": "delivery_confirmation"},
-                    ],
-                },
-                "verification": {"status": "permitted", "reasons": []},
-            },
-        }
-
-    async def receipt(self, run_id):
-        self.calls.append(("receipt", run_id))
-        return {"payload": {"transaction_id": "vf_1"}, "verified": True}
+def award(**overrides):
+    payload = {
+        "run_id": "run-1",
+        "buyer_id": "demo-buyer",
+        "seller_id": "northwind-audio",
+        "offer_id": "offer-1",
+        "currency": "USD",
+        "amount_cents": 123400,
+        "shipping_cents": 3400,
+        "quantity": 12,
+        "line_items": [
+            {
+                "sku": "NC-700",
+                "name": "Nimbus NC-700 ANC Headset",
+                "quantity": 12,
+                "unit_price_cents": 10000,
+                "warranty_addon_cents": 0,
+            }
+        ],
+        "delivery_days": 7,
+        "warranty_months": 24,
+        "returns_days": 30,
+    }
+    payload.update(overrides)
+    return payload
 
 
-@pytest.fixture
-def service():
-    buyer = Buyer()
-    return VerifundAgentService(buyer=buyer), buyer
+def agreement(**overrides) -> AgreementProjection:
+    payload = {
+        "agreement_version": 1,
+        "transaction_id": "vf_1",
+        "run_id": "run-1",
+        "buyer_id": "demo-buyer",
+        "seller_id": "northwind-audio",
+        "offer_id": "offer-1",
+        "currency": "USD",
+        "amount_cents": 123400,
+        "quantity": 12,
+        "line_items": award()["line_items"],
+        "shipping_cents": 3400,
+        "delivery_days": 7,
+        "warranty_months": 24,
+        "returns_days": 30,
+        "created_at": "2026-10-27T12:00:00Z",
+    }
+    payload.update(overrides)
+    probe = AgreementProjection.model_construct(
+        **payload, agreement_hash="0" * 64
+    )
+    return AgreementProjection(
+        **payload, agreement_hash=probe.recompute_hash()
+    )
 
 
-def funding(**overrides) -> dict:
+AGREEMENT = agreement()
+HASH = AGREEMENT.agreement_hash
+
+
+def projection(state: str, **overrides) -> dict:
+    payload = {
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": HASH,
+        "state": state,
+        "amount_cents": 123400,
+        "currency": "USD",
+        "allowed_actions": [],
+        "approval": {
+            "approval_id": "approval-1",
+            "approved_by": "demo-reviewer",
+            "approved_at": "2026-10-27T12:00:00Z",
+            "note": "approved",
+        },
+        "evidence": {
+            "required": ["shipment_manifest", "delivery_confirmation"],
+            "received": ["shipment_manifest"],
+            "complete": False,
+            "items": [
+                {"evidence_id": "ev_1", "kind": "shipment_manifest"}
+            ],
+        },
+        "verification": {
+            "status": "pending",
+            "reasons": [],
+            "override_allowed": False,
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def review(party: str, **overrides) -> AgreementReviewResult:
+    payload = {
+        "party": party,
+        "status": "accepted",
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": HASH,
+        "task_id": f"{party}-task-1",
+        "context_id": "run-1",
+        "reviewed_at": NOW,
+    }
+    payload.update(overrides)
+    return AgreementReviewResult.model_validate(payload)
+
+
+def funding_decision(**overrides) -> FundingApprovalDecision:
     payload = {
         "run_id": "run-1",
         "transaction_id": "vf_1",
@@ -19826,15 +22203,15 @@ def funding(**overrides) -> dict:
         "agreement_hash": HASH,
         "approved": True,
         "approved_by": "demo-reviewer",
-        "note": "ok",
-        "decided_at": NOW.isoformat(),
-        "idempotency_key": "fund:run-1:vf_1",
+        "note": "approved in the console",
+        "decided_at": NOW,
+        "idempotency_key": "fund:vf_1:1",
     }
     payload.update(overrides)
-    return payload
+    return FundingApprovalDecision.model_validate(payload)
 
 
-def release(**overrides) -> dict:
+def release_decision(**overrides) -> ReleaseApprovalDecision:
     payload = {
         "run_id": "run-1",
         "transaction_id": "vf_1",
@@ -19842,268 +22219,1958 @@ def release(**overrides) -> dict:
         "agreement_hash": HASH,
         "approved": True,
         "released_by": "demo-reviewer",
-        "note": "verified",
+        "note": "evidence verified",
         "override": False,
-        "decided_at": NOW.isoformat(),
-        "idempotency_key": "release:run-1:vf_1",
+        "decided_at": NOW,
+        "idempotency_key": "release:vf_1:1",
+    }
+    payload.update(overrides)
+    return ReleaseApprovalDecision.model_validate(payload)
+
+
+def order(**overrides) -> dict:
+    payload = {
+        "schema_version": "1.0",
+        "order_id": "ord-1",
+        "offer_id": "offer-1",
+        "seller_id": "northwind-audio",
+        "status": "confirmed",
+        "currency": "USD",
+        "quantity": 12,
+        "total_cents": 123400,
+        "line_items": [
+            {
+                "sku": "NC-700",
+                "name": "Nimbus NC-700 ANC Headset",
+                "quantity": 12,
+                "unit_price_cents": 10000,
+                "list_unit_price_cents": 11000,
+                "warranty_addon_cents": 0,
+                "attributes": {},
+            }
+        ],
+        "reserved_at": NOW.isoformat(),
+        "eta": "2026-11-03T12:00:00Z",
+        "tracking_number": "TRK-1",
+        "fulfillment": {"carrier": "UPS", "status": "confirmed"},
     }
     payload.update(overrides)
     return payload
 
 
-async def test_fund_requires_a_structured_decision(service):
-    value, buyer = service
-    missing = VerifundTaskRequest(
-        skill=VerifundSkill.TRANSACTION_FUND,
-        run_id="run-1",
-        transaction_id="vf_1",
-        idempotency_key="fund:run-1:vf_1",
-        payload={},
+class Buyer:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+        self.view_projection = projection("FUNDING_PENDING")
+        self.release_state = "PAYOUT_PENDING"
+        self.receipt_ready = True
+
+    async def create_agreement(self, run_id, request):
+        self.calls.append(("create_agreement", run_id, request))
+        return {
+            "transaction_id": "vf_1",
+            "state": "AWARDED",
+            "agreement": AGREEMENT.model_dump(mode="json"),
+            "agreement_version": 1,
+            "agreement_hash": HASH,
+            "seller_token_ref": "run:run-1:transaction:vf_1",
+        }
+
+    async def approve_funding(self, run_id, decision):
+        self.calls.append(("approve_funding", run_id, decision))
+        self.view_projection = projection("FUNDING_PENDING")
+        return {
+            "projection": self.view_projection,
+            "checkout_url": "http://paypal.test/checkout/1",
+            "expires_at": "2026-10-27T12:30:00Z",
+        }
+
+    async def get_settlement(self, run_id):
+        self.calls.append(("get_settlement", run_id))
+        return {
+            "run_id": run_id,
+            "transaction_id": "vf_1",
+            "agreement_version": 1,
+            "agreement_hash": HASH,
+            "projection": self.view_projection,
+        }
+
+    async def purchase_order(self, run_id, request):
+        self.calls.append(("purchase_order", run_id, request))
+        return {
+            "run_id": run_id,
+            "transaction_id": "vf_1",
+            "agreement_version": 1,
+            "agreement_hash": HASH,
+            "seller_id": "northwind-audio",
+            "offer_id": "offer-1",
+            "amount_cents": 123400,
+            "seller_token_ref": "run:run-1:transaction:vf_1",
+            "purchase_order": {
+                "request_id": "po-run-1-offer-1",
+                "run_id": run_id,
+                "offer_id": "offer-1",
+                "seller_id": "northwind-audio",
+                "quantity": 12,
+                "expected_total_cents": 123400,
+                "settlement_transaction_id": "vf_1",
+                "agreement_hash": HASH,
+            },
+        }
+
+    async def report_order(self, run_id, request):
+        self.calls.append(("report_order", run_id, request))
+        self.view_projection = projection("FULFILLMENT_PENDING")
+        return {
+            "run_id": run_id,
+            "transaction_id": "vf_1",
+            "agreement_version": 1,
+            "agreement_hash": HASH,
+            "state": "FULFILLMENT_PENDING",
+            "projection": self.view_projection,
+        }
+
+    async def release(self, run_id, decision):
+        self.calls.append(("release", run_id, decision))
+        self.view_projection = projection(self.release_state)
+        return self.view_projection
+
+    async def receipt(self, run_id):
+        self.calls.append(("receipt", run_id))
+        if not self.receipt_ready:
+            raise BuyerAPIError(
+                "buyer returned HTTP 404", status_code=404, retryable=False
+            )
+        return {
+            "payload": {
+                "receipt_version": 1,
+                "transaction_id": "vf_1",
+                "agreement_hash": HASH,
+                "amount_cents": 123400,
+                "currency": "USD",
+                "buyer_id": "demo-buyer",
+                "seller_id": "northwind-audio",
+                "capture_id": "cap-1",
+                "payout_item_id": "payout-1",
+                "evidence_hashes": ["b" * 64],
+                "released_at": "2026-10-27T12:05:00Z",
+            },
+            "payload_hash": "c" * 64,
+            "signature": "sig",
+            "kid": "kid-1",
+            "verified": True,
+        }
+
+
+def initial_state(**overrides):
+    payload = {
+        "task_id": "task-1",
+        "context_id": "run-1",
+        "run_id": "run-1",
+        "award": award(),
+        "buyer_task_id": "buyer-task-1",
+        "buyer_context_id": "run-1",
+        "stage": "initialized",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def config(buyer: Buyer) -> dict:
+    return {"configurable": {"thread_id": "task-1", "buyer": buyer}}
+
+
+async def reach_funding_approval(graph, runtime, buyer: Buyer) -> None:
+    await graph.ainvoke(initial_state(), runtime)
+    await graph.ainvoke(
+        Command(resume=review("buyer").model_dump(mode="json")), runtime
     )
-    assert (await value.handle(missing)).status == "failed"
-    assert buyer.calls == []
-
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.TRANSACTION_FUND,
-        run_id="run-1",
-        transaction_id="vf_1",
-        agreement_version=1,
-        agreement_hash=HASH,
-        idempotency_key="fund:run-1:vf_1",
-        payload={"funding_approval": funding()},
+    await graph.ainvoke(
+        Command(resume=review("seller").model_dump(mode="json")), runtime
     )
-    result = await value.handle(request)
-    assert result.status == "completed"
-    assert result.data["checkout_url"].startswith("http://paypal.test/")
-    assert buyer.calls[0][0] == "fund"
 
 
-async def test_fund_rejects_a_stale_hash(service):
-    value, buyer = service
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.TRANSACTION_FUND,
-        run_id="run-1",
-        transaction_id="vf_1",
-        agreement_version=1,
-        agreement_hash=HASH,
-        idempotency_key="fund:run-1:vf_1",
-        payload={"funding_approval": funding(agreement_hash="b" * 64)},
+async def test_graph_waits_for_funding_order_evidence_and_release() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, buyer)
+
+    funded = await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
     )
-    result = await value.handle(request)
-    assert result.status == "failed"
-    assert buyer.calls == []
+    funding_stop = funded["__interrupt__"][0].value
+    assert funding_stop["reason"] == "funding_pending"
+    assert funding_stop["checkout_url"] == "http://paypal.test/checkout/1"
+    assert funding_stop["projection"]["state"] == "FUNDING_PENDING"
 
-
-async def test_evidence_review_requests_a_separate_release_gate(service):
-    value, _ = service
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.EVIDENCE_REVIEW,
-        run_id="run-1",
-        transaction_id="vf_1",
-        idempotency_key="evidence:run-1:vf_1",
-        payload={},
+    buyer.view_projection = projection("FUNDED")
+    ordered = await graph.ainvoke(
+        Command(resume={"projection": buyer.view_projection}), runtime
     )
-    result = await value.handle(request)
-    assert result.status == "completed"
-    assert result.next_action == "release_approval"
-    assert result.data["evidence"]["complete"] is True
-    assert result.data["verification"]["status"] == "permitted"
+    order_stop = ordered["__interrupt__"][0].value
+    assert order_stop["reason"] == "purchase_order_required"
+    assert order_stop["seller_id"] == "northwind-audio"
+    assert order_stop["purchase_order"]["request_id"] == "po-run-1-offer-1"
+    assert order_stop["seller_token_ref"] == "run:run-1:transaction:vf_1"
 
-
-async def test_release_requires_the_release_decision(service):
-    value, buyer = service
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.TRANSACTION_RELEASE,
-        run_id="run-1",
-        transaction_id="vf_1",
-        agreement_version=1,
-        agreement_hash=HASH,
-        idempotency_key="release:run-1:vf_1",
-        payload={"release_approval": release()},
+    evidence = await graph.ainvoke(
+        Command(resume={"order": order()}), runtime
     )
-    result = await value.handle(request)
-    assert result.status == "completed"
-    assert result.state == "PAYOUT_PENDING"
-    assert buyer.calls[0][0] == "release"
+    evidence_stop = evidence["__interrupt__"][0].value
+    assert evidence_stop["reason"] == "evidence_pending"
+    assert evidence_stop["projection"]["state"] == "FULFILLMENT_PENDING"
 
-
-async def test_receipt_returns_the_buyer_verified_document(service):
-    value, _ = service
-    request = VerifundTaskRequest(
-        skill=VerifundSkill.RECEIPT_GET,
-        run_id="run-1",
-        transaction_id="vf_1",
-        idempotency_key="receipt:run-1:vf_1",
+    buyer.view_projection = projection(
+        "RELEASE_PERMITTED",
+        evidence={
+            "required": ["shipment_manifest", "delivery_confirmation"],
+            "received": ["shipment_manifest", "delivery_confirmation"],
+            "complete": True,
+            "items": [
+                {"evidence_id": "ev_1", "kind": "shipment_manifest"},
+                {"evidence_id": "ev_2", "kind": "delivery_confirmation"},
+            ],
+        },
+        verification={"status": "permitted", "reasons": []},
     )
-    result = await value.handle(request)
-    assert result.status == "completed"
-    assert result.data["receipt"]["verified"] is True
+    release = await graph.ainvoke(
+        Command(resume={"projection": buyer.view_projection}), runtime
+    )
+    release_stop = release["__interrupt__"][0].value
+    assert release_stop["reason"] == "release_approval_required"
+    assert release_stop["responseSchema"]["title"] == "ReleaseApprovalDecision"
+    assert release_stop["override_allowed"] is False
+
+    done = await graph.ainvoke(
+        Command(resume=release_decision().model_dump(mode="json")), runtime
+    )
+    assert "__interrupt__" not in done
+    assert done["stage"] == "completed"
+    assert done["receipt"]["verified"] is True
+
+
+async def test_graph_funding_rejection_never_orders() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, buyer)
+
+    done = await graph.ainvoke(
+        Command(
+            resume=funding_decision(approved=False).model_dump(mode="json")
+        ),
+        runtime,
+    )
+    assert done["stage"] == "funding_rejected"
+    assert [call[0] for call in buyer.calls] == [
+        "create_agreement",
+        "approve_funding",
+    ]
+
+
+async def test_graph_order_must_match_the_purchase_order() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, buyer)
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+    buyer.view_projection = projection("FUNDED")
+    await graph.ainvoke(
+        Command(resume={"projection": buyer.view_projection}), runtime
+    )
+    with pytest.raises(VerifundProtocolError):
+        await graph.ainvoke(
+            Command(resume={"order": order(offer_id="offer-2")}), runtime
+        )
+    assert "report_order" not in [call[0] for call in buyer.calls]
+
+
+async def test_graph_release_rejection_goes_to_manual_review() -> None:
+    buyer = Buyer()
+    buyer.release_state = "REVIEW_REQUIRED"
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, buyer)
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+    buyer.view_projection = projection("FUNDED")
+    await graph.ainvoke(
+        Command(resume={"projection": buyer.view_projection}), runtime
+    )
+    await graph.ainvoke(Command(resume={"order": order()}), runtime)
+    buyer.view_projection = projection("RELEASE_PERMITTED")
+    await graph.ainvoke(
+        Command(resume={"projection": buyer.view_projection}), runtime
+    )
+    done = await graph.ainvoke(
+        Command(
+            resume=release_decision(approved=False).model_dump(mode="json")
+        ),
+        runtime,
+    )
+    assert done["stage"] == "review_required"
+    assert "receipt" not in [call[0] for call in buyer.calls]
+
+
+def test_funding_and_release_routes_default_to_rejected() -> None:
+    assert funding_decision_route({}) == "rejected"
+    assert release_decision_route({}) == "rejected"
+    assert funding_decision_route(
+        {"funding_approval": {"approved": True}}
+    ) == "approved"
+    assert release_decision_route(
+        {"release_approval": {"approved": True}}
+    ) == "approved"
+
+
+def test_release_approval_must_match_the_agreement() -> None:
+    approval = release_decision()
+    assert release_approval_matches(approval, AGREEMENT) is True
+    assert (
+        release_approval_matches(
+            approval.model_copy(update={"run_id": "run-2"}), AGREEMENT
+        )
+        is False
+    )
+    assert (
+        release_approval_matches(
+            approval.model_copy(update={"agreement_hash": "d" * 64}),
+            AGREEMENT,
+        )
+        is False
+    )
+
+
+def task_request(**overrides) -> VerifundTaskRequest:
+    payload = {
+        "skill": VerifundSkill.AGREEMENT_CREATE,
+        "run_id": "run-1",
+        "payload": {
+            "award": award(),
+            "buyer_task_id": "buyer-task-1",
+            "buyer_context_id": "run-1",
+        },
+        "idempotency_key": "agreement:run-1:offer-1",
+    }
+    payload.update(overrides)
+    return VerifundTaskRequest.model_validate(payload)
+
+
+def status_request(**overrides) -> VerifundTaskRequest:
+    payload = {
+        "skill": VerifundSkill.TRANSACTION_STATUS,
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "idempotency_key": "status:run-1:vf_1",
+    }
+    payload.update(overrides)
+    return VerifundTaskRequest.model_validate(payload)
+
+
+def receipt_request(**overrides) -> VerifundTaskRequest:
+    payload = {
+        "skill": VerifundSkill.RECEIPT_GET,
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "idempotency_key": "receipt:run-1:vf_1",
+    }
+    payload.update(overrides)
+    return VerifundTaskRequest.model_validate(payload)
+
+
+def resume_request(checkpoint, value, **overrides) -> VerifundResumeRequest:
+    payload = {
+        "run_id": "run-1",
+        "task_id": "task-1",
+        "checkpoint": checkpoint,
+        "value": value,
+        "idempotency_key": f"resume:task-1:{checkpoint}",
+    }
+    payload.update(overrides)
+    return VerifundResumeRequest.model_validate(payload)
+
+
+def service() -> tuple[VerifundAgentService, Buyer]:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    return VerifundAgentService(graph=graph, buyer=buyer), buyer
+
+
+async def reach_funding_checkpoint(value, buyer) -> None:
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            review("buyer").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            review("seller").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+
+
+async def test_status_drives_the_lifecycle_to_release_and_receipt() -> None:
+    value, buyer = service()
+    await reach_funding_checkpoint(value, buyer)
+
+    pending = await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert pending.status == "completed"
+    assert pending.checkpoint == VerifundCheckpoint.FUNDING_PENDING
+    assert pending.state == TransactionState.FUNDING_PENDING
+    assert pending.next_action == "funding_settlement"
+    assert pending.data["checkout_url"] == "http://paypal.test/checkout/1"
+
+    buyer.view_projection = projection("FUNDED")
+    purchase_order = await value.handle(
+        status_request(), task_id="task-1", context_id="run-1"
+    )
+    assert purchase_order.status == "input_required"
+    assert purchase_order.checkpoint == VerifundCheckpoint.PURCHASE_ORDER_REQUIRED
+    assert purchase_order.next_action == "purchase_order"
+    assert purchase_order.state == TransactionState.FUNDED
+    assert purchase_order.data["purchase_order"]["request_id"] == (
+        "po-run-1-offer-1"
+    )
+    assert purchase_order.data["seller_token_ref"] == (
+        "run:run-1:transaction:vf_1"
+    )
+
+    evidence = await value.resume(
+        resume_request(
+            VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+            {"order": order()},
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert evidence.status == "completed"
+    assert evidence.checkpoint == VerifundCheckpoint.EVIDENCE_PENDING
+    assert evidence.state == TransactionState.FULFILLMENT_PENDING
+    report = buyer.calls[[call[0] for call in buyer.calls].index("report_order")]
+    assert report[2].order["seller_order_id"] == "ord-1"
+    assert report[2].order["total_cents"] == 123400
+
+    buyer.view_projection = projection(
+        "RELEASE_PERMITTED",
+        evidence={
+            "required": ["shipment_manifest", "delivery_confirmation"],
+            "received": ["shipment_manifest", "delivery_confirmation"],
+            "complete": True,
+            "items": [
+                {"evidence_id": "ev_1", "kind": "shipment_manifest"},
+                {"evidence_id": "ev_2", "kind": "delivery_confirmation"},
+            ],
+        },
+        verification={"status": "permitted", "reasons": []},
+    )
+    release = await value.handle(
+        status_request(), task_id="task-1", context_id="run-1"
+    )
+    assert release.status == "approval_required"
+    assert release.checkpoint == VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED
+    assert release.approval_type == "release"
+    assert release.next_action == "approve_release"
+    assert release.data["evidence"]["complete"] is True
+    assert release.data["override_allowed"] is False
+
+    done = await value.resume(
+        resume_request(
+            VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED,
+            release_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert done.status == "completed"
+    assert done.state == TransactionState.RELEASED
+    assert done.data["receipt"]["verified"] is True
+    assert done.data["receipt"]["payload"]["transaction_id"] == "vf_1"
+
+
+async def test_funding_pending_status_is_idempotent() -> None:
+    value, buyer = service()
+    await reach_funding_checkpoint(value, buyer)
+    first = await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    second = await value.handle(
+        status_request(), task_id="task-1", context_id="run-1"
+    )
+    assert first.checkpoint == second.checkpoint == VerifundCheckpoint.FUNDING_PENDING
+    assert [call[0] for call in buyer.calls].count("approve_funding") == 1
+    assert "purchase_order" not in [call[0] for call in buyer.calls]
+
+
+async def test_evidence_pending_returns_the_latest_evidence() -> None:
+    value, buyer = service()
+    await reach_funding_checkpoint(value, buyer)
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    buyer.view_projection = projection("FUNDED")
+    await value.handle(status_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+            {"order": order()},
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    buyer.view_projection = projection(
+        "FULFILLMENT_PENDING",
+        evidence={
+            "required": ["shipment_manifest", "delivery_confirmation"],
+            "received": ["delivery_confirmation"],
+            "complete": False,
+            "items": [
+                {"evidence_id": "ev_2", "kind": "delivery_confirmation"}
+            ],
+        },
+    )
+    status = await value.handle(
+        status_request(), task_id="task-1", context_id="run-1"
+    )
+    assert status.checkpoint == VerifundCheckpoint.EVIDENCE_PENDING
+    assert status.data["evidence"]["received"] == ["delivery_confirmation"]
+    assert "release" not in [call[0] for call in buyer.calls]
+
+
+async def test_funding_rejection_cancels_the_task() -> None:
+    value, buyer = service()
+    await reach_funding_checkpoint(value, buyer)
+    done = await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision(approved=False).model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert done.status == "completed"
+    assert done.state == TransactionState.CANCELED
+    assert "purchase_order" not in [call[0] for call in buyer.calls]
+
+
+async def test_release_rejection_flags_manual_review() -> None:
+    value, buyer = service()
+    buyer.release_state = "REVIEW_REQUIRED"
+    await reach_funding_checkpoint(value, buyer)
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    buyer.view_projection = projection("FUNDED")
+    await value.handle(status_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+            {"order": order()},
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    buyer.view_projection = projection("RELEASE_PERMITTED")
+    await value.handle(status_request(), task_id="task-1", context_id="run-1")
+    done = await value.resume(
+        resume_request(
+            VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED,
+            release_decision(approved=False).model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert done.status == "completed"
+    assert done.state == TransactionState.REVIEW_REQUIRED
+    assert "receipt" not in [call[0] for call in buyer.calls]
+
+
+async def test_purchase_order_resume_must_match_the_purchase_order() -> None:
+    value, buyer = service()
+    await reach_funding_checkpoint(value, buyer)
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    buyer.view_projection = projection("FUNDED")
+    await value.handle(status_request(), task_id="task-1", context_id="run-1")
+    refused = await value.resume(
+        resume_request(
+            VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+            {"order": order(quantity=1)},
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert refused.status == "failed"
+    assert "quantity" in refused.message
+    assert "report_order" not in [call[0] for call in buyer.calls]
+
+
+async def test_receipt_is_available_after_the_payout_completes() -> None:
+    value, buyer = service()
+    buyer.receipt_ready = False
+    await reach_funding_checkpoint(value, buyer)
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    buyer.view_projection = projection("FUNDED")
+    await value.handle(status_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+            {"order": order()},
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    buyer.view_projection = projection("RELEASE_PERMITTED")
+    await value.handle(status_request(), task_id="task-1", context_id="run-1")
+    released = await value.resume(
+        resume_request(
+            VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED,
+            release_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    assert released.checkpoint is None
+    assert released.state == TransactionState.PAYOUT_PENDING
+    assert released.data["receipt"] is None
+
+    buyer.receipt_ready = True
+    receipt = await value.handle(
+        receipt_request(), task_id="task-1", context_id="run-1"
+    )
+    assert receipt.status == "completed"
+    assert receipt.state == TransactionState.RELEASED
+    assert receipt.data["receipt"]["verified"] is True
+
+
+def test_pending_checkpoints_cannot_be_resumed_externally() -> None:
+    with pytest.raises(ValidationError):
+        resume_request(
+            VerifundCheckpoint.FUNDING_PENDING,
+            {"projection": projection("FUNDED")},
+        )
+    with pytest.raises(ValidationError):
+        resume_request(
+            VerifundCheckpoint.EVIDENCE_PENDING,
+            {"projection": projection("RELEASE_PERMITTED")},
+        )
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_settlement.py -v`
-Expected: FAIL because the four handlers return `unsupported Verifund skill`.
+Expected: FAIL with `ImportError` for `fund_transaction`, `release_approval_matches`, `funding_pending_payload`, and the new checkpoints.
 
-- [ ] **Step 3: Implement the handlers**
+- [ ] **Step 3: Extend the lifecycle graph**
 
-Add `FundingApprovalDecision` and `ReleaseApprovalDecision` to the
-`verifund_contracts` import in `service.py`. Append to `VerifundAgentService`
-the four handlers below, then extend the `handle` dispatch with these branches
-immediately after `TRANSACTION_STATUS`:
+Replace `apps/verifund_agent/verifund_agent/graph.py` with:
 
 ```python
-            if request.skill == VerifundSkill.TRANSACTION_FUND:
-                return await self._transaction_fund(request)
-            if request.skill == VerifundSkill.EVIDENCE_REVIEW:
-                return await self._evidence_review(request)
-            if request.skill == VerifundSkill.TRANSACTION_RELEASE:
-                return await self._transaction_release(request)
-            if request.skill == VerifundSkill.RECEIPT_GET:
-                return await self._receipt_get(request)
+from __future__ import annotations
+
+from typing import Any, Literal, TypedDict
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
+
+from verifund_agent.client import BuyerAPIError, BuyerInternalClient
+from verifund_contracts import (
+    AgreementProjection,
+    AgreementReviewDecision,
+    AgreementReviewResult,
+    BuyerAgreementRequest,
+    BuyerAgreementResponse,
+    BuyerOrderReportRequest,
+    BuyerOrderReportResponse,
+    BuyerPurchaseOrderRequest,
+    BuyerPurchaseOrderResponse,
+    FundingApprovalDecision,
+    ReleaseApprovalDecision,
+    TransactionState,
+    VerifundCheckpoint,
+)
+
+
+class VerifundProtocolError(RuntimeError):
+    pass
+
+
+class VerifundState(TypedDict, total=False):
+    task_id: str
+    context_id: str
+    run_id: str
+    transaction_id: str
+    agreement_version: int
+    agreement_hash: str
+    seller_token_ref: str
+    award: dict
+    buyer_task_id: str
+    buyer_context_id: str
+    agreement: dict
+    buyer_review: dict
+    seller_decision: dict
+    funding_approval: dict
+    funding_projection: dict
+    checkout_url: str
+    expires_at: str
+    purchase_order: dict
+    order: dict
+    evidence: dict
+    verification: dict
+    release_approval: dict
+    release_projection: dict
+    receipt: dict
+    projection: dict
+    checkpoint: str
+    approval_type: str
+    stage: str
+    error: str
+
+
+PENDING_CHECKPOINTS = {
+    "await_buyer_review": VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+    "await_seller_review": VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+    "await_funding_approval": VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+    "await_funding_settlement": VerifundCheckpoint.FUNDING_PENDING,
+    "await_purchase_order": VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+    "await_evidence": VerifundCheckpoint.EVIDENCE_PENDING,
+    "await_release": VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED,
+}
+
+
+async def initialize(state: VerifundState, config: RunnableConfig) -> dict:
+    return {"stage": "initialized"}
+
+
+def _buyer(config: RunnableConfig) -> BuyerInternalClient:
+    configurable = config.get("configurable") or {}
+    buyer = configurable.get("buyer")
+    if buyer is None:
+        raise VerifundProtocolError("buyer client is not configured")
+    return buyer
+
+
+def _agreement(state: VerifundState) -> AgreementProjection:
+    payload = state.get("agreement")
+    if not payload:
+        raise VerifundProtocolError("lifecycle has no agreement")
+    return AgreementProjection.model_validate(payload)
+
+
+def _binding(agreement: AgreementProjection) -> dict[str, Any]:
+    return {
+        "run_id": agreement.run_id,
+        "transaction_id": agreement.transaction_id,
+        "agreement_version": agreement.agreement_version,
+        "agreement_hash": agreement.agreement_hash,
+        "agreement": agreement.model_dump(mode="json"),
+    }
+
+
+def buyer_review_matches(
+    review: AgreementReviewResult, agreement: AgreementProjection
+) -> bool:
+    return (
+        review.party == "buyer"
+        and review.run_id == agreement.run_id
+        and review.transaction_id == agreement.transaction_id
+        and review.agreement_version == agreement.agreement_version
+        and review.agreement_hash == agreement.agreement_hash
+    )
+
+
+def seller_review_matches(
+    review: AgreementReviewResult, agreement: AgreementProjection
+) -> bool:
+    return (
+        review.party == "seller"
+        and review.run_id == agreement.run_id
+        and review.transaction_id == agreement.transaction_id
+        and review.agreement_version == agreement.agreement_version
+        and review.agreement_hash == agreement.agreement_hash
+    )
+
+
+def funding_approval_matches(
+    approval: FundingApprovalDecision, agreement: AgreementProjection
+) -> bool:
+    return (
+        approval.run_id == agreement.run_id
+        and approval.transaction_id == agreement.transaction_id
+        and approval.agreement_version == agreement.agreement_version
+        and approval.agreement_hash == agreement.agreement_hash
+    )
+
+
+def release_approval_matches(
+    approval: ReleaseApprovalDecision, agreement: AgreementProjection
+) -> bool:
+    return (
+        approval.run_id == agreement.run_id
+        and approval.transaction_id == agreement.transaction_id
+        and approval.agreement_version == agreement.agreement_version
+        and approval.agreement_hash == agreement.agreement_hash
+    )
+
+
+def buyer_review_route(state: VerifundState) -> Literal["accepted", "rejected"]:
+    review = state.get("buyer_review") or {}
+    if review.get("status") == AgreementReviewDecision.ACCEPTED.value:
+        return "accepted"
+    return "rejected"
+
+
+def seller_review_route(state: VerifundState) -> Literal["accepted", "rejected"]:
+    decision = state.get("seller_decision") or {}
+    if decision.get("status") == AgreementReviewDecision.ACCEPTED.value:
+        return "accepted"
+    return "rejected"
+
+
+def funding_decision_route(state: VerifundState) -> Literal["approved", "rejected"]:
+    approval = state.get("funding_approval") or {}
+    if approval.get("approved") is True:
+        return "approved"
+    return "rejected"
+
+
+def release_decision_route(state: VerifundState) -> Literal["approved", "rejected"]:
+    approval = state.get("release_approval") or {}
+    if approval.get("approved") is True:
+        return "approved"
+    return "rejected"
+
+
+def buyer_review_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "buyer_review_required",
+        "message": "The Buyer must review the canonical agreement.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "buyer_task_id": state.get("buyer_task_id"),
+        **_binding(agreement),
+        "seller_token_ref": state.get("seller_token_ref"),
+        "responseSchema": AgreementReviewResult.model_json_schema(),
+    }
+
+
+def seller_review_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "seller_review_required",
+        "message": "The Seller must accept or reject the canonical agreement.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "buyer_review": state.get("buyer_review"),
+        **_binding(agreement),
+        "responseSchema": AgreementReviewResult.model_json_schema(),
+    }
+
+
+def funding_approval_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "funding_approval_required",
+        "message": "Approve or reject funding for the agreed transaction.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "buyer_review": state.get("buyer_review"),
+        "seller_decision": state.get("seller_decision"),
+        **_binding(agreement),
+        "responseSchema": FundingApprovalDecision.model_json_schema(),
+    }
+
+
+def funding_pending_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "funding_pending",
+        "message": "Waiting for the funding settlement to complete.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "checkout_url": state.get("checkout_url"),
+        "expires_at": state.get("expires_at"),
+        "projection": state.get("funding_projection") or state.get("projection"),
+        **_binding(agreement),
+    }
+
+
+def purchase_order_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "purchase_order_required",
+        "message": "Place the agreed purchase order with the Seller.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "buyer_task_id": state.get("buyer_task_id"),
+        "buyer_context_id": state.get("buyer_context_id"),
+        "seller_id": agreement.seller_id,
+        "offer_id": agreement.offer_id,
+        "purchase_order": state.get("purchase_order"),
+        "seller_token_ref": state.get("seller_token_ref"),
+        **_binding(agreement),
+    }
+
+
+def evidence_pending_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "evidence_pending",
+        "message": "Waiting for the Seller's fulfillment evidence.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "projection": state.get("projection"),
+        **_binding(agreement),
+    }
+
+
+def release_approval_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    verification = state.get("verification") or {}
+    return {
+        "reason": "release_approval_required",
+        "message": "Approve or reject the release of held funds.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "evidence": state.get("evidence"),
+        "verification": verification,
+        "projection": state.get("projection"),
+        "override_allowed": bool(verification.get("override_allowed")),
+        **_binding(agreement),
+        "responseSchema": ReleaseApprovalDecision.model_json_schema(),
+    }
+
+
+async def create_agreement(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    buyer = _buyer(config)
+    award = state.get("award") or {}
+    run_id = state.get("run_id") or ""
+    if award.get("run_id") != run_id:
+        raise VerifundProtocolError("award run does not match the lifecycle task")
+    buyer_task_id = state.get("buyer_task_id") or ""
+    buyer_context_id = state.get("buyer_context_id") or ""
+    if not buyer_task_id or not buyer_context_id:
+        raise VerifundProtocolError(
+            "agreement creation requires the original Buyer task and context"
+        )
+    response = await buyer.create_agreement(
+        run_id,
+        BuyerAgreementRequest(
+            award=award,
+            buyer_task_id=buyer_task_id,
+            buyer_context_id=buyer_context_id,
+            idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
+        ),
+    )
+    created = BuyerAgreementResponse.model_validate(response)
+    agreement = created.agreement
+    if (
+        agreement.run_id != run_id
+        or agreement.transaction_id != created.transaction_id
+        or agreement.agreement_version != created.agreement_version
+        or agreement.agreement_hash != created.agreement_hash
+    ):
+        raise VerifundProtocolError("buyer returned a mismatched agreement")
+    return {
+        "transaction_id": agreement.transaction_id,
+        "agreement_version": agreement.agreement_version,
+        "agreement_hash": agreement.agreement_hash,
+        "seller_token_ref": created.seller_token_ref,
+        "agreement": agreement.model_dump(mode="json"),
+        "stage": "awarded",
+    }
+
+
+async def await_buyer_review(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(buyer_review_payload(state))
+    review = AgreementReviewResult.model_validate(value)
+    agreement = _agreement(state)
+    if not buyer_review_matches(review, agreement):
+        raise VerifundProtocolError(
+            "buyer review does not match the agreement"
+        )
+    return {"buyer_review": review.model_dump(mode="json")}
+
+
+async def await_seller_review(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(seller_review_payload(state))
+    review = AgreementReviewResult.model_validate(value)
+    agreement = _agreement(state)
+    if not seller_review_matches(review, agreement):
+        raise VerifundProtocolError(
+            "seller review does not match the agreement"
+        )
+    accepted = review.status == AgreementReviewDecision.ACCEPTED
+    return {
+        "seller_decision": review.model_dump(mode="json"),
+        "stage": "agreed" if accepted else "awarded",
+    }
+
+
+async def await_funding_approval(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(funding_approval_payload(state))
+    approval = FundingApprovalDecision.model_validate(value)
+    agreement = _agreement(state)
+    if not funding_approval_matches(approval, agreement):
+        raise VerifundProtocolError(
+            "funding approval does not match the agreement"
+        )
+    return {"funding_approval": approval.model_dump(mode="json")}
+
+
+async def fund_transaction(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    approval = FundingApprovalDecision.model_validate(
+        state.get("funding_approval") or {}
+    )
+    agreement = _agreement(state)
+    if not funding_approval_matches(approval, agreement):
+        raise VerifundProtocolError(
+            "funding approval does not match the agreement"
+        )
+    response = await _buyer(config).approve_funding(
+        state.get("run_id") or agreement.run_id, approval
+    )
+    projection = response.get("projection") or {}
+    if projection.get("transaction_id") != agreement.transaction_id:
+        raise VerifundProtocolError(
+            "buyer returned a mismatched funding projection"
+        )
+    if not approval.approved:
+        return {
+            "projection": projection,
+            "funding_projection": projection,
+            "stage": "funding_rejected",
+        }
+    return {
+        "projection": projection,
+        "funding_projection": projection,
+        "checkout_url": str(response.get("checkout_url") or ""),
+        "expires_at": str(response.get("expires_at") or ""),
+        "stage": "funding_pending",
+    }
+
+
+async def await_funding_settlement(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(funding_pending_payload(state))
+    projection = (value or {}).get("projection") or {}
+    agreement = _agreement(state)
+    if projection.get("transaction_id") != agreement.transaction_id:
+        raise VerifundProtocolError(
+            "funding settlement does not match the agreement"
+        )
+    if projection.get("state") != TransactionState.FUNDED.value:
+        raise VerifundProtocolError("funding is not settled")
+    return {
+        "projection": projection,
+        "funding_projection": projection,
+        "stage": "funded",
+    }
+
+
+async def request_purchase_order(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    agreement = _agreement(state)
+    response = await _buyer(config).purchase_order(
+        state.get("run_id") or agreement.run_id,
+        BuyerPurchaseOrderRequest(
+            run_id=agreement.run_id,
+            transaction_id=agreement.transaction_id,
+            agreement_version=agreement.agreement_version,
+            agreement_hash=agreement.agreement_hash,
+            idempotency_key=f"purchase-order:{agreement.transaction_id}",
+        ),
+    )
+    created = BuyerPurchaseOrderResponse.model_validate(response)
+    if (
+        created.run_id != agreement.run_id
+        or created.transaction_id != agreement.transaction_id
+        or created.agreement_version != agreement.agreement_version
+        or created.agreement_hash != agreement.agreement_hash
+    ):
+        raise VerifundProtocolError(
+            "buyer returned a mismatched purchase order"
+        )
+    return {
+        "purchase_order": created.purchase_order,
+        "seller_token_ref": created.seller_token_ref,
+        "stage": "purchase_order_required",
+    }
+
+
+async def await_purchase_order(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(purchase_order_payload(state))
+    order = (value or {}).get("order")
+    if not isinstance(order, dict):
+        raise VerifundProtocolError("purchase order resume requires an order")
+    purchase_order = state.get("purchase_order") or {}
+    expected = {
+        "offer_id": purchase_order.get("offer_id"),
+        "seller_id": purchase_order.get("seller_id"),
+        "quantity": purchase_order.get("quantity"),
+        "total_cents": purchase_order.get("expected_total_cents"),
+    }
+    actual = {
+        "offer_id": order.get("offer_id"),
+        "seller_id": order.get("seller_id"),
+        "quantity": order.get("quantity"),
+        "total_cents": order.get("total_cents"),
+    }
+    for field, expected_value in expected.items():
+        if actual.get(field) != expected_value:
+            raise VerifundProtocolError(
+                f"order {field} does not match the purchase order"
+            )
+    return {"order": order, "stage": "ordered"}
+
+
+async def report_purchase_order(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    agreement = _agreement(state)
+    order = state.get("order") or {}
+    response = await _buyer(config).report_order(
+        state.get("run_id") or agreement.run_id,
+        BuyerOrderReportRequest(
+            run_id=agreement.run_id,
+            transaction_id=agreement.transaction_id,
+            agreement_version=agreement.agreement_version,
+            agreement_hash=agreement.agreement_hash,
+            idempotency_key=f"order:{agreement.transaction_id}",
+            order=order,
+        ),
+    )
+    report = BuyerOrderReportResponse.model_validate(response)
+    if (
+        report.transaction_id != agreement.transaction_id
+        or report.agreement_hash != agreement.agreement_hash
+    ):
+        raise VerifundProtocolError(
+            "buyer returned a mismatched order projection"
+        )
+    return {
+        "projection": report.projection,
+        "stage": "fulfillment_pending",
+    }
+
+
+async def await_evidence(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(evidence_pending_payload(state))
+    projection = (value or {}).get("projection") or {}
+    agreement = _agreement(state)
+    if projection.get("transaction_id") != agreement.transaction_id:
+        raise VerifundProtocolError(
+            "evidence projection does not match the agreement"
+        )
+    if projection.get("state") not in {
+        TransactionState.RELEASE_PERMITTED.value,
+        TransactionState.REVIEW_REQUIRED.value,
+    }:
+        raise VerifundProtocolError("evidence is not ready for release")
+    return {
+        "projection": projection,
+        "evidence": projection.get("evidence") or {},
+        "verification": projection.get("verification") or {},
+        "stage": "evidence_reviewed",
+    }
+
+
+async def await_release(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(release_approval_payload(state))
+    approval = ReleaseApprovalDecision.model_validate(value)
+    agreement = _agreement(state)
+    if not release_approval_matches(approval, agreement):
+        raise VerifundProtocolError(
+            "release approval does not match the agreement"
+        )
+    return {"release_approval": approval.model_dump(mode="json")}
+
+
+async def release_transaction(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    approval = ReleaseApprovalDecision.model_validate(
+        state.get("release_approval") or {}
+    )
+    agreement = _agreement(state)
+    if not release_approval_matches(approval, agreement):
+        raise VerifundProtocolError(
+            "release approval does not match the agreement"
+        )
+    projection = await _buyer(config).release(
+        state.get("run_id") or agreement.run_id, approval
+    )
+    if projection.get("transaction_id") != agreement.transaction_id:
+        raise VerifundProtocolError(
+            "buyer returned a mismatched release projection"
+        )
+    return {
+        "projection": projection,
+        "release_projection": projection,
+        "stage": "released" if approval.approved else "review_required",
+    }
+
+
+async def get_receipt(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    agreement = _agreement(state)
+    try:
+        receipt = await _buyer(config).receipt(state.get("run_id") or agreement.run_id)
+    except BuyerAPIError as exc:
+        if exc.status_code != 404:
+            raise
+        return {"receipt": None, "stage": "released"}
+    return {"receipt": receipt, "stage": "completed"}
+
+
+async def finalize_rejected(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    return {"stage": "rejected"}
+
+
+async def finalize_review(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    return {"stage": "review_required"}
+
+
+def build_graph(checkpointer):
+    builder = StateGraph(VerifundState)
+    builder.add_node("initialize", initialize)
+    builder.add_node("create_agreement", create_agreement)
+    builder.add_node("await_buyer_review", await_buyer_review)
+    builder.add_node("await_seller_review", await_seller_review)
+    builder.add_node("await_funding_approval", await_funding_approval)
+    builder.add_node("fund_transaction", fund_transaction)
+    builder.add_node("await_funding_settlement", await_funding_settlement)
+    builder.add_node("request_purchase_order", request_purchase_order)
+    builder.add_node("await_purchase_order", await_purchase_order)
+    builder.add_node("report_purchase_order", report_purchase_order)
+    builder.add_node("await_evidence", await_evidence)
+    builder.add_node("await_release", await_release)
+    builder.add_node("release_transaction", release_transaction)
+    builder.add_node("get_receipt", get_receipt)
+    builder.add_node("finalize_rejected", finalize_rejected)
+    builder.add_node("finalize_review", finalize_review)
+    builder.add_edge(START, "initialize")
+    builder.add_edge("initialize", "create_agreement")
+    builder.add_edge("create_agreement", "await_buyer_review")
+    builder.add_conditional_edges(
+        "await_buyer_review",
+        buyer_review_route,
+        {
+            "accepted": "await_seller_review",
+            "rejected": "finalize_rejected",
+        },
+    )
+    builder.add_conditional_edges(
+        "await_seller_review",
+        seller_review_route,
+        {
+            "accepted": "await_funding_approval",
+            "rejected": "finalize_rejected",
+        },
+    )
+    builder.add_edge("await_funding_approval", "fund_transaction")
+    builder.add_conditional_edges(
+        "fund_transaction",
+        funding_decision_route,
+        {
+            "approved": "await_funding_settlement",
+            "rejected": "finalize_rejected",
+        },
+    )
+    builder.add_edge("await_funding_settlement", "request_purchase_order")
+    builder.add_edge("request_purchase_order", "await_purchase_order")
+    builder.add_edge("await_purchase_order", "report_purchase_order")
+    builder.add_edge("report_purchase_order", "await_evidence")
+    builder.add_edge("await_evidence", "await_release")
+    builder.add_edge("await_release", "release_transaction")
+    builder.add_conditional_edges(
+        "release_transaction",
+        release_decision_route,
+        {
+            "approved": "get_receipt",
+            "rejected": "finalize_review",
+        },
+    )
+    builder.add_edge("get_receipt", END)
+    builder.add_edge("finalize_rejected", END)
+    builder.add_edge("finalize_review", END)
+    return builder.compile(checkpointer=checkpointer)
 ```
 
-Handlers:
+Every interrupt node is pure until `interrupt(...)` returns. Side effects live in
+predecessor nodes (`fund_transaction`, `request_purchase_order`,
+`report_purchase_order`, `release_transaction`, `get_receipt`), so replaying an
+interrupted node never repeats a Buyer call.
+
+- [ ] **Step 4: Extend the service**
+
+Replace `apps/verifund_agent/verifund_agent/service.py` with:
 
 ```python
-    def _require_decision_binding(
+from __future__ import annotations
+
+from typing import Any
+
+from langgraph.types import Command
+from pydantic import ValidationError
+
+from verifund_agent.client import BuyerAPIError, BuyerInternalClient
+from verifund_agent.graph import (
+    PENDING_CHECKPOINTS,
+    VerifundProtocolError,
+    buyer_review_payload,
+    evidence_pending_payload,
+    funding_approval_payload,
+    funding_pending_payload,
+    purchase_order_payload,
+    release_approval_payload,
+    seller_review_payload,
+)
+from verifund_contracts import (
+    TransactionState,
+    VerifundCheckpoint,
+    VerifundResumeRequest,
+    VerifundSkill,
+    VerifundTaskRequest,
+    VerifundTaskResult,
+)
+
+
+CHECKPOINT_ORDER = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: 1,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: 2,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: 3,
+    VerifundCheckpoint.FUNDING_PENDING: 4,
+    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: 5,
+    VerifundCheckpoint.EVIDENCE_PENDING: 6,
+    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: 7,
+}
+
+CHECKPOINT_SKILLS = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: VerifundSkill.TRANSACTION_FUND,
+    VerifundCheckpoint.FUNDING_PENDING: VerifundSkill.TRANSACTION_FUND,
+    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: VerifundSkill.TRANSACTION_FUND,
+    VerifundCheckpoint.EVIDENCE_PENDING: VerifundSkill.EVIDENCE_REVIEW,
+    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: VerifundSkill.TRANSACTION_RELEASE,
+}
+
+PAYLOAD_BUILDERS = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: buyer_review_payload,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: seller_review_payload,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: funding_approval_payload,
+    VerifundCheckpoint.FUNDING_PENDING: funding_pending_payload,
+    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: purchase_order_payload,
+    VerifundCheckpoint.EVIDENCE_PENDING: evidence_pending_payload,
+    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: release_approval_payload,
+}
+
+CHECKPOINT_STATES = {
+    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: TransactionState.AWARDED,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: TransactionState.AWARDED,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: TransactionState.AGREED,
+    VerifundCheckpoint.FUNDING_PENDING: TransactionState.FUNDING_PENDING,
+    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: TransactionState.FUNDED,
+    VerifundCheckpoint.EVIDENCE_PENDING: TransactionState.FULFILLMENT_PENDING,
+    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: TransactionState.RELEASE_PERMITTED,
+}
+
+POLLED_CHECKPOINTS = {
+    VerifundCheckpoint.FUNDING_PENDING,
+    VerifundCheckpoint.EVIDENCE_PENDING,
+}
+
+
+class VerifundAgentService:
+    def __init__(
+        self, *, graph: Any, buyer: BuyerInternalClient
+    ) -> None:
+        self.graph = graph
+        self.buyer = buyer
+
+    def _config(self, task_id: str) -> dict[str, Any]:
+        return {
+            "configurable": {
+                "thread_id": task_id,
+                "buyer": self.buyer,
+            }
+        }
+
+    async def handle(
         self,
         request: VerifundTaskRequest,
-        decision: FundingApprovalDecision | ReleaseApprovalDecision,
-    ) -> str | None:
-        if decision.run_id != request.run_id:
-            return "decision run does not match the task run"
-        if request.transaction_id and decision.transaction_id != request.transaction_id:
-            return "decision transaction does not match the task transaction"
-        if (
-            request.agreement_version is not None
-            and decision.agreement_version != request.agreement_version
-        ):
-            return "decision version does not match the task version"
-        if request.agreement_hash and decision.agreement_hash != request.agreement_hash:
-            return "decision hash does not match the task hash"
-        return None
-
-    async def _transaction_fund(
-        self, request: VerifundTaskRequest
+        *,
+        task_id: str,
+        context_id: str,
     ) -> VerifundTaskResult:
-        raw = request.payload.get("funding_approval")
-        if not isinstance(raw, dict):
+        try:
+            if request.skill == VerifundSkill.AGREEMENT_CREATE:
+                return await self._agreement_create(
+                    request, task_id=task_id, context_id=context_id
+                )
+            if request.skill == VerifundSkill.TRANSACTION_STATUS:
+                return await self._transaction_status(
+                    request, task_id=task_id, context_id=context_id
+                )
+            if request.skill == VerifundSkill.RECEIPT_GET:
+                return await self._receipt_get(request, task_id=task_id)
+        except BuyerAPIError as exc:
             return self._failed(
-                request, message="funding_approval is required", next_action="funding_approval"
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message=str(exc),
+                retryable=exc.retryable,
+            )
+        except (VerifundProtocolError, ValidationError) as exc:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message=str(exc),
+            )
+        return self._failed(
+            skill=request.skill,
+            task_id=task_id,
+            run_id=request.run_id,
+            message="skill is not available at this lifecycle stage",
+        )
+
+    async def resume(
+        self,
+        resume: VerifundResumeRequest,
+        *,
+        task_id: str,
+        context_id: str,
+    ) -> VerifundTaskResult:
+        skill = CHECKPOINT_SKILLS[resume.checkpoint]
+        if resume.task_id != task_id:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="resume task does not match the A2A task",
+            )
+        config = self._config(task_id)
+        snapshot = await self.graph.aget_state(config)
+        if not snapshot.values:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="no lifecycle task exists for this resume",
+            )
+        if snapshot.values.get("run_id") != resume.run_id:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="resume run does not match the lifecycle task",
+            )
+        current = self._pending(snapshot)
+        if current is None:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message="the lifecycle task is not waiting at a checkpoint",
+            )
+        if resume.checkpoint != current:
+            if CHECKPOINT_ORDER.get(resume.checkpoint, 99) < CHECKPOINT_ORDER[current]:
+                return self._snapshot_result(
+                    snapshot, skill=skill, task_id=task_id
+                )
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message=(
+                    f"resume checkpoint {resume.checkpoint} does not match "
+                    f"the pending {current}"
+                ),
             )
         try:
-            decision = FundingApprovalDecision.model_validate(raw)
-        except Exception as exc:  # noqa: BLE001
-            return self._failed(request, message=f"invalid funding approval: {exc}")
-        mismatch = self._require_decision_binding(request, decision)
-        if mismatch:
-            return self._failed(request, message=mismatch)
-        result = await self.buyer.approve_funding(request.run_id, decision)
-        projection = result.get("projection") or {}
-        return VerifundTaskResult(
-            **self._base(request),
-            status="completed",
-            transaction_id=decision.transaction_id,
-            agreement_version=decision.agreement_version,
-            agreement_hash=decision.agreement_hash,
-            state=projection.get("state"),
-            data={
-                "projection": projection,
-                "checkout_url": result.get("checkout_url"),
-                "expires_at": result.get("expires_at"),
-            },
-            next_action="checkout" if result.get("checkout_url") else None,
-            message="Funding approval recorded.",
+            output = await self.graph.ainvoke(
+                Command(resume=resume.value), config
+            )
+        except BuyerAPIError as exc:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message=str(exc),
+                retryable=exc.retryable,
+            )
+        except (VerifundProtocolError, ValidationError) as exc:
+            return self._failed(
+                skill=skill,
+                task_id=task_id,
+                run_id=resume.run_id,
+                message=str(exc),
+            )
+        return self._output_result(
+            output, skill=skill, task_id=task_id, run_id=resume.run_id
         )
 
-    async def _evidence_review(
-        self, request: VerifundTaskRequest
+    def _pending(self, snapshot: Any) -> VerifundCheckpoint | None:
+        for node in snapshot.next:
+            if node in PENDING_CHECKPOINTS:
+                return PENDING_CHECKPOINTS[node]
+        return None
+
+    async def _agreement_create(
+        self,
+        request: VerifundTaskRequest,
+        *,
+        task_id: str,
+        context_id: str,
     ) -> VerifundTaskResult:
-        view = await self.buyer.get_settlement(request.run_id)
-        projection = view.get("projection") or {}
-        state = projection.get("state")
-        next_action = (
-            "release_approval"
-            if state in {"RELEASE_PERMITTED", "REVIEW_REQUIRED"}
-            else None
-        )
-        return VerifundTaskResult(
-            **self._base(request),
-            status="completed",
-            transaction_id=projection.get("transaction_id") or view.get("transaction_id"),
-            agreement_version=view.get("agreement_version"),
-            agreement_hash=view.get("agreement_hash"),
-            state=state,
-            data={
-                "evidence": projection.get("evidence"),
-                "verification": projection.get("verification"),
-                "allowed_actions": projection.get("allowed_actions", []),
+        award = request.payload.get("award") or {}
+        if award.get("run_id") != request.run_id:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="award run does not match the task run",
+            )
+        buyer_task_id = str(request.payload.get("buyer_task_id") or "")
+        buyer_context_id = str(request.payload.get("buyer_context_id") or "")
+        if not buyer_task_id or not buyer_context_id:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="agreement requires the original Buyer task and context",
+            )
+        config = self._config(task_id)
+        snapshot = await self.graph.aget_state(config)
+        if snapshot.values:
+            if snapshot.values.get("run_id") != request.run_id:
+                return self._failed(
+                    skill=request.skill,
+                    task_id=task_id,
+                    run_id=request.run_id,
+                    message="A2A task already owns a different run",
+                )
+            return self._snapshot_result(
+                snapshot, skill=request.skill, task_id=task_id
+            )
+        output = await self.graph.ainvoke(
+            {
+                "task_id": task_id,
+                "context_id": context_id,
+                "run_id": request.run_id,
+                "award": award,
+                "buyer_task_id": buyer_task_id,
+                "buyer_context_id": buyer_context_id,
+                "stage": "initialized",
             },
-            next_action=next_action,
+            config,
+        )
+        return self._output_result(
+            output, skill=request.skill, task_id=task_id, run_id=request.run_id
+        )
+
+    async def _transaction_status(
+        self,
+        request: VerifundTaskRequest,
+        *,
+        task_id: str,
+        context_id: str,
+    ) -> VerifundTaskResult:
+        snapshot = await self.graph.aget_state(self._config(task_id))
+        if not snapshot.values:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="no lifecycle task exists for this run",
+            )
+        if snapshot.values.get("run_id") != request.run_id:
+            return self._failed(
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+                message="run does not match the lifecycle task",
+            )
+        pending = self._pending(snapshot)
+        if pending in POLLED_CHECKPOINTS:
+            projection = await self._settlement_projection(
+                snapshot, request=request
+            )
+            if self._poll_is_ready(pending, projection):
+                output = await self.graph.ainvoke(
+                    Command(resume={"projection": projection}),
+                    self._config(task_id),
+                )
+                return self._output_result(
+                    output,
+                    skill=request.skill,
+                    task_id=task_id,
+                    run_id=request.run_id,
+                )
+            values = dict(snapshot.values)
+            if pending is VerifundCheckpoint.FUNDING_PENDING:
+                values["funding_projection"] = projection
+            else:
+                values["projection"] = projection
+            payload = PAYLOAD_BUILDERS[pending](values)
+            return self._checkpoint_result(
+                payload,
+                checkpoint=pending,
+                skill=request.skill,
+                task_id=task_id,
+                run_id=request.run_id,
+            )
+        return self._snapshot_result(
+            snapshot, skill=request.skill, task_id=task_id
+        )
+
+    async def _settlement_projection(
+        self, snapshot: Any, *, request: VerifundTaskRequest
+    ) -> dict[str, Any]:
+        view = await self.buyer.get_settlement(
+            str(snapshot.values.get("run_id") or request.run_id)
+        )
+        projection = view.get("projection") or {}
+        expected = snapshot.values.get("transaction_id") or request.transaction_id
+        if projection.get("transaction_id") != expected:
+            raise VerifundProtocolError(
+                "buyer settlement does not match the lifecycle transaction"
+            )
+        return projection
+
+    @staticmethod
+    def _poll_is_ready(
+        pending: VerifundCheckpoint, projection: dict[str, Any]
+    ) -> bool:
+        state = projection.get("state")
+        if pending is VerifundCheckpoint.FUNDING_PENDING:
+            return state == TransactionState.FUNDED.value
+        return state in {
+            TransactionState.RELEASE_PERMITTED.value,
+            TransactionState.REVIEW_REQUIRED.value,
+        }
+
+    async def _receipt_get(
+        self, request: VerifundTaskRequest, *, task_id: str
+    ) -> VerifundTaskResult:
+        receipt = await self.buyer.receipt(request.run_id)
+        payload = receipt.get("payload") or {}
+        verified = receipt.get("verified") is True
+        return VerifundTaskResult(
+            skill=request.skill,
+            status="completed",
+            task_id=task_id,
+            run_id=request.run_id,
+            transaction_id=payload.get("transaction_id")
+            or request.transaction_id,
+            agreement_hash=payload.get("agreement_hash") or request.agreement_hash,
+            state=TransactionState.RELEASED if verified else None,
+            data={"receipt": receipt},
             message=(
-                "Evidence is ready for a separate release decision."
-                if next_action
-                else "Evidence is not yet ready for release."
+                "Verified receipt retrieved."
+                if verified
+                else "Receipt retrieved but not verified."
             ),
         )
 
-    async def _transaction_release(
-        self, request: VerifundTaskRequest
+    def _snapshot_result(
+        self,
+        snapshot: Any,
+        *,
+        skill: VerifundSkill,
+        task_id: str,
     ) -> VerifundTaskResult:
-        raw = request.payload.get("release_approval")
-        if not isinstance(raw, dict):
-            return self._failed(
-                request, message="release_approval is required", next_action="release_approval"
+        pending = self._pending(snapshot)
+        if pending is not None:
+            payload = PAYLOAD_BUILDERS[pending](dict(snapshot.values))
+            return self._checkpoint_result(
+                payload,
+                checkpoint=pending,
+                skill=skill,
+                task_id=task_id,
+                run_id=str(snapshot.values.get("run_id") or ""),
             )
-        try:
-            decision = ReleaseApprovalDecision.model_validate(raw)
-        except Exception as exc:  # noqa: BLE001
-            return self._failed(request, message=f"invalid release approval: {exc}")
-        mismatch = self._require_decision_binding(request, decision)
-        if mismatch:
-            return self._failed(request, message=mismatch)
-        projection = await self.buyer.release(request.run_id, decision)
-        return VerifundTaskResult(
-            **self._base(request),
-            status="completed",
-            transaction_id=decision.transaction_id,
-            agreement_version=decision.agreement_version,
-            agreement_hash=decision.agreement_hash,
-            state=projection.get("state"),
-            data={"projection": projection},
-            message="Release decision submitted.",
+        return self._completed_result(
+            dict(snapshot.values),
+            skill=skill,
+            task_id=task_id,
+            run_id=str(snapshot.values.get("run_id") or ""),
         )
 
-    async def _receipt_get(
-        self, request: VerifundTaskRequest
+    def _output_result(
+        self,
+        output: dict[str, Any],
+        *,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
     ) -> VerifundTaskResult:
-        receipt = await self.buyer.receipt(request.run_id)
+        interrupts = output.get("__interrupt__") or []
+        if not interrupts:
+            return self._completed_result(
+                output, skill=skill, task_id=task_id, run_id=run_id
+            )
+        payload = interrupts[0].value
+        checkpoint = PENDING_CHECKPOINTS.get(str(payload.get("reason")))
+        if checkpoint is None:
+            raise VerifundProtocolError(
+                f"unknown lifecycle interrupt: {payload.get('reason')}"
+            )
+        return self._checkpoint_result(
+            payload,
+            checkpoint=checkpoint,
+            skill=skill,
+            task_id=task_id,
+            run_id=run_id,
+        )
+
+    def _checkpoint_result(
+        self,
+        payload: dict[str, Any],
+        *,
+        checkpoint: VerifundCheckpoint,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
+    ) -> VerifundTaskResult:
+        common = {
+            "skill": skill,
+            "task_id": task_id,
+            "run_id": payload.get("run_id") or run_id,
+            "transaction_id": payload.get("transaction_id"),
+            "agreement_version": payload.get("agreement_version"),
+            "agreement_hash": payload.get("agreement_hash"),
+            "state": self._checkpoint_state(checkpoint, payload),
+            "data": payload,
+            "message": payload.get("message", ""),
+        }
+        if checkpoint is VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED:
+            return VerifundTaskResult(
+                **common,
+                status="approval_required",
+                checkpoint=checkpoint,
+                approval_type="funding",
+                next_action="approve_funding",
+            )
+        if checkpoint is VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED:
+            return VerifundTaskResult(
+                **common,
+                status="approval_required",
+                checkpoint=checkpoint,
+                approval_type="release",
+                next_action="approve_release",
+            )
+        if checkpoint is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED:
+            return VerifundTaskResult(
+                **common,
+                status="input_required",
+                checkpoint=checkpoint,
+                next_action="purchase_order",
+            )
+        if checkpoint in {
+            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+        }:
+            return VerifundTaskResult(
+                **common,
+                status="input_required",
+                checkpoint=checkpoint,
+                next_action=(
+                    "buyer_review"
+                    if checkpoint is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+                    else "seller_review"
+                ),
+            )
         return VerifundTaskResult(
-            **self._base(request),
+            **common,
             status="completed",
-            transaction_id=(receipt.get("payload") or {}).get("transaction_id")
-            or request.transaction_id,
-            data={"receipt": receipt},
-            message="Verified receipt retrieved."
-                if receipt.get("verified")
-                else "Receipt retrieved but not verified.",
+            checkpoint=checkpoint,
+            next_action=(
+                "funding_settlement"
+                if checkpoint is VerifundCheckpoint.FUNDING_PENDING
+                else "evidence"
+            ),
+        )
+
+    @staticmethod
+    def _checkpoint_state(
+        checkpoint: VerifundCheckpoint, payload: dict[str, Any]
+    ) -> TransactionState:
+        projection = payload.get("projection") or {}
+        raw = projection.get("state")
+        if raw:
+            try:
+                return TransactionState(raw)
+            except ValueError:
+                pass
+        return CHECKPOINT_STATES[checkpoint]
+
+    def _completed_result(
+        self,
+        values: dict[str, Any],
+        *,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
+    ) -> VerifundTaskResult:
+        stage = str(values.get("stage") or "completed")
+        receipt = values.get("receipt") or {}
+        projection = values.get("release_projection") or {}
+        if stage in {"rejected", "funding_rejected"}:
+            state = TransactionState.CANCELED
+            message = "The transaction was rejected; no funds moved."
+        elif stage == "review_required":
+            state = TransactionState.REVIEW_REQUIRED
+            message = (
+                "Release was not approved; the transaction is paused for "
+                "manual review."
+            )
+        elif stage == "completed" and receipt.get("verified") is True:
+            state = TransactionState.RELEASED
+            message = "Transaction released; the verified receipt is attached."
+        elif stage in {"released", "completed"}:
+            state = TransactionState(
+                str(projection.get("state") or TransactionState.PAYOUT_PENDING)
+            )
+            message = (
+                "Transaction released; the receipt becomes available after "
+                "the payout completes."
+                if receipt is None
+                else "Transaction released; receipt verification failed."
+            )
+        elif stage == "agreed":
+            state = TransactionState.AGREED
+            message = "Buyer and Seller agreed; funding is the next checkpoint."
+        else:
+            state = TransactionState.AWARDED
+            message = f"Lifecycle stage {stage}."
+        return VerifundTaskResult(
+            skill=skill,
+            status="completed",
+            task_id=task_id,
+            run_id=str(values.get("run_id") or run_id),
+            transaction_id=values.get("transaction_id"),
+            agreement_version=values.get("agreement_version"),
+            agreement_hash=values.get("agreement_hash"),
+            state=state,
+            data={
+                "stage": stage,
+                "projection": values.get("projection"),
+                "receipt": values.get("receipt"),
+            },
+            message=message,
+        )
+
+    def _failed(
+        self,
+        *,
+        skill: VerifundSkill,
+        task_id: str,
+        run_id: str,
+        message: str,
+        retryable: bool = False,
+    ) -> VerifundTaskResult:
+        return VerifundTaskResult(
+            skill=skill,
+            status="failed",
+            task_id=task_id,
+            run_id=run_id or "unknown",
+            message=message,
+            retryable=retryable,
         )
 ```
 
-`_transaction_fund` must not call `approve_funding` when `decision.approved` is
-false? It must; the buyer route records the rejection and cancels. Keep it.
+`status="completed"` with a `funding_pending` or `evidence_pending` checkpoint is
+intentional: the task result is finished for this poll, while the executor maps
+the polling checkpoint to `TASK_STATE_WORKING`. `resume` accepts only the five
+interactive checkpoints (`buyer_review_required`, `seller_review_required`,
+`funding_approval_required`, `purchase_order_required`, and
+`release_approval_required`); the contract rejects the two polled checkpoints
+before the service sees them.
 
-- [ ] **Step 4: Run the settlement skill tests**
+- [ ] **Step 5: Run the lifecycle tests**
 
-Run: `uv run pytest tests/unit/test_verifund_agent_settlement.py tests/unit/test_verifund_agent_service.py -v`
-Expected: PASS.
+Run: `uv run pytest tests/unit/test_verifund_agent_settlement.py tests/unit/test_verifund_agent_graph.py tests/unit/test_verifund_agent_service.py -v`
+Expected: PASS. The graph still exposes the `initialize` node, and every resume advances the same task.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add apps/verifund_agent/verifund_agent/service.py tests/unit/test_verifund_agent_settlement.py
-git commit -m "feat(verifund): add funding, evidence, release, and receipt skills"
+git add apps/verifund_agent/verifund_agent/{graph.py,service.py} tests/unit/test_verifund_agent_settlement.py
+git commit -m "feat(verifund): own funding, purchase order, evidence, release, and receipt"
 ```
 
 ---
@@ -20612,22 +24679,45 @@ git commit -m "feat(seller): review Verifund agreements bound to stored offers"
 
 ---
 
-### Task 22G: Route Verifund A2A tasks through the orchestrator
+### Task 22G: Mediate the Verifund lifecycle from the orchestrator
 
-The orchestrator is the only component that coordinates the three agents. It
-must call them sequentially, preserve the exact agreement/task correlation, and
-never turn a pending/failed A2A result into consent.
+The Verifund A2A task is a long-lived lifecycle. The orchestrator must keep one
+`task_id`/`context_id` pair for that task, drive the Buyer and Seller sub-steps,
+and resume the same Verifund thread after funding, purchase order, evidence,
+and release. It never creates a second Verifund task for the same run and never
+turns a pending, failed, or malformed A2A result into consent.
+
+```text
+start          -> Verifund buyer_review_required
+                 -> Buyer agreement review
+                 -> Verifund seller_review_required
+                 -> Seller agreement review
+                 -> Buyer records the Seller decision
+                 -> Verifund funding_approval_required | canceled
+funding        -> Verifund funding_pending -> checkout handoff
+status         -> Verifund purchase_order_required
+                 -> Seller purchase order (token resolved by the orchestrator)
+                 -> Verifund evidence_pending
+status         -> Verifund release_approval_required
+release        -> Verifund completed (receipt) | review_required
+receipt        -> Verifund receipt.get
+```
+
+The orchestrator resolves `seller_token_ref` through the Buyer's
+`POST /internal/settlement/seller-token` route and injects the returned token
+into the purchase-order envelope. The token is never placed in a tool result,
+the Verifund task, the conversation, or the console. The Seller receives the
+token only in the A2A envelope.
 
 **Files:**
 - Create: `apps/orchestrator_agent/orchestrator_agent/verifund.py`
 - Modify: `apps/orchestrator_agent/orchestrator_agent/{agent.py,settings.py}`
-- Modify: `apps/console/app/api/copilotkit/[[...slug]]/route.ts` only if the
-  existing tool registry needs the new tool names exposed.
 - Test: `tests/unit/test_orchestrator_verifund.py`
 
 **Interfaces:**
-- Produces: `VerifundA2AClient` (`create_agreement`, `status`, `fund`, `evidence_review`, `release`, `receipt`); `BuyerA2AAgents` (`resume_buyer`, `resume_buyer_with_seller`, `review_seller`); `AgreementCoordinator.run(run_id, buyer_task_id, buyer_context_id, award, buyer_a2a_url, seller_card_url, seller_id)` returning the agreement plus normalized `buyer_review`/`seller_decision` fields; orchestrator tools `verifund_create_agreement`, `verifund_status`, `verifund_fund`, `verifund_evidence_review`, `verifund_release`, `verifund_receipt`.
-- Consumes: the agent card registered by Tasks 22A/26, `verifund_contracts` envelopes/decisions, `fetch_agent_card`, and the orchestrator `_a2a_send`/`_buyer_response`/seller-token helpers from `mediation.py`. The orchestrator uses the configured `VERIFUND_AGENT_CARD_URL`/`VERIFUND_AGENT_URL`; it never receives `REGISTRY_ADMIN_TOKEN` and does not call the admin-only registry discovery routes at runtime.
+- Produces: `VerifundTaskHandle(task_id, context_id, run_id)`; `VerifundA2AClient.start`, `status`, `resume`, `receipt`; `BuyerA2AAgents.resume_buyer`, `apply_seller_decision`; `SellerA2AClient.review`, `purchase_order`; `VerifundLifecycle.start`, `advance`, `resume_funding`, `resume_release`, `receipt`; orchestrator tools `verifund_create_agreement`, `verifund_status`, `verifund_fund`, `verifund_evidence_review`, `verifund_release`, `verifund_receipt`.
+- Consumes: the Verifund card registered by Task 22A, the Buyer `commerce.agreement.review` entrypoint from Task 22E, the Seller `commerce.agreement.review` and `purchase_order` skills from Task 22F, `verifund_contracts` envelopes/decisions, and the Task 18 `_resolve_settlement_token`/`_inject_settlement_token`/`_redact_settlement` helpers.
+- Checkpoints: `funding_approval_required` produces `hitl.tool="request_verifund_funding_approval"`; `release_approval_required` produces `hitl.tool="request_verifund_release_approval"`. The args are the exact frontend-card schemas from Task 25A. `purchase_order_required` is mediated inside `advance` and is never sent to the chat.
 
 - [ ] **Step 1: Write the failing orchestrator tests**
 
@@ -20636,15 +24726,46 @@ never turn a pending/failed A2A result into consent.
 ```python
 from __future__ import annotations
 
-import pytest
+import json
+from datetime import UTC, datetime
 
-from verifund_contracts import AgreementProjection
+import pytest
+from a2a.types.a2a_pb2 import TaskArtifactUpdateEvent
+from commerce_core.a2a_parts import (
+    first_envelope,
+    make_artifact,
+    make_message,
+)
+from commerce_core.contracts import Order, PurchaseOrderRequest
+from commerce_core.extension import wrap_payload
 
 from orchestrator_agent.settings import Settings
-from orchestrator_agent.verifund import AgreementCoordinator
+from orchestrator_agent.verifund import (
+    BuyerA2AAgents,
+    SellerA2AClient,
+    VerifundA2AClient,
+    VerifundLifecycle,
+    VerifundProtocolError,
+    VerifundTaskHandle,
+)
+from verifund_contracts import (
+    AgreementProjection,
+    AgreementReviewDecision,
+    AgreementReviewResult,
+    FundingApprovalDecision,
+    ReleaseApprovalDecision,
+    TransactionState,
+    VerifundCheckpoint,
+    VerifundSkill,
+    VerifundTaskResult,
+    parse_verifund_resume_request,
+    wrap_verifund_task_result,
+)
+
+NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 
-def agreement() -> dict:
+def agreement() -> AgreementProjection:
     payload = {
         "agreement_version": 1,
         "transaction_id": "vf_1",
@@ -20675,117 +24796,652 @@ def agreement() -> dict:
     )
     return AgreementProjection(
         **payload, agreement_hash=probe.recompute_hash()
-    ).model_dump(mode="json")
+    )
 
 
-AGREEMENT_HASH = agreement()["agreement_hash"]
+AGREEMENT = agreement()
+HASH = AGREEMENT.agreement_hash
 
 
-class Verifund:
-    def __init__(self) -> None:
+def binding() -> dict:
+    return {
+        "run_id": AGREEMENT.run_id,
+        "transaction_id": AGREEMENT.transaction_id,
+        "agreement_version": AGREEMENT.agreement_version,
+        "agreement_hash": AGREEMENT.agreement_hash,
+        "agreement": AGREEMENT.model_dump(mode="json"),
+    }
+
+
+def review(party: str, status: str = "accepted") -> AgreementReviewResult:
+    return AgreementReviewResult(
+        party=party,
+        status=status,
+        run_id=AGREEMENT.run_id,
+        transaction_id=AGREEMENT.transaction_id,
+        agreement_version=AGREEMENT.agreement_version,
+        agreement_hash=AGREEMENT.agreement_hash,
+        task_id=f"{party}-task-1",
+        context_id=AGREEMENT.run_id,
+        reviewed_at=NOW,
+    )
+
+
+def task_result(
+    *,
+    skill: VerifundSkill = VerifundSkill.AGREEMENT_CREATE,
+    status: str = "input_required",
+    checkpoint: VerifundCheckpoint | None = None,
+    approval_type: str | None = None,
+    state: TransactionState | None = None,
+    data: dict | None = None,
+    message: str = "",
+) -> VerifundTaskResult:
+    return VerifundTaskResult(
+        skill=skill,
+        status=status,
+        task_id="vf-task-1",
+        checkpoint=checkpoint,
+        approval_type=approval_type,
+        run_id=AGREEMENT.run_id,
+        transaction_id=AGREEMENT.transaction_id,
+        agreement_version=AGREEMENT.agreement_version,
+        agreement_hash=AGREEMENT.agreement_hash,
+        state=state,
+        data=data or {},
+        message=message,
+    )
+
+
+def funding_result() -> VerifundTaskResult:
+    return task_result(
+        skill=VerifundSkill.TRANSACTION_FUND,
+        status="approval_required",
+        checkpoint=VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+        approval_type="funding",
+        data={
+            **binding(),
+            "buyer_review": review("buyer").model_dump(mode="json"),
+            "seller_decision": review("seller").model_dump(mode="json"),
+        },
+        message="Approve funding for this agreement.",
+    )
+
+
+def release_result() -> VerifundTaskResult:
+    return task_result(
+        skill=VerifundSkill.TRANSACTION_RELEASE,
+        status="approval_required",
+        checkpoint=VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED,
+        approval_type="release",
+        state=TransactionState.RELEASE_PERMITTED,
+        data={
+            **binding(),
+            "projection": {
+                "transaction_id": AGREEMENT.transaction_id,
+                "state": "RELEASE_PERMITTED",
+                "verification": {
+                    "status": "permitted",
+                    "reasons": [],
+                    "override_allowed": False,
+                },
+                "evidence": {
+                    "required": ["shipment_manifest", "delivery_confirmation"],
+                    "received": ["shipment_manifest", "delivery_confirmation"],
+                    "complete": True,
+                },
+            },
+        },
+        message="Approve the release of held funds.",
+    )
+
+
+def order() -> dict:
+    return {
+        "schema_version": "1.0",
+        "order_id": "ord-1",
+        "offer_id": "offer-1",
+        "seller_id": "northwind-audio",
+        "status": "confirmed",
+        "currency": "USD",
+        "quantity": 12,
+        "total_cents": 123400,
+        "line_items": [
+            {
+                "sku": "NC-700",
+                "name": "Nimbus NC-700 ANC Headset",
+                "quantity": 12,
+                "unit_price_cents": 10000,
+                "list_unit_price_cents": 11000,
+                "warranty_addon_cents": 0,
+                "attributes": {},
+            }
+        ],
+        "reserved_at": NOW.isoformat(),
+        "eta": "2026-11-03T12:00:00Z",
+        "tracking_number": "TRK-1",
+        "fulfillment": {"carrier": "UPS", "status": "confirmed"},
+    }
+
+
+def purchase_order() -> PurchaseOrderRequest:
+    return PurchaseOrderRequest(
+        request_id="po-run-1-offer-1",
+        run_id=AGREEMENT.run_id,
+        offer_id=AGREEMENT.offer_id,
+        seller_id=AGREEMENT.seller_id,
+        quantity=AGREEMENT.quantity,
+        shipping_address={
+            "name": "Demo Buyer",
+            "line1": "1 Market Street",
+            "city": "San Francisco",
+            "region": "CA",
+            "postal_code": "94105",
+            "country": "US",
+        },
+        approval={
+            "approval_id": "approval-1",
+            "approved_by": "demo-reviewer",
+            "approved_at": NOW.isoformat(),
+            "note": "award approved",
+        },
+        idempotency_key="po:run-1:offer-1",
+        expected_total_cents=AGREEMENT.amount_cents,
+        settlement_transaction_id=AGREEMENT.transaction_id,
+        agreement_hash=AGREEMENT.agreement_hash,
+    )
+
+
+class FakeVerifund:
+    def __init__(
+        self,
+        *,
+        start_result: VerifundTaskResult,
+        resume_results: list[VerifundTaskResult],
+        status_results: list[VerifundTaskResult] | None = None,
+        receipt_result: VerifundTaskResult | None = None,
+    ) -> None:
+        self.start_result = start_result
+        self.resume_results = list(resume_results)
+        self.status_results = list(status_results or [])
+        self.receipt_result = receipt_result
         self.calls: list[tuple] = []
 
-    async def create_agreement(self, request):
-        self.calls.append(("create", request))
-        return {
-            "status": "completed",
-            "data": {
-                "agreement": agreement(),
-                "seller_token_ref": "run:run-1:transaction:vf_1",
-            },
-            "next_action": "buyer_review",
-        }
+    async def start(self, **kwargs):
+        self.calls.append(("start", kwargs))
+        return VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"), self.start_result
 
-    async def status(self, run_id):
-        self.calls.append(("status", run_id))
-        return {"status": "completed", "state": "AGREED"}
+    async def status(self, handle):
+        self.calls.append(("status", handle))
+        return self.status_results.pop(0)
+
+    async def resume(self, handle, *, checkpoint, value, idempotency_key):
+        self.calls.append(("resume", handle, checkpoint, value, idempotency_key))
+        return self.resume_results.pop(0)
+
+    async def receipt(self, handle, *, transaction_id):
+        self.calls.append(("receipt", handle, transaction_id))
+        return self.receipt_result
 
 
-class Agents:
+class FakeBuyer:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
+        self.status = "seller_review_required"
+        self.review_status = "accepted"
 
-    async def resume_buyer(self, task_id, value):
-        self.calls.append(("buyer", task_id, value))
+    async def resume_buyer(self, **kwargs):
+        self.calls.append(("buyer", kwargs))
         return {
-            "status": "seller_review_required",
+            "status": (
+                "seller_review_required"
+                if self.review_status == "accepted"
+                else "rejected"
+            ),
+            "task_id": kwargs["task_id"],
             "buyer_agent_review": {
-                "status": "accepted",
-                "agreement_hash": AGREEMENT_HASH,
+                "status": self.review_status,
+                "agreement_version": AGREEMENT.agreement_version,
+                "agreement_hash": AGREEMENT.agreement_hash,
+                "reviewed_at": NOW.isoformat(),
+                "reason_code": None,
             },
         }
 
-    async def review_seller(self, card_url, request):
-        self.calls.append(("seller", card_url, request))
-        return {"status": "accepted", "agreement_hash": AGREEMENT_HASH}
+    async def apply_seller_decision(self, **kwargs):
+        self.calls.append(("buyer_seller", kwargs))
+        return {"status": self.status, "task_id": kwargs["task_id"]}
 
-    async def resume_buyer_with_seller(self, task_id, decision):
-        self.calls.append(("buyer_seller", task_id, decision))
-        return {
-            "status": "funding_approval_required",
-            "buyer_agent_review": {
-                "status": "accepted",
-                "agreement_hash": AGREEMENT_HASH,
-            },
-            "seller_decision": decision,
+
+class FakeSeller:
+    def __init__(self, status: str = "accepted") -> None:
+        self.status = status
+        self.calls: list[tuple] = []
+
+    async def review(self, card_url, request):
+        self.calls.append(("review", card_url, request))
+        return review("seller", self.status)
+
+    async def purchase_order(self, **kwargs):
+        self.calls.append(("purchase_order", kwargs))
+        return order()
+
+
+def lifecycle(
+    verifund: FakeVerifund,
+    buyer: FakeBuyer | None = None,
+    seller: FakeSeller | None = None,
+) -> VerifundLifecycle:
+    return VerifundLifecycle(
+        verifund=verifund,
+        buyer=buyer or FakeBuyer(),
+        seller=seller or FakeSeller(),
+        buyer_internal_url="http://buyer",
+        buyer_internal_token="internal-token",
+    )
+
+
+async def test_lifecycle_reviews_buyer_then_seller_and_exposes_funding_hitl() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(
+            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
+        ),
+        resume_results=[
+            task_result(
+                checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+                data=binding(),
+            ),
+            funding_result(),
+        ],
+    )
+    buyer = FakeBuyer()
+    seller = FakeSeller()
+    value = lifecycle(verifund, buyer, seller)
+    result = await value.start(
+        run_id=AGREEMENT.run_id,
+        award={"run_id": AGREEMENT.run_id, "offer_id": AGREEMENT.offer_id},
+        buyer_task_id="buyer-task-1",
+        buyer_context_id="run-1",
+        seller_card_url="http://seller/.well-known/agent-card.json",
+        seller_id=AGREEMENT.seller_id,
+        idempotency_key="agreement:run-1:offer-1",
+    )
+    assert result["status"] == "approval_required"
+    assert result["hitl"]["tool"] == "request_verifund_funding_approval"
+    args = result["hitl"]["args"]
+    assert args["agreement_hash"] == HASH
+    assert args["buyer_review"]["status"] == "accepted"
+    assert args["seller_decision"]["status"] == "accepted"
+    assert result["handle"] == {
+        "task_id": "vf-task-1",
+        "context_id": "vf-context-1",
+        "run_id": "run-1",
+    }
+    assert [call[0] for call in buyer.calls] == ["buyer", "buyer_seller"]
+    resume_calls = [call for call in verifund.calls if call[0] == "resume"]
+    assert resume_calls[0][2] is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+    assert resume_calls[0][3]["party"] == "buyer"
+    assert resume_calls[1][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
+    assert resume_calls[1][3]["party"] == "seller"
+
+
+async def test_lifecycle_stops_after_a_buyer_rejection() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(
+            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
+        ),
+        resume_results=[
+            task_result(
+                status="completed",
+                state=TransactionState.CANCELED,
+                data={**binding(), "stage": "rejected"},
+                message="The transaction was rejected; no funds moved.",
+            )
+        ],
+    )
+    buyer = FakeBuyer()
+    buyer.review_status = "rejected"
+    seller = FakeSeller()
+    result = await lifecycle(verifund, buyer, seller).start(
+        run_id=AGREEMENT.run_id,
+        award={"run_id": AGREEMENT.run_id, "offer_id": AGREEMENT.offer_id},
+        buyer_task_id="buyer-task-1",
+        buyer_context_id="run-1",
+        seller_card_url="http://seller/.well-known/agent-card.json",
+        seller_id=AGREEMENT.seller_id,
+        idempotency_key="agreement:run-1:offer-1",
+    )
+    assert result["status"] == "completed"
+    assert result["state"] == "CANCELED"
+    assert result["buyer_review"]["status"] == "rejected"
+    assert result["seller_decision"] is None
+    assert "hitl" not in result
+    assert seller.calls == []
+    resume_calls = [call for call in verifund.calls if call[0] == "resume"]
+    assert len(resume_calls) == 1
+    assert resume_calls[0][2] is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+
+
+async def test_lifecycle_never_funds_after_seller_rejection() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(
+            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
+        ),
+        resume_results=[
+            task_result(
+                checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+                data=binding(),
+            ),
+            task_result(
+                status="completed",
+                state=TransactionState.CANCELED,
+                data={**binding(), "stage": "rejected"},
+                message="The transaction was rejected; no funds moved.",
+            ),
+        ],
+    )
+    buyer = FakeBuyer()
+    buyer.status = "rejected"
+    result = await lifecycle(verifund, buyer, FakeSeller("rejected")).start(
+        run_id=AGREEMENT.run_id,
+        award={"run_id": AGREEMENT.run_id, "offer_id": AGREEMENT.offer_id},
+        buyer_task_id="buyer-task-1",
+        buyer_context_id="run-1",
+        seller_card_url="http://seller/.well-known/agent-card.json",
+        seller_id=AGREEMENT.seller_id,
+        idempotency_key="agreement:run-1:offer-1",
+    )
+    assert result["status"] == "completed"
+    assert result["state"] == "CANCELED"
+    assert "hitl" not in result
+    assert not [
+        call for call in verifund.calls if call[0] == "resume"
+        and call[2] is VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED
+    ]
+
+
+async def test_advance_places_the_purchase_order_and_reports_evidence() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        resume_results=[
+            task_result(
+                status="completed",
+                checkpoint=VerifundCheckpoint.EVIDENCE_PENDING,
+                state=TransactionState.FULFILLMENT_PENDING,
+                data={
+                    **binding(),
+                    "projection": {
+                        "transaction_id": AGREEMENT.transaction_id,
+                        "state": "FULFILLMENT_PENDING",
+                        "evidence": {
+                            "required": ["shipment_manifest"],
+                            "received": [],
+                            "complete": False,
+                        },
+                    },
+                },
+            )
+        ],
+        status_results=[
+            task_result(
+                checkpoint=VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+                state=TransactionState.FUNDED,
+                data={
+                    **binding(),
+                    "seller_id": AGREEMENT.seller_id,
+                    "seller_token_ref": "run:run-1:transaction:vf_1",
+                    "purchase_order": purchase_order().model_dump(mode="json"),
+                },
+            )
+        ],
+    )
+    seller = FakeSeller()
+    result = await lifecycle(verifund, seller=seller).advance(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"),
+        seller_card_url="http://seller/.well-known/agent-card.json",
+    )
+    assert result["status"] == "working"
+    assert result["checkpoint"] == "evidence_pending"
+    assert result["evidence"]["complete"] is False
+    purchase = seller.calls[0][1]["purchase_order"]
+    assert purchase["run_id"] == "run-1"
+    assert purchase["settlement_transaction_id"] == AGREEMENT.transaction_id
+    assert purchase["agreement_hash"] == HASH
+    resume = [call for call in verifund.calls if call[0] == "resume"][0]
+    assert resume[2] is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED
+    assert resume[3]["order"]["order_id"] == "ord-1"
+
+
+async def test_advance_exposes_the_release_hitl_with_the_exact_args() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        resume_results=[],
+        status_results=[release_result()],
+    )
+    result = await lifecycle(verifund).advance(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"),
+        seller_card_url="http://seller/.well-known/agent-card.json",
+    )
+    assert result["status"] == "approval_required"
+    assert result["hitl"]["tool"] == "request_verifund_release_approval"
+    args = result["hitl"]["args"]
+    assert args["projection"]["state"] == "RELEASE_PERMITTED"
+    assert args["projection"]["verification"]["override_allowed"] is False
+    assert args["projection"]["evidence"]["complete"] is True
+    assert args["transaction_id"] == AGREEMENT.transaction_id
+
+
+async def test_release_decision_resumes_the_same_task_and_returns_the_receipt() -> None:
+    receipt = {
+        "payload": {
+            "receipt_version": 1,
+            "transaction_id": AGREEMENT.transaction_id,
+            "agreement_hash": HASH,
+            "amount_cents": AGREEMENT.amount_cents,
+            "currency": "USD",
+            "buyer_id": AGREEMENT.buyer_id,
+            "seller_id": AGREEMENT.seller_id,
+            "capture_id": "cap-1",
+            "payout_item_id": "payout-1",
+            "evidence_hashes": ["b" * 64],
+            "released_at": "2026-10-27T12:05:00Z",
+        },
+        "payload_hash": "c" * 64,
+        "signature": "sig",
+        "kid": "kid-1",
+        "verified": True,
+    }
+    verifund = FakeVerifund(
+        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        resume_results=[
+            task_result(
+                status="completed",
+                state=TransactionState.RELEASED,
+                data={**binding(), "stage": "completed", "receipt": receipt},
+            )
+        ],
+    )
+    decision = ReleaseApprovalDecision(
+        run_id=AGREEMENT.run_id,
+        transaction_id=AGREEMENT.transaction_id,
+        agreement_version=AGREEMENT.agreement_version,
+        agreement_hash=HASH,
+        approved=True,
+        released_by="demo-reviewer",
+        note="evidence verified",
+        decided_at=NOW,
+        idempotency_key=f"release:{AGREEMENT.run_id}:{AGREEMENT.transaction_id}",
+    )
+    result = await lifecycle(verifund).resume_release(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"),
+        decision,
+    )
+    assert result["status"] == "completed"
+    assert result["state"] == "RELEASED"
+    assert result["receipt"]["verified"] is True
+    resume = [call for call in verifund.calls if call[0] == "resume"][0]
+    assert resume[1].task_id == "vf-task-1"
+    assert resume[2] is VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED
+    assert resume[3] == decision.model_dump(mode="json")
+
+
+async def test_funding_decision_requires_a_structured_decision() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        resume_results=[
+            task_result(
+                status="completed",
+                checkpoint=VerifundCheckpoint.FUNDING_PENDING,
+                state=TransactionState.FUNDING_PENDING,
+                data={
+                    **binding(),
+                    "checkout_url": "http://paypal.test/checkout/1",
+                    "projection": {"state": "FUNDING_PENDING"},
+                },
+            )
+        ],
+    )
+    decision = FundingApprovalDecision(
+        run_id=AGREEMENT.run_id,
+        transaction_id=AGREEMENT.transaction_id,
+        agreement_version=AGREEMENT.agreement_version,
+        agreement_hash=HASH,
+        approved=True,
+        approved_by="demo-reviewer",
+        note="approved",
+        decided_at=NOW,
+        idempotency_key=f"fund:{AGREEMENT.run_id}:{AGREEMENT.transaction_id}",
+    )
+    result = await lifecycle(verifund).resume_funding(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"),
+        decision,
+    )
+    assert result["status"] == "working"
+    assert result["checkout_url"] == "http://paypal.test/checkout/1"
+    resume = [call for call in verifund.calls if call[0] == "resume"][0]
+    assert resume[2] is VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED
+    assert resume[3]["approved"] is True
+
+
+async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
+    sent = []
+
+    async def send(base_url, message, token=None):
+        sent.append(message)
+        envelope = first_envelope(message)
+        if envelope["schema"].endswith("/resume-request.json"):
+            result = task_result(
+                checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+                data=binding(),
+            )
+        else:
+            result = task_result(
+                checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+                data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
+            )
+        return [
+            TaskArtifactUpdateEvent(
+                task_id=message.task_id or "vf-task-1",
+                context_id=message.context_id or "vf-context-1",
+                artifact=make_artifact(
+                    "verifund-result", wrap_verifund_task_result(result)
+                ),
+            )
+        ]
+
+    client = VerifundA2AClient(
+        base_url="http://verifund", token="agent-token", send=send
+    )
+    handle, result = await client.start(
+        run_id=AGREEMENT.run_id,
+        award={"run_id": AGREEMENT.run_id},
+        buyer_task_id="buyer-task-1",
+        buyer_context_id="run-1",
+        idempotency_key="agreement:run-1:offer-1",
+    )
+    assert handle.task_id == "vf-task-1"
+    assert handle.context_id == "vf-context-1"
+    await client.status(handle)
+    await client.resume(
+        handle,
+        checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+        value=review("buyer").model_dump(mode="json"),
+        idempotency_key="resume:buyer",
+    )
+    assert sent[1].task_id == "vf-task-1"
+    assert sent[1].context_id == "vf-context-1"
+    assert sent[2].task_id == "vf-task-1"
+    assert sent[2].context_id == "vf-context-1"
+    resume = parse_verifund_resume_request(first_envelope(sent[2]))
+    assert resume.task_id == "vf-task-1"
+    assert resume.checkpoint is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+
+
+async def test_seller_purchase_order_injects_the_token_and_never_returns_it() -> None:
+    sent = []
+
+    async def resolve_token(url, token, ref, *, timeout_seconds=10.0):
+        assert url == "http://buyer"
+        assert token == "internal-token"
+        assert ref == {
+            "run_id": "run-1",
+            "transaction_id": "vf_1",
+            "seller_id": "northwind-audio",
+            "purpose": "purchase_order",
         }
+        return "v1.secret"
+
+    async def send(base_url, message, token=None):
+        sent.append((base_url, message, token))
+        envelope = first_envelope(message)
+        assert envelope["payload"]["settlement_token"] == "v1.secret"
+        return [
+            TaskArtifactUpdateEvent(
+                task_id="seller-task-1",
+                context_id="run-1",
+                artifact=make_artifact(
+                    "order", wrap_payload("order", Order.model_validate(order()))
+                ),
+            )
+        ]
+
+    client = SellerA2AClient(
+        send=send, resolve_settlement_token=resolve_token
+    )
+    result = await client.purchase_order(
+        card_url="http://seller/.well-known/agent-card.json",
+        seller_id="northwind-audio",
+        run_id="run-1",
+        purchase_order=purchase_order(),
+        buyer_internal_url="http://buyer",
+        buyer_internal_token="internal-token",
+    )
+    assert result["order_id"] == "ord-1"
+    assert "v1.secret" not in json.dumps(result)
 
 
-def test_settings_default_to_a_disabled_mode(monkeypatch):
-    monkeypatch.delenv("VERIFUND_MODE", raising=False)
+async def test_verifund_protocol_errors_are_not_successes() -> None:
+    with pytest.raises(VerifundProtocolError):
+        raise VerifundProtocolError("Verifund returned no structured result")
+
+
+def test_settings_default_to_off_and_keep_verifund_credentials_separate(
+    monkeypatch,
+) -> None:
+    for key in (
+        "VERIFUND_MODE",
+        "VERIFUND_AGENT_URL",
+        "VERIFUND_AGENT_A2A_TOKEN",
+    ):
+        monkeypatch.delenv(key, raising=False)
     settings = Settings()
     assert settings.verifund_mode == "off"
     assert settings.verifund_agent_url.endswith(":9301")
     assert settings.verifund_agent_a2a_token
-
-
-async def test_coordinator_runs_buyer_seller_buyer_in_order():
-    verifund = Verifund()
-    agents = Agents()
-    coordinator = AgreementCoordinator(verifund=verifund, agents=agents)
-    result = await coordinator.run(
-        run_id="run-1",
-        buyer_task_id="buyer-task-1",
-        buyer_context_id="run-1",
-        award={"run_id": "run-1"},
-        buyer_a2a_url="http://buyer",
-        seller_card_url="http://seller/.well-known/agent-card.json",
-        seller_id="northwind-audio",
-    )
-    assert [call[0] for call in verifund.calls] == ["create"]
-    assert [call[0] for call in agents.calls] == ["buyer", "seller", "buyer_seller"]
-    envelope = agents.calls[1][2]
-    assert envelope["payload"]["seller_task_id"].startswith("agreement-review:")
-    assert envelope["payload"]["seller_context_id"] == "run-1"
-    assert result["buyer_status"] == "funding_approval_required"
-    assert result["seller_status"] == "accepted"
-    assert result["funding_hitl"] is True
-    assert result["buyer_review"]["status"] == "accepted"
-    assert result["seller_decision"]["status"] == "accepted"
-    assert result["agreement_hash"] == AGREEMENT_HASH
-
-
-async def test_coordinator_never_opens_funding_after_seller_rejection():
-    verifund = Verifund()
-    agents = Agents()
-    agents.review_seller = lambda *args, **kwargs: _rejected()
-    coordinator = AgreementCoordinator(verifund=verifund, agents=agents)
-    result = await coordinator.run(
-        run_id="run-1",
-        buyer_task_id="buyer-task-1",
-        buyer_context_id="run-1",
-        award={"run_id": "run-1"},
-        buyer_a2a_url="http://buyer",
-        seller_card_url="http://seller/.well-known/agent-card.json",
-        seller_id="northwind-audio",
-    )
-    assert result["funding_hitl"] is False
-    assert result["seller_status"] == "rejected"
-    assert [call[0] for call in agents.calls] == ["buyer", "seller"]
-
-
-async def _rejected():
-    return {"status": "rejected", "agreement_hash": "a" * 64}
+    assert settings.verifund_agent_a2a_token != settings.buyer_internal_token
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -20820,36 +25476,43 @@ Append to `Settings`:
     )
 ```
 
-`verifund_mode` must default to `off` and the A2A calls must be unreachable in
-that mode.
+Task 18 already adds `buyer_internal_url`, `buyer_internal_token`, and
+`buyer_internal_timeout_seconds`. Do not duplicate those fields.
 
-- [ ] **Step 4: Implement the Verifund client and coordinator**
+- [ ] **Step 4: Implement the Verifund client, agents, and lifecycle mediator**
 
 `apps/orchestrator_agent/orchestrator_agent/verifund.py`:
 
 ```python
 from __future__ import annotations
 
-import json
+import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Awaitable, Callable
 
-import httpx
-from a2a.client import ClientConfig, ClientFactory
-from a2a.types.a2a_pb2 import Role, SendMessageRequest
+from a2a.types.a2a_pb2 import Role
 from commerce_core.a2a_parts import make_message, part_value
-from commerce_core.cards import fetch_agent_card
+from commerce_core.contracts import Order, PurchaseOrderRequest
+from commerce_core.extension import wrap_payload
 from orchestrator_agent.mediation import (
     _a2a_send,
     _buyer_response,
+    _inject_settlement_token,
+    _redact_settlement,
     _resolve_seller_token,
+    _resolve_settlement_token,
 )
 from verifund_contracts import (
     AgreementProjection,
+    AgreementReviewDecision,
     AgreementReviewRequest,
     AgreementReviewResult,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
+    TransactionState,
+    VerifundCheckpoint,
+    VerifundResumeRequest,
     VerifundSkill,
     VerifundTaskRequest,
     VerifundTaskResult,
@@ -20857,8 +25520,68 @@ from verifund_contracts import (
     parse_verifund_task_result,
     wrap_agreement_review_request,
     wrap_agreement_review_result,
+    wrap_verifund_resume_request,
     wrap_verifund_task_request,
 )
+
+
+Sender = Callable[..., Awaitable[list]]
+TokenResolver = Callable[..., str]
+SettlementResolver = Callable[..., Awaitable[str]]
+
+
+class VerifundProtocolError(RuntimeError):
+    """A Verifund, Buyer, or Seller result broke the lifecycle binding."""
+
+
+@dataclass(frozen=True)
+class VerifundTaskHandle:
+    task_id: str
+    context_id: str
+    run_id: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "task_id": self.task_id,
+            "context_id": self.context_id,
+            "run_id": self.run_id,
+        }
+
+
+def _base_url(card_url: str) -> str:
+    return card_url.split("/.well-known", 1)[0].rstrip("/")
+
+
+def _review_matches(
+    result: AgreementReviewResult,
+    agreement: AgreementProjection,
+    party: str,
+) -> bool:
+    return (
+        result.party == party
+        and result.run_id == agreement.run_id
+        and result.transaction_id == agreement.transaction_id
+        and result.agreement_version == agreement.agreement_version
+        and result.agreement_hash == agreement.agreement_hash
+    )
+
+
+def _review_summary(value: Any) -> dict[str, Any] | None:
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    if not isinstance(value, dict):
+        return None
+    status = value.get("status")
+    if status not in {
+        AgreementReviewDecision.ACCEPTED.value,
+        AgreementReviewDecision.REJECTED.value,
+    }:
+        return None
+    return {
+        "status": status,
+        "agreement_version": value.get("agreement_version"),
+        "agreement_hash": value.get("agreement_hash"),
+    }
 
 
 class VerifundA2AClient:
@@ -20867,125 +25590,169 @@ class VerifundA2AClient:
         *,
         base_url: str,
         token: str,
-        timeout: float = 60.0,
-        card_url: str | None = None,
+        send: Sender = _a2a_send,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self.timeout = timeout
-        self.card_url = card_url or f"{self.base_url}/.well-known/agent-card.json"
+        self._send = send
 
-    async def _send(self, envelope: dict) -> dict[str, Any]:
-        card = await fetch_agent_card(
-            self.card_url, allowed_hosts=("127.0.0.1", "localhost", "verifund-agent", "host.docker.internal")
-        )
-        http = httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {self.token}"},
-            timeout=httpx.Timeout(self.timeout, connect=5.0),
-        )
-        client = ClientFactory(ClientConfig(streaming=True, httpx_client=http)).create(card)
+    async def _exchange(
+        self,
+        envelope: dict[str, Any],
+        *,
+        task_id: str | None = None,
+        context_id: str | None = None,
+    ) -> tuple[str, str, VerifundTaskResult]:
         message = make_message(
             role=Role.ROLE_USER,
-            text="Verifund task.",
-            context_id="orchestrator",
+            text="Verifund lifecycle task.",
+            context_id=context_id or "orchestrator",
+            task_id=task_id,
             envelope=envelope,
         )
-        result: dict[str, Any] | None = None
-        try:
-            async for frame in client.send_message(SendMessageRequest(message=message)):
-                kind = frame.WhichOneof("payload")
-                artifacts = []
-                if kind == "artifact_update":
-                    artifacts = [frame.artifact_update.artifact]
-                elif kind == "task":
-                    artifacts = list(frame.task.artifacts)
-                for artifact in artifacts:
-                    for part in artifact.parts:
-                        value = part_value(part)
-                        if isinstance(value, dict):
-                            result = parse_verifund_task_result(value).model_dump(mode="json")
-        finally:
-            await client.close()
-            await http.aclose()
+        frames = await self._send(self.base_url, message, token=self.token)
+        resolved_task = task_id or ""
+        resolved_context = context_id or ""
+        result: VerifundTaskResult | None = None
+        for frame in frames:
+            kind = frame.WhichOneof("payload")
+            artifacts = []
+            if kind == "artifact_update":
+                resolved_task = frame.artifact_update.task_id or resolved_task
+                resolved_context = (
+                    frame.artifact_update.context_id or resolved_context
+                )
+                artifacts = [frame.artifact_update.artifact]
+            elif kind == "task":
+                resolved_task = frame.task.id or resolved_task
+                resolved_context = frame.task.context_id or resolved_context
+                artifacts = list(frame.task.artifacts)
+            elif kind == "status_update":
+                resolved_task = frame.status_update.task_id or resolved_task
+                resolved_context = (
+                    frame.status_update.context_id or resolved_context
+                )
+            for artifact in artifacts:
+                for part in artifact.parts:
+                    value = part_value(part)
+                    if not isinstance(value, dict):
+                        continue
+                    try:
+                        result = parse_verifund_task_result(value)
+                    except ValueError:
+                        continue
+        if not resolved_task:
+            raise VerifundProtocolError("Verifund returned no task id")
         if result is None:
-            raise RuntimeError("Verifund returned no structured result")
-        return result
+            raise VerifundProtocolError(
+                "Verifund returned no structured result"
+            )
+        return resolved_task, resolved_context or resolved_task, result
 
-    async def _task(
+    async def start(
         self,
-        skill: VerifundSkill,
         *,
         run_id: str,
-        transaction_id: str | None = None,
-        agreement_version: int | None = None,
-        agreement_hash: str | None = None,
-        payload: dict[str, Any] | None = None,
+        award: dict[str, Any],
+        buyer_task_id: str,
+        buyer_context_id: str,
         idempotency_key: str,
-    ) -> dict[str, Any]:
+    ) -> tuple[VerifundTaskHandle, VerifundTaskResult]:
         request = VerifundTaskRequest(
-            skill=skill,
+            skill=VerifundSkill.AGREEMENT_CREATE,
             run_id=run_id,
-            transaction_id=transaction_id,
-            agreement_version=agreement_version,
-            agreement_hash=agreement_hash,
-            payload=payload or {},
+            payload={
+                "award": award,
+                "buyer_task_id": buyer_task_id,
+                "buyer_context_id": buyer_context_id,
+            },
             idempotency_key=idempotency_key,
         )
-        return await self._send(wrap_verifund_task_request(request))
-
-    async def create_agreement(self, request: VerifundTaskRequest) -> dict[str, Any]:
-        return await self._send(wrap_verifund_task_request(request))
-
-    async def status(self, run_id: str, **kwargs) -> dict[str, Any]:
-        return await self._task(VerifundSkill.TRANSACTION_STATUS, run_id=run_id, **kwargs)
-
-    async def fund(self, run_id: str, decision: FundingApprovalDecision, **kwargs) -> dict[str, Any]:
-        return await self._task(
-            VerifundSkill.TRANSACTION_FUND,
-            run_id=run_id,
-            transaction_id=decision.transaction_id,
-            agreement_version=decision.agreement_version,
-            agreement_hash=decision.agreement_hash,
-            payload={"funding_approval": decision.model_dump(mode="json")},
-            idempotency_key=decision.idempotency_key,
+        task_id, context_id, result = await self._exchange(
+            wrap_verifund_task_request(request)
         )
+        return VerifundTaskHandle(task_id, context_id, run_id), result
 
-    async def evidence_review(self, run_id: str, transaction_id: str, **kwargs) -> dict[str, Any]:
-        return await self._task(
-            VerifundSkill.EVIDENCE_REVIEW,
-            run_id=run_id,
+    async def status(
+        self, handle: VerifundTaskHandle, *, transaction_id: str | None = None
+    ) -> VerifundTaskResult:
+        request = VerifundTaskRequest(
+            skill=VerifundSkill.TRANSACTION_STATUS,
+            run_id=handle.run_id,
             transaction_id=transaction_id,
-            **kwargs,
+            idempotency_key=f"status:{handle.task_id}:{uuid.uuid4().hex}",
         )
-
-    async def release(self, run_id: str, decision: ReleaseApprovalDecision, **kwargs) -> dict[str, Any]:
-        return await self._task(
-            VerifundSkill.TRANSACTION_RELEASE,
-            run_id=run_id,
-            transaction_id=decision.transaction_id,
-            agreement_version=decision.agreement_version,
-            agreement_hash=decision.agreement_hash,
-            payload={"release_approval": decision.model_dump(mode="json")},
-            idempotency_key=decision.idempotency_key,
+        task_id, context_id, result = await self._exchange(
+            wrap_verifund_task_request(request),
+            task_id=handle.task_id,
+            context_id=handle.context_id,
         )
+        return self._same_task(handle, task_id, context_id, result)
 
-    async def receipt(self, run_id: str, transaction_id: str, **kwargs) -> dict[str, Any]:
-        return await self._task(
-            VerifundSkill.RECEIPT_GET,
-            run_id=run_id,
+    async def resume(
+        self,
+        handle: VerifundTaskHandle,
+        *,
+        checkpoint: VerifundCheckpoint,
+        value: dict[str, Any],
+        idempotency_key: str,
+    ) -> VerifundTaskResult:
+        request = VerifundResumeRequest(
+            run_id=handle.run_id,
+            task_id=handle.task_id,
+            checkpoint=checkpoint,
+            value=value,
+            idempotency_key=idempotency_key,
+        )
+        task_id, context_id, result = await self._exchange(
+            wrap_verifund_resume_request(request),
+            task_id=handle.task_id,
+            context_id=handle.context_id,
+        )
+        return self._same_task(handle, task_id, context_id, result)
+
+    async def receipt(
+        self, handle: VerifundTaskHandle, *, transaction_id: str
+    ) -> VerifundTaskResult:
+        request = VerifundTaskRequest(
+            skill=VerifundSkill.RECEIPT_GET,
+            run_id=handle.run_id,
             transaction_id=transaction_id,
-            **kwargs,
+            idempotency_key=f"receipt:{handle.task_id}:{uuid.uuid4().hex}",
         )
+        task_id, context_id, result = await self._exchange(
+            wrap_verifund_task_request(request),
+            task_id=handle.task_id,
+            context_id=handle.context_id,
+        )
+        return self._same_task(handle, task_id, context_id, result)
+
+    @staticmethod
+    def _same_task(
+        handle: VerifundTaskHandle,
+        task_id: str,
+        context_id: str,
+        result: VerifundTaskResult,
+    ) -> VerifundTaskResult:
+        if task_id != handle.task_id:
+            raise VerifundProtocolError(
+                "Verifund created a new task during a lifecycle resume"
+            )
+        if context_id != handle.context_id:
+            raise VerifundProtocolError(
+                "Verifund changed the task context during a lifecycle resume"
+            )
+        return result
 
 
 class BuyerA2AAgents:
-    """Resume the original Buyer task and call the Seller review skill."""
-
-    def __init__(self, *, buyer_a2a_url: str) -> None:
+    def __init__(
+        self, *, buyer_a2a_url: str, send: Sender = _a2a_send
+    ) -> None:
         self.buyer_a2a_url = buyer_a2a_url.rstrip("/")
-        self._buyer_contexts: dict[str, str] = {}
+        self._send = send
 
-    async def _send(
+    async def _send_envelope(
         self,
         *,
         task_id: str,
@@ -21000,73 +25767,85 @@ class BuyerA2AAgents:
             task_id=task_id,
             envelope=envelope,
         )
-        frames = await _a2a_send(self.buyer_a2a_url, message)
+        frames = await self._send(self.buyer_a2a_url, message)
         response = _buyer_response(frames)
         if response is None:
-            raise RuntimeError("Buyer returned no structured response")
+            raise VerifundProtocolError("Buyer returned no structured response")
         return response
 
     async def resume_buyer(
-        self, task_id: str, value: dict[str, Any]
+        self,
+        *,
+        task_id: str,
+        context_id: str,
+        agreement: AgreementProjection,
+        idempotency_key: str,
     ) -> dict[str, Any]:
-        agreement = AgreementProjection.model_validate(value["agreement"])
-        buyer_context = str(value.get("buyer_context_id") or agreement.run_id)
         request = AgreementReviewRequest(
             party="buyer",
             run_id=agreement.run_id,
             transaction_id=agreement.transaction_id,
             agreement=agreement,
             buyer_task_id=task_id,
-            buyer_context_id=buyer_context,
+            buyer_context_id=context_id,
             requested_at=datetime.now(UTC),
-            idempotency_key=(
-                f"review:{agreement.transaction_id}:"
-                f"{agreement.agreement_version}"
-            ),
+            idempotency_key=idempotency_key,
         )
-        self._buyer_contexts[task_id] = buyer_context
-        return await self._send(
+        return await self._send_envelope(
             task_id=task_id,
-            context_id=buyer_context,
+            context_id=context_id,
             envelope=wrap_agreement_review_request(request),
             text="Buyer agreement review.",
         )
 
-    async def resume_buyer_with_seller(
-        self, task_id: str, decision: dict[str, Any]
+    async def apply_seller_decision(
+        self,
+        *,
+        task_id: str,
+        context_id: str,
+        decision: AgreementReviewResult,
     ) -> dict[str, Any]:
-        result = AgreementReviewResult.model_validate(decision)
-        context_id = self._buyer_contexts.get(task_id, result.run_id)
-        return await self._send(
+        return await self._send_envelope(
             task_id=task_id,
             context_id=context_id,
-            envelope=wrap_agreement_review_result(result),
+            envelope=wrap_agreement_review_result(decision),
             text="Seller agreement review.",
         )
 
-    async def review_seller(
-        self, seller_card_url: str, envelope: dict[str, Any]
-    ) -> dict[str, Any]:
-        payload = envelope.get("payload") or {}
-        agreement = payload.get("agreement") or {}
-        seller_id = str(agreement.get("seller_id") or "") or None
-        seller_base = seller_card_url.split("/.well-known")[0]
+
+class SellerA2AClient:
+    def __init__(
+        self,
+        *,
+        send: Sender = _a2a_send,
+        resolve_seller_token: TokenResolver = _resolve_seller_token,
+        resolve_settlement_token: SettlementResolver = (
+            _resolve_settlement_token
+        ),
+    ) -> None:
+        self._send = send
+        self._resolve_seller_token = resolve_seller_token
+        self._resolve_settlement_token = resolve_settlement_token
+
+    async def review(
+        self,
+        card_url: str,
+        request: AgreementReviewRequest,
+    ) -> AgreementReviewResult:
+        envelope = wrap_agreement_review_request(request)
         message = make_message(
             role=Role.ROLE_USER,
             text="Verifund agreement review.",
-            context_id=str(
-                payload.get("seller_context_id")
-                or agreement.get("run_id")
-                or ""
-            ),
+            context_id=request.seller_context_id or request.run_id,
             envelope=envelope,
         )
-        frames = await _a2a_send(
-            seller_base,
+        frames = await self._send(
+            _base_url(card_url),
             message,
-            token=_resolve_seller_token(seller_card_url, None, seller_id),
+            token=self._resolve_seller_token(
+                card_url, None, request.agreement.seller_id
+            ),
         )
-        result = None
         for frame in frames:
             kind = frame.WhichOneof("payload")
             artifacts = []
@@ -21077,166 +25856,713 @@ class BuyerA2AAgents:
             for artifact in artifacts:
                 for part in artifact.parts:
                     value = part_value(part)
-                    if isinstance(value, dict):
-                        result = parse_agreement_review_result(value).model_dump(
-                            mode="json"
+                    if not isinstance(value, dict):
+                        continue
+                    try:
+                        return parse_agreement_review_result(
+                            value,
+                            expected_party="seller",
+                            expected_transaction_id=(
+                                request.agreement.transaction_id
+                            ),
+                            expected_version=(
+                                request.agreement.agreement_version
+                            ),
+                            expected_hash=request.agreement.agreement_hash,
                         )
-        if result is None:
-            raise RuntimeError("Seller returned no structured agreement review")
-        return result
+                    except ValueError:
+                        continue
+        raise VerifundProtocolError(
+            "Seller returned no structured agreement review"
+        )
+
+    async def purchase_order(
+        self,
+        *,
+        card_url: str,
+        seller_id: str,
+        run_id: str,
+        purchase_order: PurchaseOrderRequest,
+        buyer_internal_url: str,
+        buyer_internal_token: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, Any]:
+        if not purchase_order.settlement_transaction_id:
+            raise VerifundProtocolError(
+                "purchase order has no settlement transaction"
+            )
+        token = await self._resolve_settlement_token(
+            buyer_internal_url,
+            buyer_internal_token,
+            {
+                "run_id": run_id,
+                "transaction_id": purchase_order.settlement_transaction_id,
+                "seller_id": seller_id,
+                "purpose": "purchase_order",
+            },
+            timeout_seconds=timeout_seconds,
+        )
+        envelope = _inject_settlement_token(
+            wrap_payload("purchase_order", purchase_order), token
+        )
+        message = make_message(
+            role=Role.ROLE_USER,
+            text="Purchase order.",
+            context_id=run_id,
+            envelope=envelope,
+        )
+        frames = await self._send(
+            _base_url(card_url),
+            message,
+            token=self._resolve_seller_token(card_url, None, seller_id),
+        )
+        order = self._order_from_frames(frames)
+        parsed = Order.model_validate(order)
+        if parsed.seller_id != seller_id:
+            raise VerifundProtocolError(
+                "Seller order does not match the selected seller"
+            )
+        if parsed.offer_id != purchase_order.offer_id:
+            raise VerifundProtocolError(
+                "Seller order does not match the purchase order offer"
+            )
+        if parsed.quantity != purchase_order.quantity:
+            raise VerifundProtocolError(
+                "Seller order quantity does not match the purchase order"
+            )
+        if parsed.total_cents != purchase_order.expected_total_cents:
+            raise VerifundProtocolError(
+                "Seller order total does not match the purchase order"
+            )
+        return _redact_settlement(parsed.model_dump(mode="json"), token)
+
+    @staticmethod
+    def _order_from_frames(frames: list) -> dict[str, Any]:
+        for frame in frames:
+            kind = frame.WhichOneof("payload")
+            artifacts = []
+            if kind == "artifact_update":
+                artifacts = [frame.artifact_update.artifact]
+            elif kind == "task":
+                artifacts = list(frame.task.artifacts)
+            for artifact in artifacts:
+                for part in artifact.parts:
+                    value = part_value(part)
+                    if not isinstance(value, dict):
+                        continue
+                    payload = value.get("payload")
+                    candidate = payload if isinstance(payload, dict) else value
+                    if candidate.get("order_id"):
+                        return candidate
+        raise VerifundProtocolError("Seller returned no order")
 
 
-class AgreementCoordinator:
-    def __init__(self, *, verifund, agents=None) -> None:
+class VerifundLifecycle:
+    def __init__(
+        self,
+        *,
+        verifund: VerifundA2AClient,
+        buyer: BuyerA2AAgents,
+        seller: SellerA2AClient,
+        buyer_internal_url: str,
+        buyer_internal_token: str,
+        buyer_internal_timeout_seconds: float = 10.0,
+    ) -> None:
         self.verifund = verifund
-        self.agents = agents
+        self.buyer = buyer
+        self.seller = seller
+        self.buyer_internal_url = buyer_internal_url
+        self.buyer_internal_token = buyer_internal_token
+        self.buyer_internal_timeout_seconds = buyer_internal_timeout_seconds
 
-    async def run(
+    async def start(
         self,
         *,
         run_id: str,
+        award: dict[str, Any],
         buyer_task_id: str,
         buyer_context_id: str,
-        award: dict[str, Any],
-        buyer_a2a_url: str,
         seller_card_url: str,
         seller_id: str,
+        idempotency_key: str,
     ) -> dict[str, Any]:
-        agents = self.agents or BuyerA2AAgents(buyer_a2a_url=buyer_a2a_url)
-        created = await self.verifund.create_agreement(
-            VerifundTaskRequest(
-                skill=VerifundSkill.AGREEMENT_CREATE,
-                run_id=run_id,
-                payload={
-                    "award": award,
-                    "buyer_task_id": buyer_task_id,
-                    "buyer_context_id": buyer_context_id,
-                },
-                idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
-            )
-        )
-        if created["status"] != "completed":
-            return {
-                "buyer_status": None,
-                "seller_status": None,
-                "funding_hitl": False,
-                "error": created.get("message"),
-            }
-        agreement = created["data"]["agreement"]
-        buyer = await agents.resume_buyer(
-            buyer_task_id,
-            {
-                "agreement": agreement,
-                "seller_token_ref": created["data"]["seller_token_ref"],
-                "buyer_context_id": buyer_context_id,
-            },
-        )
-        if buyer.get("status") != "seller_review_required":
-            return {
-                "buyer_status": buyer.get("status"),
-                "seller_status": None,
-                "funding_hitl": False,
-                "agreement": agreement,
-                "buyer_review": buyer.get("buyer_agent_review"),
-                "error": buyer.get("message"),
-            }
-        seller_task_id = (
-            f"agreement-review:{agreement['transaction_id']}:"
-            f"{agreement['agreement_version']}"
-        )
-        seller_request = AgreementReviewRequest(
-            party="seller",
+        handle, result = await self.verifund.start(
             run_id=run_id,
-            transaction_id=agreement["transaction_id"],
+            award=award,
+            buyer_task_id=buyer_task_id,
+            buyer_context_id=buyer_context_id,
+            idempotency_key=idempotency_key,
+        )
+        self._require(
+            result,
+            status="input_required",
+            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+        )
+        agreement = self._agreement(result)
+        seller_token_ref = str(result.data.get("seller_token_ref") or "")
+        if not seller_token_ref:
+            raise VerifundProtocolError(
+                "Verifund returned no seller token reference"
+            )
+        buyer_response = await self.buyer.resume_buyer(
+            task_id=buyer_task_id,
+            context_id=buyer_context_id,
             agreement=agreement,
-            seller_task_id=seller_task_id,
-            seller_context_id=run_id,
-            requested_at=datetime.now(UTC),
-            idempotency_key=f"review:{agreement['transaction_id']}:{agreement['agreement_version']}",
-        )
-        seller = await agents.review_seller(
-            seller_card_url, wrap_agreement_review_request(seller_request)
-        )
-        if seller.get("status") != "accepted":
-            return {
-                "buyer_status": buyer.get("status"),
-                "seller_status": seller.get("status"),
-                "funding_hitl": False,
-                "agreement": agreement,
-                "buyer_review": buyer.get("buyer_agent_review"),
-                "seller_decision": seller,
-                "transaction_id": agreement["transaction_id"],
-                "agreement_version": agreement["agreement_version"],
-                "agreement_hash": agreement["agreement_hash"],
-            }
-        resumed = await agents.resume_buyer_with_seller(
-            buyer_task_id, seller
-        )
-        return {
-            "buyer_status": resumed.get("status"),
-            "seller_status": "accepted",
-            "funding_hitl": resumed.get("status") == "funding_approval_required",
-            "agreement": agreement,
-            "buyer_review": (
-                resumed.get("buyer_agent_review")
-                or buyer.get("buyer_agent_review")
+            idempotency_key=(
+                f"review:buyer:{agreement.transaction_id}:"
+                f"{agreement.agreement_version}"
             ),
-            "seller_decision": resumed.get("seller_decision") or seller,
-            "transaction_id": agreement["transaction_id"],
-            "agreement_version": agreement["agreement_version"],
-            "agreement_hash": agreement["agreement_hash"],
+        )
+        buyer_status = buyer_response.get("status")
+        if buyer_status not in {"seller_review_required", "rejected"}:
+            raise VerifundProtocolError(
+                "Buyer did not review the canonical agreement"
+            )
+        buyer_review = self._buyer_review(
+            agreement,
+            buyer_response,
+            buyer_task_id=buyer_task_id,
+            buyer_context_id=buyer_context_id,
+        )
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            value=buyer_review.model_dump(mode="json"),
+            idempotency_key=(
+                f"review:buyer-resume:{handle.task_id}:"
+                f"{agreement.agreement_hash}"
+            ),
+        )
+        if buyer_status == "rejected":
+            if (
+                result.status != "completed"
+                or result.state is not TransactionState.CANCELED
+            ):
+                raise VerifundProtocolError(
+                    "Verifund did not cancel after the Buyer rejection"
+                )
+            view = self._view(handle, result)
+            view["buyer_review"] = _review_summary(buyer_review)
+            view["seller_decision"] = None
+            return view
+        self._require(
+            result,
+            status="input_required",
+            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+        )
+        seller_task_id = (
+            f"agreement-review:{agreement.transaction_id}:"
+            f"{agreement.agreement_version}"
+        )
+        seller_decision = await self.seller.review(
+            seller_card_url,
+            AgreementReviewRequest(
+                party="seller",
+                run_id=agreement.run_id,
+                transaction_id=agreement.transaction_id,
+                agreement=agreement,
+                seller_task_id=seller_task_id,
+                seller_context_id=agreement.run_id,
+                requested_at=datetime.now(UTC),
+                idempotency_key=(
+                    f"review:seller:{agreement.transaction_id}:"
+                    f"{agreement.agreement_version}"
+                ),
+            ),
+        )
+        if not _review_matches(seller_decision, agreement, "seller"):
+            raise VerifundProtocolError(
+                "Seller review does not match the agreement"
+            )
+        buyer_response = await self.buyer.apply_seller_decision(
+            task_id=buyer_task_id,
+            context_id=buyer_context_id,
+            decision=seller_decision,
+        )
+        expected = (
+            "agreed"
+            if seller_decision.status == AgreementReviewDecision.ACCEPTED
+            else "rejected"
+        )
+        if buyer_response.get("status") != expected:
+            raise VerifundProtocolError(
+                "Buyer did not record the Seller agreement decision"
+            )
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            value=seller_decision.model_dump(mode="json"),
+            idempotency_key=(
+                f"review:seller-resume:{handle.task_id}:"
+                f"{seller_decision.agreement_hash}"
+            ),
+        )
+        view = self._view(handle, result)
+        view["buyer_review"] = _review_summary(buyer_review)
+        view["seller_decision"] = _review_summary(seller_decision)
+        return view
+
+    async def advance(
+        self,
+        handle: VerifundTaskHandle,
+        *,
+        seller_card_url: str,
+    ) -> dict[str, Any]:
+        result = await self.verifund.status(handle)
+        if result.checkpoint is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED:
+            order = await self._place_purchase_order(
+                handle, result, seller_card_url
+            )
+            result = await self.verifund.resume(
+                handle,
+                checkpoint=VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+                value={"order": order},
+                idempotency_key=(
+                    f"order:{handle.run_id}:{order['order_id']}"
+                ),
+            )
+        return self._view(handle, result)
+
+    async def resume_funding(
+        self,
+        handle: VerifundTaskHandle,
+        decision: FundingApprovalDecision,
+    ) -> dict[str, Any]:
+        if decision.run_id != handle.run_id:
+            raise VerifundProtocolError(
+                "funding decision belongs to another run"
+            )
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            value=decision.model_dump(mode="json"),
+            idempotency_key=decision.idempotency_key,
+        )
+        return self._view(handle, result)
+
+    async def resume_release(
+        self,
+        handle: VerifundTaskHandle,
+        decision: ReleaseApprovalDecision,
+    ) -> dict[str, Any]:
+        if decision.run_id != handle.run_id:
+            raise VerifundProtocolError(
+                "release decision belongs to another run"
+            )
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED,
+            value=decision.model_dump(mode="json"),
+            idempotency_key=decision.idempotency_key,
+        )
+        return self._view(handle, result)
+
+    async def status(self, handle: VerifundTaskHandle) -> dict[str, Any]:
+        return self._view(handle, await self.verifund.status(handle))
+
+    async def receipt(
+        self, handle: VerifundTaskHandle, *, transaction_id: str
+    ) -> dict[str, Any]:
+        result = await self.verifund.receipt(
+            handle, transaction_id=transaction_id
+        )
+        return self._view(handle, result)
+
+    async def _place_purchase_order(
+        self,
+        handle: VerifundTaskHandle,
+        result: VerifundTaskResult,
+        seller_card_url: str,
+    ) -> dict[str, Any]:
+        data = result.data or {}
+        payload = data.get("purchase_order")
+        if not isinstance(payload, dict):
+            raise VerifundProtocolError(
+                "purchase order checkpoint has no purchase order"
+            )
+        purchase_order = PurchaseOrderRequest.model_validate(payload)
+        seller_id = str(data.get("seller_id") or purchase_order.seller_id)
+        if seller_id != purchase_order.seller_id:
+            raise VerifundProtocolError(
+                "purchase order seller does not match the agreement"
+            )
+        if not data.get("seller_token_ref"):
+            raise VerifundProtocolError(
+                "purchase order checkpoint has no seller token reference"
+            )
+        return await self.seller.purchase_order(
+            card_url=seller_card_url,
+            seller_id=seller_id,
+            run_id=handle.run_id,
+            purchase_order=purchase_order,
+            buyer_internal_url=self.buyer_internal_url,
+            buyer_internal_token=self.buyer_internal_token,
+            timeout_seconds=self.buyer_internal_timeout_seconds,
+        )
+
+    def _view(
+        self, handle: VerifundTaskHandle, result: VerifundTaskResult
+    ) -> dict[str, Any]:
+        data = result.data or {}
+        view: dict[str, Any] = {
+            "status": result.status,
+            "checkpoint": (
+                result.checkpoint.value if result.checkpoint else None
+            ),
+            "state": result.state.value if result.state else None,
+            "handle": handle.as_dict(),
+            "message": result.message,
+            "data": data,
+            "result": result.model_dump(mode="json"),
         }
+        if result.status == "approval_required":
+            if result.approval_type == "funding":
+                view["hitl"] = {
+                    "tool": "request_verifund_funding_approval",
+                    "args": self._funding_args(handle, result),
+                }
+            elif result.approval_type == "release":
+                view["hitl"] = {
+                    "tool": "request_verifund_release_approval",
+                    "args": self._release_args(handle, result),
+                }
+        elif result.checkpoint is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED:
+            view["status"] = "input_required"
+        elif result.checkpoint in {
+            VerifundCheckpoint.FUNDING_PENDING,
+            VerifundCheckpoint.EVIDENCE_PENDING,
+        }:
+            projection = data.get("projection") or {}
+            view["status"] = "working"
+            view["checkout_url"] = data.get("checkout_url")
+            view["evidence"] = data.get("evidence") or projection.get("evidence")
+            view["verification"] = (
+                data.get("verification") or projection.get("verification")
+            )
+        elif result.status == "completed":
+            view["status"] = "completed"
+            view["receipt"] = data.get("receipt")
+        return view
+
+    @staticmethod
+    def _funding_args(
+        handle: VerifundTaskHandle, result: VerifundTaskResult
+    ) -> dict[str, Any]:
+        data = result.data or {}
+        return {
+            "run_id": data.get("run_id") or handle.run_id,
+            "transaction_id": data.get("transaction_id"),
+            "agreement_version": data.get("agreement_version"),
+            "agreement_hash": data.get("agreement_hash"),
+            "agreement": data.get("agreement"),
+            "buyer_review": _review_summary(data.get("buyer_review")),
+            "seller_decision": _review_summary(data.get("seller_decision")),
+            "message": result.message or "Approve funding for this agreement.",
+        }
+
+    @staticmethod
+    def _release_args(
+        handle: VerifundTaskHandle, result: VerifundTaskResult
+    ) -> dict[str, Any]:
+        data = result.data or {}
+        return {
+            "run_id": data.get("run_id") or handle.run_id,
+            "transaction_id": data.get("transaction_id"),
+            "agreement_version": data.get("agreement_version"),
+            "agreement_hash": data.get("agreement_hash"),
+            "projection": data.get("projection"),
+            "message": result.message or "Release this transaction.",
+        }
+
+    @staticmethod
+    def _require(
+        result: VerifundTaskResult,
+        *,
+        status: str,
+        checkpoint: VerifundCheckpoint,
+    ) -> None:
+        if result.status != status or result.checkpoint is not checkpoint:
+            raise VerifundProtocolError(
+                result.message
+                or f"Verifund did not reach {checkpoint.value}"
+            )
+
+    @staticmethod
+    def _agreement(result: VerifundTaskResult) -> AgreementProjection:
+        payload = result.data.get("agreement")
+        if not isinstance(payload, dict):
+            raise VerifundProtocolError(
+                "Verifund checkpoint has no canonical agreement"
+            )
+        agreement = AgreementProjection.model_validate(payload)
+        if (
+            result.transaction_id
+            and result.transaction_id != agreement.transaction_id
+        ):
+            raise VerifundProtocolError(
+                "agreement transaction does not match the lifecycle result"
+            )
+        if (
+            result.agreement_version
+            and result.agreement_version != agreement.agreement_version
+        ):
+            raise VerifundProtocolError(
+                "agreement version does not match the lifecycle result"
+            )
+        if (
+            result.agreement_hash
+            and result.agreement_hash != agreement.agreement_hash
+        ):
+            raise VerifundProtocolError(
+                "agreement hash does not match the lifecycle result"
+            )
+        return agreement
+
+    @staticmethod
+    def _buyer_review(
+        agreement: AgreementProjection,
+        response: dict[str, Any],
+        *,
+        buyer_task_id: str,
+        buyer_context_id: str,
+    ) -> AgreementReviewResult:
+        review = response.get("buyer_agent_review")
+        if not isinstance(review, dict):
+            raise VerifundProtocolError(
+                "Buyer returned no structured agreement review"
+            )
+        status = review.get("status")
+        if status not in {
+            AgreementReviewDecision.ACCEPTED.value,
+            AgreementReviewDecision.REJECTED.value,
+        }:
+            raise VerifundProtocolError(
+                "Buyer agreement review is not a decision"
+            )
+        if review.get("agreement_hash") != agreement.agreement_hash:
+            raise VerifundProtocolError(
+                "Buyer review hash does not match the agreement"
+            )
+        if int(review.get("agreement_version") or 0) != (
+            agreement.agreement_version
+        ):
+            raise VerifundProtocolError(
+                "Buyer review version does not match the agreement"
+            )
+        reviewed_at = review.get("reviewed_at")
+        try:
+            reviewed = (
+                datetime.fromisoformat(str(reviewed_at).replace("Z", "+00:00"))
+                if reviewed_at
+                else datetime.now(UTC)
+            )
+        except ValueError:
+            reviewed = datetime.now(UTC)
+        return AgreementReviewResult(
+            party="buyer",
+            status=status,
+            run_id=agreement.run_id,
+            transaction_id=agreement.transaction_id,
+            agreement_version=agreement.agreement_version,
+            agreement_hash=agreement.agreement_hash,
+            task_id=str(response.get("task_id") or buyer_task_id),
+            context_id=str(
+                response.get("buyer_context_id") or buyer_context_id
+            ),
+            reviewed_at=reviewed,
+            reason_code=review.get("reason_code"),
+            note=str(review.get("note") or ""),
+        )
 ```
 
-Replace the `__import__` calls with normal `datetime` imports. The
-`seller_task_id` is a deterministic agreement-review correlation ID carried in
-the envelope; the orchestrator does not pre-create an A2A task. `resume_buyer`
-must send the canonical agreement envelope to the existing Buyer task, and
-`review_seller` must send the `AgreementReviewRequest` envelope and validate the
-returned `AgreementReviewResult` against the same transaction/version/hash. Do
-not send `seller_task_id` as the A2A `task_id`; the Seller echoes the correlation
-ID in its result. `BuyerA2AAgents` is the production adapter: `resume_buyer`
-sends a wrapped `AgreementReviewRequest` (task 22E's strict entrypoint) to the
-original Buyer task/context, `resume_buyer_with_seller` sends a wrapped
-`AgreementReviewResult`, and `review_seller` resolves the Seller bearer token
-from the agreement's `seller_id`. The coordinator normalizes the Buyer's
-`buyer_agent_review` field to `buyer_review` so the console HITL args match the
-Buyer's structured review, and includes the resulting `seller_decision`.
+`first_envelope` is imported for the executor/tests; remove it from the module
+import if the linter flags it unused. The lifecycle never creates a new Verifund
+task: `VerifundA2AClient.status`, `resume`, and `receipt` always send the
+original `task_id` and `context_id`, and `_same_task` rejects a server response
+that changed either.
 
-- [ ] **Step 5: Register the tools and guard funding**
+- [ ] **Step 5: Register the orchestrator tools and guard the HITL handoffs**
 
-In `agent.py`, add six `FunctionTool` wrappers and extend the instruction text:
+In `agent.py`, build one lifecycle for the configured settings and register the
+six tools only when `verifund_mode != "off"`:
+
+```python
+from orchestrator_agent.verifund import (
+    BuyerA2AAgents,
+    SellerA2AClient,
+    VerifundA2AClient,
+    VerifundLifecycle,
+    VerifundTaskHandle,
+)
+from verifund_contracts import (
+    FundingApprovalDecision,
+    ReleaseApprovalDecision,
+)
+
+
+def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
+    lifecycle = VerifundLifecycle(
+        verifund=VerifundA2AClient(
+            base_url=settings.verifund_agent_url,
+            token=settings.verifund_agent_a2a_token,
+        ),
+        buyer=BuyerA2AAgents(buyer_a2a_url=settings.buyer_a2a_url),
+        seller=SellerA2AClient(),
+        buyer_internal_url=settings.buyer_internal_url,
+        buyer_internal_token=settings.buyer_internal_token,
+        buyer_internal_timeout_seconds=(
+            settings.buyer_internal_timeout_seconds
+        ),
+    )
+
+    def handle(
+        task_id: str, context_id: str, run_id: str
+    ) -> VerifundTaskHandle:
+        return VerifundTaskHandle(task_id, context_id, run_id)
+
+    async def verifund_create_agreement(
+        run_id: str,
+        buyer_task_id: str,
+        buyer_context_id: str,
+        award: dict,
+        seller_card_url: str,
+        seller_id: str,
+    ) -> dict:
+        """Start the Verifund lifecycle and complete the bilateral review."""
+        return await lifecycle.start(
+            run_id=run_id,
+            award=award,
+            buyer_task_id=buyer_task_id,
+            buyer_context_id=buyer_context_id,
+            seller_card_url=seller_card_url,
+            seller_id=seller_id,
+            idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
+        )
+
+    async def verifund_status(
+        task_id: str, context_id: str, run_id: str
+    ) -> dict:
+        """Return the current Verifund checkpoint without advancing it."""
+        return await lifecycle.status(handle(task_id, context_id, run_id))
+
+    async def verifund_fund(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        decision: dict,
+    ) -> dict:
+        """Resume the funding checkpoint with a structured human decision."""
+        return await lifecycle.resume_funding(
+            handle(task_id, context_id, run_id),
+            FundingApprovalDecision.model_validate(decision),
+        )
+
+    async def verifund_evidence_review(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        seller_card_url: str,
+    ) -> dict:
+        """Place the purchase order and poll funding, evidence, or release."""
+        return await lifecycle.advance(
+            handle(task_id, context_id, run_id),
+            seller_card_url=seller_card_url,
+        )
+
+    async def verifund_release(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        decision: dict,
+    ) -> dict:
+        """Resume the release checkpoint with a structured human decision."""
+        return await lifecycle.resume_release(
+            handle(task_id, context_id, run_id),
+            ReleaseApprovalDecision.model_validate(decision),
+        )
+
+    async def verifund_receipt(
+        task_id: str, context_id: str, run_id: str, transaction_id: str
+    ) -> dict:
+        """Return the verified receipt after release."""
+        return await lifecycle.receipt(
+            handle(task_id, context_id, run_id),
+            transaction_id=transaction_id,
+        )
+
+    return [
+        FunctionTool(verifund_create_agreement),
+        FunctionTool(verifund_status),
+        FunctionTool(verifund_fund),
+        FunctionTool(verifund_evidence_review),
+        FunctionTool(verifund_release),
+        FunctionTool(verifund_receipt),
+    ]
+```
+
+Change `build_agent` to include the tools only in settlement modes:
+
+```python
+    tools = [_build_mediation_tool(settings), AGUIToolset()]
+    if settings.verifund_mode != "off":
+        tools.extend(_build_verifund_tools(settings))
+    return LlmAgent(
+        name="marketmesh_orchestrator",
+        model=model,
+        tools=tools,
+        instruction=MARKETMESH_ORCHESTRATOR_INSTRUCTION,
+    )
+```
+
+Append this section to the instruction text:
 
 ```text
-- Call verifund_create_agreement after the Buyer pauses with
-  agreement_create_required. Pass the exact award and original Buyer task IDs.
-- Resume the Buyer task with the returned agreement before calling the Seller.
-- Call the Seller commerce.agreement.review skill only after the Buyer accepts.
-- Never render the funding HITL unless the Buyer resumed with
-  funding_approval_required after the Seller accepted. Pass the Buyer's
-  `buyer_agent_review` as `buyer_review` and its `seller_decision` unchanged;
-  do not reconstruct either review from chat text.
-- Call verifund_fund only with the structured FundingApprovalDecision returned
-  by useHumanInTheLoop; call verifund_release only with the structured
-  ReleaseApprovalDecision.
-- Treat pending, input-required, failed, or malformed results as non-success.
-```
+# 8. Verifund Lifecycle Protocol
 
-The funding tool must reject a missing/invalid `FundingApprovalDecision` and the
-release tool must reject a missing/invalid `ReleaseApprovalDecision`; free-form
-chat text never authorizes either call.
+- Call verifund_create_agreement only after the Buyer pauses with
+  agreement_create_required. Pass the exact run_id, original Buyer
+  task and context, award, seller_card_url, and seller_id.
+  The tool mediates the Buyer review, the Seller review, and the
+  Buyer's recorded Seller decision. Never call the Seller directly
+  and never invent a review.
+- Never render the funding HITL unless the returned buyer_review and
+  seller_decision both have status "accepted" and the same
+  agreement_version and agreement_hash. Pass those exact values to
+  the frontend; do not reconstruct them from chat text.
+- When the result status is approval_required and hitl.tool is
+  request_verifund_funding_approval, call that frontend tool with
+  hitl.args unchanged. When the human decision returns, call
+  verifund_fund with the structured FundingApprovalDecision. Free-form
+  chat text never authorizes funding.
+- After funding, call verifund_evidence_review with the same task_id,
+  context_id, run_id, and seller_card_url. It places the purchase
+  order with the Seller and polls funding and evidence. Do not call
+  the Seller or place the purchase order yourself.
+- When hitl.tool is request_verifund_release_approval, call that
+  frontend tool with hitl.args unchanged, then call verifund_release
+  with the structured ReleaseApprovalDecision. A rejected release is
+  a manual-review outcome, not a success.
+- Call verifund_receipt after release when the receipt is not already
+  attached. Never claim a payout or receipt exists unless the tool
+  result confirms it.
+- Treat working, pending, input_required, failed, and malformed
+  results as non-success. Preserve the exact task_id, context_id,
+  run_id, agreement_hash, and transaction_id from the tool result.
+```
 
 - [ ] **Step 6: Run the orchestrator tests**
 
 Run: `uv run pytest tests/unit/test_orchestrator_verifund.py tests/unit tests/protocol -k "orchestrator or agreement" -v`
-Expected: PASS. Existing sourcing and seller mediation tests still pass.
+Expected: PASS. Existing sourcing and seller mediation tests still pass, and the default `VERIFUND_MODE=off` does not register the lifecycle tools.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add apps/orchestrator_agent/orchestrator_agent/{verifund.py,agent.py,settings.py} tests/unit/test_orchestrator_verifund.py
-git commit -m "feat(orchestrator): route Verifund agreement and settlement tasks sequentially"
+git commit -m "feat(orchestrator): mediate the Verifund lifecycle on one A2A task"
 ```
+
+---
 
 ## Phase 4 — Transaction Room console
 
@@ -23604,7 +28930,7 @@ git commit -m "feat(console): wire settlement actions into run and seller views"
 - Modify: `apps/console/next.config.ts`
 
 **Interfaces:**
-- Produces: `verifundToolsEnabled(mode)`, `bilateralReviewStatus(args)`, `fundingDecision(args, choice)`, `releaseGate(projection)`, `releaseDecision(args, choice)`, `parseVerifundToolResult(result)`, `AgreementReviewCard`, `FundingApprovalCard`, `ReleaseApprovalCard`, `EvidenceSummaryCard`, `ReceiptCard`, `CheckoutCard`, `VerifundStatusCard`; HITL tools `request_verifund_funding_approval` and `request_verifund_release_approval`; renderers for `verifund_create_agreement`, `verifund_status`, `verifund_evidence_review`, `verifund_fund`, `verifund_receipt`.
+- Produces: `verifundToolsEnabled(mode)`, `bilateralReviewStatus(args)`, `fundingDecision(args, choice)`, `releaseGate(projection)`, `releaseDecision(args, choice)`, `parseVerifundToolResult(result)`, `verifundStatusLabel(status, checkpoint, state)`, `AgreementReviewCard`, `FundingApprovalCard`, `ReleaseApprovalCard`, `EvidenceSummaryCard`, `ReceiptCard`, `CheckoutCard`, `VerifundStatusCard`; HITL tools `request_verifund_funding_approval` and `request_verifund_release_approval`; renderers for `verifund_create_agreement`, `verifund_status`, `verifund_evidence_review`, `verifund_fund`, `verifund_receipt`.
 - Consumes: the `VerifundTaskResult` envelopes and tool names from Task 22G, `SettlementProjection`/`SettlementReceipt` from Task 23, and the exact `FundingApprovalDecision`/`ReleaseApprovalDecision` shapes from Task 1A. Free-form chat text never becomes a decision.
 
 - [ ] **Step 1: Write the failing chat-tool tests**
@@ -23623,6 +28949,7 @@ import {
   fundingDecision,
   releaseDecision,
   releaseGate,
+  verifundStatusLabel,
   verifundToolsEnabled,
 } from "./verifund-tools";
 
@@ -23706,6 +29033,39 @@ describe("verifund chat tools", () => {
         }),
       ),
     ).toBe("mismatch");
+  });
+
+  it("labels every lifecycle checkpoint and terminal outcome", () => {
+    expect(
+      verifundStatusLabel("input_required", "buyer_review_required"),
+    ).toMatch(/Buyer review/);
+    expect(
+      verifundStatusLabel("input_required", "seller_review_required"),
+    ).toMatch(/Seller review/);
+    expect(
+      verifundStatusLabel("approval_required", "funding_approval_required"),
+    ).toMatch(/funding approval/);
+    expect(
+      verifundStatusLabel("completed", "funding_pending"),
+    ).toMatch(/funding settlement/);
+    expect(
+      verifundStatusLabel("input_required", "purchase_order_required"),
+    ).toMatch(/purchase order/);
+    expect(
+      verifundStatusLabel("completed", "evidence_pending"),
+    ).toMatch(/evidence/);
+    expect(
+      verifundStatusLabel("approval_required", "release_approval_required"),
+    ).toMatch(/release approval/);
+    expect(verifundStatusLabel("completed", null, "RELEASED")).toBe(
+      "Transaction released.",
+    );
+    expect(
+      verifundStatusLabel("completed", null, "REVIEW_REQUIRED"),
+    ).toMatch(/manual review/);
+    expect(verifundStatusLabel("completed", null, "CANCELED")).toMatch(
+      /no funds moved/,
+    );
   });
 
   it("builds a decision with the original identifiers and idempotency key", () => {
@@ -23966,6 +29326,43 @@ export type ReleaseDecision = {
 
 export function verifundToolsEnabled(mode: string | undefined): boolean {
   return mode === "fake" || mode === "sandbox";
+}
+
+const CHECKPOINT_COPY: Record<string, string> = {
+  buyer_review_required: "Waiting for the Buyer agreement review.",
+  seller_review_required: "Waiting for the Seller agreement review.",
+  funding_approval_required: "Waiting for human funding approval.",
+  funding_pending: "Waiting for the funding settlement.",
+  purchase_order_required: "Placing the purchase order with the Seller.",
+  evidence_pending: "Waiting for shipment and delivery evidence.",
+  release_approval_required: "Waiting for human release approval.",
+};
+
+export function verifundStatusLabel(
+  status: string | undefined,
+  checkpoint: string | null | undefined,
+  state?: string | null,
+): string {
+  if (checkpoint && CHECKPOINT_COPY[checkpoint]) {
+    return CHECKPOINT_COPY[checkpoint];
+  }
+  if (status === "completed") {
+    if (state === "RELEASED") return "Transaction released.";
+    if (state === "REVIEW_REQUIRED") {
+      return "Release rejected; the transaction is paused for manual review.";
+    }
+    if (state === "CANCELED") {
+      return "Agreement rejected; no funds moved.";
+    }
+    if (state === "PAYOUT_PENDING") {
+      return "Released; waiting for the payout receipt.";
+    }
+    return "Lifecycle complete.";
+  }
+  if (status === "failed") {
+    return "Verifund failed; no funds moved.";
+  }
+  return status ? status.replaceAll("_", " ") : "Unknown Verifund state.";
 }
 
 export function parseVerifundToolResult(
@@ -24379,15 +29776,19 @@ export function CheckoutCard({
 }
 
 export function VerifundStatusCard({
+  status,
+  checkpoint,
   state,
   message,
 }: {
+  status?: string;
+  checkpoint?: string | null;
   state?: string | null;
   message?: string;
 }) {
   return (
     <p className="mm-chat-approval-result" data-testid="verifund-status">
-      {message ?? `Verifund state: ${state ?? "unknown"}`}
+      {message || verifundStatusLabel(status, checkpoint, state)}
     </p>
   );
 }
@@ -24410,7 +29811,7 @@ In `apps/console/features/chat/chat.tsx`, import the module and add `verifundMod
       agentId: "marketmesh_orchestrator",
       name: "request_verifund_funding_approval",
       description:
-        "Show the canonical agreement and the Buyer/Seller review status, then wait for an explicit human funding decision. Use only after the Buyer returns funding_approval_required. Pass the exact identifiers from that response.",
+        "Show the canonical agreement and the Buyer/Seller review status, then wait for an explicit human funding decision. Use only after a Verifund tool result has status approval_required and checkpoint funding_approval_required. Pass the exact identifiers from that result.",
       available: verifundEnabled,
       parameters: fundingApprovalArgsSchema,
       render: ({ args, status, respond }) => {
@@ -24450,7 +29851,7 @@ In `apps/console/features/chat/chat.tsx`, import the module and add `verifundMod
       agentId: "marketmesh_orchestrator",
       name: "request_verifund_release_approval",
       description:
-        "Show the evidence/verification summary and wait for an explicit human release decision. Use only after verifund.evidence.review returns release_approval. An override requires a note.",
+        "Show the evidence/verification summary and wait for an explicit human release decision. Use only after verifund_evidence_review returns status approval_required with checkpoint release_approval_required. An override requires a note.",
       available: verifundEnabled,
       parameters: releaseApprovalArgsSchema,
       render: ({ args, status, respond }) => {
@@ -24484,8 +29885,12 @@ In `apps/console/features/chat/chat.tsx`, import the module and add `verifundMod
       return (
         <AgreementReviewCard
           agreement={agreement as VerifundAgreement}
-          buyerReview={null}
-          sellerDecision={null}
+          buyerReview={
+            (parsed?.data?.buyer_review as ReviewDecision | null) ?? null
+          }
+          sellerDecision={
+            (parsed?.data?.seller_decision as ReviewDecision | null) ?? null
+          }
         />
       );
     },
@@ -24499,6 +29904,8 @@ In `apps/console/features/chat/chat.tsx`, import the module and add `verifundMod
       if (status !== "complete" || !parsed) return null;
       return (
         <VerifundStatusCard
+          status={parsed.status}
+          checkpoint={parsed.checkpoint}
           state={parsed.state ?? parsed.data?.projection?.state}
           message={parsed.message}
         />
@@ -24514,8 +29921,12 @@ In `apps/console/features/chat/chat.tsx`, import the module and add `verifundMod
       if (status !== "complete" || !parsed) return null;
       return (
         <EvidenceSummaryCard
-          projection={(parsed.data?.projection ??
-            parsed.data) as Partial<SettlementProjection>}
+          projection={
+            (parsed.data?.projection ?? {
+              evidence: parsed.evidence,
+              verification: parsed.verification,
+            }) as Partial<SettlementProjection>
+          }
         />
       );
     },
@@ -24526,10 +29937,23 @@ In `apps/console/features/chat/chat.tsx`, import the module and add `verifundMod
     parameters: z.object({ run_id: z.string().optional() }),
     render: ({ status, result }) => {
       const parsed = parseVerifundToolResult(result);
-      const url = parsed?.data?.checkout_url;
-      if (status !== "complete" || typeof url !== "string") return null;
+      if (status !== "complete" || !parsed) return null;
+      const url = parsed.checkout_url ?? parsed.data?.checkout_url;
+      if (typeof url === "string") {
+        return (
+          <CheckoutCard
+            url={url}
+            expiresAt={parsed.expires_at ?? parsed.data?.expires_at ?? null}
+          />
+        );
+      }
       return (
-        <CheckoutCard url={url} expiresAt={parsed?.data?.expires_at ?? null} />
+        <VerifundStatusCard
+          status={parsed.status}
+          checkpoint={parsed.checkpoint}
+          state={parsed.state}
+          message={parsed.message}
+        />
       );
     },
   });
@@ -24624,7 +30048,7 @@ the control-plane ops token, seller tokens, or PayPal credentials.
 - Test: `tests/unit/test_verifund_agent_registration.py`
 
 **Interfaces:**
-- Produces: `config.verifund_mode()`, `verifund_port()`, `verifund_agent_port()`, `verifund_agent_url()`, `verifund_agent_card_url()`, `verifund_agent_a2a_token()`, `verifund_agent_internal_token()`, `verifund_url()`, `verifund_public_base_url()`, `verifund_console_base_url()`, `verifund_ops_token()`, `buyer_internal_token()`, `verifund_database_url()`, `verifund_evidence_dir()`, `verifund_seller_token_secret()`, `verifund_link_secret()`, `verifund_receipt_keys()`, `verifund_receipt_active_kid()`, `verifund_fake_webhook_secret()`, `verifund_timeout_seconds()`, `verifund_auto_evidence()`, `verifund_evidence_retry_seconds()`, `verifund_inspection_window_hours()`, `seller_payout_emails()`, `paypal_api_base()`, `paypal_env()`, `paypal_webhook_id()`, `paypal_platform_email()`, `paypal_buyer_email()`; `dev.control_plane_environment(llm_mode, verifund_mode)`, `dev.verifund_agent_environment(verifund_mode)`, `dev.verifund_registration_environment(verifund_mode)`, `dev.verifund_enabled(mode)`, `dev.run_stack(scripted, verifund_mode)`; `verifund_agent.register.register(...)` and `verifund_agent.register.main(...)`.
+- Produces: `config.verifund_mode()`, `verifund_port()`, `verifund_agent_port()`, `verifund_agent_url()`, `verifund_agent_card_url()`, `verifund_agent_a2a_token()`, `verifund_agent_internal_token()`, `verifund_agent_database_url()`, `verifund_agent_checkpoint_path()`, `verifund_url()`, `verifund_public_base_url()`, `verifund_console_base_url()`, `verifund_ops_token()`, `buyer_internal_token()`, `verifund_database_url()`, `verifund_evidence_dir()`, `verifund_seller_token_secret()`, `verifund_link_secret()`, `verifund_receipt_keys()`, `verifund_receipt_active_kid()`, `verifund_fake_webhook_secret()`, `verifund_timeout_seconds()`, `verifund_auto_evidence()`, `verifund_evidence_retry_seconds()`, `verifund_inspection_window_hours()`, `seller_payout_emails()`, `paypal_api_base()`, `paypal_env()`, `paypal_webhook_id()`, `paypal_platform_email()`, `paypal_buyer_email()`; `dev.control_plane_environment(llm_mode, verifund_mode)`, `dev.verifund_agent_environment(verifund_mode)`, `dev.verifund_registration_environment(verifund_mode)`, `dev.verifund_enabled(mode)`, `dev.run_stack(scripted, verifund_mode)`; `verifund_agent.register.register(...)` and `verifund_agent.register.main(...)`.
 - Consumes: `VERIFUND_MODE`, the seller/buyer settings from Tasks 15, 17A, and 19, the control-plane settings from Task 4, the registry admin API from Task 22A, and the agent server from Task 22B.
 
 - [ ] **Step 1: Write the failing config, dev-wiring, and registration tests**
@@ -24692,6 +30116,29 @@ def test_verifund_agent_defaults_and_tokens(monkeypatch):
     assert (
         config.verifund_agent_internal_token()
         == "dev-verifund-agent-internal"
+    )
+
+
+def test_verifund_agent_storage_defaults_survive_restarts(monkeypatch):
+    clear(
+        monkeypatch,
+        "VERIFUND_AGENT_DATABASE_URL",
+        "VERIFUND_AGENT_CHECKPOINT_PATH",
+    )
+    assert (
+        config.verifund_agent_database_url()
+        == "sqlite+aiosqlite:///./data/verifund-agent.db"
+    )
+    assert (
+        config.verifund_agent_checkpoint_path()
+        == "./data/verifund-agent-checkpoints.db"
+    )
+    monkeypatch.setenv(
+        "VERIFUND_AGENT_CHECKPOINT_PATH", "/var/lib/verifund/checkpoints.db"
+    )
+    assert (
+        config.verifund_agent_checkpoint_path()
+        == "/var/lib/verifund/checkpoints.db"
     )
 
 
@@ -24772,6 +30219,14 @@ def test_fake_mode_wires_buyer_seller_orchestrator_and_agent(monkeypatch):
     assert agent["VERIFUND_AGENT_A2A_TOKEN"] == "agent-a2a-token"
     assert (
         agent["VERIFUND_AGENT_INTERNAL_TOKEN"] == "agent-internal-token"
+    )
+    assert (
+        agent["VERIFUND_AGENT_DATABASE_URL"]
+        == "sqlite+aiosqlite:///./data/verifund-agent.db"
+    )
+    assert (
+        agent["VERIFUND_AGENT_CHECKPOINT_PATH"]
+        == "./data/verifund-agent-checkpoints.db"
     )
 
 
@@ -25002,6 +30457,20 @@ def verifund_agent_a2a_token() -> str:
 def verifund_agent_internal_token() -> str:
     return _env(
         "VERIFUND_AGENT_INTERNAL_TOKEN", "dev-verifund-agent-internal"
+    )
+
+
+def verifund_agent_database_url() -> str:
+    return _env(
+        "VERIFUND_AGENT_DATABASE_URL",
+        "sqlite+aiosqlite:///./data/verifund-agent.db",
+    )
+
+
+def verifund_agent_checkpoint_path() -> str:
+    return _env(
+        "VERIFUND_AGENT_CHECKPOINT_PATH",
+        "./data/verifund-agent-checkpoints.db",
     )
 
 
@@ -25293,6 +30762,8 @@ from scripts.config import (  # noqa: E402
     seller_tokens_json,
     verifund_agent_a2a_token,
     verifund_agent_card_url,
+    verifund_agent_checkpoint_path,
+    verifund_agent_database_url,
     verifund_agent_internal_token,
     verifund_agent_port,
     verifund_agent_url,
@@ -25355,6 +30826,10 @@ def verifund_agent_environment(mode: str) -> dict[str, str]:
             ),
             "VERIFUND_AGENT_TIMEOUT_SECONDS": _env_value(
                 "VERIFUND_AGENT_TIMEOUT_SECONDS", "20"
+            ),
+            "VERIFUND_AGENT_DATABASE_URL": verifund_agent_database_url(),
+            "VERIFUND_AGENT_CHECKPOINT_PATH": (
+                verifund_agent_checkpoint_path()
             ),
             "BUYER_INTERNAL_URL": buyer_url(),
             "VERIFUND_MODE": mode,
@@ -25778,6 +31253,15 @@ def test_compose_defines_the_verifund_profile_services():
         agent["environment"]["VERIFUND_AGENT_INTERNAL_TOKEN"]
         == "${VERIFUND_AGENT_INTERNAL_TOKEN:-dev-verifund-agent-internal}"
     )
+    assert (
+        agent["environment"]["VERIFUND_AGENT_DATABASE_URL"]
+        == "sqlite+aiosqlite:////app/data/verifund-agent.db"
+    )
+    assert (
+        agent["environment"]["VERIFUND_AGENT_CHECKPOINT_PATH"]
+        == "/app/data/verifund-agent-checkpoints.db"
+    )
+    assert "marketmesh-data:/app/data" in agent["volumes"]
     assert "VERIFUND_OPS_TOKEN" not in agent["environment"]
     assert "PAYPAL_CLIENT_SECRET" not in agent["environment"]
     assert "SELLER_TOKEN" not in agent["environment"]
@@ -25872,6 +31356,8 @@ def test_env_example_documents_every_verifund_setting():
         "VERIFUND_AGENT_INTERNAL_TOKEN",
         "VERIFUND_AGENT_TIMEOUT_SECONDS",
         "VERIFUND_AGENT_REGISTER_TIMEOUT_SECONDS",
+        "VERIFUND_AGENT_DATABASE_URL",
+        "VERIFUND_AGENT_CHECKPOINT_PATH",
         "VERIFUND_CONTROL_PLANE_URL",
         "VERIFUND_PUBLIC_BASE_URL",
         "VERIFUND_CONSOLE_BASE_URL",
@@ -26005,6 +31491,8 @@ Add the A2A service alongside the control plane:
       VERIFUND_AGENT_A2A_TOKEN: ${VERIFUND_AGENT_A2A_TOKEN:-dev-verifund-agent-a2a}
       VERIFUND_AGENT_INTERNAL_TOKEN: ${VERIFUND_AGENT_INTERNAL_TOKEN:-dev-verifund-agent-internal}
       VERIFUND_AGENT_TIMEOUT_SECONDS: ${VERIFUND_AGENT_TIMEOUT_SECONDS:-20}
+      VERIFUND_AGENT_DATABASE_URL: sqlite+aiosqlite:////app/data/verifund-agent.db
+      VERIFUND_AGENT_CHECKPOINT_PATH: /app/data/verifund-agent-checkpoints.db
       BUYER_INTERNAL_URL: http://buyer:9100
       VERIFUND_MODE: ${VERIFUND_MODE:-fake}
     ports:
@@ -26119,6 +31607,10 @@ VERIFUND_AGENT_A2A_TOKEN=dev-verifund-agent-a2a
 VERIFUND_AGENT_INTERNAL_TOKEN=dev-verifund-agent-internal
 VERIFUND_AGENT_TIMEOUT_SECONDS=20
 VERIFUND_AGENT_REGISTER_TIMEOUT_SECONDS=60
+# Durable A2A task store and LangGraph checkpoints. Both must live on a
+# persistent volume so funding and evidence waits survive a restart.
+VERIFUND_AGENT_DATABASE_URL=sqlite+aiosqlite:///./data/verifund-agent.db
+VERIFUND_AGENT_CHECKPOINT_PATH=./data/verifund-agent-checkpoints.db
 VERIFUND_CONTROL_PLANE_URL=http://127.0.0.1:9300
 VERIFUND_PUBLIC_BASE_URL=http://127.0.0.1:9300
 VERIFUND_CONSOLE_BASE_URL=http://127.0.0.1:3000
