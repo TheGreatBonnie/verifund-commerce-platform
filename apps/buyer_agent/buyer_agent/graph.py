@@ -1039,3 +1039,36 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
 
 
 
+
+
+def settlement_award_route(state) -> str:
+    return "settlement" if state.get("settlement") else "off"
+
+
+def settlement_accept_route(state) -> str:
+    return "rejected" if state.get("stage") == "canceled" else "accepted"
+
+
+def settlement_approval_route(state) -> str:
+    approval = state.get("approval") or {}
+    if state.get("settlement"):
+        return "settlement"
+    return "off" if approval.get("approved") else "rejected"
+
+
+def settlement_funding_route(state) -> str:
+    funding_state = (state.get("settlement") or {}).get("funding_state")
+    if funding_state == "FUNDED":
+        return "order"
+    if funding_state in {"FAILED", "CANCELED"}:
+        return "failed"
+    return "wait"
+
+
+def settlement_release_route(state) -> str:
+    settlement_state = (state.get("settlement") or {}).get("state")
+    if settlement_state == "RELEASED":
+        return "done"
+    if settlement_state == "REVIEW_REQUIRED":
+        return "review"
+    return "wait"

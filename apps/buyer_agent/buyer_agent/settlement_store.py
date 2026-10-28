@@ -48,15 +48,19 @@ class SettlementStore:
         transaction_id: str,
         seller_id: str,
         purpose: str,
-        token: str,
+        token: str | None = None,
+        seller_token: str | None = None,
         expires_at: datetime,
     ) -> None:
+        resolved = seller_token if seller_token is not None else token
+        if resolved is None:
+            raise ValueError("token is required")
         statement = sqlite_insert(self.secrets).values(
             transaction_id=transaction_id,
             run_id=run_id,
             seller_id=seller_id,
             purpose=purpose,
-            seller_token=token,
+            seller_token=resolved,
             expires_at=isoformat(expires_at),
             created_at=isoformat(datetime.now(UTC)),
         ).on_conflict_do_update(
@@ -65,7 +69,7 @@ class SettlementStore:
                 "run_id": run_id,
                 "seller_id": seller_id,
                 "purpose": purpose,
-                "seller_token": token,
+                "seller_token": resolved,
                 "expires_at": isoformat(expires_at),
             },
         )
