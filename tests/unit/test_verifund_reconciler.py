@@ -145,6 +145,7 @@ class Service:
 class Settings:
     reconciler_pending_seconds = 30
     payout_alert_hours = 1
+    reconciler_interval_seconds = 60
 
 
 async def test_run_once_sweeps_every_domain_and_records_a_run():
@@ -186,7 +187,7 @@ async def test_one_failing_sweep_does_not_stop_the_others():
     async def broken_funding(transaction_id, *, actor):
         raise RuntimeError("paypal down")
 
-    service.refresh_funding = broken_funding  # type: ignore[method-assign]
+    service.refresh_funding = broken_funding  # ty: ignore[invalid-assignment]
 
     async def dispatch(_service, event):
         return "processed"

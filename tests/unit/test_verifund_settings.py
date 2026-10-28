@@ -12,6 +12,7 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 def sandbox_settings(**overrides: Any) -> Settings:
     values: dict[str, Any] = {
+        "_env_file": None,
         "mode": "sandbox",
         "ops_token": "x" * 40,
         "seller_token_secret": "s" * 40,
@@ -34,8 +35,9 @@ def sandbox_settings(**overrides: Any) -> Settings:
     return Settings(**values)
 
 
-def test_default_mode_is_off():
-    assert Settings().mode == "off"
+def test_default_mode_is_off(monkeypatch):
+    monkeypatch.delenv("VERIFUND_MODE", raising=False)
+    assert Settings(_env_file=None).mode == "off"
 
 
 def test_sandbox_rejects_default_ops_token():

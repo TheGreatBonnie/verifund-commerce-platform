@@ -302,7 +302,9 @@ class FakeBuyer:
 
 
 class FakeSeller:
-    def __init__(self, status: str = "accepted") -> None:
+    def __init__(
+        self, status: Literal["accepted", "rejected"] = "accepted"
+    ) -> None:
         self.status = status
         self.calls: list[tuple] = []
 
@@ -729,7 +731,7 @@ def test_settings_default_to_off_and_keep_verifund_credentials_separate(
         "VERIFUND_AGENT_A2A_TOKEN",
     ):
         monkeypatch.delenv(key, raising=False)
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.verifund_mode == "off"
     assert settings.verifund_agent_url.endswith(":9301")
     assert settings.verifund_agent_a2a_token

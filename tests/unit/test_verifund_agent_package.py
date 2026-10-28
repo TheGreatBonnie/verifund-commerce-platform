@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import respx
 
@@ -125,9 +127,9 @@ async def test_buyer_client_creates_an_agreement_with_the_exact_award() -> None:
         idempotency_key="agreement:run-1:offer-1",
     )
     await client.create_agreement("run-1", request)
-    body = route.calls[0].request.read().decode()
-    assert '"run_id": "run-1"' in body
-    assert '"buyer_task_id": "buyer-task-1"' in body
+    body = json.loads(route.calls[0].request.read())
+    assert body["award"]["run_id"] == "run-1"
+    assert body["buyer_task_id"] == "buyer-task-1"
     assert route.calls[0].request.headers["x-verifund-agent-token"] == "agent-internal"
 
 
@@ -163,8 +165,8 @@ async def test_buyer_client_requests_the_exact_purchase_order() -> None:
         idempotency_key="po:run-1:offer-1",
     )
     await client.purchase_order("run-1", request)
-    body = route.calls[0].request.read().decode()
-    assert '"idempotency_key": "po:run-1:offer-1"' in body
+    body = json.loads(route.calls[0].request.read())
+    assert body["idempotency_key"] == "po:run-1:offer-1"
     assert route.calls[0].request.headers["x-verifund-agent-token"] == "agent-internal"
 
 
@@ -201,9 +203,9 @@ async def test_buyer_client_reports_the_sellers_confirmed_order() -> None:
         order={"order_id": "ord-1", "offer_id": "offer-1"},
     )
     await client.report_order("run-1", request)
-    body = route.calls[0].request.read().decode()
-    assert '"order_id": "ord-1"' in body
-    assert '"idempotency_key": "order:vf_1"' in body
+    body = json.loads(route.calls[0].request.read())
+    assert body["order"]["order_id"] == "ord-1"
+    assert body["idempotency_key"] == "order:vf_1"
     assert route.calls[0].request.headers["x-verifund-agent-token"] == "agent-internal"
 
 

@@ -49,13 +49,16 @@ class FakeOutbox:
 
 
 class FakeSettlement:
-    def __init__(self, projection=None, error=None) -> None:
+    def __init__(
+        self, projection: dict | None = None, error: Exception | None = None
+    ) -> None:
         self.projection = projection
         self.error = error
 
     async def get_transaction(self, token, transaction_id):
         if self.error is not None:
             raise self.error
+        assert self.projection is not None
         return dict(self.projection)
 
 

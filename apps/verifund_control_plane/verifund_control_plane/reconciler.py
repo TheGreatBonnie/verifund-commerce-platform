@@ -2,12 +2,44 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Awaitable, Callable
+from typing import Any, Protocol
 
 from verifund_control_plane.paypal.webhooks import dispatch as default_dispatch
-from verifund_control_plane.service import VerifundService
-from verifund_control_plane.settings import Settings
+
+
+class ReconcilerService(Protocol):
+    async def refresh_funding(
+        self, transaction_id: str, *, actor: str
+    ) -> Any: ...
+
+    async def refresh_payout(
+        self, transaction_id: str, *, actor: str
+    ) -> Any: ...
+
+    async def recover_operation(
+        self, operation: dict[str, Any], *, actor: str
+    ) -> bool: ...
+
+    async def verify(
+        self, transaction_id: str, *, actor: str
+    ) -> dict[str, Any]: ...
+
+    async def backfill_receipt(
+        self, transaction_id: str, *, actor: str
+    ) -> bool: ...
+
+
+class ReconcilerSettings(Protocol):
+    @property
+    def reconciler_pending_seconds(self) -> int: ...
+
+    @property
+    def payout_alert_hours(self) -> int: ...
+
+    @property
+    def reconciler_interval_seconds(self) -> int: ...
 
 
 class Reconciler:
@@ -15,8 +47,8 @@ class Reconciler:
         self,
         *,
         repo: Any,
-        service: VerifundService,
-        settings: Settings,
+        service: ReconcilerService,
+        settings: ReconcilerSettings,
         clock: Callable[[], datetime],
         webhook_dispatch: Callable[[Any, dict[str, Any]], Awaitable[str]] | None = None,
     ) -> None:

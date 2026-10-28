@@ -10,7 +10,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / ".env")
+
+
+def load_env(path: Path | None = None) -> None:
+    """Load local .env values into the process environment.
+
+    Kept out of module import so libraries and tests importing this module do
+    not mutate ``os.environ`` as a side effect.
+    """
+    load_dotenv(path or ROOT / ".env")
 
 
 def _env(name: str, default: str = "") -> str:

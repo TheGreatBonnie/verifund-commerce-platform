@@ -1,6 +1,4 @@
-from typing import Any, Literal
-
-from typing_extensions import TypedDict
+from typing import Any, Literal, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -595,7 +593,9 @@ async def finalize_review(
 
 
 def build_graph(checkpointer):
-    builder = StateGraph(VerifundState)
+    # LangGraph accepts TypedDict state at runtime, but ty cannot verify the
+    # TypedDict protocol members required by langgraph's StateLike bound.
+    builder = StateGraph(VerifundState)  # ty: ignore[invalid-argument-type]
     builder.add_node("initialize", initialize)
     builder.add_node("create_agreement", create_agreement)
     builder.add_node("await_buyer_review", await_buyer_review)

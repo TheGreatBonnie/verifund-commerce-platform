@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import pytest
 from a2a.types.a2a_pb2 import Role
@@ -25,6 +26,7 @@ from seller_agent.service import (
     settlement_token_from,
     strip_settlement_token,
 )
+from seller_agent.settlement import SellerSettlementClient
 from seller_agent.store import SellerStore
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -149,7 +151,7 @@ def build(store, policy, projection_value=None):
         store=store,
         policy=policy,
         planner=ScriptedSellerPlanner(),
-        settlement=client,
+        settlement=cast(SellerSettlementClient, client),
         settlement_enabled=True,
     )
     return service, client
@@ -204,9 +206,13 @@ async def test_redact_message_removes_the_token_from_a2a_history(
 
     redacted = service.redact_message(message)
 
-    assert settlement_token_from(first_envelope(message)) == TOKEN
-    assert settlement_token_from(first_envelope(redacted)) is None
-    assert first_envelope(redacted)["payload"]["agreement_hash"] == HASH
+    original = first_envelope(message)
+    assert original is not None
+    assert settlement_token_from(original) == TOKEN
+    cleaned = first_envelope(redacted)
+    assert cleaned is not None
+    assert settlement_token_from(cleaned) is None
+    assert cleaned["payload"]["agreement_hash"] == HASH
 
 
 def test_strip_settlement_token_does_not_mutate_the_source():

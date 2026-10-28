@@ -2,19 +2,24 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import cast
 
 import httpx
 import pytest
 
+from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort
 
-TXN = SimpleNamespace(
-    transaction_id="vf_1",
-    amount_cents=123400,
-    currency="USD",
-    seller_id="northwind-audio",
-    run_id="run-1",
+TXN = cast(
+    TransactionRecord,
+    SimpleNamespace(
+        transaction_id="vf_1",
+        amount_cents=123400,
+        currency="USD",
+        seller_id="northwind-audio",
+        run_id="run-1",
+    ),
 )
 
 

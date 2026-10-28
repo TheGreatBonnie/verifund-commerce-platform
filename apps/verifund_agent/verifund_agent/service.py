@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from langgraph.types import Command
 from pydantic import ValidationError
@@ -7,6 +7,7 @@ from verifund_agent.client import BuyerAPIError, BuyerInternalClient
 from verifund_agent.graph import (
     PENDING_CHECKPOINTS,
     VerifundProtocolError,
+    VerifundState,
     buyer_review_payload,
     evidence_pending_payload,
     funding_approval_payload,
@@ -290,7 +291,7 @@ class VerifundAgentService:
             )
             if self._poll_is_ready(pending, projection):
                 output = await self.graph.ainvoke(
-                    Command[dict[str, Any]](resume={"projection": projection}),
+                    Command(resume={"projection": projection}),
                     self._config(task_id),
                 )
                 return self._output_result(
@@ -304,7 +305,7 @@ class VerifundAgentService:
                 values["funding_projection"] = projection
             else:
                 values["projection"] = projection
-            payload = PAYLOAD_BUILDERS[pending](values)
+            payload = PAYLOAD_BUILDERS[pending](cast(VerifundState, values))
             return self._checkpoint_result(
                 payload,
                 checkpoint=pending,
@@ -374,7 +375,9 @@ class VerifundAgentService:
     ) -> VerifundTaskResult:
         pending = self._pending(snapshot)
         if pending is not None:
-            payload = PAYLOAD_BUILDERS[pending](dict(snapshot.values))
+            payload = PAYLOAD_BUILDERS[pending](
+                cast(VerifundState, dict(snapshot.values))
+            )
             return self._checkpoint_result(
                 payload,
                 checkpoint=pending,

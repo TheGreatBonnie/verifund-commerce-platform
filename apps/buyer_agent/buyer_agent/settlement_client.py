@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from verifund_contracts import (
     AcceptRequest,
     ApproveRequest,
@@ -77,9 +75,9 @@ class BuyerSettlementClient:
             actor=self.actor,
             idempotency_key=idempotency_key,
         )
-        if hasattr(projection, "model_dump"):
-            return projection.model_dump(mode="json")
-        return projection
+        if isinstance(projection, dict):
+            return projection
+        return projection.model_dump(mode="json")
 
     async def accept(
         self,

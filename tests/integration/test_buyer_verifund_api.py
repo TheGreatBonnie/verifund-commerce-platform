@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import cast
 
 import httpx
 import pytest
@@ -9,6 +10,8 @@ from fastapi import FastAPI
 
 from buyer_agent import settlement_api
 from buyer_agent.agreement_service import AgreementBindingError, BuyerAgreementService
+from buyer_agent.settlement_client import BuyerSettlementClient
+from buyer_agent.settlement_store import SettlementStore
 from verifund_contracts import (
     AgreementProjection,
     BuyerOrderReportRequest,
@@ -360,8 +363,8 @@ class PurchaseOrderStore:
 
 async def test_purchase_order_builds_the_exact_request_from_the_funded_agreement():
     service = BuyerAgreementService(
-        client=None,
-        store=PurchaseOrderStore(),
+        client=cast(BuyerSettlementClient, None),
+        store=cast(SettlementStore, PurchaseOrderStore()),
         console_base_url="http://console",
     )
     response = await service.purchase_order("run-1", po_request())
@@ -381,8 +384,8 @@ async def test_purchase_order_builds_the_exact_request_from_the_funded_agreement
 
 async def test_purchase_order_requires_a_funded_agreement():
     service = BuyerAgreementService(
-        client=None,
-        store=PurchaseOrderStore(state="AGREED"),
+        client=cast(BuyerSettlementClient, None),
+        store=cast(SettlementStore, PurchaseOrderStore(state="AGREED")),
         console_base_url="http://console",
     )
     with pytest.raises(AgreementBindingError) as raised:
@@ -461,8 +464,8 @@ class OrderClient:
 async def test_order_report_records_the_sellers_confirmation():
     client = OrderClient()
     service = BuyerAgreementService(
-        client=client,
-        store=PurchaseOrderStore(),
+        client=cast(BuyerSettlementClient, client),
+        store=cast(SettlementStore, PurchaseOrderStore()),
         console_base_url="http://console",
     )
     response = await service.order("run-1", order_request())
@@ -478,8 +481,8 @@ async def test_order_report_records_the_sellers_confirmation():
 
 async def test_order_report_must_match_the_agreed_terms():
     service = BuyerAgreementService(
-        client=OrderClient(),
-        store=PurchaseOrderStore(),
+        client=cast(BuyerSettlementClient, OrderClient()),
+        store=cast(SettlementStore, PurchaseOrderStore()),
         console_base_url="http://console",
     )
     broken = order_request()
@@ -522,8 +525,8 @@ class ReleaseClient:
 async def test_release_rejection_flags_manual_review():
     client = ReleaseClient()
     service = BuyerAgreementService(
-        client=client,
-        store=PurchaseOrderStore(),
+        client=cast(BuyerSettlementClient, client),
+        store=cast(SettlementStore, PurchaseOrderStore()),
         console_base_url="http://console",
     )
     decision = ReleaseApprovalDecision(

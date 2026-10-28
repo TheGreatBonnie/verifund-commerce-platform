@@ -51,7 +51,7 @@ def award(**overrides):
 
 
 def agreement(**overrides) -> AgreementProjection:
-    payload = {
+    payload: dict[str, Any] = {
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",
