@@ -41,3 +41,24 @@ class Settings(BaseSettings):
         default="deepseek-ai/DeepSeek-V4-Flash-0731",
         validation_alias=AliasChoices("NEBIUS_MODEL"),
     )
+
+    verifund_mode: Literal["off", "fake", "sandbox"] = Field(
+        default="off",
+        validation_alias=AliasChoices("VERIFUND_MODE"),
+    )
+    verifund_url: str = Field(
+        default="http://127.0.0.1:9300",
+        validation_alias=AliasChoices("VERIFUND_URL", "SELLER_VERIFUND_URL"),
+    )
+    verifund_timeout_seconds: float = Field(
+        default=20.0,
+        validation_alias=AliasChoices("VERIFUND_TIMEOUT_SECONDS"),
+    )
+    verifund_auto_evidence: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("VERIFUND_AUTO_EVIDENCE"),
+    )
+    verifund_evidence_retry_seconds: float = Field(
+        default=2.0,
+        validation_alias=AliasChoices("VERIFUND_EVIDENCE_RETRY_SECONDS"),
+    )
