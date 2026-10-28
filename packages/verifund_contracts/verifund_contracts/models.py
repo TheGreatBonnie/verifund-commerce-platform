@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -94,6 +96,50 @@ class AwardLineItem(VerifundModel):
     warranty_addon_cents: int = Field(default=0, ge=0)
 
 
+def canonical_json(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def sha256_hex(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+class AgreementProjection(VerifundModel):
+    agreement_version: int = Field(ge=1)
+    transaction_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    buyer_id: str = Field(min_length=1)
+    seller_id: str = Field(min_length=1)
+    offer_id: str = Field(min_length=1)
+    currency: str = Field(default="USD", pattern="^USD$")
+    amount_cents: int = Field(gt=0)
+    quantity: int = Field(gt=0)
+    line_items: list[AwardLineItem] = Field(min_length=1)
+    shipping_cents: int = Field(ge=0)
+    delivery_days: int = Field(ge=0)
+    warranty_months: int = Field(ge=0)
+    returns_days: int = Field(ge=0)
+    created_at: str = Field(min_length=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+
+    def canonical_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude={"agreement_hash"})
+
+    def recompute_hash(self) -> str:
+        return sha256_hex(canonical_json(self.canonical_payload()))
+
+    @model_validator(mode="after")
+    def _hash_must_match(self) -> AgreementProjection:
+        if self.recompute_hash() != self.agreement_hash:
+            raise ValueError("agreement hash does not match canonical payload")
+        return self
+
+
 class AwardRequest(VerifundModel):
     run_id: str = Field(min_length=1)
     buyer_id: str = Field(min_length=1)
@@ -126,8 +172,132 @@ class AwardResponse(VerifundModel):
     transaction_id: str
     state: TransactionState
     agreement_hash: str
+    agreement: AgreementProjection
+    agreement_version: int = Field(ge=1)
     seller_token: str
     expires_at: datetime
+
+
+class BuyerAgreementRequest(VerifundModel):
+    award: AwardRequest
+    buyer_task_id: str = Field(min_length=1)
+    buyer_context_id: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)
+
+
+class BuyerAgreementResponse(VerifundModel):
+    transaction_id: str = Field(min_length=1)
+    state: TransactionState
+    agreement: AgreementProjection
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    seller_token_ref: str = Field(min_length=1)
+    seller_token_expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _binding_must_match(self) -> BuyerAgreementResponse:
+        if self.agreement.transaction_id != self.transaction_id:
+            raise ValueError("agreement transaction does not match response")
+        if self.agreement.agreement_version != self.agreement_version:
+            raise ValueError("agreement version does not match response")
+        if self.agreement.agreement_hash != self.agreement_hash:
+            raise ValueError("agreement hash does not match response")
+        return self
+
+
+class BuyerPurchaseOrderRequest(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    idempotency_key: str = Field(min_length=1)
+
+
+class BuyerPurchaseOrderResponse(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    seller_id: str = Field(min_length=1)
+    offer_id: str = Field(min_length=1)
+    amount_cents: int = Field(gt=0)
+    seller_token_ref: str = Field(min_length=1)
+    purchase_order: dict[str, Any]
+
+    @model_validator(mode="after")
+    def _purchase_order_must_match(self) -> BuyerPurchaseOrderResponse:
+        po = self.purchase_order
+        expected = {
+            "run_id": self.run_id,
+            "seller_id": self.seller_id,
+            "offer_id": self.offer_id,
+            "expected_total_cents": self.amount_cents,
+            "settlement_transaction_id": self.transaction_id,
+            "agreement_hash": self.agreement_hash,
+        }
+        for key, value in expected.items():
+            if po.get(key) != value:
+                raise ValueError(f"purchase order {key} does not match")
+        if po.get("settlement_token"):
+            raise ValueError("buyer purchase order must not contain a token")
+        return self
+
+
+class BuyerOrderReportRequest(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    idempotency_key: str = Field(min_length=1)
+    order: dict[str, Any]
+
+
+class BuyerOrderReportResponse(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    state: TransactionState
+    projection: dict[str, Any]
+
+    @model_validator(mode="after")
+    def _projection_must_match(self) -> BuyerOrderReportResponse:
+        if self.projection.get("transaction_id") != self.transaction_id:
+            raise ValueError("projection transaction does not match")
+        if self.projection.get("state") != self.state:
+            raise ValueError("projection state does not match")
+        return self
+
+
+class FundingApprovalDecision(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    approved: bool
+    approved_by: str = Field(min_length=1)
+    note: str = ""
+    decided_at: datetime
+    idempotency_key: str = Field(min_length=1)
+
+
+class ReleaseApprovalDecision(VerifundModel):
+    run_id: str = Field(min_length=1)
+    transaction_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    approved: bool
+    released_by: str = Field(min_length=1)
+    note: str = ""
+    override: bool = False
+    decided_at: datetime
+    idempotency_key: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _override_requires_a_note(self) -> ReleaseApprovalDecision:
+        if self.override and not self.note.strip():
+            raise ValueError("an override release requires a note")
+        return self
 
 
 class AcceptRequest(VerifundModel):

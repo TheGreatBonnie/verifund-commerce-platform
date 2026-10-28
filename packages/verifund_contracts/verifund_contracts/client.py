@@ -9,6 +9,7 @@ from verifund_contracts.models import (
     ApproveRequest,
     AwardRequest,
     AwardResponse,
+    BuyerAgreementReviewRequest,
     CancelRequest,
     ErrorEnvelope,
     EvidenceItem,
@@ -128,6 +129,30 @@ class VerifundClient:
                 idempotency_key=idempotency_key,
             )
         )
+
+    async def buyer_review(
+        self,
+        transaction_id: str,
+        request: BuyerAgreementReviewRequest | dict[str, Any],
+        *,
+        actor: str,
+        idempotency_key: str | None = None,
+    ) -> TransactionProjection | dict[str, Any]:
+        body = (
+            request.model_dump(mode="json")
+            if isinstance(request, BuyerAgreementReviewRequest)
+            else request
+        )
+        data = await self._request(
+            "POST",
+            f"/transactions/{transaction_id}/buyer-review",
+            body=body,
+            actor=actor,
+            idempotency_key=idempotency_key,
+        )
+        if isinstance(data, dict) and {"transaction_id", "state"} <= data.keys():
+            return TransactionProjection.model_validate(data)
+        return data
 
     async def get_transaction(
         self, transaction_id: str, *, actor: str = "buyer-agent"
