@@ -1304,3 +1304,46 @@ class Repository:
             .where(self.fake_orders.c.order_id == order_id)
             .values(**changes, updated_at=_iso(datetime.now(UTC)))
         )
+
+    async def find_transaction_by_order_id(
+        self, order_id: str
+    ) -> TransactionRecord | None:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.transactions).where(
+                        self.transactions.c.funding.is_not(None)
+                    )
+                )
+            ).all()
+        for row in rows:
+            if str((row.funding or {}).get("provider_order_id") or "") == order_id:
+                return self._record(row)
+        return None
+
+    async def find_transaction_by_capture_id(
+        self, capture_id: str
+    ) -> TransactionRecord | None:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.transactions).where(
+                        self.transactions.c.funding.is_not(None)
+                    )
+                )
+            ).all()
+        for row in rows:
+            if str((row.funding or {}).get("capture_id") or "") == capture_id:
+                return self._record(row)
+        return None
+
+    async def find_payout_transaction(self, batch_id: str) -> str | None:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.payout_items).where(
+                        self.payout_items.c.batch_id == batch_id
+                    )
+                )
+            ).first()
+        return str(row.transaction_id) if row is not None else None

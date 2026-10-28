@@ -6,11 +6,12 @@ from typing import Callable
 
 from fastapi import FastAPI
 
-from verifund_control_plane.api import checkout, health, ops, seller
+from verifund_control_plane.api import checkout, health, ops, seller, webhooks
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
 from verifund_control_plane.paypal.fake import FakePaymentPort
+from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.service import VerifundService
 from verifund_control_plane.settings import Settings
@@ -42,11 +43,20 @@ def create_app(
         return_ttl_hours=settings.return_link_ttl_hours,
         clock=now,
     )
-    payments = FakePaymentPort(
-        repo,
-        scenario=settings.fake_payment_scenario,
-        clock=now,
-    )
+    if settings.is_sandbox:
+        payments = PayPalSandboxPaymentPort(
+            base_url=settings.paypal_api_base,
+            client_id=settings.paypal_client_id,
+            client_secret=settings.paypal_client_secret,
+            webhook_id=settings.paypal_webhook_id,
+            clock=now,
+        )
+    else:
+        payments = FakePaymentPort(
+            repo,
+            scenario=settings.fake_payment_scenario,
+            clock=now,
+        )
     service = VerifundService(
         repo=repo,
         settings=settings,
@@ -83,4 +93,5 @@ def create_app(
     app.include_router(ops.router)
     app.include_router(seller.router)
     app.include_router(checkout.router)
+    app.include_router(webhooks.router)
     return app

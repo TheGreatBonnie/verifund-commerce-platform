@@ -1555,3 +1555,12 @@ class VerifundService:
                     ),
                     audit=AuditInput(actor, "funding_mismatch"),
                 )
+
+    async def apply_capture_by_order(
+        self, order_id: str, capture: CaptureResult, *, actor: str
+    ) -> bool:
+        record = await self.repo.find_transaction_by_order_id(order_id)
+        if record is None:
+            return False
+        await self.apply_capture(record.transaction_id, capture, actor=actor)
+        return True
