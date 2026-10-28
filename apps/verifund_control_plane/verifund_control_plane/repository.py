@@ -52,6 +52,20 @@ class AuditInput:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class AgreementReviewInput:
+    transaction_id: str
+    agreement_version: int
+    agreement_hash: str
+    party: str
+    decision: str
+    task_id: str
+    note: str
+    reason_code: str | None
+    idempotency_key: str
+    reviewed_at: datetime
+
+
 class Repository:
     def __init__(self, engine: AsyncEngine) -> None:
         self.engine = engine
@@ -78,6 +92,7 @@ class Repository:
             Column("buyer_agent_review", JSON, nullable=True),
             Column("seller_decision", JSON, nullable=True),
             Column("approval", JSON, nullable=True),
+            Column("cancellation", JSON, nullable=True),
             Column("funding", JSON, nullable=True),
             Column("purchase_order", JSON, nullable=True),
             Column("evidence_summary", JSON, nullable=True),
@@ -288,8 +303,10 @@ class Repository:
             agreement_id=row.agreement_id,
             agreement_hash=row.agreement_hash,
             agreement_version=row.agreement_version,
+            buyer_agent_review=row.buyer_agent_review,
             seller_decision=row.seller_decision,
             approval=row.approval,
+            cancellation=row.cancellation,
             funding=row.funding,
             purchase_order=row.purchase_order,
             evidence_summary=row.evidence_summary,
@@ -369,8 +386,10 @@ class Repository:
                 agreement_id=txn.agreement_id,
                 agreement_hash=txn.agreement_hash,
                 agreement_version=txn.agreement_version,
+                buyer_agent_review=txn.buyer_agent_review,
                 seller_decision=txn.seller_decision,
                 approval=txn.approval,
+                cancellation=txn.cancellation,
                 funding=txn.funding,
                 purchase_order=txn.purchase_order,
                 evidence_summary=txn.evidence_summary,
@@ -580,6 +599,31 @@ class Repository:
             )
         return row.response
 
+    async def get_idempotency_on(
+        self,
+        conn: AsyncConnection,
+        scope: str,
+        key: str,
+        request_hash: str,
+    ) -> dict[str, Any] | None:
+        row = (
+            await conn.execute(
+                select(self.idempotency).where(
+                    self.idempotency.c.scope == scope,
+                    self.idempotency.c.key == key,
+                )
+            )
+        ).first()
+        if row is None:
+            return None
+        if row.request_hash != request_hash:
+            raise VerifundError(
+                "conflict",
+                "idempotency key reused with a different body",
+                status_code=409,
+            )
+        return row.response
+
     async def put_idempotency(
         self,
         conn: AsyncConnection,
@@ -602,6 +646,44 @@ class Repository:
             .on_conflict_do_nothing(index_elements=["scope", "key"])
         )
         await conn.execute(statement)
+
+    async def record_agreement_review(
+        self, conn: AsyncConnection, review: AgreementReviewInput
+    ) -> bool:
+        statement = (
+            sqlite_insert(self.agreement_reviews)
+            .values(
+                review_id=f"ar_{uuid.uuid4().hex}",
+                transaction_id=review.transaction_id,
+                agreement_version=review.agreement_version,
+                agreement_hash=review.agreement_hash,
+                party=review.party,
+                decision=review.decision,
+                task_id=review.task_id,
+                reason_code=review.reason_code,
+                note=review.note,
+                idempotency_key=review.idempotency_key,
+                reviewed_at=_iso(review.reviewed_at),
+            )
+            .on_conflict_do_nothing(index_elements=["idempotency_key"])
+        )
+        result = await conn.execute(statement)
+        return result.rowcount == 1
+
+    async def get_agreement_reviews(
+        self,
+        transaction_id: str,
+        *,
+        party: str | None = None,
+    ) -> list[dict[str, Any]]:
+        statement = select(self.agreement_reviews).where(
+            self.agreement_reviews.c.transaction_id == transaction_id
+        )
+        if party:
+            statement = statement.where(self.agreement_reviews.c.party == party)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [dict(row._mapping) for row in rows]
 
     async def audit(
         self, conn: AsyncConnection, transaction_id: str, audit: AuditInput

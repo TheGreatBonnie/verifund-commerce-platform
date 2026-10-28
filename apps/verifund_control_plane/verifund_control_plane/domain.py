@@ -125,8 +125,10 @@ class TransactionRecord:
     agreement_id: str
     agreement_hash: str
     agreement_version: int
+    buyer_agent_review: dict[str, Any] | None
     seller_decision: dict[str, Any] | None
     approval: dict[str, Any] | None
+    cancellation: dict[str, Any] | None
     funding: dict[str, Any] | None
     purchase_order: dict[str, Any] | None
     evidence_summary: dict[str, Any] | None
