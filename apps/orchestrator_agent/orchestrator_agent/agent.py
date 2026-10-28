@@ -147,6 +147,7 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
         seller_id: str | None = None,
         seller_task_id: str | None = None,
         seller_context_id: str | None = None,
+        settlement_secret_ref: dict | None = None,
     ) -> dict:
         """Call a seller and resume the buyer's checkpoint with its response."""
         return await _mediate_seller_call(
@@ -157,6 +158,10 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             seller_id=seller_id,
             seller_task_id=seller_task_id,
             seller_context_id=seller_context_id,
+            settlement_secret_ref=settlement_secret_ref,
+            buyer_internal_url=settings.buyer_internal_url,
+            buyer_internal_token=settings.buyer_internal_token,
+            buyer_internal_timeout_seconds=settings.buyer_internal_timeout_seconds,
         )
 
     return FunctionTool(mediate_seller_call)

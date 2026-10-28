@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -84,6 +85,65 @@ def _resolve_seller_token(
     raise ValueError(f"No seller authentication token configured for {seller_card_url}")
 
 
+SETTLEMENT_TOKEN_KEYS = {
+    "settlement_token",
+    "seller_token",
+    "authorization",
+    "x-marketmesh-internal-token",
+}
+
+
+def _redact_settlement(value: Any, token: str | None = None) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: (
+                "[REDACTED]"
+                if key.lower() in SETTLEMENT_TOKEN_KEYS
+                else _redact_settlement(item, token)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_settlement(item, token) for item in value]
+    if token and isinstance(value, str) and token in value:
+        return value.replace(token, "[REDACTED]")
+    return value
+
+
+def _inject_settlement_token(
+    envelope: dict[str, Any], token: str
+) -> dict[str, Any]:
+    injected = deepcopy(envelope)
+    payload = injected.get("payload")
+    if isinstance(payload, dict):
+        payload["settlement_token"] = token
+    else:
+        injected["settlement_token"] = token
+    return injected
+
+
+async def _resolve_settlement_token(
+    buyer_internal_url: str,
+    buyer_internal_token: str,
+    ref: dict[str, Any],
+    *,
+    timeout_seconds: float = 10.0,
+) -> str:
+    import httpx
+
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        response = await client.post(
+            f"{buyer_internal_url.rstrip('/')}/internal/settlement/seller-token",
+            headers={"x-marketmesh-internal-token": buyer_internal_token},
+            json=ref,
+        )
+        response.raise_for_status()
+        token = response.json().get("seller_token")
+    if not isinstance(token, str) or not token:
+        raise ValueError("buyer returned no seller token")
+    return token
+
+
 async def mediate_seller_call(
     buyer_task_id: str,
     seller_card_url: str,
@@ -93,10 +153,29 @@ async def mediate_seller_call(
     seller_id: str | None = None,
     seller_task_id: str | None = None,
     seller_context_id: str | None = None,
+    settlement_secret_ref: dict[str, Any] | None = None,
+    buyer_internal_url: str | None = None,
+    buyer_internal_token: str | None = None,
+    buyer_internal_timeout_seconds: float = 10.0,
 ) -> dict[str, Any]:
     """Mediate a single buyer seller-call pause through the orchestrator."""
     try:
         request_envelope = seller_request or {}
+        resolved_token: str | None = None
+        if settlement_secret_ref:
+            if not buyer_internal_url or not buyer_internal_token:
+                raise ValueError(
+                    "buyer internal settlement endpoint is not configured"
+                )
+            resolved_token = await _resolve_settlement_token(
+                buyer_internal_url,
+                buyer_internal_token,
+                settlement_secret_ref,
+                timeout_seconds=buyer_internal_timeout_seconds,
+            )
+            request_envelope = _inject_settlement_token(
+                request_envelope, resolved_token
+            )
         seller_base = seller_card_url.split("/.well-known")[0]
         msg = make_message(
             role=Role.ROLE_USER,
@@ -157,14 +236,14 @@ async def mediate_seller_call(
 
         return {
             "resumed": True,
-            "seller_result": seller_result,
-            "buyer_response": buyer_response,
+            "seller_result": _redact_settlement(seller_result, resolved_token),
+            "buyer_response": _redact_settlement(buyer_response, resolved_token),
             "seller_communication": {
                 "seller_id": seller_id,
                 "seller_card_url": seller_card_url,
-                "request": request_envelope,
-                "response": seller_result,
+                "request": _redact_settlement(request_envelope, resolved_token),
+                "response": _redact_settlement(seller_result, resolved_token),
             },
         }
     except Exception as exc:  # noqa: BLE001
-        return {"error": str(exc)}
+        return {"error": f"{type(exc).__name__}: seller mediation failed"}

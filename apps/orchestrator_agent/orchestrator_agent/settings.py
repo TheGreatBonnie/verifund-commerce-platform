@@ -49,3 +49,16 @@ class Settings(BaseSettings):
         default="deepseek-ai/DeepSeek-V4-Flash-0731",
         validation_alias=AliasChoices("NEBIUS_MODEL", "OPENAI_MODEL"),
     )
+
+    buyer_internal_url: str = Field(
+        default="http://127.0.0.1:9100",
+        validation_alias=AliasChoices("BUYER_INTERNAL_URL"),
+    )
+    buyer_internal_token: str = Field(
+        default="dev-buyer-internal",
+        validation_alias=AliasChoices("BUYER_INTERNAL_TOKEN"),
+    )
+    buyer_internal_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias=AliasChoices("BUYER_INTERNAL_TIMEOUT_SECONDS"),
+    )
