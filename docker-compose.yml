@@ -23,7 +23,7 @@ services:
       PORT: 9105
       REGISTRY_DATABASE_URL: sqlite+aiosqlite:////app/data/registry.db
       REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
-      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech"]'
+      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech","verifund-agent","host.docker.internal"]'
     ports:
       - "127.0.0.1:9105:9105"
     healthcheck:
@@ -43,6 +43,11 @@ services:
       PUBLIC_BASE_URL: http://northwind:9201
       SELLER_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/northwind.db
+      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_URL: http://verifund:9300
+      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
+      VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
+      VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
     ports:
       - "127.0.0.1:9201:9201"
     healthcheck:
@@ -62,6 +67,11 @@ services:
       PUBLIC_BASE_URL: http://circuitforge:9202
       SELLER_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/circuitforge.db
+      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_URL: http://verifund:9300
+      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
+      VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
+      VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
     ports:
       - "127.0.0.1:9202:9202"
     healthcheck:
@@ -81,6 +91,11 @@ services:
       PUBLIC_BASE_URL: http://aurora:9203
       SELLER_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/aurora.db
+      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_URL: http://verifund:9300
+      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
+      VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
+      VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
     ports:
       - "127.0.0.1:9203:9203"
     healthcheck:
@@ -100,6 +115,11 @@ services:
       PUBLIC_BASE_URL: http://summit-tech:9204
       SELLER_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
       SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/summit-tech.db
+      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_URL: http://verifund:9300
+      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
+      VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
+      VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
     ports:
       - "127.0.0.1:9204:9204"
     healthcheck:
@@ -152,7 +172,14 @@ services:
       BUYER_DATABASE_URL: sqlite+aiosqlite:////app/data/buyer.db
       BUYER_CHECKPOINT_PATH: /app/data/buyer-checkpoints.db
       BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
-      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech"]'
+      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech","verifund-agent"]'
+      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_URL: http://verifund:9300
+      VERIFUND_OPS_TOKEN: ${VERIFUND_OPS_TOKEN:-dev-verifund-ops}
+      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
+      VERIFUND_CONSOLE_BASE_URL: ${VERIFUND_CONSOLE_BASE_URL:-http://127.0.0.1:3000}
+      BUYER_INTERNAL_TOKEN: ${BUYER_INTERNAL_TOKEN:-dev-buyer-internal}
+      VERIFUND_AGENT_INTERNAL_TOKEN: ${VERIFUND_AGENT_INTERNAL_TOKEN:-dev-verifund-agent-internal}
       BUYER_SELLER_TOKENS: '{"northwind-audio":"${SELLER_NORTHWIND_TOKEN:-dev-northwind}","circuitforge":"${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}","aurora-supply":"${SELLER_AURORA_TOKEN:-dev-aurora}","summit-tech":"${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}"}'
     ports:
       - "127.0.0.1:9100:9100"
@@ -180,6 +207,13 @@ services:
       SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
       SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
       SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
+      BUYER_INTERNAL_URL: http://buyer:9100
+      BUYER_INTERNAL_TOKEN: ${BUYER_INTERNAL_TOKEN:-dev-buyer-internal}
+      VERIFUND_MODE: ${VERIFUND_MODE:-off}
+      VERIFUND_AGENT_URL: http://verifund-agent:9301
+      VERIFUND_AGENT_CARD_URL: http://verifund-agent:9301/.well-known/agent-card.json
+      VERIFUND_AGENT_A2A_TOKEN: ${VERIFUND_AGENT_A2A_TOKEN:-dev-verifund-agent-a2a}
+      VERIFUND_AGENT_TIMEOUT_SECONDS: ${VERIFUND_AGENT_TIMEOUT_SECONDS:-60}
     ports:
       - "127.0.0.1:9000:9000"
     healthcheck:
@@ -214,6 +248,7 @@ services:
       SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
       SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
+      VERIFUND_MODE: ${VERIFUND_MODE:-off}
       NEXT_TELEMETRY_DISABLED: "1"
       COPILOTKIT_TELEMETRY_DISABLED: "true"
     ports:
@@ -223,6 +258,101 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+
+
+  verifund:
+    <<: *python-service
+    command: python -m verifund_control_plane
+    profiles: ["verifund"]
+    environment:
+      HOST: 0.0.0.0
+      VERIFUND_PORT: 9300
+      PORT: 9300
+      VERIFUND_MODE: ${VERIFUND_MODE:-fake}
+      VERIFUND_PUBLIC_BASE_URL: ${VERIFUND_PUBLIC_BASE_URL:-http://127.0.0.1:9300}
+      VERIFUND_CONSOLE_BASE_URL: ${VERIFUND_CONSOLE_BASE_URL:-http://127.0.0.1:3000}
+      VERIFUND_ALLOW_PUBLIC_BIND: "1"
+      VERIFUND_OPS_TOKEN: ${VERIFUND_OPS_TOKEN:-dev-verifund-ops}
+      VERIFUND_SELLER_TOKEN_SECRET: ${VERIFUND_SELLER_TOKEN_SECRET:-dev-verifund-seller-token-secret}
+      VERIFUND_LINK_SECRET: ${VERIFUND_LINK_SECRET:-dev-verifund-link-secret}
+      VERIFUND_RECEIPT_KEYS: ${VERIFUND_RECEIPT_KEYS:-'{"dev-1":"dev-verifund-receipt-key"}'}
+      VERIFUND_RECEIPT_ACTIVE_KID: ${VERIFUND_RECEIPT_ACTIVE_KID:-dev-1}
+      VERIFUND_DATABASE_URL: sqlite+aiosqlite:////app/data/verifund.db
+      VERIFUND_EVIDENCE_DIR: /app/data/evidence
+      VERIFUND_MAX_EVIDENCE_BYTES: ${VERIFUND_MAX_EVIDENCE_BYTES:-25000000}
+      VERIFUND_SELLER_TOKEN_TTL_HOURS: ${VERIFUND_SELLER_TOKEN_TTL_HOURS:-72}
+      VERIFUND_CHECKOUT_LINK_TTL_MINUTES: ${VERIFUND_CHECKOUT_LINK_TTL_MINUTES:-30}
+      VERIFUND_RETURN_LINK_TTL_HOURS: ${VERIFUND_RETURN_LINK_TTL_HOURS:-24}
+      VERIFUND_EVIDENCE_DEADLINE_HOURS: ${VERIFUND_EVIDENCE_DEADLINE_HOURS:-72}
+      VERIFUND_INSPECTION_WINDOW_HOURS: ${VERIFUND_INSPECTION_WINDOW_HOURS:-24}
+      VERIFUND_FUNDING_TIMEOUT_HOURS: ${VERIFUND_FUNDING_TIMEOUT_HOURS:-24}
+      VERIFUND_PAYOUT_ALERT_HOURS: ${VERIFUND_PAYOUT_ALERT_HOURS:-1}
+      VERIFUND_SELLER_PAYOUT_EMAILS: ${VERIFUND_SELLER_PAYOUT_EMAILS:-}
+      VERIFUND_RECONCILER_ENABLED: ${VERIFUND_RECONCILER_ENABLED:-true}
+      VERIFUND_RECONCILER_PENDING_SECONDS: ${VERIFUND_RECONCILER_PENDING_SECONDS:-30}
+      VERIFUND_RECONCILER_DEADLINE_SECONDS: ${VERIFUND_RECONCILER_DEADLINE_SECONDS:-60}
+      VERIFUND_RECONCILER_RECEIPT_SECONDS: ${VERIFUND_RECONCILER_RECEIPT_SECONDS:-300}
+      VERIFUND_FAKE_SCENARIO: ${VERIFUND_FAKE_SCENARIO:-success}
+      VERIFUND_FAKE_WEBHOOK_SECRET: ${VERIFUND_FAKE_WEBHOOK_SECRET:-dev-verifund-fake-webhook}
+      PAYPAL_ENV: ${PAYPAL_ENV:-sandbox}
+      PAYPAL_API_BASE: ${PAYPAL_API_BASE:-https://api-m.sandbox.paypal.com}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      PAYPAL_PLATFORM_EMAIL: ${PAYPAL_PLATFORM_EMAIL:-}
+      PAYPAL_BUYER_EMAIL: ${PAYPAL_BUYER_EMAIL:-}
+    ports:
+      - "127.0.0.1:9300:9300"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9300/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  verifund-agent:
+    <<: *python-service
+    command: python -m verifund_agent
+    profiles: ["verifund"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 9301
+      VERIFUND_MODE: ${VERIFUND_MODE:-fake}
+      BUYER_INTERNAL_URL: http://buyer:9100
+      VERIFUND_AGENT_URL: http://verifund-agent:9301
+      VERIFUND_AGENT_A2A_TOKEN: ${VERIFUND_AGENT_A2A_TOKEN:-dev-verifund-agent-a2a}
+      VERIFUND_AGENT_INTERNAL_TOKEN: ${VERIFUND_AGENT_INTERNAL_TOKEN:-dev-verifund-agent-internal}
+      VERIFUND_AGENT_TIMEOUT_SECONDS: ${VERIFUND_AGENT_TIMEOUT_SECONDS:-20}
+      VERIFUND_AGENT_DATABASE_URL: sqlite+aiosqlite:////app/data/verifund-agent.db
+      VERIFUND_AGENT_CHECKPOINT_PATH: /app/data/verifund-agent-checkpoints.db
+    depends_on:
+      buyer:
+        condition: service_healthy
+    volumes:
+      - marketmesh-data:/app/data
+    ports:
+      - "127.0.0.1:9301:9301"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9301/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  verifund-register:
+    <<: *python-service
+    command: python -m verifund_agent.register
+    profiles: ["verifund"]
+    restart: "no"
+    environment:
+      REGISTRY_URL: http://registry:9105
+      REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
+      VERIFUND_AGENT_CARD_URL: http://verifund-agent:9301/.well-known/agent-card.json
+      VERIFUND_AGENT_REGISTER_TIMEOUT_SECONDS: ${VERIFUND_AGENT_REGISTER_TIMEOUT_SECONDS:-60}
+    depends_on:
+      verifund-agent:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+
 
 volumes:
   marketmesh-data:

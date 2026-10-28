@@ -11,6 +11,7 @@ MarketMesh is a set of processes with explicit ownership:
 | Buyer agent | Mandate, discovery, negotiation orchestration, ranking, approval interrupt, purchase orders | Seller stock, seller cost floors |
 | Registry | Agent Card index, categories, card hashes, health | Negotiation, trust decisions, orders |
 | Seller agents | Catalog policy, quote generation, negotiation choices, stock, reservations, order IDs | Buyer budget, ranking, human approval |
+| Verifund control plane | Settlement state, held-funds ledger, evidence records, PayPal calls, receipts, audit | Mandate, ranking, seller stock |
 
 Each seller has its own SQLite database and its own policy file. The buyer has its own
 database and a separate LangGraph checkpoint database. The registry has only the card index.
@@ -41,6 +42,33 @@ protocol. Keeping them separate matters:
 - Seller services expose only Agent Card, health, metrics, and authenticated A2A routes.
 - The buyer is the only component that holds outbound seller credentials.
 - Trace frames are persisted by the buyer and read through a console proxy.
+
+## Settlement subsystem
+
+`VERIFUND_MODE=fake|sandbox` adds one authority for money and transaction state:
+
+```text
+Console ──► Buyer ──► Verifund control plane (:9300) ──► PayPal Sandbox
+              │            │
+              │            ├── SQLite: verifund.db
+              └── A2A ──►  └── evidence: data/evidence/<sha256>
+```
+
+The buyer, seller, and console are clients. The control plane owns agreement
+hashing, the state machine, the held-funds ledger, evidence records, PayPal calls,
+webhooks, payout, receipts, and audit. The buyer stores only its copy of the seller
+token in `run_secrets`; the seller stores its copy in `settlement_tokens`; neither
+enters graph state, traces, logs, or AG-UI.
+
+The state machine is `AWARDED → AGREED → FUNDING_PENDING → FUNDED →
+FULFILLMENT_PENDING → VERIFICATION_PENDING → RELEASE_PERMITTED →
+PAYOUT_PENDING → RELEASED`, with `REVIEW_REQUIRED`, `CANCELED`, and `FAILED` as
+exception or terminal states. Policy computes `RELEASE_PERMITTED`; a reviewer
+performs the audited release. Funding mismatches, ledger inconsistencies, and late
+captures cannot be overridden and are resolved in PayPal.
+
+`VERIFUND_MODE=off` keeps the service boundaries and behavior in the rest of this
+document unchanged.
 
 ## Buyer graph
 
@@ -139,3 +167,13 @@ the A2A SDK’s tables.
   atomic SQLite conflict.
 - **Approval rejected** — losers are cancelled through A2A `CancelTask`; no order exists.
 - **Trace failure** — the UI shows a trace feed error; the commerce run itself continues.
+- **Verifund capture pending** — the buyer keeps polling the compact state
+  projection; the reconciler retries unmatched webhooks and late captures.
+- **Verifund evidence incomplete at the deadline** — the transaction stays
+  `VERIFICATION_PENDING`; it never releases on partial evidence.
+- **Verifund payout failure** — the transaction moves to `REVIEW_REQUIRED`; the
+  reviewer retries the payout or resolves it in PayPal.
+
+There is no live payment processing, real fulfillment, tenant isolation, or
+production secret management in this codebase. Verifund moves PayPal Sandbox
+funds only and is disabled by default.

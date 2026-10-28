@@ -24,3 +24,8 @@ next-env.d.ts
 *.tsbuildinfo
 
 .agents/
+data/evidence/
+
+.coverage
+coverage.xml
+htmlcov/
