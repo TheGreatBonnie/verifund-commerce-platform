@@ -331,3 +331,8 @@ async def get_receipt(
     return await _service(request).get_receipt(
         transaction_id, actor=actor(request)
     )
+
+
+@router.post("/reconciler/run", dependencies=[Depends(require_ops)])
+async def run_reconciler(request: Request) -> dict[str, Any]:
+    return await request.app.state.reconciler.run_once()

@@ -1347,3 +1347,15 @@ class Repository:
                 )
             ).first()
         return str(row.transaction_id) if row is not None else None
+
+    async def find_started_operation(
+        self, transaction_id: str, kind: str
+    ) -> dict[str, Any] | None:
+        statement = select(self.provider_operations).where(
+            self.provider_operations.c.transaction_id == transaction_id,
+            self.provider_operations.c.kind == kind,
+            self.provider_operations.c.status == "started",
+        )
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(statement)).first()
+        return dict(row._mapping) if row is not None else None

@@ -12,6 +12,7 @@ from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
 from verifund_control_plane.paypal.fake import FakePaymentPort
 from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort
+from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.receipts import ReceiptSigner
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.service import VerifundService
@@ -71,15 +72,29 @@ def create_app(
         links=links,
         receipts=receipts,
     )
+    reconciler = Reconciler(
+        repo=repo,
+        service=service,
+        settings=settings,
+        clock=now,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await configure_sqlite(engine)
         if hasattr(app.state, "repo"):
             await app.state.repo.create_schema()
+        if (
+            hasattr(app.state, "reconciler")
+            and settings.mode != "off"
+            and settings.reconciler_enabled
+        ):
+            app.state.reconciler.start()
         try:
             yield
         finally:
+            if hasattr(app.state, "reconciler"):
+                await app.state.reconciler.stop()
             await engine.dispose()
 
     app = FastAPI(title="Verifund Control Plane", lifespan=lifespan)
@@ -94,6 +109,7 @@ def create_app(
     app.state.link_signer = links
     app.state.payments = payments
     app.state.receipts = receipts
+    app.state.reconciler = reconciler
     app.add_exception_handler(VerifundError, verifund_error_handler)
     app.include_router(health.router)
     app.include_router(ops.router)

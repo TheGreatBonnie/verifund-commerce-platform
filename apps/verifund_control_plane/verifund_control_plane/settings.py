@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     reconciler_receipt_seconds: int = Field(
         default=300, validation_alias="VERIFUND_RECONCILER_RECEIPT_SECONDS"
     )
+    reconciler_interval_seconds: int = Field(
+        default=30, validation_alias="VERIFUND_RECONCILER_INTERVAL_SECONDS"
+    )
     fake_webhook_secret: str = Field(
         default="dev-verifund-fake-webhook",
         validation_alias="VERIFUND_FAKE_WEBHOOK_SECRET",

@@ -2455,3 +2455,137 @@ class VerifundService:
             kid=data["kid"],
             verified=verified,
         ).model_dump(mode="json")
+
+    async def recover_operation(
+        self, operation: dict[str, Any], *, actor: str
+    ) -> bool:
+        kind = str(operation.get("kind") or "")
+        transaction_id = str(operation.get("transaction_id") or "")
+        operation_id = str(operation.get("operation_id") or "")
+        if not transaction_id or not operation_id:
+            return False
+        record = await self.repo.get_transaction(transaction_id)
+        if kind == "create_order":
+            funding = record.funding or {}
+            if (
+                record.state != TransactionState.FUNDING_PENDING
+                or funding.get("provider_order_id")
+            ):
+                return False
+            request = operation.get("request") or {}
+            order = await self.payments.create_order(
+                record,
+                return_url=str(request.get("return_url") or ""),
+                cancel_url=str(request.get("cancel_url") or ""),
+                idempotency_key=str(operation.get("idempotency_key") or ""),
+            )
+            payer_url = str(
+                order.payer_action_url or request.get("return_url") or ""
+            )
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(
+                    transaction_id, conn
+                )
+                if current.state == TransactionState.FUNDING_PENDING:
+                    await self.repo.update_transaction(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        changes={
+                            "funding": {
+                                **(current.funding or {}),
+                                "status": "pending",
+                                "provider_order_id": order.order_id,
+                                "payer_action_url": payer_url,
+                                "checkout_url": payer_url,
+                            }
+                        },
+                        audit=AuditInput(actor, "funding_order_recovered"),
+                    )
+            await self.repo.update_provider_operation(
+                operation_id,
+                status="completed",
+                provider_id=order.order_id,
+                response=order.raw,
+            )
+            return True
+        if kind == "create_payout":
+            payout = record.payout or {}
+            if record.state not in {
+                TransactionState.PAYOUT_PENDING,
+                TransactionState.REVIEW_REQUIRED,
+            } or payout.get("item_id"):
+                return False
+            request = operation.get("request") or {}
+            await self._execute_payout(
+                transaction_id,
+                operation_id=operation_id,
+                batch_id=str(
+                    payout.get("batch_id")
+                    or operation.get("idempotency_key")
+                    or f"batch_{transaction_id}"
+                ),
+                sender_item_id=str(
+                    request.get("sender_item_id") or f"item_{transaction_id}"
+                ),
+                actor=actor,
+            )
+            return True
+        return False
+
+    async def backfill_receipt(
+        self, transaction_id: str, *, actor: str
+    ) -> bool:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state != TransactionState.RELEASED or record.receipt:
+            return False
+        item_id = str((record.payout or {}).get("item_id") or "")
+        if not item_id:
+            return False
+        try:
+            await self.repo.get_payout_item(item_id)
+        except VerifundError:
+            return False
+        items = await self.repo.list_evidence(transaction_id)
+        signed = self.receipts.sign(
+            build_receipt_payload(
+                transaction_id=transaction_id,
+                agreement_hash=record.agreement_hash,
+                amount_cents=record.amount_cents,
+                currency=record.currency,
+                buyer_id=record.buyer_id,
+                seller_id=record.seller_id,
+                capture_id=str(
+                    (record.funding or {}).get("capture_id") or ""
+                ),
+                payout_item_id=item_id,
+                evidence_hashes=[item.sha256 for item in items],
+                released_at=self._now(),
+            )
+        )
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state != TransactionState.RELEASED or current.receipt:
+                return False
+            await self.repo.save_receipt(
+                conn,
+                transaction_id,
+                signed.payload,
+                signed.payload_hash,
+                signed.signature,
+                signed.kid,
+            )
+            await self.repo.update_transaction(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                changes={
+                    "receipt": {
+                        "kid": signed.kid,
+                        "payload_hash": signed.payload_hash,
+                        "signed_at": self._iso(self._now()),
+                    }
+                },
+                audit=AuditInput(actor, "receipt_backfilled"),
+            )
+        return True
