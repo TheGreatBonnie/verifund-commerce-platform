@@ -66,3 +66,27 @@ class Settings(BaseSettings):
         default="dev-console",
         validation_alias=AliasChoices("BUYER_CONSOLE_API_TOKEN"),
     )
+    verifund_mode: Literal["off", "fake", "sandbox"] = Field(
+        default="off",
+        validation_alias=AliasChoices("VERIFUND_MODE"),
+    )
+    verifund_url: str = Field(
+        default="http://127.0.0.1:9300",
+        validation_alias=AliasChoices("VERIFUND_URL", "BUYER_VERIFUND_URL"),
+    )
+    verifund_ops_token: str = Field(
+        default="dev-verifund-ops",
+        validation_alias=AliasChoices("VERIFUND_OPS_TOKEN", "BUYER_VERIFUND_OPS_TOKEN"),
+    )
+    verifund_timeout_seconds: float = Field(
+        default=20.0,
+        validation_alias=AliasChoices("VERIFUND_TIMEOUT_SECONDS"),
+    )
+    internal_api_token: str = Field(
+        default="dev-buyer-internal",
+        validation_alias=AliasChoices("BUYER_INTERNAL_TOKEN"),
+    )
+    console_base_url: str = Field(
+        default="http://127.0.0.1:3000",
+        validation_alias=AliasChoices("VERIFUND_CONSOLE_BASE_URL", "BUYER_CONSOLE_BASE_URL"),
+    )
