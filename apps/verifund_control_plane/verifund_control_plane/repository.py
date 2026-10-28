@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from verifund_contracts import TransactionState
+from verifund_contracts import EvidenceItem, TransactionState
 from verifund_control_plane.db import configure_sqlite, transaction
 from verifund_control_plane.domain import TransactionRecord, assert_transition
 from verifund_control_plane.errors import VerifundError
@@ -617,3 +617,523 @@ class Repository:
                 created_at=_iso(datetime.now(UTC)),
             )
         )
+
+    async def add_evidence(
+        self,
+        conn: AsyncConnection,
+        transaction_id: str,
+        seller_id: str,
+        item: EvidenceItem,
+    ) -> tuple[EvidenceItem, bool]:
+        statement = (
+            sqlite_insert(self.evidence)
+            .values(
+                evidence_id=item.evidence_id,
+                transaction_id=transaction_id,
+                seller_id=seller_id,
+                kind=item.kind,
+                sha256=item.sha256,
+                media_type=item.media_type,
+                size_bytes=item.size_bytes,
+                original_filename=item.original_filename,
+                note=item.note,
+                captured_at=None,
+                created_at=_iso(item.created_at),
+            )
+            .on_conflict_do_nothing(index_elements=["transaction_id", "sha256"])
+        )
+        result = await conn.execute(statement)
+        if result.rowcount == 1:
+            return item, True
+        existing = await self.get_evidence_by_sha(
+            transaction_id, item.sha256, conn
+        )
+        return existing, False
+
+    async def get_evidence_by_sha(
+        self,
+        transaction_id: str,
+        sha256: str,
+        conn: AsyncConnection | None = None,
+    ) -> EvidenceItem:
+        statement = select(self.evidence).where(
+            self.evidence.c.transaction_id == transaction_id,
+            self.evidence.c.sha256 == sha256,
+        )
+        if conn is not None:
+            row = (await conn.execute(statement)).first()
+        else:
+            async with self.engine.connect() as own_conn:
+                row = (await own_conn.execute(statement)).first()
+        if row is None:
+            raise VerifundError(
+                "not_found", "evidence not found", status_code=404
+            )
+        return self._evidence(row)
+
+    def _evidence(self, row: Any) -> EvidenceItem:
+        return EvidenceItem(
+            evidence_id=row.evidence_id,
+            kind=row.kind,
+            sha256=row.sha256,
+            media_type=row.media_type,
+            size_bytes=row.size_bytes,
+            original_filename=row.original_filename,
+            note=row.note,
+            created_at=_dt(row.created_at),
+        )
+
+    async def list_evidence(self, transaction_id: str) -> list[EvidenceItem]:
+        statement = (
+            select(self.evidence)
+            .where(self.evidence.c.transaction_id == transaction_id)
+            .order_by(self.evidence.c.created_at)
+        )
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [self._evidence(row) for row in rows]
+
+    async def get_evidence(
+        self, transaction_id: str, evidence_id: str
+    ) -> EvidenceItem:
+        statement = select(self.evidence).where(
+            self.evidence.c.transaction_id == transaction_id,
+            self.evidence.c.evidence_id == evidence_id,
+        )
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(statement)).first()
+        if row is None:
+            raise VerifundError(
+                "not_found", "evidence not found", status_code=404
+            )
+        return self._evidence(row)
+
+    async def create_provider_operation(
+        self,
+        conn: AsyncConnection,
+        operation_id: str,
+        transaction_id: str,
+        kind: str,
+        idempotency_key: str,
+        request: dict[str, Any],
+    ) -> None:
+        now = _iso(datetime.now(UTC))
+        await conn.execute(
+            self.provider_operations.insert().values(
+                operation_id=operation_id,
+                transaction_id=transaction_id,
+                kind=kind,
+                idempotency_key=idempotency_key,
+                provider_id=None,
+                status="started",
+                request=request,
+                response=None,
+                attempts=0,
+                last_error=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    async def update_provider_operation(
+        self,
+        operation_id: str,
+        *,
+        status: str,
+        provider_id: str | None = None,
+        response: dict[str, Any] | None = None,
+        last_error: str | None = None,
+        increment_attempts: bool = False,
+    ) -> None:
+        values: dict[str, Any] = {
+            "status": status,
+            "provider_id": provider_id,
+            "response": response,
+            "last_error": last_error,
+            "updated_at": _iso(datetime.now(UTC)),
+        }
+        statement = (
+            self.provider_operations.update()
+            .where(
+                self.provider_operations.c.operation_id == operation_id
+            )
+            .values(**values)
+        )
+        if increment_attempts:
+            statement = statement.values(
+                attempts=self.provider_operations.c.attempts + 1
+            )
+        async with self.engine.begin() as conn:
+            await conn.execute(statement)
+
+    async def get_provider_operation(self, operation_id: str) -> dict[str, Any]:
+        statement = select(self.provider_operations).where(
+            self.provider_operations.c.operation_id == operation_id
+        )
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(statement)).first()
+        if row is None:
+            raise VerifundError(
+                "not_found", "provider operation not found", status_code=404
+            )
+        return dict(row._mapping)
+
+    async def list_started_operations(
+        self, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        statement = (
+            select(self.provider_operations)
+            .where(self.provider_operations.c.status == "started")
+            .limit(limit)
+        )
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [dict(row._mapping) for row in rows]
+
+    async def insert_webhook_event(
+        self,
+        conn: AsyncConnection,
+        event_id: str,
+        event_type: str,
+        resource_id: str | None,
+        payload_hash: str,
+        payload: dict[str, Any],
+        mode: str,
+        verified: bool,
+    ) -> bool:
+        statement = (
+            sqlite_insert(self.webhook_events)
+            .values(
+                event_id=event_id,
+                event_type=event_type,
+                resource_id=resource_id,
+                payload=payload,
+                payload_hash=payload_hash,
+                mode=mode,
+                verified=1 if verified else 0,
+                status="pending",
+                attempts=0,
+                last_error=None,
+                received_at=_iso(datetime.now(UTC)),
+                processed_at=None,
+            )
+            .on_conflict_do_nothing(index_elements=["event_id"])
+        )
+        result = await conn.execute(statement)
+        return result.rowcount == 1
+
+    async def mark_webhook_event(
+        self, event_id: str, status: str, *, last_error: str | None = None
+    ) -> None:
+        now = datetime.now(UTC)
+        values: dict[str, Any] = {
+            "status": status,
+            "last_error": last_error,
+            "attempts": self.webhook_events.c.attempts + 1,
+            "processed_at": (
+                _iso(now) if status in {"processed", "unmatched"} else None
+            ),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.webhook_events.update()
+                .where(self.webhook_events.c.event_id == event_id)
+                .values(**values)
+            )
+
+    async def get_webhook_event(self, event_id: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.webhook_events).where(
+                        self.webhook_events.c.event_id == event_id
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError(
+                "not_found", "webhook event not found", status_code=404
+            )
+        return dict(row._mapping)
+
+    async def list_webhook_events(
+        self, *, status: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        statement = (
+            select(self.webhook_events)
+            .order_by(self.webhook_events.c.received_at)
+            .limit(limit)
+        )
+        if status:
+            statement = statement.where(
+                self.webhook_events.c.status == status
+            )
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [dict(row._mapping) for row in rows]
+
+    async def upsert_payout_item(
+        self,
+        conn: AsyncConnection,
+        item_id: str,
+        transaction_id: str,
+        batch_id: str,
+        sender_item_id: str,
+        seller_email: str,
+        amount_cents: int,
+        currency: str,
+        status: str,
+        raw: dict[str, Any],
+    ) -> None:
+        now = _iso(datetime.now(UTC))
+        statement = (
+            sqlite_insert(self.payout_items)
+            .values(
+                item_id=item_id,
+                transaction_id=transaction_id,
+                batch_id=batch_id,
+                sender_item_id=sender_item_id,
+                seller_email=seller_email,
+                amount_cents=amount_cents,
+                currency=currency,
+                status=status,
+                raw=raw,
+                created_at=now,
+                updated_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["item_id"],
+                set_={"status": status, "raw": raw, "updated_at": now},
+            )
+        )
+        await conn.execute(statement)
+
+    async def get_payout_item(self, item_id: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.payout_items).where(
+                        self.payout_items.c.item_id == item_id
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError(
+                "not_found", "payout item not found", status_code=404
+            )
+        return dict(row._mapping)
+
+    async def list_payout_items(
+        self, transaction_id: str
+    ) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.payout_items)
+                    .where(
+                        self.payout_items.c.transaction_id == transaction_id
+                    )
+                    .order_by(self.payout_items.c.created_at)
+                )
+            ).all()
+        return [dict(row._mapping) for row in rows]
+
+    async def save_seller_token(
+        self,
+        conn: AsyncConnection,
+        jti_hash: str,
+        transaction_id: str,
+        seller_id: str,
+        agreement_hash: str,
+        scopes: list[str],
+        expires_at: datetime,
+    ) -> None:
+        await conn.execute(
+            self.seller_tokens.insert().values(
+                jti_hash=jti_hash,
+                transaction_id=transaction_id,
+                seller_id=seller_id,
+                agreement_hash=agreement_hash,
+                scopes=scopes,
+                expires_at=_iso(expires_at),
+                revoked_at=None,
+                created_at=_iso(datetime.now(UTC)),
+            )
+        )
+
+    async def revoke_seller_tokens(
+        self, conn: AsyncConnection, transaction_id: str, now: datetime
+    ) -> None:
+        await conn.execute(
+            self.seller_tokens.update()
+            .where(
+                self.seller_tokens.c.transaction_id == transaction_id,
+                self.seller_tokens.c.revoked_at.is_(None),
+            )
+            .values(revoked_at=_iso(now))
+        )
+
+    async def get_seller_token(self, jti_hash: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.seller_tokens).where(
+                        self.seller_tokens.c.jti_hash == jti_hash
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError(
+                "unauthorized", "seller token is not recognized", status_code=401
+            )
+        return dict(row._mapping)
+
+    async def create_checkout_link(
+        self,
+        conn: AsyncConnection,
+        jti: str,
+        transaction_id: str,
+        kind: str,
+        expires_at: datetime,
+    ) -> None:
+        await conn.execute(
+            self.checkout_links.insert().values(
+                jti=jti,
+                transaction_id=transaction_id,
+                kind=kind,
+                expires_at=_iso(expires_at),
+                used_at=None,
+                created_at=_iso(datetime.now(UTC)),
+            )
+        )
+
+    async def get_checkout_link(self, jti: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.checkout_links).where(
+                        self.checkout_links.c.jti == jti
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError(
+                "not_found", "checkout link not found", status_code=404
+            )
+        return dict(row._mapping)
+
+    async def consume_checkout_link(self, jti: str, now: datetime) -> bool:
+        async with self.engine.begin() as conn:
+            result = await conn.execute(
+                self.checkout_links.update()
+                .where(
+                    self.checkout_links.c.jti == jti,
+                    self.checkout_links.c.used_at.is_(None),
+                )
+                .values(used_at=_iso(now))
+            )
+            return result.rowcount == 1
+
+    async def save_receipt(
+        self,
+        conn: AsyncConnection,
+        transaction_id: str,
+        payload: dict[str, Any],
+        payload_hash: str,
+        signature: str,
+        kid: str,
+    ) -> None:
+        statement = (
+            sqlite_insert(self.receipts)
+            .values(
+                transaction_id=transaction_id,
+                payload=payload,
+                payload_hash=payload_hash,
+                signature=signature,
+                kid=kid,
+                created_at=_iso(datetime.now(UTC)),
+            )
+            .on_conflict_do_update(
+                index_elements=["transaction_id"],
+                set_={
+                    "payload": payload,
+                    "payload_hash": payload_hash,
+                    "signature": signature,
+                    "kid": kid,
+                },
+            )
+        )
+        await conn.execute(statement)
+
+    async def get_receipt(self, transaction_id: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.receipts).where(
+                        self.receipts.c.transaction_id == transaction_id
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError(
+                "not_found", "receipt not available", status_code=404
+            )
+        return dict(row._mapping)
+
+    async def save_reconciler_run(
+        self,
+        run_id: str,
+        started_at: datetime,
+        finished_at: datetime | None,
+        stats: dict[str, Any],
+        error: str | None = None,
+    ) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.reconciler_runs.insert().values(
+                    run_id=run_id,
+                    started_at=_iso(started_at),
+                    finished_at=(
+                        _iso(finished_at) if finished_at else None
+                    ),
+                    stats=stats,
+                    error=error,
+                )
+            )
+
+    async def list_reconciler_runs(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.reconciler_runs)
+                    .order_by(self.reconciler_runs.c.started_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+        return [dict(row._mapping) for row in rows]
+
+    async def ledger_balances(self, transaction_id: str) -> dict[str, int]:
+        rows = await self.ledger_entries(transaction_id)
+        balances = {"held_funds": 0, "platform_cash": 0, "seller_paid": 0}
+        for row in rows:
+            account = row["account"]
+            if account == "platform_cash":
+                balances[account] += row["debit_cents"] - row["credit_cents"]
+            else:
+                balances[account] += row["credit_cents"] - row["debit_cents"]
+        return balances
+
+    async def ledger_entries(
+        self, transaction_id: str
+    ) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.ledger)
+                    .where(self.ledger.c.transaction_id == transaction_id)
+                    .order_by(self.ledger.c.created_at)
+                )
+            ).all()
+        return [dict(row._mapping) for row in rows]
