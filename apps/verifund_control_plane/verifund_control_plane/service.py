@@ -15,23 +15,31 @@ from verifund_contracts import (
     EvidenceItem,
     EvidenceKind,
     EvidenceSummary,
+    FlagReviewRequest,
     FundRequest,
     FundResponse,
+    PurchaseOrderReport,
+    ReceiptResponse,
+    ReleaseRequest,
     ReviewReason,
     RejectRequest,
+    SellerTokenRequest,
+    SellerTokenResponse,
     SellerProjection,
     TransactionProjection,
     TransactionState,
 )
 from verifund_control_plane.domain import (
     EVIDENCE_UPLOAD_STATES,
+    NON_OVERRIDABLE_REASONS,
     REQUIRED_EVIDENCE,
     TransactionRecord,
-    capture_ledger_entries,
     agreement_hash,
     allowed_actions,
     build_agreement,
     canonical_json,
+    capture_ledger_entries,
+    payout_ledger_entries,
     sha256_hex,
     validate_award,
 )
@@ -45,7 +53,8 @@ from verifund_control_plane.repository import (
     Repository,
 )
 from verifund_control_plane.settings import Settings
-from verifund_control_plane.paypal.port import CaptureResult, PaymentPort
+from verifund_control_plane.paypal.port import CaptureResult, PaymentPort, PayoutResult
+from verifund_control_plane.receipts import ReceiptSigner, build_receipt_payload
 from verifund_control_plane.tokens import LinkSigner, SellerTokenService
 
 Mutation = Callable[[Any], Awaitable[dict[str, Any]]]
@@ -62,6 +71,7 @@ class VerifundService:
         evidence_store: EvidenceStore,
         payments: PaymentPort,
         links: LinkSigner,
+        receipts: ReceiptSigner,
     ) -> None:
         self.repo = repo
         self.settings = settings
@@ -70,6 +80,7 @@ class VerifundService:
         self.evidence_store = evidence_store
         self.payments = payments
         self.links = links
+        self.receipts = receipts
 
     def _now(self) -> datetime:
         return self.clock()
@@ -1564,3 +1575,883 @@ class VerifundService:
             return False
         await self.apply_capture(record.transaction_id, capture, actor=actor)
         return True
+    def _validate_purchase_order(
+        self,
+        record: TransactionRecord,
+        agreement: dict[str, Any],
+        request: PurchaseOrderReport,
+    ) -> None:
+        if (
+            request.total_cents != record.amount_cents
+            or request.currency != record.currency
+            or request.offer_id != record.offer_id
+        ):
+            raise VerifundError(
+                "conflict",
+                "purchase order total, currency, or offer does not match",
+                status_code=409,
+            )
+        if request.quantity != sum(
+            item.quantity for item in request.line_items
+        ):
+            raise VerifundError(
+                "invalid_request",
+                "purchase order quantity does not match line items",
+                status_code=400,
+            )
+        expected = sorted(
+            (
+                item["sku"],
+                item["quantity"],
+                item["unit_price_cents"],
+                item["warranty_addon_cents"],
+            )
+            for item in agreement["line_items"]
+        )
+        actual = sorted(
+            (
+                item.sku,
+                item.quantity,
+                item.unit_price_cents,
+                item.warranty_addon_cents,
+            )
+            for item in request.line_items
+        )
+        if expected != actual:
+            raise VerifundError(
+                "conflict",
+                "purchase order line items do not match the agreement",
+                status_code=409,
+            )
+
+    async def report_purchase_order(
+        self,
+        transaction_id: str,
+        request: PurchaseOrderReport,
+        *,
+        actor: str,
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        body = request.model_dump(mode="json")
+        cached = await self._replay(
+            f"purchase-order:{transaction_id}", idempotency_key, body
+        )
+        if cached is not None:
+            return cached
+        items = await self.repo.list_evidence(transaction_id)
+
+        async def operation(conn):
+            record = await self.repo.get_transaction(transaction_id, conn)
+            self._check_hash(record, request.agreement_hash)
+            existing = record.purchase_order or {}
+            settled_states = {
+                TransactionState.FULFILLMENT_PENDING,
+                TransactionState.VERIFICATION_PENDING,
+                TransactionState.RELEASE_PERMITTED,
+                TransactionState.PAYOUT_PENDING,
+                TransactionState.RELEASED,
+                TransactionState.REVIEW_REQUIRED,
+            }
+            if (
+                existing.get("seller_order_id") == request.seller_order_id
+                and record.state in settled_states
+            ):
+                return (
+                    await self._projection(record, "buyer", items=items)
+                ).model_dump(mode="json")
+            if record.state != TransactionState.FUNDED:
+                raise VerifundError(
+                    "invalid_state",
+                    "transaction is not ready for a purchase order",
+                    status_code=409,
+                )
+            agreement = await self.repo.get_agreement(transaction_id)
+            self._validate_purchase_order(record, agreement, request)
+            deadline = self._now() + timedelta(
+                hours=self.settings.evidence_deadline_hours
+            )
+            snapshot = {
+                "seller_order_id": request.seller_order_id,
+                "offer_id": request.offer_id,
+                "quantity": request.quantity,
+                "total_cents": request.total_cents,
+                "currency": request.currency,
+                "tracking_number": request.tracking_number,
+                "carrier": request.carrier,
+                "reserved_at": self._iso(request.reserved_at),
+                "eta": self._iso(request.eta),
+                "line_items": [
+                    item.model_dump(mode="json")
+                    for item in request.line_items
+                ],
+            }
+            updated = await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=record.version,
+                expected_state=TransactionState.FUNDED,
+                new_state=TransactionState.FULFILLMENT_PENDING,
+                changes={
+                    "purchase_order": snapshot,
+                    "deadlines": {
+                        **(record.deadlines or {}),
+                        "evidence": self._iso(deadline),
+                    },
+                },
+                events=[
+                    EventInput(
+                        "purchase_order_reported",
+                        {
+                            "seller_order_id": request.seller_order_id,
+                            "tracking_number": request.tracking_number,
+                        },
+                        actor,
+                    )
+                ],
+                audit=AuditInput(actor, "purchase_order_reported"),
+            )
+            if items:
+                updated = await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=updated.version,
+                    expected_state=TransactionState.FULFILLMENT_PENDING,
+                    new_state=TransactionState.VERIFICATION_PENDING,
+                    changes={},
+                    audit=AuditInput(actor, "verification_started"),
+                )
+            return (
+                await self._projection(updated, "buyer", items=items)
+            ).model_dump(mode="json")
+
+        result = await self._mutate(
+            scope=f"purchase-order:{transaction_id}",
+            key=idempotency_key,
+            body=body,
+            operation=operation,
+        )
+        if result["state"] == TransactionState.VERIFICATION_PENDING.value:
+            await self.verify_if_ready(transaction_id, actor=actor)
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        return result
+
+    async def flag_review(
+        self,
+        transaction_id: str,
+        request: FlagReviewRequest,
+        *,
+        actor: str,
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        items = await self.repo.list_evidence(transaction_id)
+
+        async def operation(conn):
+            record = await self.repo.get_transaction(transaction_id, conn)
+            if record.state == TransactionState.REVIEW_REQUIRED:
+                return (
+                    await self._projection(record, "buyer", items=items)
+                ).model_dump(mode="json")
+            if record.state in {
+                TransactionState.CANCELED,
+                TransactionState.FAILED,
+                TransactionState.RELEASED,
+            }:
+                raise VerifundError(
+                    "invalid_state",
+                    "terminal transactions cannot be flagged",
+                    status_code=409,
+                )
+            reasons = list(
+                (record.verification or {}).get("reasons") or []
+            )
+            if "manual_flag" not in reasons:
+                reasons.append("manual_flag")
+            updated = await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=record.version,
+                expected_state=record.state,
+                new_state=TransactionState.REVIEW_REQUIRED,
+                changes={
+                    "verification": {
+                        "status": "failed",
+                        "reasons": reasons,
+                        "checked_at": self._iso(self._now()),
+                        "override_allowed": True,
+                    }
+                },
+                events=[
+                    EventInput(
+                        "review_required",
+                        {"reasons": reasons, "note": request.note},
+                        actor,
+                    )
+                ],
+                audit=AuditInput(
+                    actor,
+                    "manual_flag",
+                    note=request.note,
+                    payload={"reason": request.reason},
+                ),
+            )
+            return (
+                await self._projection(updated, "buyer", items=items)
+            ).model_dump(mode="json")
+
+        return await self._mutate(
+            scope=f"flag-review:{transaction_id}",
+            key=idempotency_key,
+            body=request.model_dump(mode="json"),
+            operation=operation,
+        )
+
+    def _seller_token_states(self) -> set[TransactionState]:
+        return {
+            TransactionState.AWARDED,
+            TransactionState.AGREED,
+            TransactionState.FUNDING_PENDING,
+            TransactionState.FUNDED,
+            TransactionState.FULFILLMENT_PENDING,
+            TransactionState.VERIFICATION_PENDING,
+        }
+
+    async def reissue_seller_token(
+        self,
+        transaction_id: str,
+        request: SellerTokenRequest,
+        *,
+        actor: str,
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if (
+            record.run_id != request.run_id
+            or record.seller_id != request.seller_id
+            or transaction_id != request.transaction_id
+        ):
+            raise VerifundError(
+                "forbidden",
+                "seller token request does not match the transaction",
+                status_code=403,
+            )
+        if record.state not in self._seller_token_states():
+            raise VerifundError(
+                "forbidden",
+                "seller token cannot be reissued after release authorization",
+                status_code=403,
+            )
+        issued = self.tokens.issue(
+            transaction_id, record.seller_id, record.agreement_hash
+        )
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.version != record.version:
+                raise VerifundError(
+                    "conflict", "transaction changed; retry", status_code=409
+                )
+            await self.repo.revoke_seller_tokens(
+                conn, transaction_id, self._now()
+            )
+            await self.repo.save_seller_token(
+                conn,
+                issued.jti_hash,
+                transaction_id,
+                record.seller_id,
+                record.agreement_hash,
+                ["txn:read", "evidence:write"],
+                issued.expires_at,
+            )
+            await self.repo.audit(
+                conn,
+                transaction_id,
+                AuditInput(
+                    actor,
+                    "seller_token_reissued",
+                    payload={"purpose": request.purpose},
+                ),
+            )
+        return SellerTokenResponse(
+            seller_token=issued.token, expires_at=issued.expires_at
+        ).model_dump(mode="json")
+
+    async def revoke_seller_token(
+        self, transaction_id: str, *, actor: str
+    ) -> dict[str, Any]:
+        async with self.repo.transaction() as conn:
+            await self.repo.get_transaction(transaction_id, conn)
+            await self.repo.revoke_seller_tokens(
+                conn, transaction_id, self._now()
+            )
+            await self.repo.audit(
+                conn,
+                transaction_id,
+                AuditInput(actor, "seller_token_revoked"),
+            )
+        return {"revoked": True}
+    async def release(
+        self,
+        transaction_id: str,
+        request: ReleaseRequest,
+        *,
+        actor: str,
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state in {
+            TransactionState.PAYOUT_PENDING,
+            TransactionState.RELEASED,
+        }:
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        if record.state == TransactionState.REVIEW_REQUIRED:
+            if not request.override or not request.note.strip():
+                raise VerifundError(
+                    "forbidden",
+                    "override and a note are required in review",
+                    status_code=403,
+                )
+            verification = record.verification or {}
+            reasons = verification.get("reasons") or []
+            non_overridable = {
+                reason.value for reason in NON_OVERRIDABLE_REASONS
+            }
+            if not verification.get("override_allowed") or any(
+                reason in non_overridable for reason in reasons
+            ):
+                raise VerifundError(
+                    "forbidden",
+                    "review reasons cannot be overridden",
+                    status_code=403,
+                )
+        elif record.state != TransactionState.RELEASE_PERMITTED:
+            raise VerifundError(
+                "invalid_state",
+                "transaction is not ready for release",
+                status_code=409,
+            )
+        funding = record.funding or {}
+        if funding.get("status") != "captured" or not funding.get("capture_id"):
+            raise VerifundError(
+                "invalid_state", "captured funds are required", status_code=409
+            )
+        balances = await self.repo.ledger_balances(transaction_id)
+        if balances.get("held_funds", 0) != record.amount_cents:
+            raise VerifundError(
+                "invalid_state",
+                "held funds do not match the agreement amount",
+                status_code=409,
+            )
+        operation_id = f"op_{uuid.uuid4().hex}"
+        batch_id = f"batch_{transaction_id}"
+        sender_item_id = f"item_{transaction_id}"
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state in {
+                TransactionState.PAYOUT_PENDING,
+                TransactionState.RELEASED,
+            }:
+                return (
+                    await self._projection(current, "buyer")
+                ).model_dump(mode="json")
+            now = self._now()
+            payout = {
+                "status": "pending",
+                "batch_id": batch_id,
+                "item_id": None,
+                "amount_cents": current.amount_cents,
+                "updated_at": self._iso(now),
+                "operation_id": operation_id,
+                "sender_item_id": sender_item_id,
+            }
+            await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                expected_state=current.state,
+                new_state=TransactionState.PAYOUT_PENDING,
+                changes={"payout": payout},
+                events=[
+                    EventInput(
+                        "release_authorized",
+                        {
+                            "released_by": request.released_by,
+                            "override": request.override,
+                        },
+                        actor,
+                    ),
+                    EventInput("payout_pending", {}, actor),
+                ],
+                audit=AuditInput(
+                    actor,
+                    "release_authorized",
+                    note=request.note,
+                    payload={"override": request.override},
+                ),
+            )
+            await self.repo.create_provider_operation(
+                conn,
+                operation_id,
+                transaction_id,
+                "create_payout",
+                batch_id,
+                {
+                    "sender_item_id": sender_item_id,
+                    "amount_cents": current.amount_cents,
+                    "currency": current.currency,
+                },
+            )
+        await self._execute_payout(
+            transaction_id,
+            operation_id=operation_id,
+            batch_id=batch_id,
+            sender_item_id=sender_item_id,
+            actor=actor,
+        )
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
+    async def _execute_payout(
+        self,
+        transaction_id: str,
+        *,
+        operation_id: str,
+        batch_id: str,
+        sender_item_id: str,
+        actor: str,
+    ) -> None:
+        record = await self.repo.get_transaction(transaction_id)
+        seller_email = self.settings.payout_email_for(
+            record.seller_id
+        ) or f"{record.seller_id}@example.test"
+        try:
+            result = await self.payments.create_payout(
+                record,
+                seller_email=seller_email,
+                batch_id=batch_id,
+                item_id=sender_item_id,
+            )
+        except VerifundError as exc:
+            await self.repo.update_provider_operation(
+                operation_id,
+                status="failed",
+                last_error=exc.message,
+                increment_attempts=True,
+            )
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(
+                    transaction_id, conn
+                )
+                if current.state == TransactionState.PAYOUT_PENDING:
+                    await self.repo.update_transaction(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        changes={
+                            "payout": {
+                                **(current.payout or {}),
+                                "status": "create_failed",
+                                "last_error": exc.message,
+                                "updated_at": self._iso(self._now()),
+                            }
+                        },
+                        audit=AuditInput(
+                            actor,
+                            "payout_create_failed",
+                            payload={"code": exc.code},
+                        ),
+                    )
+            return
+        await self.repo.update_provider_operation(
+            operation_id,
+            status="completed",
+            provider_id=result.item_id,
+            response=result.raw,
+        )
+        await self.apply_payout(transaction_id, result, actor=actor)
+
+    async def apply_payout(
+        self, transaction_id: str, result: PayoutResult, *, actor: str
+    ) -> None:
+        record = await self.repo.get_transaction(transaction_id)
+        status = result.status.upper()
+        current_payout = record.payout or {}
+        payout = {
+            **current_payout,
+            "status": result.status,
+            "batch_id": result.batch_id or current_payout.get("batch_id"),
+            "item_id": result.item_id or current_payout.get("item_id"),
+            "amount_cents": result.amount_cents,
+            "updated_at": self._iso(self._now()),
+        }
+        seller_email = self.settings.payout_email_for(
+            record.seller_id
+        ) or f"{record.seller_id}@example.test"
+        sender_item_id = str(
+            current_payout.get("sender_item_id") or f"item_{transaction_id}"
+        )
+        if status in {"PENDING", "ONHOLD", "UNCLAIMED"}:
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                if current.state == TransactionState.PAYOUT_PENDING:
+                    await self.repo.update_transaction(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        changes={"payout": payout},
+                        events=[
+                            EventInput(
+                                "payout_pending",
+                                {"status": result.status},
+                                actor,
+                            )
+                        ],
+                        audit=AuditInput(actor, "payout_pending"),
+                    )
+            return
+        if status == "SUCCESS":
+            if (
+                result.amount_cents != record.amount_cents
+                or result.currency != record.currency
+            ):
+                await self._payout_review(
+                    transaction_id,
+                    payout,
+                    actor=actor,
+                    reason="manual_flag",
+                    note="payout amount or currency mismatch",
+                )
+                return
+            balances = await self.repo.ledger_balances(transaction_id)
+            items = await self.repo.list_evidence(transaction_id)
+            signed = self.receipts.sign(
+                build_receipt_payload(
+                    transaction_id=transaction_id,
+                    agreement_hash=record.agreement_hash,
+                    amount_cents=record.amount_cents,
+                    currency=record.currency,
+                    buyer_id=record.buyer_id,
+                    seller_id=record.seller_id,
+                    capture_id=str(
+                        (record.funding or {}).get("capture_id") or ""
+                    ),
+                    payout_item_id=result.item_id,
+                    evidence_hashes=[item.sha256 for item in items],
+                    released_at=self._now(),
+                )
+            )
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                await self.repo.upsert_payout_item(
+                    conn,
+                    result.item_id,
+                    transaction_id,
+                    result.batch_id,
+                    sender_item_id,
+                    seller_email,
+                    result.amount_cents,
+                    result.currency,
+                    result.status,
+                    result.raw,
+                )
+                if current.state == TransactionState.RELEASED:
+                    return
+                if balances.get("held_funds", 0) != current.amount_cents:
+                    await self.repo.transition(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        expected_state=current.state,
+                        new_state=TransactionState.REVIEW_REQUIRED,
+                        changes={
+                            "payout": payout,
+                            "verification": {
+                                "status": "failed",
+                                "reasons": ["ledger_incomplete"],
+                                "checked_at": self._iso(self._now()),
+                                "override_allowed": False,
+                            },
+                        },
+                        events=[
+                            EventInput(
+                                "review_required",
+                                {"reason": "ledger_incomplete"},
+                                actor,
+                            )
+                        ],
+                        audit=AuditInput(actor, "ledger_incomplete"),
+                    )
+                    return
+                if current.state not in {
+                    TransactionState.PAYOUT_PENDING,
+                    TransactionState.REVIEW_REQUIRED,
+                }:
+                    return
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.RELEASED,
+                    changes={
+                        "payout": payout,
+                        "receipt": {
+                            "kid": signed.kid,
+                            "payload_hash": signed.payload_hash,
+                            "signed_at": self._iso(self._now()),
+                        },
+                    },
+                    events=[
+                        EventInput(
+                            "released",
+                            {
+                                "payout_item_id": result.item_id,
+                                "amount_cents": result.amount_cents,
+                            },
+                            actor,
+                        )
+                    ],
+                    ledger_entries=payout_ledger_entries(
+                        transaction_id, current.amount_cents
+                    ),
+                    audit=AuditInput(
+                        actor,
+                        "released",
+                        note=f"payout {result.item_id}",
+                    ),
+                )
+                await self.repo.save_receipt(
+                    conn,
+                    transaction_id,
+                    signed.payload,
+                    signed.payload_hash,
+                    signed.signature,
+                    signed.kid,
+                )
+            return
+        if status in {"FAILED", "BLOCKED", "DENIED", "RETURNED"}:
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                await self.repo.upsert_payout_item(
+                    conn,
+                    result.item_id,
+                    transaction_id,
+                    result.batch_id,
+                    sender_item_id,
+                    seller_email,
+                    result.amount_cents,
+                    result.currency,
+                    result.status,
+                    result.raw,
+                )
+                if current.state == TransactionState.RELEASED:
+                    await self.repo.transition(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        expected_state=current.state,
+                        new_state=TransactionState.REVIEW_REQUIRED,
+                        changes={
+                            "payout": payout,
+                            "verification": {
+                                "status": "failed",
+                                "reasons": ["manual_flag"],
+                                "checked_at": self._iso(self._now()),
+                                "override_allowed": False,
+                            },
+                        },
+                        events=[
+                            EventInput(
+                                "review_required",
+                                {"reason": "payout_returned"},
+                                actor,
+                            )
+                        ],
+                        audit=AuditInput(actor, "payout_returned"),
+                    )
+                elif current.state == TransactionState.PAYOUT_PENDING:
+                    await self.repo.transition(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        expected_state=current.state,
+                        new_state=TransactionState.FAILED,
+                        changes={
+                            "payout": payout,
+                            "last_error": {
+                                "code": "provider_rejected",
+                                "message": f"payout {result.status.lower()}",
+                            },
+                        },
+                        events=[
+                            EventInput(
+                                "failed",
+                                {"status": result.status},
+                                actor,
+                            )
+                        ],
+                        audit=AuditInput(actor, "payout_failed"),
+                    )
+            return
+        if status in {"REFUNDED", "REVERSED"}:
+            await self._payout_review(
+                transaction_id,
+                payout,
+                actor=actor,
+                reason="manual_flag",
+                note=f"payout {status.lower()}",
+            )
+
+    async def _payout_review(
+        self,
+        transaction_id: str,
+        payout: dict[str, Any],
+        *,
+        actor: str,
+        reason: str,
+        note: str,
+    ) -> None:
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state == TransactionState.REVIEW_REQUIRED:
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={"payout": payout},
+                    audit=AuditInput(actor, "payout_review", note=note),
+                )
+                return
+            await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                expected_state=current.state,
+                new_state=TransactionState.REVIEW_REQUIRED,
+                changes={
+                    "payout": payout,
+                    "verification": {
+                        "status": "failed",
+                        "reasons": [reason],
+                        "checked_at": self._iso(self._now()),
+                        "override_allowed": False,
+                    },
+                },
+                events=[
+                    EventInput(
+                        "review_required", {"reason": note}, actor
+                    )
+                ],
+                audit=AuditInput(actor, "payout_review", note=note),
+            )
+
+    async def retry_payout(
+        self, transaction_id: str, *, actor: str
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state == TransactionState.RELEASED:
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        if record.state not in {
+            TransactionState.PAYOUT_PENDING,
+            TransactionState.REVIEW_REQUIRED,
+        }:
+            raise VerifundError(
+                "invalid_state",
+                "transaction is not awaiting payout",
+                status_code=409,
+            )
+        payout = record.payout or {}
+        if not payout.get("operation_id") or not payout.get("batch_id"):
+            raise VerifundError(
+                "invalid_state",
+                "payout has not been authorized by a reviewer",
+                status_code=409,
+            )
+        if record.state == TransactionState.REVIEW_REQUIRED and payout.get(
+            "status"
+        ) not in {
+            "pending",
+            "create_failed",
+            "PENDING",
+            "ONHOLD",
+            "UNCLAIMED",
+            "FAILED",
+            "BLOCKED",
+            "DENIED",
+            "RETURNED",
+        }:
+            raise VerifundError(
+                "invalid_state",
+                "transaction is not awaiting a payout retry",
+                status_code=409,
+            )
+        if payout.get("item_id"):
+            result = await self.payments.get_payout_item(
+                str(payout["item_id"])
+            )
+            await self.apply_payout(transaction_id, result, actor=actor)
+        else:
+            await self._execute_payout(
+                transaction_id,
+                operation_id=str(payout["operation_id"]),
+                batch_id=str(payout["batch_id"]),
+                sender_item_id=str(
+                    payout.get("sender_item_id")
+                    or f"item_{transaction_id}"
+                ),
+                actor=actor,
+            )
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
+    async def refresh_payout(
+        self, transaction_id: str, *, actor: str
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state not in {
+            TransactionState.PAYOUT_PENDING,
+            TransactionState.REVIEW_REQUIRED,
+            TransactionState.RELEASED,
+        }:
+            raise VerifundError(
+                "invalid_state",
+                "transaction has no payout to refresh",
+                status_code=409,
+            )
+        item_id = (record.payout or {}).get("item_id")
+        if item_id:
+            try:
+                result = await self.payments.get_payout_item(str(item_id))
+            except VerifundError as exc:
+                if exc.code != "not_found":
+                    raise
+            else:
+                await self.apply_payout(
+                    transaction_id, result, actor=actor
+                )
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
+    async def get_receipt(
+        self, transaction_id: str, *, actor: str
+    ) -> dict[str, Any]:
+        await self.repo.get_transaction(transaction_id)
+        data = await self.repo.get_receipt(transaction_id)
+        verified = self.receipts.verify(
+            data["payload"],
+            data["payload_hash"],
+            data["signature"],
+            data["kid"],
+        )
+        return ReceiptResponse(
+            payload=data["payload"],
+            payload_hash=data["payload_hash"],
+            signature=data["signature"],
+            kid=data["kid"],
+            verified=verified,
+        ).model_dump(mode="json")

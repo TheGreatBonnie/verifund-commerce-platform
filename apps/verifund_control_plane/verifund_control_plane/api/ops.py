@@ -13,8 +13,12 @@ from verifund_contracts import (
     AwardRequest,
     BuyerAgreementReviewRequest,
     CancelRequest,
+    FlagReviewRequest,
     FundRequest,
+    PurchaseOrderReport,
+    ReleaseRequest,
     RejectRequest,
+    SellerTokenRequest,
 )
 from verifund_control_plane.errors import VerifundError
 
@@ -204,4 +208,126 @@ async def download_evidence(
         headers={
             "content-disposition": f'attachment; filename="{item.original_filename}"'
         },
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/purchase-order",
+    dependencies=[Depends(require_ops)],
+)
+async def report_purchase_order(
+    transaction_id: str, body: PurchaseOrderReport, request: Request
+) -> dict[str, Any]:
+    return await _service(request).report_purchase_order(
+        transaction_id,
+        body,
+        actor=actor(request),
+        idempotency_key=idempotency_key(request),
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/verify",
+    dependencies=[Depends(require_ops)],
+)
+async def verify(transaction_id: str, request: Request) -> dict[str, Any]:
+    return await _service(request).verify(
+        transaction_id, actor=actor(request)
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/flag-review",
+    dependencies=[Depends(require_ops)],
+)
+async def flag_review(
+    transaction_id: str, body: FlagReviewRequest, request: Request
+) -> dict[str, Any]:
+    return await _service(request).flag_review(
+        transaction_id,
+        body,
+        actor=actor(request),
+        idempotency_key=idempotency_key(request),
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/release",
+    dependencies=[Depends(require_ops)],
+)
+async def release(
+    transaction_id: str, body: ReleaseRequest, request: Request
+) -> dict[str, Any]:
+    return await _service(request).release(
+        transaction_id, body, actor=actor(request)
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/payout",
+    dependencies=[Depends(require_ops)],
+)
+async def retry_payout(transaction_id: str, request: Request) -> dict[str, Any]:
+    return await _service(request).retry_payout(
+        transaction_id, actor=actor(request)
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/payout/refresh",
+    dependencies=[Depends(require_ops)],
+)
+async def refresh_payout(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    return await _service(request).refresh_payout(
+        transaction_id, actor=actor(request)
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/funding/refresh",
+    dependencies=[Depends(require_ops)],
+)
+async def refresh_funding(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    return await _service(request).refresh_funding(
+        transaction_id, actor=actor(request)
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/seller-token",
+    dependencies=[Depends(require_ops)],
+)
+async def reissue_seller_token(
+    transaction_id: str, body: SellerTokenRequest, request: Request
+) -> dict[str, Any]:
+    return await _service(request).reissue_seller_token(
+        transaction_id, body, actor=actor(request)
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/seller-token/revoke",
+    dependencies=[Depends(require_ops)],
+)
+async def revoke_seller_token(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    return await _service(request).revoke_seller_token(
+        transaction_id, actor=actor(request)
+    )
+
+
+@router.get(
+    "/transactions/{transaction_id}/receipt",
+    dependencies=[Depends(require_ops)],
+)
+async def get_receipt(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    return await _service(request).get_receipt(
+        transaction_id, actor=actor(request)
     )

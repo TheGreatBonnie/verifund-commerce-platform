@@ -12,6 +12,7 @@ from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
 from verifund_control_plane.paypal.fake import FakePaymentPort
 from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort
+from verifund_control_plane.receipts import ReceiptSigner
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.service import VerifundService
 from verifund_control_plane.settings import Settings
@@ -31,6 +32,9 @@ def create_app(
     settings.evidence_dir.mkdir(parents=True, exist_ok=True)
     evidence_store = EvidenceStore(
         settings.evidence_dir, max_bytes=settings.max_evidence_bytes
+    )
+    receipts = ReceiptSigner(
+        settings.receipt_keys, settings.receipt_active_kid
     )
     tokens = SellerTokenService(
         settings.seller_token_secret,
@@ -65,6 +69,7 @@ def create_app(
         evidence_store=evidence_store,
         payments=payments,
         links=links,
+        receipts=receipts,
     )
 
     @asynccontextmanager
@@ -88,6 +93,7 @@ def create_app(
     app.state.links = links
     app.state.link_signer = links
     app.state.payments = payments
+    app.state.receipts = receipts
     app.add_exception_handler(VerifundError, verifund_error_handler)
     app.include_router(health.router)
     app.include_router(ops.router)
