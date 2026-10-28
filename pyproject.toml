@@ -57,7 +57,7 @@ verifund-contracts = { workspace = true }
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "--import-mode=importlib -q"
 
 [tool.ruff]
 line-length = 100
