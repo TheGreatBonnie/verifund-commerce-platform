@@ -86,6 +86,10 @@ class Settings(BaseSettings):
         default="dev-buyer-internal",
         validation_alias=AliasChoices("BUYER_INTERNAL_TOKEN"),
     )
+    verifund_agent_internal_token: str = Field(
+        default="dev-verifund-agent-internal",
+        validation_alias=AliasChoices("VERIFUND_AGENT_INTERNAL_TOKEN"),
+    )
     console_base_url: str = Field(
         default="http://127.0.0.1:3000",
         validation_alias=AliasChoices("VERIFUND_CONSOLE_BASE_URL", "BUYER_CONSOLE_BASE_URL"),

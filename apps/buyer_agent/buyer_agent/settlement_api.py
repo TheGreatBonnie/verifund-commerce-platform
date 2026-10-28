@@ -344,3 +344,138 @@ async def get_seller_token(
         "seller_token": secret["seller_token"],
         "expires_at": secret["expires_at"],
     }
+from verifund_contracts import (
+    BuyerAgreementRequest,
+    BuyerOrderReportRequest,
+    BuyerPurchaseOrderRequest,
+    FundingApprovalDecision,
+    ReleaseApprovalDecision,
+)
+
+from buyer_agent.agreement_service import AgreementBindingError
+
+
+def verifund_agent_authorized(request: Request) -> bool:
+    expected = request.app.state.settings.verifund_agent_internal_token
+    provided = request.headers.get("x-verifund-agent-token", "")
+    return bool(expected) and secrets.compare_digest(provided, expected)
+
+
+def _require_verifund_agent(request: Request) -> None:
+    if not verifund_agent_authorized(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _agreements(request: Request):
+    value = getattr(_services(request), "agreements", None)
+    if value is None:
+        raise HTTPException(status_code=503, detail="agreement service unavailable")
+    return value
+
+
+def _binding_error(exc: AgreementBindingError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": "binding_mismatch", "message": str(exc)},
+    )
+
+
+@router.get("/internal/runs/{run_id}/settlement")
+async def internal_get_settlement(run_id: str, request: Request) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    try:
+        return await _agreements(request).view(run_id)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/agreement")
+async def internal_create_agreement(
+    run_id: str, body: BuyerAgreementRequest, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    if body.award.run_id != run_id:
+        raise HTTPException(status_code=403, detail="run does not match the award")
+    try:
+        return await _agreements(request).create_agreement(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/approve-funding")
+async def internal_approve_funding(
+    run_id: str, body: FundingApprovalDecision, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    if body.run_id != run_id:
+        raise HTTPException(status_code=403, detail="run does not match the decision")
+    try:
+        return await _agreements(request).approve_funding(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/purchase-order")
+async def internal_purchase_order(
+    run_id: str, body: BuyerPurchaseOrderRequest, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    if body.run_id != run_id:
+        raise HTTPException(status_code=403, detail="run does not match the request")
+    try:
+        return await _agreements(request).purchase_order(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/order")
+async def internal_order(
+    run_id: str, body: BuyerOrderReportRequest, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    if body.run_id != run_id:
+        raise HTTPException(status_code=403, detail="run does not match the request")
+    try:
+        return await _agreements(request).order(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/release")
+async def internal_release(
+    run_id: str, body: ReleaseApprovalDecision, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    if body.run_id != run_id:
+        raise HTTPException(status_code=403, detail="run does not match the decision")
+    try:
+        return await _agreements(request).release(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.get("/internal/runs/{run_id}/settlement/receipt")
+async def internal_receipt(run_id: str, request: Request) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    try:
+        return await _agreements(request).receipt(run_id)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.get("/internal/runs/{run_id}/settlement/evidence/{evidence_id}")
+async def internal_evidence(
+    run_id: str, evidence_id: str, request: Request
+) -> Response:
+    _require_verifund_agent(request)
+    try:
+        content, media_type, filename = await _agreements(request).evidence(
+            run_id, evidence_id
+        )
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"content-disposition": f'attachment; filename="{filename}"'},
+    )

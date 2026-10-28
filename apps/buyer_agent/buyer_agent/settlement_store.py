@@ -111,6 +111,9 @@ class SettlementStore:
     async def save_projection(
         self, run_id: str, projection: dict[str, Any]
     ) -> bool:
+        cached = await self.get_projection(run_id)
+        if cached is not None and "agreement" in cached and "agreement" not in projection:
+            projection = {**projection, "agreement": cached["agreement"]}
         last_seq = int(projection.get("last_seq") or 0)
         statement = sqlite_insert(self.projections).values(
             run_id=run_id,
@@ -140,3 +143,13 @@ class SettlementStore:
                 )
             )).first()
         return dict(row.payload) if row is not None else None
+
+    async def save_agreement(self, run_id: str, agreement: dict[str, Any]) -> None:
+        projection = await self.get_projection(run_id)
+        if projection is None:
+            raise ValueError(f"no settlement projection for {run_id}")
+        await self.save_projection(run_id, {**projection, "agreement": agreement})
+
+    async def get_agreement(self, run_id: str) -> dict[str, Any] | None:
+        projection = await self.get_projection(run_id)
+        return (projection or {}).get("agreement")
