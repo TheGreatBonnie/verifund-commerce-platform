@@ -126,6 +126,9 @@ class Settings(BaseSettings):
         default="dev-verifund-fake-webhook",
         validation_alias="VERIFUND_FAKE_WEBHOOK_SECRET",
     )
+    fake_payment_scenario: str = Field(
+        default="success", validation_alias="VERIFUND_FAKE_SCENARIO"
+    )
 
     @property
     def is_sandbox(self) -> bool:

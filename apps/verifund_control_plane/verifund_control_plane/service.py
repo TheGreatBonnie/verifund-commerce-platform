@@ -15,6 +15,8 @@ from verifund_contracts import (
     EvidenceItem,
     EvidenceKind,
     EvidenceSummary,
+    FundRequest,
+    FundResponse,
     ReviewReason,
     RejectRequest,
     SellerProjection,
@@ -25,6 +27,7 @@ from verifund_control_plane.domain import (
     EVIDENCE_UPLOAD_STATES,
     REQUIRED_EVIDENCE,
     TransactionRecord,
+    capture_ledger_entries,
     agreement_hash,
     allowed_actions,
     build_agreement,
@@ -42,7 +45,8 @@ from verifund_control_plane.repository import (
     Repository,
 )
 from verifund_control_plane.settings import Settings
-from verifund_control_plane.tokens import SellerTokenService
+from verifund_control_plane.paypal.port import CaptureResult, PaymentPort
+from verifund_control_plane.tokens import LinkSigner, SellerTokenService
 
 Mutation = Callable[[Any], Awaitable[dict[str, Any]]]
 
@@ -56,12 +60,16 @@ class VerifundService:
         clock: Callable[[], datetime],
         tokens: SellerTokenService,
         evidence_store: EvidenceStore,
+        payments: PaymentPort,
+        links: LinkSigner,
     ) -> None:
         self.repo = repo
         self.settings = settings
         self.clock = clock
         self.tokens = tokens
         self.evidence_store = evidence_store
+        self.payments = payments
+        self.links = links
 
     def _now(self) -> datetime:
         return self.clock()
@@ -1114,3 +1122,436 @@ class VerifundService:
         return (
             await self._projection(updated, "buyer", items=items)
         ).model_dump(mode="json")
+
+    def _validate_console_url(self, value: str) -> None:
+        from urllib.parse import urlsplit
+
+        allowed = urlsplit(self.settings.console_base_url)
+        candidate = urlsplit(value)
+        if not candidate.scheme or not candidate.netloc:
+            raise VerifundError(
+                "invalid_request", "return and cancel URLs must be absolute", status_code=400
+            )
+        allowed_netlocs = {
+            allowed.netloc,
+            urlsplit(self.settings.public_base_url).netloc,
+            "127.0.0.1:3000",
+            "localhost:3000",
+        }
+        if candidate.netloc not in allowed_netlocs:
+            raise VerifundError(
+                "invalid_request",
+                "return and cancel URLs must use the console origin",
+                status_code=400,
+            )
+
+    def _funding_deadline(self, record: TransactionRecord) -> datetime:
+        value = (record.deadlines or {}).get("funding")
+        if value:
+            try:
+                return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        return self._now() + timedelta(hours=self.settings.funding_timeout_hours)
+
+    async def fund(
+        self,
+        transaction_id: str,
+        request: FundRequest,
+        *,
+        actor: str,
+        idempotency_key: str | None,
+    ) -> FundResponse:
+        body = request.model_dump(mode="json")
+        scope = f"fund:{transaction_id}"
+        cached = await self._replay(scope, idempotency_key, body)
+        if cached is not None:
+            return FundResponse.model_validate(cached)
+        record = await self.repo.get_transaction(transaction_id)
+        self._check_hash(record, request.agreement_hash)
+        self._validate_console_url(request.return_url)
+        self._validate_console_url(request.cancel_url)
+        funding = record.funding or {}
+        if record.state == TransactionState.FUNDING_PENDING and funding.get(
+            "provider_order_id"
+        ):
+            return FundResponse(
+                transaction_id=transaction_id,
+                state=record.state,
+                checkout_url=funding.get("checkout_url")
+                or funding.get("payer_action_url")
+                or "",
+                expires_at=self._funding_deadline(record),
+            )
+        if record.state != TransactionState.AGREED:
+            raise VerifundError(
+                "invalid_state", "transaction is not ready for funding", status_code=409
+            )
+        if not record.approval:
+            raise VerifundError(
+                "invalid_state", "buyer approval is required", status_code=409
+            )
+        checkout_link = self.links.issue("checkout", transaction_id)
+        return_link = self.links.issue("return", transaction_id)
+        cancel_link = self.links.issue("cancel", transaction_id)
+        if self.settings.is_fake:
+            checkout_url = (
+                f"{self.settings.public_base_url.rstrip('/')}"
+                f"/checkout/fake/{checkout_link.token}"
+            )
+            provider_return = checkout_url
+            provider_cancel = (
+                f"{self.settings.public_base_url.rstrip('/')}"
+                f"/cancel/{cancel_link.token}"
+            )
+        else:
+            checkout_url = ""
+            provider_return = (
+                f"{self.settings.public_base_url.rstrip('/')}"
+                f"/return/{return_link.token}"
+            )
+            provider_cancel = (
+                f"{self.settings.public_base_url.rstrip('/')}"
+                f"/cancel/{cancel_link.token}"
+            )
+        deadline = self._funding_deadline(record)
+        operation_id = f"op_{uuid.uuid4().hex}"
+        order_key = f"fund:{transaction_id}:v1"
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state == TransactionState.FUNDING_PENDING and (
+                current.funding or {}
+            ).get("provider_order_id"):
+                return FundResponse(
+                    transaction_id=transaction_id,
+                    state=current.state,
+                    checkout_url=(current.funding or {}).get("checkout_url")
+                    or (current.funding or {}).get("payer_action_url")
+                    or "",
+                    expires_at=self._funding_deadline(current),
+                )
+            if current.state != TransactionState.AGREED:
+                raise VerifundError(
+                    "invalid_state",
+                    "transaction is not ready for funding",
+                    status_code=409,
+                )
+            await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                expected_state=TransactionState.AGREED,
+                new_state=TransactionState.FUNDING_PENDING,
+                changes={
+                    "funding": {"status": "creating"},
+                    "deadlines": {
+                        **(current.deadlines or {}),
+                        "funding": self._iso(deadline),
+                    },
+                },
+                events=[EventInput("funding_required", {}, actor)],
+                audit=AuditInput(actor, "funding_started"),
+            )
+            await self.repo.create_provider_operation(
+                conn,
+                operation_id,
+                transaction_id,
+                "create_order",
+                order_key,
+                {
+                    "return_url": provider_return,
+                    "cancel_url": provider_cancel,
+                    "amount_cents": current.amount_cents,
+                    "currency": current.currency,
+                },
+            )
+            for kind, link in (
+                ("checkout", checkout_link),
+                ("return", return_link),
+                ("cancel", cancel_link),
+            ):
+                await self.repo.create_checkout_link(
+                    conn, link.jti, transaction_id, kind, link.expires_at
+                )
+        try:
+            order = await self.payments.create_order(
+                record,
+                return_url=provider_return,
+                cancel_url=provider_cancel,
+                idempotency_key=order_key,
+            )
+        except VerifundError as exc:
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                if current.state == TransactionState.FUNDING_PENDING:
+                    await self.repo.update_transaction(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        changes={
+                            "funding": {
+                                "status": "create_failed",
+                                "last_error": exc.message,
+                            },
+                            "last_error": {
+                                "code": exc.code,
+                                "message": exc.message,
+                            },
+                        },
+                    )
+            await self.repo.update_provider_operation(
+                operation_id,
+                status="failed",
+                last_error=exc.message,
+                increment_attempts=True,
+            )
+            raise
+        payer_url = order.payer_action_url or checkout_url
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state == TransactionState.FUNDING_PENDING:
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={
+                        "funding": {
+                            "status": "pending",
+                            "provider_order_id": order.order_id,
+                            "payer_action_url": payer_url,
+                            "checkout_url": payer_url,
+                        }
+                    },
+                )
+            response = FundResponse(
+                transaction_id=transaction_id,
+                state=TransactionState.FUNDING_PENDING,
+                checkout_url=payer_url,
+                expires_at=deadline,
+            ).model_dump(mode="json")
+            if idempotency_key:
+                await self.repo.put_idempotency(
+                    conn,
+                    scope,
+                    idempotency_key,
+                    sha256_hex(canonical_json(body)),
+                    response,
+                )
+        await self.repo.update_provider_operation(
+            operation_id,
+            status="completed",
+            provider_id=order.order_id,
+            response=order.raw,
+        )
+        return FundResponse.model_validate(response)
+
+    async def refresh_funding(
+        self, transaction_id: str, *, actor: str
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state in {
+            TransactionState.FUNDED,
+            TransactionState.FULFILLMENT_PENDING,
+            TransactionState.VERIFICATION_PENDING,
+            TransactionState.RELEASE_PERMITTED,
+            TransactionState.PAYOUT_PENDING,
+            TransactionState.RELEASED,
+        }:
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        if record.state != TransactionState.FUNDING_PENDING:
+            raise VerifundError(
+                "invalid_state", "transaction is not awaiting funding", status_code=409
+            )
+        order_id = (record.funding or {}).get("provider_order_id")
+        if not order_id:
+            raise VerifundError(
+                "provider_unavailable",
+                "funding order is not yet available",
+                status_code=503,
+                retryable=True,
+            )
+        order = await self.payments.get_order(str(order_id))
+        for capture in order.captures:
+            await self.apply_capture(transaction_id, capture, actor=actor)
+        return (await self._projection_for(transaction_id, "buyer")).model_dump(
+            mode="json"
+        )
+
+    async def apply_capture(
+        self, transaction_id: str, capture: CaptureResult, *, actor: str
+    ) -> None:
+        record = await self.repo.get_transaction(transaction_id)
+        funding = dict(record.funding or {})
+        if funding.get("capture_id") == capture.capture_id and record.state in {
+            TransactionState.FUNDED,
+            TransactionState.REVIEW_REQUIRED,
+            TransactionState.RELEASED,
+            TransactionState.PAYOUT_PENDING,
+        }:
+            return
+        funding.update(
+            {
+                "provider_order_id": capture.order_id,
+                "capture_id": capture.capture_id,
+                "capture_status": capture.status,
+                "capture_amount_cents": capture.amount_cents,
+                "capture_currency": capture.currency,
+            }
+        )
+        if capture.status in {"REFUNDED", "REVERSED"}:
+            if record.state in {
+                TransactionState.CANCELED,
+                TransactionState.FAILED,
+                TransactionState.REVIEW_REQUIRED,
+                TransactionState.RELEASED,
+                TransactionState.PAYOUT_PENDING,
+                TransactionState.RELEASE_PERMITTED,
+            }:
+                async with self.repo.transaction() as conn:
+                    current = await self.repo.get_transaction(transaction_id, conn)
+                    if current.state in {
+                        TransactionState.CANCELED,
+                        TransactionState.FAILED,
+                        TransactionState.RELEASE_PERMITTED,
+                        TransactionState.PAYOUT_PENDING,
+                        TransactionState.RELEASED,
+                    }:
+                        await self.repo.transition(
+                            conn,
+                            transaction_id,
+                            expected_version=current.version,
+                            expected_state=current.state,
+                            new_state=TransactionState.REVIEW_REQUIRED,
+                            changes={
+                                "funding": {**funding, "status": "reversed"},
+                                "verification": {
+                                    "status": "failed",
+                                    "reasons": ["late_capture"],
+                                    "checked_at": self._iso(self._now()),
+                                    "override_allowed": False,
+                                },
+                            },
+                            events=[
+                                EventInput(
+                                    "review_required",
+                                    {"reason": "capture_reversed"},
+                                    actor,
+                                )
+                            ],
+                            audit=AuditInput(actor, "capture_reversed"),
+                        )
+            return
+        if capture.status == "PENDING":
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={"funding": {**funding, "status": "pending"}},
+                )
+            return
+        if capture.status != "COMPLETED":
+            if record.state == TransactionState.FUNDING_PENDING:
+                async with self.repo.transaction() as conn:
+                    current = await self.repo.get_transaction(transaction_id, conn)
+                    if current.state == TransactionState.FUNDING_PENDING:
+                        await self.repo.transition(
+                            conn,
+                            transaction_id,
+                            expected_version=current.version,
+                            expected_state=current.state,
+                            new_state=TransactionState.FAILED,
+                            changes={
+                                "funding": {**funding, "status": "declined"},
+                                "last_error": {
+                                    "code": "provider_rejected",
+                                    "message": f"capture {capture.status.lower()}",
+                                },
+                            },
+                            events=[EventInput("failed", {}, actor)],
+                            audit=AuditInput(actor, "capture_declined"),
+                        )
+            return
+        funds_match = (
+            capture.amount_cents == record.amount_cents
+            and capture.currency == record.currency
+        )
+        if record.state in {TransactionState.CANCELED, TransactionState.FAILED}:
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.REVIEW_REQUIRED,
+                    changes={
+                        "funding": {**funding, "status": "captured"},
+                        "verification": {
+                            "status": "failed",
+                            "reasons": ["late_capture"],
+                            "checked_at": self._iso(self._now()),
+                            "override_allowed": False,
+                        },
+                    },
+                    events=[
+                        EventInput("review_required", {"reason": "late_capture"}, actor)
+                    ],
+                    ledger_entries=capture_ledger_entries(
+                        transaction_id, capture.amount_cents
+                    ),
+                    audit=AuditInput(actor, "late_capture"),
+                )
+            return
+        if record.state != TransactionState.FUNDING_PENDING:
+            return
+        reasons = [] if funds_match else [ReviewReason.FUNDING_MISMATCH.value]
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state != TransactionState.FUNDING_PENDING:
+                return
+            if funds_match:
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.FUNDED,
+                    changes={"funding": {**funding, "status": "captured"}},
+                    events=[EventInput("funded", {}, actor)],
+                    ledger_entries=capture_ledger_entries(
+                        transaction_id, capture.amount_cents
+                    ),
+                    audit=AuditInput(actor, "funded"),
+                )
+            else:
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.REVIEW_REQUIRED,
+                    changes={
+                        "funding": {**funding, "status": "captured"},
+                        "verification": {
+                            "status": "failed",
+                            "reasons": reasons,
+                            "checked_at": self._iso(self._now()),
+                            "override_allowed": False,
+                        },
+                    },
+                    events=[
+                        EventInput(
+                            "review_required",
+                            {"reasons": reasons},
+                            actor,
+                        )
+                    ],
+                    ledger_entries=capture_ledger_entries(
+                        transaction_id, capture.amount_cents
+                    ),
+                    audit=AuditInput(actor, "funding_mismatch"),
+                )

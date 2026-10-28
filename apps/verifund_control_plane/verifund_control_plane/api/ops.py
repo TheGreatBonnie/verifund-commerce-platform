@@ -13,6 +13,7 @@ from verifund_contracts import (
     AwardRequest,
     BuyerAgreementReviewRequest,
     CancelRequest,
+    FundRequest,
     RejectRequest,
 )
 from verifund_control_plane.errors import VerifundError
@@ -163,6 +164,21 @@ async def cancel(
         actor=actor(request),
         idempotency_key=idempotency_key(request),
     )
+
+
+@router.post(
+    "/transactions/{transaction_id}/fund", dependencies=[Depends(require_ops)]
+)
+async def fund(
+    transaction_id: str, body: FundRequest, request: Request
+) -> dict[str, Any]:
+    result = await _service(request).fund(
+        transaction_id,
+        body,
+        actor=actor(request),
+        idempotency_key=idempotency_key(request),
+    )
+    return result.model_dump(mode="json")
 
 
 @router.get(

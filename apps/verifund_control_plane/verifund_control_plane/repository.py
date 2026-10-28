@@ -268,6 +268,23 @@ class Repository:
             Column("payload", JSON, nullable=False),
             Column("created_at", String, nullable=False),
         )
+        self.fake_orders = Table(
+            "fake_orders",
+            self.metadata,
+            Column("order_id", String, primary_key=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("status", String, nullable=False),
+            Column("amount_cents", Integer, nullable=False),
+            Column("currency", String, nullable=False),
+            Column("payer_action_url", String, nullable=True),
+            Column("capture_id", String, nullable=True),
+            Column("capture_status", String, nullable=True),
+            Column("capture_amount_cents", Integer, nullable=True),
+            Column("capture_currency", String, nullable=True),
+            Column("raw", JSON, nullable=False),
+            Column("created_at", String, nullable=False),
+            Column("updated_at", String, nullable=False),
+        )
         self.reconciler_runs = Table(
             "reconciler_runs",
             self.metadata,
@@ -1234,3 +1251,56 @@ class Repository:
                 )
             ).all()
         return [dict(row._mapping) for row in rows]
+
+    async def save_fake_order(
+        self,
+        conn: AsyncConnection,
+        *,
+        order_id: str,
+        transaction_id: str,
+        status: str,
+        amount_cents: int,
+        currency: str,
+        payer_action_url: str | None,
+        raw: dict[str, Any],
+    ) -> None:
+        now = _iso(datetime.now(UTC))
+        await conn.execute(
+            self.fake_orders.insert().values(
+                order_id=order_id,
+                transaction_id=transaction_id,
+                status=status,
+                amount_cents=amount_cents,
+                currency=currency,
+                payer_action_url=payer_action_url,
+                capture_id=None,
+                capture_status=None,
+                capture_amount_cents=None,
+                capture_currency=None,
+                raw=raw,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    async def get_fake_order(self, order_id: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.fake_orders).where(
+                        self.fake_orders.c.order_id == order_id
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError("not_found", "fake order not found", status_code=404)
+        return dict(row._mapping)
+
+    async def update_fake_order(
+        self, conn: AsyncConnection, order_id: str, **changes: Any
+    ) -> None:
+        await conn.execute(
+            self.fake_orders.update()
+            .where(self.fake_orders.c.order_id == order_id)
+            .values(**changes, updated_at=_iso(datetime.now(UTC)))
+        )
