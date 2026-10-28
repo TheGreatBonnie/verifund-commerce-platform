@@ -2591,6 +2591,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "verifund-contracts" },
 ]
 
 [package.metadata]
@@ -2604,6 +2605,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
+    { name = "verifund-contracts", editable = "packages/verifund_contracts" },
 ]
 
 [[package]]

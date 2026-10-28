@@ -7,6 +7,17 @@ from google.adk.tools import FunctionTool
 
 from orchestrator_agent.mediation import mediate_seller_call as _mediate_seller_call
 from orchestrator_agent.settings import Settings
+from orchestrator_agent.verifund import (
+    BuyerA2AAgents,
+    SellerA2AClient,
+    VerifundA2AClient,
+    VerifundLifecycle,
+    VerifundTaskHandle,
+)
+from verifund_contracts import (
+    FundingApprovalDecision,
+    ReleaseApprovalDecision,
+)
 
 
 MARKETMESH_ORCHESTRATOR_INSTRUCTION = """
@@ -167,6 +178,106 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
     return FunctionTool(mediate_seller_call)
 
 
+def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
+    lifecycle = VerifundLifecycle(
+        verifund=VerifundA2AClient(
+            base_url=settings.verifund_agent_url,
+            token=settings.verifund_agent_a2a_token,
+        ),
+        buyer=BuyerA2AAgents(buyer_a2a_url=settings.buyer_a2a_url),
+        seller=SellerA2AClient(),
+        buyer_internal_url=settings.buyer_internal_url,
+        buyer_internal_token=settings.buyer_internal_token,
+        buyer_internal_timeout_seconds=(
+            settings.buyer_internal_timeout_seconds
+        ),
+    )
+
+    def handle(
+        task_id: str, context_id: str, run_id: str
+    ) -> VerifundTaskHandle:
+        return VerifundTaskHandle(task_id, context_id, run_id)
+
+    async def verifund_create_agreement(
+        run_id: str,
+        buyer_task_id: str,
+        buyer_context_id: str,
+        award: dict,
+        seller_card_url: str,
+        seller_id: str,
+    ) -> dict:
+        """Start the Verifund lifecycle and complete the bilateral review."""
+        return await lifecycle.start(
+            run_id=run_id,
+            award=award,
+            buyer_task_id=buyer_task_id,
+            buyer_context_id=buyer_context_id,
+            seller_card_url=seller_card_url,
+            seller_id=seller_id,
+            idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
+        )
+
+    async def verifund_status(
+        task_id: str, context_id: str, run_id: str
+    ) -> dict:
+        """Return the current Verifund checkpoint without advancing it."""
+        return await lifecycle.status(handle(task_id, context_id, run_id))
+
+    async def verifund_fund(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        decision: dict,
+    ) -> dict:
+        """Resume the funding checkpoint with a structured human decision."""
+        return await lifecycle.resume_funding(
+            handle(task_id, context_id, run_id),
+            FundingApprovalDecision.model_validate(decision),
+        )
+
+    async def verifund_evidence_review(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        seller_card_url: str,
+    ) -> dict:
+        """Place the purchase order and poll funding, evidence, or release."""
+        return await lifecycle.advance(
+            handle(task_id, context_id, run_id),
+            seller_card_url=seller_card_url,
+        )
+
+    async def verifund_release(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        decision: dict,
+    ) -> dict:
+        """Resume the release checkpoint with a structured human decision."""
+        return await lifecycle.resume_release(
+            handle(task_id, context_id, run_id),
+            ReleaseApprovalDecision.model_validate(decision),
+        )
+
+    async def verifund_receipt(
+        task_id: str, context_id: str, run_id: str, transaction_id: str
+    ) -> dict:
+        """Return the verified receipt after release."""
+        return await lifecycle.receipt(
+            handle(task_id, context_id, run_id),
+            transaction_id=transaction_id,
+        )
+
+    return [
+        FunctionTool(verifund_create_agreement),
+        FunctionTool(verifund_status),
+        FunctionTool(verifund_fund),
+        FunctionTool(verifund_evidence_review),
+        FunctionTool(verifund_release),
+        FunctionTool(verifund_receipt),
+    ]
+
+
 def build_agent(settings: Settings) -> LlmAgent:
     model = LiteLlm(
         model=f"openai/{settings.nebius_model}",
@@ -174,9 +285,12 @@ def build_agent(settings: Settings) -> LlmAgent:
         api_key=settings.nebius_api_key,
         _skip_mcp_handler=True,
     )
+    tools = [_build_mediation_tool(settings), AGUIToolset()]
+    if settings.verifund_mode != "off":
+        tools.extend(_build_verifund_tools(settings))
     return LlmAgent(
         name="marketmesh_orchestrator",
         model=model,
-        tools=[_build_mediation_tool(settings), AGUIToolset()],
+        tools=tools,
         instruction=MARKETMESH_ORCHESTRATOR_INSTRUCTION,
     )

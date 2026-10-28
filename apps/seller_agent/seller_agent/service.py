@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 from a2a.types.a2a_pb2 import Artifact, Message, TaskState
 from commerce_core.a2a_parts import first_envelope, make_artifact
+from verifund_contracts import parse_agreement_review_request, wrap_agreement_review_result
+from seller_agent.agreement import review_agreement
 from commerce_core.contracts import (
     AcceptOffer,
     CommerceErrorCode,
@@ -287,6 +289,25 @@ class SellerService:
         self, task_id: str, context_id: str, message: Message
     ) -> SellerTurn:
         envelope = first_envelope(message)
+        if envelope is not None and str(envelope.get("schema", "")).endswith(
+            "/agreement-review-request.json"
+        ):
+            review = parse_agreement_review_request(envelope)
+            result = await review_agreement(self.policy, self.store, review)
+            return SellerTurn(
+                task_state=TaskState.TASK_STATE_COMPLETED,
+                artifacts=[
+                    make_artifact(
+                        "agreement-review",
+                        wrap_agreement_review_result(result),
+                    )
+                ],
+                message=(
+                    "Agreement accepted."
+                    if result.status == "accepted"
+                    else "Agreement rejected."
+                ),
+            )
         try:
             if envelope is None:
                 raise CommerceProtocolError("missing DataPart")

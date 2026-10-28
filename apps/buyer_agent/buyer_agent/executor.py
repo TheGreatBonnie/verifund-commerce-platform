@@ -17,6 +17,8 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
 from buyer_agent.approval import normalize_approval
+from buyer_agent.review import parse_review_envelope, resume_value
+from commerce_core.a2a_parts import first_envelope
 from buyer_agent.graph import build_buyer_graph
 from buyer_agent.planner import select_buyer_planner
 from buyer_agent.settings import Settings
@@ -104,6 +106,46 @@ class BuyerExecutor(AgentExecutor):
         text = self._message_text(context.message)
         payload = self._payload(text)
 
+        envelope = first_envelope(context.message) if context.message is not None else None
+        review_request = None
+        if envelope is not None and str(envelope.get("schema", "")).endswith(
+            "/agreement-review-request.json"
+        ):
+            try:
+                review_request = parse_review_envelope(context.message)
+            except ValueError as exc:
+                await event_queue.enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=task_id,
+                        context_id=context_id,
+                        status=TaskStatus(
+                            state=TaskState.TASK_STATE_FAILED,
+                            message=self._agent_message(str(exc), task_id, context_id),
+                        ),
+                    )
+                )
+                return
+            if (
+                review_request.buyer_task_id != (context.task_id or "")
+                or review_request.buyer_context_id != (context.context_id or "")
+            ):
+                await event_queue.enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=task_id,
+                        context_id=context_id,
+                        status=TaskStatus(
+                            state=TaskState.TASK_STATE_FAILED,
+                            message=self._agent_message(
+                                "agreement review does not match the interrupted Buyer task",
+                                task_id,
+                                context_id,
+                            ),
+                        ),
+                    )
+                )
+                return
+            payload = {"_review_resume": True, "task_id": review_request.buyer_task_id}
+
         if payload.get("resume_error"):
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
@@ -164,7 +206,13 @@ class BuyerExecutor(AgentExecutor):
         }
 
         try:
-            if "approval" in payload and "task_id" in payload:
+            if payload.get("_review_resume"):
+                thread_id = str(payload["task_id"])
+                config["configurable"]["thread_id"] = thread_id
+                result = await self.graph.ainvoke(
+                    Command(resume=resume_value(review_request)), config=config
+                )
+            elif "approval" in payload and "task_id" in payload:
                 thread_id = str(payload["task_id"])
                 config["configurable"]["thread_id"] = thread_id
                 decision = normalize_approval(payload["approval"])

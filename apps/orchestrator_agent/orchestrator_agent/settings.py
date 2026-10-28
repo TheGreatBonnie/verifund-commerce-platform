@@ -62,3 +62,24 @@ class Settings(BaseSettings):
         default=10.0,
         validation_alias=AliasChoices("BUYER_INTERNAL_TIMEOUT_SECONDS"),
     )
+
+    verifund_mode: str = Field(
+        default="off",
+        validation_alias=AliasChoices("VERIFUND_MODE"),
+    )
+    verifund_agent_url: str = Field(
+        default="http://127.0.0.1:9301",
+        validation_alias=AliasChoices("VERIFUND_AGENT_URL"),
+    )
+    verifund_agent_a2a_token: str = Field(
+        default="dev-verifund-agent-a2a",
+        validation_alias=AliasChoices("VERIFUND_AGENT_A2A_TOKEN"),
+    )
+    verifund_agent_card_url: str = Field(
+        default="http://127.0.0.1:9301/.well-known/agent-card.json",
+        validation_alias=AliasChoices("VERIFUND_AGENT_CARD_URL"),
+    )
+    verifund_timeout_seconds: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices("VERIFUND_AGENT_TIMEOUT_SECONDS"),
+    )
