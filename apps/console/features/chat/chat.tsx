@@ -11,6 +11,22 @@ import {
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import { ApprovalCard } from "@/features/deal-room/components/approval-card";
+import {
+  AgreementReviewCard,
+  CheckoutCard,
+  EvidenceSummaryCard,
+  FundingApprovalCard,
+  ReceiptCard,
+  ReleaseApprovalCard,
+  VerifundStatusCard,
+  bilateralReviewStatus,
+  fundingApprovalArgsSchema,
+  fundingDecision,
+  parseVerifundToolResult,
+  releaseApprovalArgsSchema,
+  releaseDecision,
+  verifundToolsEnabled,
+} from "./verifund-tools";
 import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
 import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
 
@@ -31,6 +47,8 @@ type ChatProps = {
   isReady: boolean;
   onBuyerStateUpdate?: (state: BuyerState) => void;
   variant?: "rail" | "embedded";
+  verifundMode?: string;
+  onVerifundAction?: () => void;
 };
 
 const SAMPLE_PROMPT =
@@ -119,6 +137,8 @@ export function Chat({
   isReady,
   onBuyerStateUpdate,
   variant = "rail",
+  verifundMode,
+  onVerifundAction,
 }: ChatProps) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
 
@@ -194,6 +214,161 @@ export function Chat({
     },
     [],
   );
+
+  const verifundEnabled = verifundToolsEnabled(verifundMode);
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_funding_approval",
+      description:
+        "Show the canonical agreement and the Buyer/Seller review status, then wait for an explicit human funding decision.",
+      available: verifundEnabled,
+      parameters: fundingApprovalArgsSchema,
+      render: ({ args, status, respond }) => {
+        if (status === "executing" && respond) {
+          return (
+            <FundingApprovalCard
+              args={args as any}
+              onApprove={(note) => {
+                respond(
+                  fundingDecision(args as any, { approved: true, note }),
+                );
+                onVerifundAction?.();
+              }}
+              onReject={(note) => {
+                respond(
+                  fundingDecision(args as any, { approved: false, note }),
+                );
+                onVerifundAction?.();
+              }}
+            />
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_release_approval",
+      description:
+        "Show the evidence/verification summary and wait for an explicit human release decision.",
+      available: verifundEnabled,
+      parameters: releaseApprovalArgsSchema,
+      render: ({ args, status, respond }) => {
+        if (status === "executing" && respond) {
+          return (
+            <ReleaseApprovalCard
+              args={args as any}
+              onDecision={(decision) => {
+                respond(decision);
+                onVerifundAction?.();
+              }}
+            />
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, onVerifundAction],
+  );
+
+  useRenderTool({
+    name: "verifund_create_agreement",
+    parameters: z.object({
+      run_id: z.string().optional(),
+      award: z.record(z.unknown()).optional(),
+    }),
+    render: ({ status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      const agreement = parsed?.data?.agreement;
+      if (status !== "complete" || !agreement) return null;
+      return (
+        <AgreementReviewCard
+          agreement={agreement as any}
+          buyerReview={(parsed?.data?.buyer_review as any) ?? null}
+          sellerDecision={(parsed?.data?.seller_decision as any) ?? null}
+        />
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "verifund_status",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      if (status !== "complete" || !parsed) return null;
+      return (
+        <VerifundStatusCard
+          status={parsed.status}
+          checkpoint={parsed.checkpoint}
+          state={parsed.state ?? parsed.data?.projection?.state}
+          message={parsed.message}
+        />
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "verifund_evidence_review",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      if (status !== "complete" || !parsed) return null;
+      return (
+        <EvidenceSummaryCard
+          projection={
+            (parsed.data?.projection ?? {
+              evidence: parsed.evidence,
+              verification: parsed.verification,
+            }) as any
+          }
+        />
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "verifund_fund",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      if (status !== "complete" || !parsed) return null;
+      const url = parsed.checkout_url ?? parsed.data?.checkout_url;
+      if (typeof url === "string") {
+        return (
+          <CheckoutCard
+            url={url}
+            expiresAt={parsed.expires_at ?? parsed.data?.expires_at ?? null}
+          />
+        );
+      }
+      return (
+        <VerifundStatusCard
+          status={parsed.status}
+          checkpoint={parsed.checkpoint}
+          state={parsed.state}
+          message={parsed.message}
+        />
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "verifund_receipt",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      const receipt = parsed?.data?.receipt;
+      if (status !== "complete" || !receipt) return null;
+      return <ReceiptCard receipt={receipt as any} />;
+    },
+  });
 
   useRenderTool({
     name: "mediate_seller_call",

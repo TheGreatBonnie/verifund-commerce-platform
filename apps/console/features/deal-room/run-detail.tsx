@@ -6,6 +6,7 @@ import { ArrowLeft, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chat } from "@/features/chat/chat";
 import { shortId, stageLabel } from "@/lib/format";
+import { config } from "@/lib/config";
 import { RunDetailWorkspace } from "./components/run-detail-workspace";
 import { StageStepper } from "./components/stage-stepper";
 import { useRunDetail } from "./hooks/use-run-detail";
@@ -68,6 +69,8 @@ export function RunDetail({
             isRunning={detail.isRunning}
             isReady={detail.isReady}
             onBuyerStateUpdate={detail.onBuyerStateUpdate}
+            verifundMode={config.verifundMode}
+            onVerifundAction={() => void detail.refreshRun?.()}
           />
         }
         runError={detail.runError}

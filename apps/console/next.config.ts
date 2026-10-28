@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_COPILOTKIT_THREADS_ENABLED: process.env.CPK_INTELLIGENCE_API_KEY
       ? "true"
       : "false",
+    NEXT_PUBLIC_VERIFUND_MODE: process.env.VERIFUND_MODE ?? "off",
   },
   serverExternalPackages: ["@copilotkit/runtime"],
   async headers() {

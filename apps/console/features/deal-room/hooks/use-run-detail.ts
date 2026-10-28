@@ -53,7 +53,7 @@ export function useRunDetail(routeRunId: string) {
   const [hasStarted, setHasStarted] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [sellerFilter, setSellerFilter] = useState("all");
-  const { run: buyerRun } = useRun(routeRunId);
+  const { run: buyerRun, refresh: refreshRun } = useRun(routeRunId);
   const {
     sellers: registry,
     isLoading: registryLoading,
@@ -175,5 +175,6 @@ export function useRunDetail(routeRunId: string) {
     registryError,
     refreshRegistry,
     onBuyerStateUpdate,
+    refreshRun,
   };
 }

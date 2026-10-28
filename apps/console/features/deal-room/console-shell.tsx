@@ -21,6 +21,7 @@ import { SellerLane } from "./components/seller-lane";
 import { StageStepper } from "./components/stage-stepper";
 import { fetchRegistry, fetchTrace } from "@/lib/api";
 import { useRun } from "@/features/runs/use-run";
+import { config } from "@/lib/config";
 import { money, scoreLabel, stageLabel } from "@/lib/format";
 import type {
   Award,
@@ -112,7 +113,7 @@ export function ConsoleShell() {
   });
   const { copilotkit } = useCopilotKit();
   const [buyerState, setBuyerState] = useState<BuyerState>({});
-  const { run: buyerRun } = useRun(routeRunId ?? "");
+  const { run: buyerRun, refresh: refreshRun } = useRun(routeRunId ?? "");
   useEffect(() => {
     let latest: BuyerState | null = null;
     for (const message of agent.messages ?? []) {
@@ -381,6 +382,8 @@ export function ConsoleShell() {
             onRunSample={() => void startRun(SAMPLE_BRIEF)}
             isRunning={isRunning}
             isReady={isReady}
+            verifundMode={config.verifundMode}
+            onVerifundAction={() => void refreshRun()}
           />
           {approvalElement ? (
             <div className="mm-chat-approval">{approvalElement}</div>
