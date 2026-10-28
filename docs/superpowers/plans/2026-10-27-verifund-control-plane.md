@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a standalone Verifund transaction-control subsystem under `verifund-a2a/apps/` that funds an awarded MarketMesh order through PayPal Sandbox, holds funds, verifies seller evidence, releases a reviewer-approved payout, and issues a signed receipt, while preserving the existing `VERIFUND_MODE=off` demo unchanged.
+**Goal:** Add a standalone Verifund transaction-control subsystem and a separately registered Verifund A2A agent that assembles an agreement from the Buyer award, coordinates Buyer-agent and Seller-agent approval through the orchestrator, then leads funding, evidence review, payout approval, and receipt delivery in CopilotKit chat. Preserve the existing `VERIFUND_MODE=off` demo unchanged.
 
-**Architecture:** A new FastAPI control plane (`apps/verifund_control_plane`, port `9300`) owns agreement hashing, transaction state, the held-funds ledger, evidence, PayPal calls, webhooks, payout, receipts, and audit. A new shared package (`packages/verifund_contracts`) holds Pydantic models and the buyer-side typed client. The buyer projects settlement state into its existing run API and drives the lifecycle with LangGraph interrupts; the seller validates transaction tokens before accepting or reserving stock and uploads evidence through a SQLite outbox; the orchestrator resolves seller-token references only at A2A send time; the existing Next.js console gains a Transaction Room.
+**Architecture:** A new FastAPI control plane (`apps/verifund_control_plane`, port `9300`) owns agreement versions/hashes, transaction state, the held-funds ledger, evidence, PayPal calls, webhooks, payout, receipts, and audit. A separate Verifund A2A service (`apps/verifund_agent`, port `9301`) assembles the agreement from the exact Buyer award and calls authenticated buyer settlement APIs; it never receives the control-plane ops token or PayPal credentials. The orchestrator coordinates sequential A2A reviews: Buyer validates the terms against its award/mandate, then Seller accepts or rejects the same version/hash. It resumes the original Buyer task with each exact result; Buyer records its review and Seller decision through its own control-plane client. Agent assent is distinct from the human's funding HITL. The registry gains generic-agent discovery without changing seller catalog discovery. The Transaction Room remains a synchronized detail view.
 
 **Tech Stack:** Python 3.12, FastAPI, Pydantic v2 (`extra="forbid"`), SQLAlchemy async + aiosqlite, httpx, LangGraph 1.x, PayPal Sandbox Orders v2 / Payments v1 Payouts / webhook verification, Next.js 15 + React 19 + TanStack Query + Vitest + Playwright.
 
@@ -16,13 +16,19 @@
 - No runtime import, call, dependency, schema copy, or file reference to `verifund-platform-backend`. The new subsystem is independent.
 - Control-plane routes are unprefixed (`GET /transactions/{id}/state`). Only PayPal's own REST paths contain `/v1`.
 - All money is integer USD cents. No floats in money paths. Capture and payout must equal the agreement amount and currency.
-- The control plane is the only authority for transaction state, money, payout, and receipts. The buyer, seller, orchestrator, and console never mutate those directly.
+- The control plane is the only authority for agreement versions/hashes, transaction state, money, payout, and receipts. Verifund may assemble proposal terms only from the Buyer award; the buyer records all agent decisions. The orchestrator relays A2A messages but never approves or mutates settlement state.
 - Seller transaction tokens are transaction-, seller-, and hash-bound HMAC tokens. They never appear in graph state, checkpoints, A2A task history, traces, logs, AG-UI state, browser bundles, or orchestrator LLM context.
 - `VERIFUND_OPS_TOKEN` stays server-side at the buyer edge. The console keeps using `BUYER_CONSOLE_API_TOKEN`.
+- The Verifund A2A service authenticates to buyer internal settlement routes with `VERIFUND_AGENT_INTERNAL_TOKEN`; it never receives `VERIFUND_OPS_TOKEN` or PayPal credentials.
+- Seller marketplace discovery remains seller-specific. Verifund uses generic agent-card registry records/endpoints and is not registered as a seller or required to expose a catalog.
+- Buyer-agent review and Seller-agent acceptance are separate A2A decisions bound to one transaction ID, agreement version, and hash; both must accept before human funding HITL is shown. Human funding approval and payout release are separate structured HITL decisions. Free-form chat text never authorizes a state change.
+- Buyer-agent validation and Seller-agent acceptance are separate hash-bound A2A decisions; both must accept the same agreement version before the human funding HITL is shown. Agent approval never authorizes a payment.
+- Verifund assembles terms only from the Buyer award; the control plane validates/canonicalizes/hashes each version. Changed terms invalidate prior agent decisions and require both reviews again.
+- Evidence verification remains deterministic in the control plane; the Verifund agent summarizes its result and evidence references.
 - One control-plane process, SQLite WAL, `busy_timeout=5000`, optimistic `version` guards, and no multi-worker uvicorn.
 - The agreement hash is `sha256(canonical_json(agreement))` with sorted keys, compact separators, UTF-8, and integer cents.
 - Evidence bytes are content-addressed at `data/evidence/<sha256>`; the database stores metadata only.
-- Existing ports: console `3000`, orchestrator `9000`, buyer `9100`, registry `9105`, sellers `9201-9204`, control plane `9300`.
+- Existing ports: console `3000`, orchestrator `9000`, buyer `9100`, registry `9105`, sellers `9201-9204`, control plane `9300`, Verifund A2A agent `9301`.
 - Tests use `uv run pytest`; console checks use `pnpm run typecheck` and `pnpm run test`. Commit after every task with a conventional message.
 - Do not claim a step passed without running the command and reading the output.
 
@@ -49,7 +55,7 @@
 | `errors.py` | Error codes, envelopes, HTTP mapping |
 | `db.py` | Async engine, SQLite pragmas, busy translation |
 | `domain.py` | States, transitions, canonical JSON, agreement hash, ledger helpers, actions |
-| `repository.py` | SQLAlchemy Core tables and all persistence operations |
+| `repository.py` | SQLAlchemy Core tables and all persistence operations, including hash-bound Buyer/Seller agreement reviews |
 | `service.py` | Award/accept/reject/approve/fund/PO/evidence/verify/release/payout use cases |
 | `policy.py` | Pure verification policy and override rules |
 | `tokens.py` | Seller transaction tokens and signed checkout/return links |
@@ -67,6 +73,16 @@
 | `api/webhooks.py` | `POST /webhooks/paypal` fake/sandbox intake |
 | `api/health.py` | `/health`, `/ready`, `/metrics` |
 
+**`apps/verifund_agent/`** — registered A2A workflow adapter; no money or
+settlement-state authority.
+
+| File | Responsibility |
+|---|---|
+| `verifund_agent/card.py` | Agent Card skills for agreement review, status, evidence review, release, and receipt |
+| `verifund_agent/agent.py`, `executor.py` | Structured A2A task dispatch and task lifecycle |
+| `verifund_agent/client.py` | Authenticated client for buyer internal settlement routes |
+| `verifund_agent/settings.py`, `server.py`, `__main__.py` | Port `9301`, internal service credential, health/readiness, server entrypoint |
+
 ### Existing runtime changes
 
 | Area | Files |
@@ -74,8 +90,9 @@
 | Contracts | `packages/commerce_core/commerce_core/contracts.py` |
 | Buyer | `settings.py`, `services.py`, `settlement.py`, `settlement_store.py`, `settlement_api.py`, `coordinator.py`, `graph.py`, `executor.py`, `console_api.py`, `trace.py`, `server.py` |
 | Orchestrator | `mediation.py`, `agent.py`, `settings.py` |
+| Registry | `api.py`, `store.py`, `settings.py` — generic-agent registration/discovery separate from seller catalog routes |
 | Seller | `settings.py`, `settlement.py`, `evidence_outbox.py`, `graph.py`, `executor.py`, `order_service.py`, `store.py`, `service.py`, `server.py` |
-| Console | `lib/types.ts`, `lib/api.ts`, `lib/stages.ts`, `features/runs/use-run.ts`, `features/deal-room/hooks/*`, `features/deal-room/components/*`, `app/api/runs/**`, `app/globals.css`, `package.json`, `e2e/verifund.spec.ts` |
+| Console | `lib/types.ts`, `lib/api.ts`, `lib/stages.ts`, `features/runs/use-run.ts`, `features/deal-room/hooks/*`, `features/deal-room/components/*`, `features/chat/chat.tsx`, `app/api/runs/**`, `app/globals.css`, `package.json`, `e2e/verifund.spec.ts` |
 | Ops | `scripts/config.py`, `scripts/dev.py`, `scripts/run_demo.py`, new `scripts/verifund_*.py`, `scripts/check_standalone.py`, `tests/test_standalone.py`, `pyproject.toml`, `Dockerfile.python`, `docker-compose.yml`, `.env.example`, `Makefile`, `.gitignore`, `README.md`, `docs/verifund-paypal-sandbox.md`, old MarketMesh spec |
 
 ### Test layout
@@ -86,6 +103,8 @@
 - `tests/protocol/test_settlement_contracts.py` — old/new payload compatibility.
 - `apps/console/features/deal-room/components/*.test.tsx` — Transaction Room unit tests.
 - `apps/console/e2e/verifund.spec.ts` — fake-mode browser flow.
+- `tests/unit/test_verifund_registry.py` and `tests/integration/test_verifund_agent.py` — generic discovery, structured A2A tasks, buyer proxy, and failure behavior.
+- `apps/console/features/chat/chat.test.tsx` — HITL binding, checkout handoff, evidence/status, and receipt rendering.
 
 ---
 
@@ -102,7 +121,7 @@
 - Test: `tests/unit/test_verifund_contracts.py`
 
 **Interfaces:**
-- Produces: `AwardRequest`, `AwardResponse`, `AcceptRequest`, `RejectRequest`, `ApproveRequest`, `CancelRequest`, `FundRequest`, `FundResponse`, `PurchaseOrderReport`, `ReleaseRequest`, `FlagReviewRequest`, `SellerTokenRequest`, `SellerTokenResponse`, `TransactionProjection`, `SellerProjection`, `EvidenceItem`, `EvidenceList`, `ReceiptResponse`, `TransactionEvent`, `VerifundClient`, `VerifundError`, `TransactionState`, `RejectReason`, `CancelReason`, `EvidenceKind`, `ReviewReason`, `VerifundErrorCode`.
+- Produces: `AwardRequest`, `AwardResponse`, `BuyerAgreementReviewRequest`, `AgreementReviewDecision`, `AgreementReviewProjection`, `AcceptRequest`, `RejectRequest`, `ApproveRequest`, `CancelRequest`, `FundRequest`, `FundResponse`, `PurchaseOrderReport`, `ReleaseRequest`, `FlagReviewRequest`, `SellerTokenRequest`, `SellerTokenResponse`, `TransactionProjection` (including `buyer_agent_review`), `SellerProjection`, `EvidenceItem`, `EvidenceList`, `ReceiptResponse`, `TransactionEvent`, `VerifundClient`, `VerifundError`, `TransactionState`, `RejectReason`, `CancelReason`, `EvidenceKind`, `ReviewReason`, `VerifundErrorCode`.
 - Consumes: nothing.
 
 - [ ] **Step 1: Write failing contract tests**
@@ -192,6 +211,7 @@ def test_projection_round_trip_has_no_extra_fields():
         agreement_hash="a" * 64,
         agreement_version=1,
         seller_decision=None,
+        buyer_agent_review=None,
         approval=None,
         cancellation=None,
         funding=None,
@@ -333,6 +353,11 @@ class RejectReason(StrEnum):
     OTHER = "other"
 
 
+class AgreementReviewDecision(StrEnum):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class CancelReason(StrEnum):
     BUYER_REJECTED = "buyer_rejected"
     BUYER_CANCELLED = "buyer_cancelled"
@@ -423,6 +448,17 @@ class AcceptRequest(VerifundModel):
     accepted_total_cents: int = Field(gt=0)
     seller_task_id: str = Field(min_length=1)
     accepted_at: datetime
+
+
+class BuyerAgreementReviewRequest(VerifundModel):
+    buyer_id: str = Field(min_length=1)
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    decision: AgreementReviewDecision
+    reason_code: str | None = None
+    note: str = ""
+    buyer_task_id: str = Field(min_length=1)
+    reviewed_at: datetime
 
 
 class RejectRequest(VerifundModel):
@@ -521,6 +557,16 @@ class SellerDecisionProjection(VerifundModel):
     note: str | None = None
 
 
+class AgreementReviewProjection(VerifundModel):
+    status: AgreementReviewDecision
+    agreement_version: int
+    agreement_hash: str
+    task_id: str
+    reviewed_at: datetime
+    reason_code: str | None = None
+    note: str | None = None
+
+
 class ApprovalProjection(VerifundModel):
     approved_by: str
     approved_at: datetime
@@ -597,6 +643,7 @@ class TransactionProjection(VerifundModel):
     seller_id: str
     agreement_hash: str
     agreement_version: int
+    buyer_agent_review: AgreementReviewProjection | None = None
     seller_decision: SellerDecisionProjection | None = None
     approval: ApprovalProjection | None = None
     cancellation: CancellationProjection | None = None
@@ -1842,7 +1889,7 @@ git commit -m "feat(verifund): scaffold control plane settings, db, and health a
 - Test: `tests/unit/test_verifund_domain.py`
 
 **Interfaces:**
-- Produces: `ALLOWED_TRANSITIONS`, `TERMINAL_STATES`, `REVIEWABLE_STATES`, `NON_OVERRIDABLE_REASONS`, `canonical_json`, `agreement_hash`, `build_agreement`, `validate_award`, `capture_ledger_entries`, `payout_ledger_entries`, `allowed_actions`, `stage_for_state`, `TransactionRecord`, `assert_transition`, `equipment_deprecated` (no; do not add unused).
+- Produces: `ALLOWED_TRANSITIONS`, `TERMINAL_STATES`, `REVIEWABLE_STATES`, `NON_OVERRIDABLE_REASONS`, `canonical_json`, `agreement_hash`, `build_agreement`, `validate_award`, `validate_agreement_review`, `record_buyer_review`, `record_seller_decision`, `capture_ledger_entries`, `payout_ledger_entries`, `allowed_actions`, `stage_for_state`, `TransactionRecord`, `assert_transition`.
 - Consumes: `AwardRequest`, `TransactionState`, `ReviewReason` from Task 1.
 
 - [ ] **Step 1: Write failing domain tests**
@@ -2286,7 +2333,7 @@ git add apps/verifund_control_plane/verifund_control_plane/domain.py tests/unit/
 git commit -m "feat(verifund): add state machine, agreement hashing, and ledger rules"
 ```
 
-### Task 6: Control-plane schema, transaction persistence, events, and idempotency
+### Task 6: Control-plane schema, transaction persistence, agreement reviews, events, and idempotency
 
 **Files:**
 - Create: `apps/verifund_control_plane/verifund_control_plane/repository.py`
@@ -2294,7 +2341,7 @@ git commit -m "feat(verifund): add state machine, agreement hashing, and ledger 
 - Test: `tests/unit/test_verifund_repository.py`
 
 **Interfaces:**
-- Produces: `Repository`, `EventInput`, `AuditInput`, `Repository.transaction()`, `create_schema`, `insert_transaction`, `get_transaction`, `list_transactions`, `count_transactions`, `transition`, `update_transaction`, `append_event`, `get_idempotency`, `put_idempotency`, `audit`.
+- Produces: `Repository`, `EventInput`, `AuditInput`, `AgreementReviewInput`, `Repository.transaction()`, `create_schema`, `insert_transaction`, `get_transaction`, `list_transactions`, `count_transactions`, `transition`, `update_transaction`, `append_event`, `record_agreement_review`, `get_agreement_reviews`, `get_idempotency`, `put_idempotency`, `audit`; append-only `agreement_reviews` rows keyed by transaction, version/hash, party, and idempotency key.
 - Consumes: `TransactionRecord`, `assert_transition`, `TransactionState` from Task 5.
 
 - [ ] **Step 1: Write failing repository tests**
@@ -2512,6 +2559,7 @@ class Repository:
             Column("agreement_id", String, nullable=False),
             Column("agreement_hash", String, nullable=False),
             Column("agreement_version", Integer, nullable=False),
+            Column("buyer_agent_review", JSON, nullable=True),
             Column("seller_decision", JSON, nullable=True),
             Column("approval", JSON, nullable=True),
             Column("funding", JSON, nullable=True),
@@ -2533,6 +2581,20 @@ class Repository:
             Column("payload", JSON, nullable=False),
             Column("agreement_hash", String, nullable=False),
             Column("created_at", String, nullable=False),
+        )
+        self.agreement_reviews = Table(
+            "agreement_reviews", self.metadata,
+            Column("review_id", String, primary_key=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("agreement_version", Integer, nullable=False),
+            Column("agreement_hash", String, nullable=False),
+            Column("party", String, nullable=False),
+            Column("decision", String, nullable=False),
+            Column("task_id", String, nullable=False),
+            Column("reason_code", String, nullable=True),
+            Column("note", String, nullable=False),
+            Column("idempotency_key", String, nullable=False, unique=True),
+            Column("reviewed_at", String, nullable=False),
         )
         self.events = Table(
             "transaction_events", self.metadata,
@@ -4040,10 +4102,15 @@ git commit -m "feat(verifund): add seller tokens, signed links, and receipt sign
 - Test: `tests/unit/test_verifund_service.py`
 
 **Interfaces:**
-- Produces: `VerifundService(repo, settings, clock, tokens)`, `award`, `list_transactions`, `get_transaction`, `projection`, `accept`, `reject`, `approve`, `cancel`, `events`; `ops.router`; ops bearer auth with actor and idempotency headers.
+- Produces: `VerifundService(repo, settings, clock, tokens)`, `award`, `list_transactions`, `get_transaction`, `projection`, `record_buyer_review`, `accept`, `reject`, `approve`, `cancel`, `events`; `POST /transactions/{id}/buyer-review`; ops bearer auth with actor and idempotency headers. `AGREED` requires both buyer review and seller acceptance for the current hash.
 - Consumes: repository, domain, tokens, and contracts from Tasks 1-8.
 
 - [ ] **Step 1: Write failing service and API tests**
+
+The tests must prove that either review can be recorded first, `AGREED` is not
+entered until Buyer review and Seller acceptance both accept the current hash,
+and a Buyer-agent rejection cancels without a ledger entry. Replays with the
+same idempotency key return the stored decision; stale versions/hashes conflict.
 
 `tests/unit/test_verifund_service.py`:
 
@@ -4158,6 +4225,21 @@ async def test_accept_requires_hash_and_seller(api):
     assert bad.status_code == 409
     assert bad.json()["error"]["code"] == "hash_mismatch"
 
+    buyer_review = await api.post(
+        f"/transactions/{award['transaction_id']}/buyer-review",
+        json={
+            "buyer_id": "demo-buyer",
+            "agreement_version": 1,
+            "agreement_hash": award["agreement_hash"],
+            "decision": "accepted",
+            "buyer_task_id": "buyer-review-task-1",
+            "reviewed_at": NOW.isoformat(),
+        },
+        headers={**OPS, **ACTOR, "idempotency-key": "buyer-review:run-1:v1"},
+    )
+    assert buyer_review.status_code == 200
+    assert buyer_review.json()["state"] == "AWARDED"
+
     accepted = await api.post(
         f"/transactions/{award['transaction_id']}/accept",
         json={
@@ -4171,6 +4253,7 @@ async def test_accept_requires_hash_and_seller(api):
     )
     assert accepted.status_code == 200
     assert accepted.json()["state"] == "AGREED"
+    assert accepted.json()["buyer_agent_review"]["status"] == "accepted"
     assert accepted.json()["seller_decision"]["status"] == "accepted"
 
     replay = await api.post(
@@ -4646,28 +4729,41 @@ class VerifundService:
                 raise VerifundError(
                     "invalid_state", "transaction is not awaiting acceptance", status_code=409
                 )
-            updated = await self.repo.transition(
-                conn,
-                transaction_id,
-                expected_version=record.version,
-                expected_state=TransactionState.AWARDED,
-                new_state=TransactionState.AGREED,
-                changes={
-                    "seller_decision": {
-                        "status": "accepted",
-                        "reported_at": self._iso(request.accepted_at),
-                        "seller_task_id": request.seller_task_id,
-                    }
-                },
-                events=[
-                    EventInput(
-                        "seller_accepted",
-                        {"seller_task_id": request.seller_task_id},
-                        actor,
-                    )
-                ],
-                audit=AuditInput(actor, "seller_accepted"),
-            )
+            changes = {
+                "seller_decision": {
+                    "status": "accepted",
+                    "reported_at": self._iso(request.accepted_at),
+                    "seller_task_id": request.seller_task_id,
+                    "agreement_hash": request.agreement_hash,
+                }
+            }
+            events = [
+                EventInput(
+                    "seller_accepted",
+                    {"seller_task_id": request.seller_task_id},
+                    actor,
+                )
+            ]
+            if (record.buyer_agent_review or {}).get("status") == "accepted":
+                updated = await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=record.version,
+                    expected_state=TransactionState.AWARDED,
+                    new_state=TransactionState.AGREED,
+                    changes=changes,
+                    events=events,
+                    audit=AuditInput(actor, "seller_accepted"),
+                )
+            else:
+                updated = await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=record.version,
+                    changes=changes,
+                    events=events,
+                    audit=AuditInput(actor, "seller_accepted_waiting_for_buyer_review"),
+                )
             return (
                 await self._projection(updated, "buyer", items=items)
             ).model_dump(mode="json")
@@ -11652,6 +11748,28 @@ git commit -m "feat(buyer): add settlement secret store and control-plane client
 
 ### Task 16: Buyer settlement flow and graph nodes
 
+**Chat-driven agreement review amendment:** the buyer graph must not directly
+create the award or call the seller acceptance skill in settlement mode. After
+ranking, it checkpoints the original Buyer A2A task with the exact award and
+mandate, and returns `agreement_create_required` to the orchestrator. The
+orchestrator calls Verifund `verifund.agreement.create`; Verifund assembles the
+proposal from that award and asks the authenticated Buyer internal route to
+validate and create the canonical control-plane agreement. The orchestrator
+then resumes the original Buyer task with the canonical agreement, version,
+and hash. The Buyer validates its mandate, records its own hash-bound review
+with `POST /buyer-review`, and pauses for Seller review. The orchestrator sends
+the same agreement to the Seller A2A agent, then resumes that original Buyer
+task with the exact structured Seller response. The Buyer reports seller
+acceptance/rejection through its own control-plane client. Only both agent
+acceptances for the current hash proceed to the separate human funding HITL.
+Rejection/counterproposal cannot reach funding approval; a counterproposal
+creates a new version and repeats both reviews. In `VERIFUND_MODE=off`, keep
+the existing approval-only path.
+
+The snippets below describe the existing settlement nodes; implement them
+with the checkpoint/resume protocol above, rather than directly invoking
+seller acceptance from the Buyer graph.
+
 **Files:**
 - Create: `apps/buyer_agent/buyer_agent/settlement_flow.py`
 - Modify: `apps/buyer_agent/buyer_agent/graph.py`
@@ -11660,7 +11778,7 @@ git commit -m "feat(buyer): add settlement secret store and control-plane client
 - Test: `tests/unit/test_buyer_settlement_routing.py`
 
 **Interfaces:**
-- Produces: `settlement_enabled`, `build_award_request`, `create_award`, `report_acceptance`, `report_rejection`, `report_approval`, `start_funding`, `refresh_funding`, `report_purchase_order`, `fetch_state`; graph nodes `create_settlement_award`, `accept_settlement`, `report_approval`, `fund_settlement`, `settlement_place_order`, `await_release`; executor interrupt reasons `funding_required` and `settlement_release`.
+- Produces: `settlement_enabled`, `build_award_request`, `create_award`, `report_acceptance`, `report_rejection`, `report_approval`, `start_funding`, `refresh_funding`, `report_purchase_order`, `fetch_state`; graph nodes for award checkpoint/agreement creation, Buyer review checkpoint, Seller-result continuation, `report_approval`, `fund_settlement`, `settlement_place_order`, `await_release`; executor interrupt reasons `agreement_create_required`, `buyer_review_required`, `seller_review_required`, `funding_required`, and `settlement_release`.
 - Consumes: `SettlementStore`, `BuyerSettlementClient`, `BuyerState`, `AcceptOffer`, `PurchaseOrderRequest`.
 
 - [ ] **Step 1: Write failing settlement flow tests**
@@ -12613,7 +12731,13 @@ Register the new nodes in the existing `for name, fn in [...]` list so they rece
         ("await_release", _settlement_release),
 ```
 
-Replace the conditional edge from `rank_offers` and the `await_approval` edge:
+Replace the legacy direct seller-call edge with the checkpoint/continuation
+edges below. `create_settlement_award` pauses with `agreement_create_required`;
+the orchestrator resumes it after Verifund creates the canonical agreement.
+`buyer_review_checkpoint` pauses with the agreement for the Buyer A2A review.
+After Buyer accepts, the orchestrator calls the Seller and resumes the original
+Buyer task at `seller_review_continuation`, which reports the Seller result via
+the Buyer client. Only that continuation may route to funding HITL.
 
 ```python
     builder.add_conditional_edges(
@@ -12624,11 +12748,16 @@ Replace the conditional edge from `rank_offers` and the `await_approval` edge:
     builder.add_conditional_edges(
         "create_settlement_award",
         settlement_award_route,
-        {"settlement": "accept_settlement", "off": "await_approval"},
+        {"settlement": "buyer_review_checkpoint", "off": "await_approval"},
     )
     builder.add_conditional_edges(
-        "accept_settlement",
-        settlement_accept_route,
+        "buyer_review_checkpoint",
+        buyer_review_route,
+        {"accepted": "seller_review_checkpoint", "rejected": "finalize"},
+    )
+    builder.add_conditional_edges(
+        "seller_review_continuation",
+        seller_review_route,
         {"accepted": "await_approval", "rejected": "finalize"},
     )
     builder.add_conditional_edges(
@@ -12801,6 +12930,17 @@ git commit -m "feat(buyer): add settlement lifecycle graph and interrupts"
 ---
 
 ### Task 17: Buyer settlement API, internal seller-token endpoint, and run projection
+
+Add `POST /internal/runs/{run_id}/settlement/agreement`, authenticated with
+`VERIFUND_AGENT_INTERNAL_TOKEN`. It accepts the exact award plus the
+Verifund-generated proposal, verifies run/winner/amount binding, and asks the
+Buyer settlement client to create the canonical award. Do not add a Verifund
+endpoint for recording reviews: the resumed Buyer A2A task records its own
+review through `POST /buyer-review`, and reports the Seller's exact
+accept/reject response through the existing Buyer client. The Buyer API must
+persist both decisions as append-only, hash-bound receipts and expose them in
+the settlement projection. Keep this internal route off the public Next.js
+proxy.
 
 **Files:**
 - Create: `apps/buyer_agent/buyer_agent/settlement_api.py`
@@ -16073,6 +16213,45 @@ git commit -m "feat(seller): queue evidence after orders and surface settlement 
 
 ---
 
+### Task 22A: Register and implement the Verifund A2A agent
+
+**Files:**
+- Create: `apps/verifund_agent/{pyproject.toml,verifund_agent/__main__.py,verifund_agent/settings.py,verifund_agent/server.py,verifund_agent/card.py,verifund_agent/agent.py,verifund_agent/executor.py,verifund_agent/client.py}`
+- Modify: `apps/registry/registry/{api.py,store.py,settings.py}`
+- Modify: root `pyproject.toml`, `scripts/config.py`, `scripts/dev.py`, `docker-compose.yml`, `.env.example`
+- Test: `tests/unit/test_verifund_registry.py`, `tests/integration/test_verifund_agent.py`
+
+**Interfaces:**
+- Produces: Agent Card skills `verifund.agreement.create`, `verifund.transaction.status`, `verifund.evidence.review`, `verifund.transaction.release`, and `verifund.receipt.get`; a typed `BuyerSettlementClient` for authenticated internal buyer routes. `agreement.create` accepts the exact Buyer award, assembles an agreement proposal, and requests canonical creation through the buyer. The Buyer records its own review and the Seller decision; Verifund does not record either.
+- Registry adds generic `POST/GET /v1/agents`, `GET /v1/agents/{agent_id}`, `POST /v1/agents/{agent_id}/refresh`, and `POST /v1/agents/discover` endpoints backed by separate agent records. Seller registration, seller discovery, and catalog requirements stay unchanged.
+- Buyer adds internal routes for agreement creation/versioning, settlement projection, approve/fund, release, evidence, and receipt, protected by `VERIFUND_AGENT_INTERNAL_TOKEN`, validating run/transaction/version/hash bindings, and never mounted through Next.js. The resumed Buyer task records the Buyer review and Seller decision through its control-plane client.
+- Consumes: buyer settlement API from Task 17; existing A2A card, executor, and registry patterns; agent URL/credential settings from the dev stack.
+
+- [ ] Build the card and JSON-RPC task executor. `agreement.create` assembles only from the Buyer award and returns the control-plane canonical projection/hash. Return structured task state and projections; never treat task prose as authorization.
+- [ ] Add generic registry storage and routes without changing `/v1/sellers`, `/v1/discover`, seller-card validation, or product search. Refresh validates an A2A card but does not require a seller catalog.
+- [ ] Implement the buyer API client and internal endpoints. The buyer calls control-plane `POST /awards`, `POST /buyer-review`, and existing seller `/accept` or `/reject` operations. Record append-only review receipts keyed by transaction/version/hash/party/task ID; set `AGREED` only after both decisions accept the same hash. Keep `VERIFUND_OPS_TOKEN` exclusively in the buyer and ensure the A2A service receives neither ops nor PayPal credentials.
+- [ ] Add fake-mode lifecycle tests for discoverability, draft canonicalization, sequential review relays, buyer/seller rejection, counterproposal re-versioning, stale-hash rejection, idempotent retries, pending provider outcomes, unavailable buyer API, and secret redaction.
+- [ ] Wire local startup/readiness and compose for port `9301`; leave the agent stopped when `VERIFUND_MODE=off`.
+
+### Task 22B: Route Verifund tasks through the orchestrator
+
+**Files:**
+- Modify: `apps/orchestrator_agent/orchestrator_agent/{agent.py,settings.py}`
+- Modify: `apps/buyer_agent/buyer_agent/{card.py,executor.py,graph.py}`
+- Modify: `apps/seller_agent/seller_agent/{card.py,executor.py,graph.py}`
+- Modify: `apps/console/app/api/copilotkit/[[...slug]]/route.ts`
+- Test: `tests/unit/test_orchestrator_verifund.py`, `tests/protocol/test_agreement_review.py`
+
+**Interfaces:**
+- Produces: buyer skill `commerce.agreement.review` and seller skill `commerce.agreement.review`; authenticated generic-agent discovery/client helpers and orchestrator instructions mapping agreement/review requests to Verifund, Buyer, and Seller A2A tasks.
+- Consumes: generic registry discovery from Task 22A; existing `AGUIToolset`; structured HITL results from Task 25A.
+
+- [ ] Discover Verifund through the generic agent endpoint and validate the expected cards/skill IDs. Call Verifund to create the agreement, resume the original Buyer task with that exact agreement/version/hash, then send it to Seller review only after Buyer acceptance. Resume the original Buyer task with the exact Seller decision so Buyer records the seller outcome. Keep A2A calls sequential and correlate tasks by run, transaction, version, hash, and task/context IDs.
+- [ ] Treat review results as structured party-signed task outputs; never rewrite or submit them as Verifund. A rejection stops before human funding HITL. A changed proposal gets a new hash and repeats both reviews.
+- [ ] Preserve the existing sourcing and seller mediation protocols. Require both agent acceptances before rendering the human funding HITL; require the frontend HITL result before approve/fund or release actions.
+- [ ] Treat unknown, failed, input-required, and pending A2A results as non-success. Never claim payment or payout completion without a confirmed buyer projection.
+- [ ] Test card discovery, task payload mapping, approval/rejection routing, retry-safe pending states, and malformed/unavailable agent responses.
+
 ## Phase 4 — Transaction Room console
 
 ### Task 23: Console settlement types, shared stages, API client, and proxy routes
@@ -16690,6 +16869,13 @@ git commit -m "feat(console): add settlement types, stage helpers, and buyer pro
 
 ### Task 24: Transaction Room components
 
+**Chat-first amendment (normative):** the Transaction Room is a synchronized,
+read-only settlement detail view. Funding approval and payout release controls
+belong in the chat HITL cards from Task 25A. Any `onAdvance`, `onRelease`, or
+button-driven approval/release example below is superseded: replace it with
+status, checkout state, verification reasons, evidence, timeline, and receipt
+rendering. Keep checkout and reviewer decisions actionable only through chat.
+
 **Files:**
 - Create: `apps/console/features/deal-room/components/transaction-timeline.tsx`
 - Create: `apps/console/features/deal-room/components/funding-panel.tsx`
@@ -16701,7 +16887,7 @@ git commit -m "feat(console): add settlement types, stage helpers, and buyer pro
 - Test: `apps/console/features/deal-room/components/transaction-room.test.tsx`
 
 **Interfaces:**
-- Produces: `TransactionRoom` with props `settlement`, `receipt`, `busy`, `error`, `onAdvance`, `onRelease`, `onReview`, `onCancel`, `onRefreshReceipt`, `evidenceUrl`; subcomponents `TransactionTimeline`, `FundingPanel`, `EvidenceList`, `ReleasePanel`, `ReceiptPanel`.
+- Produces: read-only `TransactionRoom` with props `settlement`, `receipt`, `error`, `evidenceUrl`; subcomponents `TransactionTimeline`, funding/status summary, `EvidenceList`, verification/release status summary, and `ReceiptPanel`.
 - Consumes: `SettlementProjection`, `SettlementReceipt`, `SettlementReviewReason`, `CancelReasonCode`, `money`, `formatDateTime`, `Status`, `Button`.
 
 - [ ] **Step 1: Write the failing component tests**
@@ -18419,6 +18605,24 @@ git commit -m "feat(console): wire settlement actions into run and seller views"
 
 ---
 
+### Task 25A: Add the chat-first Verifund HITL workflow
+
+**Files:**
+- Modify: `apps/console/features/chat/chat.tsx`
+- Create: `apps/console/features/chat/verifund-tools.ts` and `apps/console/features/chat/verifund-tools.test.tsx`
+- Modify: `apps/console/features/deal-room/hooks/use-run-detail.ts`, `apps/console/features/deal-room/console-shell.tsx`, and `apps/console/app/api/copilotkit/[[...slug]]/route.ts`
+- Test: `apps/console/features/chat/chat.test.tsx`
+
+**Interfaces:**
+- Produces: HITL tools `request_verifund_funding_approval` and `request_verifund_release_approval`; frontend tools/renderers for agreement proposal, bilateral review status, checkout handoff, evidence/status summary, and receipt. Funding approval card appears only after Buyer-agent validation and Seller-agent acceptance are recorded for the same run/transaction/version/hash. Human approval result contains the original identifiers, explicit decision, reviewer, and note.
+- Consumes: Verifund A2A task results from Task 22B; same-origin buyer settlement projections and receipt/evidence routes from Tasks 23–25.
+
+- [ ] Render the Verifund-generated, control-plane-canonical agreement after both remote agents accept. Show transaction ID, seller, amount/currency, priced line items, terms, version/hash, Buyer validation, and Seller acceptance. The human funding approve/reject response must echo these identifiers; rejection cancels before checkout. Do not treat either agent decision as human funding authorization.
+- [ ] On approval, ask the Verifund agent to create the funding intent. Render the returned fake checkout or hosted PayPal payer-action URL as a chat action. Never collect payment credentials in the browser or claim capture before buyer state confirms it.
+- [ ] Render evidence metadata and deterministic policy outcomes in chat. When state reaches `RELEASE_PERMITTED` or `REVIEW_REQUIRED`, show a separate release HITL card with evidence summary and reasons. Require a note for allowed overrides and keep non-overridable failures disabled.
+- [ ] After release, render the verified signed receipt in chat and refresh the same run projection used by the Transaction Room. Keep the room available for full evidence and history.
+- [ ] Test exact identifier/hash binding, free-text non-authorization, approval rejection, duplicate submissions, checkout pending/return, evidence review, release override/rejection, verified receipt rendering, and `VERIFUND_MODE=off` legacy chat behavior.
+
 ## Phase 5 — Operations, verification, and docs
 
 ### Task 26: Local dev orchestration for Verifund modes
@@ -18431,8 +18635,8 @@ git commit -m "feat(console): wire settlement actions into run and seller views"
 - Test: `tests/unit/test_verifund_dev_config.py`
 
 **Interfaces:**
-- Produces: `config.verifund_mode()`, `verifund_port()`, `verifund_url()`, `verifund_public_base_url()`, `verifund_console_base_url()`, `verifund_ops_token()`, `buyer_internal_token()`, `verifund_database_url()`, `verifund_evidence_dir()`, `verifund_seller_token_secret()`, `verifund_link_secret()`, `verifund_receipt_keys()`, `verifund_receipt_active_kid()`, `verifund_fake_webhook_secret()`, `verifund_timeout_seconds()`, `verifund_auto_evidence()`, `verifund_evidence_retry_seconds()`, `verifund_inspection_window_hours()`, `seller_payout_emails()`, `paypal_api_base()`, `paypal_env()`, `paypal_webhook_id()`, `paypal_platform_email()`, `paypal_buyer_email()`; `dev.control_plane_environment(llm_mode, verifund_mode)`, `dev.verifund_enabled(mode)`, `dev.run_stack(scripted, verifund_mode)`.
-- Consumes: `VERIFUND_MODE`, the new seller/buyer settings from Tasks 15 and 19, and the control-plane settings from Task 4.
+- Produces: `config.verifund_mode()`, `verifund_port()`, `verifund_agent_port()`, `verifund_agent_url()`, `verifund_agent_internal_token()`, `verifund_url()`, `verifund_public_base_url()`, `verifund_console_base_url()`, `verifund_ops_token()`, `buyer_internal_token()`, `verifund_database_url()`, `verifund_evidence_dir()`, `verifund_seller_token_secret()`, `verifund_link_secret()`, `verifund_receipt_keys()`, `verifund_receipt_active_kid()`, `verifund_fake_webhook_secret()`, `verifund_timeout_seconds()`, `verifund_auto_evidence()`, `verifund_evidence_retry_seconds()`, `verifund_inspection_window_hours()`, `seller_payout_emails()`, `paypal_api_base()`, `paypal_env()`, `paypal_webhook_id()`, `paypal_platform_email()`, `paypal_buyer_email()`; `dev.control_plane_environment(llm_mode, verifund_mode)`, `dev.verifund_agent_environment(verifund_mode)`, `dev.verifund_enabled(mode)`, `dev.run_stack(scripted, verifund_mode)`.
+- Consumes: `VERIFUND_MODE`, the new seller/buyer settings from Tasks 15 and 19, the control-plane settings from Task 4, and Verifund A2A settings from Task 22A.
 
 - [ ] **Step 1: Write the failing config and dev-wiring tests**
 
@@ -18478,6 +18682,13 @@ def test_control_plane_url_prefers_verifund_control_plane_url(monkeypatch):
     monkeypatch.setenv("VERIFUND_CONTROL_PLANE_URL", "http://control-plane:9300/")
     clear(monkeypatch, "VERIFUND_URL")
     assert config.verifund_url() == "http://control-plane:9300"
+
+
+def test_verifund_agent_defaults_and_internal_token(monkeypatch):
+    clear(monkeypatch, "VERIFUND_AGENT_PORT", "VERIFUND_AGENT_URL")
+    assert config.verifund_agent_port() == 9301
+    assert config.verifund_agent_url() == "http://127.0.0.1:9301"
+    assert config.verifund_agent_internal_token()
 
 
 def test_payout_map_keeps_defaults_and_applies_overrides(monkeypatch):
@@ -18528,6 +18739,12 @@ def test_fake_mode_wires_buyer_seller_and_orchestrator(monkeypatch):
     orchestrator = dev.orchestrator_environment("scripted", "fake")
     assert orchestrator["BUYER_INTERNAL_URL"] == config.buyer_url()
     assert orchestrator["BUYER_INTERNAL_TOKEN"] == "internal-token"
+
+    agent = dev.verifund_agent_environment("fake")
+    assert agent["VERIFUND_MODE"] == "fake"
+    assert agent["VERIFUND_AGENT_PORT"] == "9301"
+    assert agent["BUYER_INTERNAL_URL"] == config.buyer_url()
+    assert agent["VERIFUND_AGENT_INTERNAL_TOKEN"]
 
 
 def test_control_plane_environment_uses_fake_defaults(monkeypatch):
@@ -18991,8 +19208,9 @@ def main() -> int:
     mode = args.verifund or os.environ.get("VERIFUND_MODE", "off")
     if mode in {"fake", "sandbox"}:
         print(
-            "\nApproval opens a PayPal checkout. Complete it, then use the "
-            "Transaction Room to release funds after evidence arrives."
+            "\nReview the agreement in chat, approve funding, and complete "
+            "PayPal checkout. Review evidence and approve payout release in "
+            "the separate chat checkpoint."
         )
     return 0
 ```
@@ -19036,8 +19254,8 @@ git commit -m "feat(ops): wire Verifund modes into the local dev stack"
 - Test: `tests/unit/test_verifund_packaging.py`
 
 **Interfaces:**
-- Produces: a `verifund` Compose profile service on `127.0.0.1:9300`, Verifund env vars for buyer/sellers/orchestrator, `make verifund-*` targets, and documented `.env.example` keys.
-- Consumes: `scripts/config.py` getters and the service entry points from Tasks 4, 15, and 19.
+- Produces: `verifund` and `verifund-agent` Compose profile services on `127.0.0.1:9300` and `127.0.0.1:9301`, Verifund env vars for buyer/sellers/orchestrator/agent, `make verifund-*` targets, and documented `.env.example` keys.
+- Consumes: `scripts/config.py` getters and the service entry points from Tasks 4, 15, 19, and 22A.
 
 - [ ] **Step 1: Write the failing packaging tests**
 
@@ -19056,6 +19274,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_compose_defines_the_verifund_profile_service():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
     service = compose["services"]["verifund"]
+    agent = compose["services"]["verifund-agent"]
 
     assert service["profiles"] == ["verifund"]
     assert "127.0.0.1:9300:9300" in service["ports"]
@@ -19066,6 +19285,10 @@ def test_compose_defines_the_verifund_profile_service():
         == "sqlite+aiosqlite:////app/data/verifund.db"
     )
     assert service["environment"]["VERIFUND_EVIDENCE_DIR"] == "/app/data/evidence"
+    assert agent["profiles"] == ["verifund"]
+    assert "127.0.0.1:9301:9301" in agent["ports"]
+    assert agent["environment"]["BUYER_INTERNAL_URL"] == "http://buyer:9100"
+    assert "VERIFUND_AGENT_INTERNAL_TOKEN" in agent["environment"]
 
 
 def test_compose_wires_settlement_settings_into_existing_services():
@@ -19096,6 +19319,7 @@ def test_dockerfile_copies_the_control_plane():
     assert (
         "COPY apps/verifund_control_plane ./apps/verifund_control_plane" in text
     )
+    assert "COPY apps/verifund_agent ./apps/verifund_agent" in text
 
 
 def test_makefile_exposes_verifund_targets():
@@ -19116,6 +19340,8 @@ def test_env_example_documents_every_verifund_setting():
     for name in (
         "VERIFUND_MODE",
         "VERIFUND_PORT",
+        "VERIFUND_AGENT_PORT",
+        "VERIFUND_AGENT_INTERNAL_TOKEN",
         "VERIFUND_CONTROL_PLANE_URL",
         "VERIFUND_PUBLIC_BASE_URL",
         "VERIFUND_CONSOLE_BASE_URL",
@@ -19230,6 +19456,27 @@ In `docker-compose.yml`, add after `orchestrator` and before `console`:
       interval: 5s
       timeout: 3s
       retries: 20
+```
+
+Add the A2A service alongside the control plane:
+
+```yaml
+  verifund-agent:
+    <<: *python-service
+    profiles: ["verifund"]
+    command: python -m verifund_agent
+    environment:
+      HOST: 0.0.0.0
+      VERIFUND_AGENT_PORT: 9301
+      VERIFUND_AGENT_URL: http://verifund-agent:9301
+      BUYER_INTERNAL_URL: http://buyer:9100
+      VERIFUND_AGENT_INTERNAL_TOKEN: ${VERIFUND_AGENT_INTERNAL_TOKEN:-dev-verifund-agent-internal}
+      VERIFUND_MODE: ${VERIFUND_MODE:-fake}
+    ports:
+      - "127.0.0.1:9301:9301"
+    depends_on:
+      buyer:
+        condition: service_healthy
 ```
 
 In the `buyer` environment add:
@@ -19403,7 +19650,7 @@ git commit -m "chore(ops): package the Verifund control plane for compose and CI
 - Test: `tests/unit/test_verifund_scripts.py`
 
 **Interfaces:**
-- Produces: `AwardContext` helpers `award_payload`, `manifest_payload`, `delivery_payload`, `summarize_ledger`; `VerifundFlow` (`award`, `accept`, `approve`, `fund`, `complete_checkout`, `purchase_order`, `upload_evidence`, `verify`, `release`, `get_state`, `get_receipt`, `wait_for_state`, `run`); `smoke_environment`, `ledger_rows`, `main`; `e2e_environment`, `playwright_command`, `main`; the `e2e/verifund.spec.ts` browser test.
+- Produces: `AwardContext` helpers `award_payload`, `manifest_payload`, `delivery_payload`, `summarize_ledger`; `VerifundFlow` (`award`, `accept`, `approve`, `fund`, `complete_checkout`, `purchase_order`, `upload_evidence`, `verify`, `release`, `get_state`, `get_receipt`, `wait_for_state`, `run`); `smoke_environment`, `ledger_rows`, `main`; `e2e_environment`, `playwright_command`, `main`; the `e2e/verifund.spec.ts` browser test that drives approvals and release through chat and checks the Transaction Room projection.
 - Consumes: the control-plane ops and seller APIs, the fake checkout route, `scripts/dev.py --verifund fake`, and the shared console stage labels.
 
 - [ ] **Step 1: Write the failing script tests**
@@ -20102,6 +20349,10 @@ def e2e_environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
     env["VERIFUND_MODE"] = "fake"
     env["VERIFUND_INSPECTION_WINDOW_HOURS"] = "0"
     env["VERIFUND_CONTROL_PLANE_URL"] = CONTROL_PLANE_URL
+    env.setdefault("VERIFUND_AGENT_PORT", "9301")
+    env.setdefault(
+        "VERIFUND_AGENT_INTERNAL_TOKEN", "dev-verifund-agent-internal"
+    )
     env["VERIFUND_CONSOLE_BASE_URL"] = CONSOLE_URL
     env.setdefault(
         "CONSOLE_PORT", os.environ.get("CONSOLE_PORT", "3000")
@@ -20207,7 +20458,7 @@ const MODE = process.env.VERIFUND_MODE ?? "off";
 
 test.skip(MODE !== "fake", "Verifund fake mode only");
 
-test("buyer funds, evidences, and releases a Verifund transaction", async ({
+test("chat completes a Verifund transaction with two human approvals", async ({
   page,
 }) => {
   await page.goto("/");
@@ -20217,12 +20468,12 @@ test("buyer funds, evidences, and releases a Verifund transaction", async ({
   await expect(runSample).toBeEnabled({ timeout: 15_000 });
   await runSample.click();
 
-  const approve = page.getByRole("button", { name: "Approve order" });
+  const approve = page.getByRole("button", { name: "Approve agreement and fund" });
   await expect(approve).toBeVisible({ timeout: 30_000 });
   await approve.first().click();
 
   const checkout = page.getByRole("link", {
-    name: "Open PayPal checkout",
+    name: "Continue to PayPal checkout",
   });
   await expect(checkout).toBeVisible({ timeout: 30_000 });
   const checkoutUrl = await checkout.getAttribute("href");
@@ -20234,16 +20485,9 @@ test("buyer funds, evidences, and releases a Verifund transaction", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Approve payment" }).click();
 
-  await expect(
-    page.getByRole("heading", { name: "Funding" }),
-  ).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("captured", { exact: true })).toBeVisible({
+  await expect(page.getByText("Payment confirmed", { exact: true })).toBeVisible({
     timeout: 30_000,
   });
-
-  const refreshState = page.getByRole("button", { name: "Refresh state" });
-  await expect(refreshState).toBeVisible({ timeout: 30_000 });
-  await refreshState.click();
 
   await expect(page.getByText("Order confirmed").first()).toBeVisible({
     timeout: 60_000,
@@ -20252,16 +20496,18 @@ test("buyer funds, evidences, and releases a Verifund transaction", async ({
     page.getByText(/2 of 2 evidence items/i),
   ).toBeVisible({ timeout: 60_000 });
 
-  const release = page.getByRole("button", { name: "Release funds" });
+  const release = page.getByRole("button", { name: "Approve payout release" });
   await expect(release).toBeVisible({ timeout: 60_000 });
   await release.click();
 
-  await expect(
-    page.getByRole("heading", { name: "Settlement receipt" }),
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Verifund receipt", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.getByText("verified", { exact: true })).toBeVisible({
     timeout: 30_000,
   });
+  await page.getByRole("tab", { name: "Transaction Room" }).click();
+  await expect(page.getByText("RELEASED", { exact: true })).toBeVisible();
 });
 ```
 
@@ -21373,14 +21619,16 @@ Add this section after **Using the console** and before **Adding a fourth seller
 | Mode | Behavior |
 | --- | --- |
 | `off` (default) | Existing MarketMesh negotiation and order flow only. No control plane, no settlement fields, no extra processes. |
-| `fake` | Local control plane on port 9300 with a fake PayPal checkout and fake payouts. The full award → funding → evidence → release → receipt lifecycle runs without network access. |
+| `fake` | Local control plane on port 9300 and registered Verifund A2A agent on port 9301 with fake checkout and payouts. The chat-led agreement → funding → evidence → release → receipt lifecycle runs without network access. |
 | `sandbox` | Real PayPal Sandbox Orders, Capture, Payouts, and webhooks. Manual testing only; the control plane refuses the live PayPal host. |
 
-When enabled, the buyer creates an award and agreement hash after the human
-approval gate, funds a PayPal order, waits for the seller's shipment and delivery
-evidence, verifies policy, and releases a reviewer-approved payout. The console's
-Transaction Room shows funding, evidence, verification, payout, cancellation, and
-the signed receipt.
+When enabled, the registered Verifund A2A agent works with the CopilotKit
+orchestrator in chat. The user reviews the control-plane agreement and approves
+funding in a HITL card, completes payer approval on PayPal's hosted page, then
+reviews the deterministic evidence result and separately approves payout
+release in chat. The Transaction Room shows the synchronized funding, evidence,
+verification, payout, cancellation, and signed receipt details. Fake mode starts
+the Verifund agent on port 9301; `off` starts no settlement services.
 
 ```bash
 make verifund-smoke      # headless fake lifecycle; temporary control plane
@@ -21652,8 +21900,10 @@ make verifund-e2e
 ```
 
 The first command runs the complete lifecycle against a temporary fake control
-plane. The second drives the console in fake mode. Fix fake-mode failures before
-spending time on PayPal.
+plane. The second starts the fake control plane, registry, buyer, Verifund A2A
+agent, orchestrator, seller, and console; Playwright drives agreement/funding
+and payout-release HITL decisions through chat, then checks the synchronized
+Transaction Room. Fix fake-mode failures before spending time on PayPal.
 
 ## 8. Run the sandbox smoke
 
@@ -21682,14 +21932,19 @@ the console or rerun with `VERIFUND_INSPECTION_WINDOW_HOURS=0`.
 
 1. `make down`
 2. `uv run python scripts/dev.py --verifund sandbox`
-3. Open <http://127.0.0.1:3000>, run the sample brief, and approve the award.
-4. Open the PayPal link in the Transaction Room and pay as the buyer.
-5. Return to the run page and click **Refresh state**.
-6. Confirm the seller order, the two evidence items, and the verification result.
-7. Click **Release funds**; the payout item and signed receipt appear.
+3. Open <http://127.0.0.1:3000>, run the sample brief, and review the exact
+   agreement in the chat HITL card.
+4. Approve agreement/funding in chat, follow the checkout action, and pay as the
+   buyer on PayPal's hosted page.
+5. Return to the run chat and wait for confirmed capture, seller order, two
+   evidence items, and the control plane's verification result.
+6. Review the evidence summary and approve payout release in the separate chat
+   HITL card; the verified receipt appears in chat.
+7. Open the Transaction Room to inspect the synchronized timeline, evidence,
+   payout state, and receipt.
 
-The buyer keeps polling `GET /transactions/{id}/state`; the Transaction Room only
-rerenders when `last_seq` advances.
+The buyer keeps polling `GET /transactions/{id}/state`; chat and the
+Transaction Room render the same run projection when `last_seq` advances.
 
 ## 10. Webhook behavior
 

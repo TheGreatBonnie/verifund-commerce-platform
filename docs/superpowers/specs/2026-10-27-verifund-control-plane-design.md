@@ -18,8 +18,11 @@ pays the seller, and the buyer receives a signed receipt.
 The implementation is a fresh subsystem inside `verifund-a2a/`. It is not a
 runtime dependency on `verifund-platform-backend` and does not import, call, or
 reuse that backend. The control plane is the only authority for money and
-transaction state. The buyer and seller agents are control-plane clients; the
-console reaches the control plane only through the buyer.
+transaction state. The buyer and seller agents are control-plane clients; a
+registered Verifund A2A agent coordinates settlement conversations through the
+buyer's authenticated settlement API. The existing CopilotKit orchestrator
+invokes that agent and presents approval and status interactions in chat. The
+console reaches settlement data only through the buyer.
 
 `VERIFUND_MODE=off` is the default and preserves the current MarketMesh flow
 exactly: discovery, negotiation, approval, order placement, and finalization
@@ -27,14 +30,20 @@ without payment or settlement.
 
 ## 2. Goals
 
-- Implement the full lifecycle: award → agreement → seller acceptance/rejection
-  → buyer approval → PayPal funding → held funds → seller evidence →
+- Implement the full lifecycle: award → Verifund agreement draft → buyer-agent
+  and seller-agent review of the same hash → human funding approval → PayPal
+  funding → held funds → seller evidence →
   verification → release/payout → receipt.
 - Use real PayPal Sandbox Orders, Capture, Payouts, and webhooks, with polling
   as a fallback.
 - Let sellers upload shipment/evidence directly with short-lived, scoped
   transaction tokens.
 - Extend the existing MarketMesh console; do not create a second frontend.
+- Add a separately discoverable Verifund A2A agent for agreement, transaction,
+  evidence, funding, release, and receipt workflows.
+- Make chat the primary settlement interaction surface using CopilotKit HITL
+  cards and frontend tools; retain the Transaction Room as a synchronized
+  transaction detail view.
 - Keep SQLite as the only persistence layer: one database per service, with
   `data/verifund.db` owned by the control plane.
 - Use a static development ops token for buyer/console-to-control-plane calls
@@ -60,6 +69,8 @@ without payment or settlement.
   reconciler runs in-process.
 - A global review-queue page. The Transaction Room lives inside the existing
   deal room; a queue can be added later.
+- AI-based evidence inspection. The control plane's deterministic verification
+  policy remains authoritative; the Verifund agent summarizes its results.
 - Cryptographically verifiable cross-organization approval attestation beyond
   the agreement hash and HMAC receipts.
 
@@ -71,11 +82,13 @@ without payment or settlement.
 | Authority | Control plane owns all money and transaction state; buyer/seller/console are clients |
 | Mode switch | `VERIFUND_MODE=off` / `fake` / `sandbox`; default `off` |
 | Control-plane port | `9300` |
+| Verifund A2A port | `9301` |
 | Control-plane bind | `127.0.0.1` by default |
 | Reconciler | In-process task; no separate worker |
 | Control-plane database | `data/verifund.db` (SQLite WAL) |
 | Evidence store | `data/evidence/<sha256>` content-addressed files |
 | Buyer/console auth | Static `VERIFUND_OPS_TOKEN`; existing `BUYER_CONSOLE_API_TOKEN` at the console edge |
+| Verifund agent auth | Dedicated `VERIFUND_AGENT_INTERNAL_TOKEN` to buyer-only internal settlement routes; no ops/PayPal credentials in the agent |
 | Seller auth | Short-lived HMAC seller transaction token, bound to transaction/seller/agreement hash |
 | Receipts | SHA-256 payload hash plus HMAC-SHA256 signature with `kid` |
 | Identity provider | None (no Clerk) |
@@ -83,10 +96,17 @@ without payment or settlement.
 | Shipments | One per transaction |
 | Release | Policy produces `RELEASE_PERMITTED`; a reviewer explicitly triggers payout |
 | Seller decision | Buyer reports A2A acceptance or rejection through the ops API; the seller token stays read/evidence-only |
+| Agreement creation | Verifund assembles terms from the Buyer award; control plane validates, canonicalizes, versions, and hashes them |
+| Agent approvals | Buyer agent validates against award/mandate; seller agent accepts/rejects fulfillment terms; both decisions bind to the same transaction/version/hash |
+| Human funding approval | Separate CopilotKit HITL decision after both agent reviews; agent assent never authorizes payment |
 | Review override | Reviewer can override a failed policy with an audited note |
 | PayPal accounts | 1 platform Business, 1 buyer Personal, 4 seller payout accounts recommended |
 | PayPal integration | One `PaymentPort`; real Sandbox adapter and SQLite-backed fake adapter |
-| Frontend | Existing Next.js console, extended with a Transaction Room |
+| Verifund agent | Separate A2A participant; calls buyer settlement APIs and has no control-plane ops credential |
+| Agent discovery | Generic agent-card registration/discovery is separate from seller catalog discovery |
+| Chat workflow | Existing CopilotKit orchestrator calls Verifund; separate HITL decisions authorize agreement/funding and payout release |
+| Frontend | Existing Next.js console; chat is the primary action surface and the Transaction Room is a synchronized detail view |
+| Reviewer actions | Agreement/funding and release approvals happen in chat; the Transaction Room is read-only for these decisions and shows current state/evidence |
 | Dev guard | Relax the word ban; forbid imports/paths to the parent backend |
 
 ## 5. Relationship to the MarketMesh spec
@@ -119,7 +139,7 @@ references to the parent backend. Legitimate modules named
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
 │ Next.js 15 + CopilotKit console                      localhost:3000│
-│ deal room · Transaction Room · receipt badge · review actions      │
+│ chat HITL · checkout handoff · receipt · Transaction Room          │
 └───────────────┬───────────────────────────────┬────────────────────┘
                 │ same-origin Next routes       │ AG-UI
                 │ BUYER_CONSOLE_API_TOKEN       │
@@ -150,8 +170,18 @@ references to the parent backend. Legitimate modules named
 ```
 
 The buyer also calls the control plane with the ops token. The orchestrator
-resolves seller tokens from the buyer’s internal endpoint. The console never
-calls the control plane directly.
+resolves seller tokens from the buyer’s internal endpoint. A Verifund A2A
+service (default port `9301`) is discovered through generic-agent registry
+endpoints, separate from seller catalog discovery. It calls authenticated
+buyer settlement routes and never receives the control-plane ops token or
+PayPal credentials. The console never calls the control plane directly.
+
+```text
+Orchestrator :9000 ──A2A──> Verifund agent :9301
+                                  │ authenticated buyer settlement API
+                                  ▼
+                            Buyer :9100 ──ops token──> Control plane :9300
+```
 
 ### 6.2 Service responsibilities
 
@@ -159,6 +189,7 @@ calls the control plane directly.
 |---|---|---|
 | Buyer agent | Mandate, discovery, negotiation, buyer approval, settlement orchestration/projection | Money, capture IDs, payout authority, ledger |
 | Orchestrator | Console AG-UI, seller A2A mediation, seller-token secret-ref resolution | Money, transaction state, buyer award authority |
+| Verifund A2A agent | Assemble a proposal from the Buyer award, coordinate bilateral review tasks, status/evidence workflow, checkout handoff, reviewer interaction requests, receipt retrieval through buyer APIs | Setting terms independently of the award, verification policy, funds, payout, control-plane ops credential, PayPal credentials |
 | Seller agents | Catalog, offers, stock reservation, order creation, evidence upload outbox | Release, payout, transaction state authority |
 | Control plane | Agreement hash, transaction state, held-funds ledger, evidence metadata, verification policy, PayPal calls, webhooks, payout, receipts, audit | Seller catalog, negotiation, buyer mandate |
 | Console | Presentation, reviewer actions proxied through buyer, receipt display | Ops token, seller token, direct control-plane access |
@@ -174,11 +205,15 @@ calls the control plane directly.
 | Seller agent → control plane | Seller service | Short-lived HMAC seller transaction token |
 | Orchestrator → buyer internal token endpoint | Orchestrator service | `BUYER_INTERNAL_TOKEN`; returns only a token bound to the run/transaction |
 | Orchestrator → seller A2A | Orchestrator service | Existing seller A2A token; settlement token injected after resolution |
+| Orchestrator → Verifund A2A | Orchestrator service | Dedicated server-side Verifund A2A bearer token |
+| Verifund A2A → buyer settlement API | Verifund service | Dedicated internal service credential; buyer keeps and applies the control-plane ops token |
 | PayPal → control plane | PayPal | PayPal webhook signature verification |
 | Browser → fake checkout / PayPal return | Buyer’s browser | Signed, short-lived URL token |
 
 The console never talks to the control plane directly. The buyer keeps the ops
-token server-side and proxies reviewer actions.
+token server-side and proxies reviewer actions. The Verifund A2A agent uses a
+separate internal service credential to call the buyer; the browser and LLM do
+not receive it.
 
 ### 6.4 Data ownership
 
@@ -186,7 +221,7 @@ token server-side and proxies reviewer actions.
 - Buyer: `data/buyer.db` plus new `run_settlement` and `run_secrets` tables.
 - Seller: each seller’s existing SQLite database plus `settlement_tokens` and
   `evidence_outbox` tables.
-- Registry and existing MarketMesh tables are unchanged.
+- Registry seller catalog tables/routes remain unchanged; generic A2A agent records use a separate table and endpoints.
 - No service reads another service’s SQLite file.
 
 ## 7. Domain model
@@ -208,6 +243,7 @@ token server-side and proxies reviewer actions.
 | `agreement_id`, `agreement_hash`, `agreement_version` | Binding terms |
 | `seller_decision` | Seller acceptance or rejection receipt |
 | `approval` | Buyer approval receipt |
+| `buyer_agent_review` | Buyer agent's hash-bound terms/mandate validation; distinct from human funding approval |
 | `funding` | PayPal order, capture, checkout URL, status |
 | `purchase_order` | Seller order snapshot, tracking, ETA |
 | `evidence_summary` | Required/received kinds, hashes, deadlines |
@@ -217,10 +253,13 @@ token server-side and proxies reviewer actions.
 | `deadlines` | Funding, evidence, inspection, payout alert |
 | `created_at`, `updated_at` | Timestamps |
 
-**Agreement v1** contains the commercial terms used for the hash: transaction,
-run, buyer, seller, offer, currency, amount, quantity, line items, shipping
-cents, delivery days, warranty months, returns days, and creation time. It does
-not contain the buyer’s shipping address or payment credentials.
+**Agreement v1** is assembled by the Verifund agent only from the Buyer award
+and contains the commercial terms used for the hash: transaction, run, buyer,
+seller, offer, currency, amount, quantity, line items, shipping cents, delivery
+days, warranty months, returns days, and creation time. The control plane
+validates totals, assigns the version, canonicalizes the terms, and computes the
+authoritative hash. It does not contain the buyer’s shipping address or payment
+credentials.
 
 **Ledger entry** is a double-entry pair with accounts such as
 `platform_cash`, `held_funds`, `seller_payable`, and `seller_paid`. Every
@@ -236,9 +275,9 @@ metadata.
 
 ```text
 AWARDED
-  ├─ seller rejects hash ──────────────► CANCELED
-  └─ seller accepts hash ──────────────► AGREED
-       └─ buyer approves + funding starts ─► FUNDING_PENDING
+  ├─ buyer agent or seller rejects hash ─► CANCELED
+  └─ both agents accept same hash ──────► AGREED
+       └─ human approves + funding starts ─► FUNDING_PENDING
             └─ capture completed ────────► FUNDED
                  └─ purchase order reported ─► FULFILLMENT_PENDING
                       └─ first evidence received ─► VERIFICATION_PENDING
@@ -270,9 +309,9 @@ Transition rules:
 | From | To | Guard |
 |---|---|---|
 | — | `AWARDED` | Award created; agreement v1 hashed; seller payout email resolved |
-| `AWARDED` | `AGREED` | Seller acceptance matches transaction, seller, hash, and amount |
-| `AWARDED` | `CANCELED` | Seller rejection reported; no capture exists |
-| `AGREED` | `FUNDING_PENDING` | Approval exists and binds the current hash; PayPal/fake order created |
+| `AWARDED` | `AGREED` | Buyer-agent review and seller acceptance both match transaction and current agreement version/hash |
+| `AWARDED` | `CANCELED` | Buyer-agent or seller-agent rejection reported; no capture exists |
+| `AGREED` | `FUNDING_PENDING` | Human funding approval exists and binds the current hash; PayPal/fake order created |
 | `FUNDING_PENDING` | `FUNDED` | Capture completed and amount/currency match |
 | `FUNDED` | `FULFILLMENT_PENDING` | Purchase order reported; hash/amount match |
 | `FULFILLMENT_PENDING` | `VERIFICATION_PENDING` | Purchase order recorded and at least one evidence item stored |
@@ -302,6 +341,8 @@ Zero updated rows means `409 conflict`. `version` increments on every write.
 sorted keys, compact separators, UTF-8, and integer cents. The hash binds:
 
 - the A2A `AcceptOffer` and seller rejection report;
+- the buyer-agent agreement review;
+- the seller-agent agreement decision;
 - the buyer approval;
 - the funded `PurchaseOrderRequest`;
 - the seller transaction token;
@@ -309,15 +350,17 @@ sorted keys, compact separators, UTF-8, and integer cents. The hash binds:
 - the receipt.
 
 The hash is stored with agreement version. A mismatch returns
-`409 hash_mismatch` and moves no money. The model supports agreement versions;
-v1 creates version 1 at award intake and does not renegotiate after award. A
-future renegotiation flow must create a new version and reissue the seller
-token; the old hash is rejected.
+`409 hash_mismatch` and moves no money. The model supports agreement versions.
+Buyer and seller agent decisions must reference the same current version/hash;
+a counterproposal creates a new version and requires both agents to review it
+again. The old hash is rejected for subsequent decisions.
 
-Buyer approval records the transaction ID and hash that were displayed when the
-approval interrupt was created. On resume, the graph verifies that the current
-transaction still has that hash. The graph does not trust hash fields supplied
-by the browser.
+Buyer-agent review records the transaction ID, agreement version/hash, A2A task
+ID, timestamp, decision, and reason. It validates the exact terms against the
+selected award and buyer mandate; it does not authorize payment. Human funding
+approval separately records the transaction ID and hash shown in the chat HITL
+card. On resume, the graph verifies that the current transaction still has
+that hash. The graph does not trust hash fields supplied by the browser.
 
 ### 7.4 Money and ledger
 
@@ -384,59 +427,67 @@ from the control-plane result; it never receives the receipt key.
 ### 8.1 Award, acceptance, and rejection
 
 1. The buyer ranks offers and selects a winner.
-2. The buyer calls `POST /awards` with the run, buyer, seller, offer, amount,
-   currency, the winning offer’s priced line items, shipping, and terms, using a
-   deterministic `Idempotency-Key` (`award:{run_id}:{offer_id}`). The control
-   plane validates that line-item totals (unit price plus warranty add-on times
-   quantity) plus `shipping_cents` equal `amount_cents`, resolves the seller
-   payout email from configuration, creates the transaction in `AWARDED`,
-   computes the agreement hash, and returns `transaction_id`, `agreement_hash`,
-   `seller_token`, and state.
-3. The buyer sends the existing A2A `AcceptOffer` with
-   `settlement_transaction_id`, `agreement_hash`, and `settlement_token`.
-4. The seller calls `GET /seller/transactions/{id}` with the token and
-   verifies seller ID, hash, amount, line items/terms, and state against its
-   stored offer. If valid, it marks the offer accepted and returns the normal
-   acceptance artifact. A repeated acceptance for the same hash is idempotent.
-5. The buyer reports the acceptance with `POST /transactions/{id}/accept`
-   using the ops token. The control plane transitions to `AGREED`. Repeated
-   reports replay idempotently.
-6. If the seller declines the agreement or detects a verification mismatch, it
-   returns an A2A refusal and does not mark the offer accepted. The buyer reports
-   the definitive refusal with `POST /transactions/{id}/reject`, carrying the
-   seller ID, stored agreement hash, reason code, seller task ID, and timestamp.
-   The control plane verifies the seller, hash, and `AWARDED` state, records
-   `seller_rejected`, and transitions to `CANCELED`. Transport/protocol errors
-   are retried or surfaced as run errors and leave the transaction `AWARDED`.
+2. The orchestrator sends the exact structured award to the Verifund A2A agent
+   using `verifund.agreement.create`. Verifund assembles agreement terms without
+   changing the award, then calls the buyer's authenticated internal agreement
+   route. The buyer uses its control-plane client to validate totals, resolve
+   seller payout configuration, create the transaction in `AWARDED`, assign
+   agreement version 1, and compute the canonical hash. The result includes the
+   agreement projection, transaction ID, version, hash, and seller token
+   reference. Only the seller token itself remains in the buyer's secret store.
+3. The orchestrator sends the same agreement projection/version/hash to the
+   Buyer A2A review skill. The Buyer verifies it against the selected offer and
+   mandate, then returns a structured accepted/rejected decision with the hash,
+   A2A task ID, timestamp, and reason. This is agent validation, not human
+   funding approval.
+4. Only after Buyer acceptance, the orchestrator sends the same agreement to the
+   Seller A2A agreement-review skill. The Seller verifies seller ID, hash,
+   amount, line items, terms, and fulfillment ability, and returns a structured
+   accepted/rejected decision tied to that hash. Seller agreement review does
+   not reserve stock or move money.
+5. The Buyer A2A task records its own review through the buyer's control-plane
+   client. After Seller responds, the orchestrator resumes the original Buyer
+   A2A task with the exact Seller decision; the Buyer reports `/accept` or
+   `/reject` through its control-plane client. The control plane records each
+   party, decision, agreement version/hash, task ID, timestamp, and reason. It
+   moves the transaction to `AGREED` only when both agent decisions accept the
+   same current hash. Repeated reports are idempotent.
+6. If either agent rejects or returns a counterproposal, no funding approval is
+   requested. Rejection cancels the unfunded transaction with a reason. A
+   counterproposal requires a new agreement version/hash and a fresh review by
+   both agents. Transport/protocol errors remain pending and are retried or
+   surfaced; they never count as acceptance.
 
-Seller acceptance and rejection do not reserve stock and do not move money. The
-seller token is only for transaction reads and evidence writes; it cannot
-approve, release, or pay out. The buyer’s graph carries a
+The seller token is only for transaction reads and evidence writes; it cannot
+approve, release, or pay out. The buyer's graph carries a
 `settlement_secret_ref` instead of the token; the orchestrator resolves and
-injects the token at A2A send time (§11.2).
+injects the token at A2A seller-send time (§11.2). The orchestrator coordinates
+the remote A2A tasks but does not edit agreements, record approvals itself, or
+decide whether either party accepted.
 
 ### 8.2 Approval and funding
 
-1. The buyer asks the human to approve the award. The interrupt payload includes
-   the transaction ID, agreement hash, amount, seller, and seller-acceptance
-   timestamp.
-2. The approval response records `approved`, `approved_by`, and `note`. The graph
-   binds the decision to the stored transaction/hash. A mismatch stops the run
-   with an error; it never funds a different agreement. If the human rejects,
-   the buyer calls `POST /transactions/{id}/cancel` with
-   `reason_code: buyer_rejected`, the transaction becomes `CANCELED`, and no
-   funding call is made.
-3. The buyer calls `POST /transactions/{id}/approve`, then
-   `POST /transactions/{id}/fund`.
-4. The control plane creates a PayPal Sandbox order (or a fake order) with a
-   stable idempotency key, stores the provider intent, transitions to
-   `FUNDING_PENDING`, and returns a checkout URL.
-5. The buyer pauses with a `funding_required` interrupt. The orchestrator is not
-   blocked; the console opens the fake checkout page or the PayPal payer-action
-   URL.
-6. On approval, PayPal captures the payment. The webhook or polling confirms the
-   capture. The control plane verifies amount/currency, records the capture and
-   ledger entries, and transitions to `FUNDED`.
+1. After both agents accept, the control plane state is `AGREED`. The buyer
+   exposes the exact control-plane agreement projection and both hash-bound
+   decision receipts.
+2. The orchestrator asks the Verifund A2A agent to prepare that projection for
+   the human. CopilotKit renders a HITL card in chat with the immutable terms,
+   buyer-agent validation, and seller-agent acceptance. The agent cannot alter
+   the binding terms; any change requires a new version and both agents review
+   the new hash.
+3. The structured HITL response is bound to the transaction ID and agreement
+   hash. On rejection, the buyer cancels with `buyer_rejected`; no checkout is
+   created. On approval, the buyer records the approval and calls
+   `POST /transactions/{id}/fund` through its control-plane client.
+4. The control plane creates a PayPal Sandbox or fake order idempotently,
+   transitions to `FUNDING_PENDING`, and returns a payer-action URL. A CopilotKit
+   frontend tool renders the checkout handoff in chat. Sandbox payer approval
+   occurs on PayPal's hosted page; the application does not collect PayPal
+   credentials in chat.
+5. PayPal return/webhook or polling confirms capture. The control plane checks
+   amount/currency, records the capture and ledger entries, and transitions to
+   `FUNDED`. The buyer's run projection updates the chat thread; the Verifund
+   agent reports success only after reading that confirmed state.
 
 A buyer cancel before capture transitions to `CANCELED`. A declined capture
 transitions to `FAILED`. A pending or ambiguous capture remains
@@ -497,10 +548,15 @@ elapses. A future inspection window is not a policy failure and never produces
 `REVIEW_REQUIRED`.
 
 A pass produces `RELEASE_PERMITTED`. A failure produces `REVIEW_REQUIRED` with
-machine-readable reasons. The reviewer sees the reasons and evidence in the
-Transaction Room.
+machine-readable reasons. The Verifund agent summarizes the policy result and
+evidence references in chat; the Transaction Room retains the complete evidence
+detail.
 
-A reviewer releases with `POST /transactions/{id}/release`. From
+A reviewer releases through a separate CopilotKit HITL card in chat, which
+shows the transaction, verification result, evidence summary, and any override
+reasons. A rejection leaves the transaction unreleased. An approval is bound to
+the transaction ID and agreement hash and calls the buyer's release API. The
+buyer calls `POST /transactions/{id}/release`. From
 `RELEASE_PERMITTED`, this is the normal path. From `REVIEW_REQUIRED`, the
 request must include `override: true` and a non-empty note; the override is
 written to the audit log. Override is allowed only for verification/policy
@@ -524,8 +580,9 @@ to `PAYOUT_PENDING` before calling PayPal. It does not auto-release on a timer.
 3. On `RELEASED`, the control plane writes the receipt, verifies ledger
    completeness, and exposes it at the receipt endpoint.
 4. The buyer polls the compact state, fetches the receipt when available, and
-   finalizes the run at stage `released`. The console shows the receipt and
-   verified badge.
+   finalizes the run at stage `released`. The Verifund agent presents the
+   verified receipt in chat; the Transaction Room shows the same receipt and
+   transaction history.
 
 The platform Business account receives the capture and sends the payout. This
 is a platform-held-funds model, not a PayPal escrow product.
@@ -564,6 +621,7 @@ GET /transactions/{id}/evidence
 GET /transactions/{id}/evidence/{evidence_id}
 POST /transactions/{id}/accept
 POST /transactions/{id}/reject
+POST /transactions/{id}/buyer-review
 POST /transactions/{id}/approve
 POST /transactions/{id}/fund
 POST /transactions/{id}/funding/refresh
@@ -580,8 +638,12 @@ POST /reconciler/run
 ```
 
 `GET /transactions` supports `run_id`, `state`, and `seller_id` filters.
-`POST /accept` and `POST /reject` are buyer-reported seller decisions; both
-require the stored agreement hash and are idempotent.
+`POST /accept` and `POST /reject` are buyer-reported seller-agent decisions;
+both require the stored agreement hash and are idempotent. `POST /buyer-review`
+records the Buyer agent's structured terms/mandate validation, including its
+A2A task ID, decision, reason, and agreement version/hash. It is not the human
+funding approval. The control plane transitions `AWARDED` to `AGREED` only after
+the Buyer review and Seller acceptance both accept the same current hash.
 `POST /funding/refresh`, `POST /payout/refresh`, and `POST /verify` force one
 reconciliation or policy re-evaluation and are idempotent. `POST /seller-token`
 reissues a seller token and revokes the previous one; `/revoke` invalidates the
@@ -822,6 +884,30 @@ transaction match the stored settlement secret, and returns the current seller
 token and expiry. The orchestrator calls it immediately before an A2A seller
 send.
 
+The Verifund A2A service uses authenticated internal routes, never mounted
+through Next.js:
+
+```text
+GET  /internal/runs/{run_id}/settlement
+POST /internal/runs/{run_id}/settlement/agreement
+POST /internal/runs/{run_id}/settlement/approve-funding
+POST /internal/runs/{run_id}/settlement/release
+GET  /internal/runs/{run_id}/settlement/receipt
+GET  /internal/runs/{run_id}/settlement/evidence/{evidence_id}
+```
+
+These routes require a dedicated `VERIFUND_AGENT_INTERNAL_TOKEN` and validate
+the run/transaction/hash binding. The agreement route accepts the exact award
+and has the buyer call control-plane `POST /awards`. Buyer-agent review and the
+seller's decision are reported by the Buyer agent through its own
+`POST /buyer-review`, `/accept`, or `/reject` client calls; Verifund does not
+submit or rewrite either decision. All downstream operations use the buyer's
+control-plane client. The routes return only projections and requested
+evidence/receipt data; the control-plane ops token is never returned or
+forwarded to the Verifund service. Funding approval and release requests are
+idempotent and require the structured human decision associated with the
+current agreement hash.
+
 ### 9.5 State projection
 
 `GET /transactions/{id}/state` returns:
@@ -838,6 +924,7 @@ send.
   "seller_id": "northwind-audio",
   "agreement_hash": "...",
   "agreement_version": 1,
+  "buyer_agent_review": {"status": "accepted", "task_id": "buyer-task-1", "reviewed_at": "..."},
   "seller_decision": {"status": "accepted", "reported_at": "..."},
   "approval": {"approved_by": "demo-reviewer", "approved_at": "..."},
   "cancellation": null,
@@ -867,6 +954,11 @@ send.
 }
 ```
 
+`buyer_agent_review` is the Buyer agent's agreement/mandate validation. It is
+separate from `approval`, which records the human's authorization to fund.
+`seller_decision` records the Seller agent's acceptance or rejection of the
+same agreement version/hash.
+
 `seller_decision` is `accepted` or `rejected` with the reported timestamp and,
 for a rejection, the reason code and note. `cancellation` is `null` until a
 cancel and otherwise contains `reason_code`, `note`, and `at`. Cancellation
@@ -879,6 +971,53 @@ buyer/console projection lists reviewer actions such as `flag_review`,
 `release`, `retry_payout`, or `cancel`.
 
 No secret, token, buyer address, or ledger detail appears in this projection.
+
+### 9.6 Verifund A2A interface
+
+The Verifund service publishes an A2A Agent Card and is registered through the
+registry's generic-agent endpoints, separate from seller registration and
+catalog discovery. It uses JSON-RPC A2A tasks and the existing structured
+commerce payload conventions. The initial skills are:
+
+| Skill ID | Purpose | Human gate |
+|---|---|---|
+| `verifund.agreement.create` | Assemble an agreement proposal from the exact Buyer award; request buyer validation and canonicalize/store through the buyer API | No direct human gate; cannot change award terms |
+| `verifund.transaction.status` | Return current transaction state and confirmed provider status | None |
+| `verifund.evidence.review` | Summarize evidence metadata and deterministic policy outcome | Reviewer HITL when release is permitted or review is required |
+| `verifund.transaction.release` | Submit an approved, transaction/hash-bound release decision through the buyer | Separate HITL approve/reject; override requires a note |
+| `verifund.receipt.get` | Retrieve and present the signed receipt after release | None |
+
+The Buyer A2A agent adds `commerce.agreement.review`; it validates the proposal
+against the award and mandate, returning an explicit accept/reject decision,
+hash, task ID, timestamp, and reason. The Seller A2A agent adds
+`commerce.agreement.review`; it validates its identity, offer terms, and ability
+to fulfill, returning the same decision envelope. Neither skill changes terms
+or moves money.
+
+The orchestrator calls agents sequentially: Verifund creates the proposal, the
+Buyer reviews it on the original Buyer task, then the Seller reviews it. The
+orchestrator preserves the exact agreement/hash and task correlation IDs; after
+Seller responds, it resumes the Buyer task with the Seller decision. It does not
+rewrite either decision or infer consent. A rejection or counterproposal
+prevents the human funding card; changed terms require a new agreement
+version/hash and both reviews again. Transport failures remain
+pending/retryable, never accepted.
+
+Requests identify the run and transaction; mutating requests also carry the
+stored agreement hash and an idempotency key. The agent returns structured task
+status, transaction state, agreement hash, and any required next action. It
+never treats free-form chat text as approval or claims capture, payout, or
+receipt completion until the buyer projection confirms it. The agent calls
+only authenticated buyer internal settlement routes; those routes invoke the
+buyer's control-plane client.
+
+CopilotKit `useHumanInTheLoop` cards collect the human's explicit funding
+approval only after both agent decisions are accepted, and the later payout
+release approval. `useFrontendTool` / `useRenderTool`
+provide typed checkout handoff, evidence/status rendering, and receipt display.
+The checkout tool opens the hosted PayPal payer-action URL (or fake checkout);
+PayPal credentials are never collected in chat. The Transaction Room reads the
+same buyer projection and remains the detailed evidence/history view.
 
 ## 10. PayPal integration
 
@@ -1204,6 +1343,13 @@ raw card data.
   mode preserves existing behavior.
 - Console: Transaction Room happy path, funding pending, seller/buyer
   rejection, review required, released receipt; Playwright.
+- Agent/registry: generic Agent Card registration and discovery without seller
+  catalog requirements; structured A2A skills, hash-bound approvals, idempotent
+  retries, pending PayPal outcomes, buyer/API unavailable behavior, and secret
+  redaction.
+- Chat: CopilotKit HITL for agreement/funding and separate payout release;
+  hosted checkout handoff; evidence/status and signed-receipt rendering; `off`
+  mode keeps the current approval and order flow.
 - Protocol: old payloads without new fields still validate in `off` mode; new
   fields are optional/defaulted; buyer and seller deploy together.
 - Sandbox smoke: gated `scripts/verifund_sandbox_smoke.py`, never in default CI.
@@ -1276,7 +1422,7 @@ verifund_control_plane/api/health.py
 ```
 
 Control-plane tables: `transactions`, `agreements`, `transaction_events`,
-`ledger_entries`, `evidence`, `provider_operations`, `webhook_events`,
+`agreement_reviews`, `ledger_entries`, `evidence`, `provider_operations`, `webhook_events`,
 `payout_items`, `idempotency_keys`, `seller_tokens`, `checkout_links`,
 `receipts`, `audit_log`, `reconciler_runs`.
 
@@ -1301,6 +1447,8 @@ Control-plane tables: `transactions`, `agreements`, `transaction_events`,
 | `apps/orchestrator_agent/orchestrator_agent/mediation.py` | Resolve seller token ref, inject into A2A, redact |
 | `apps/orchestrator_agent/orchestrator_agent/agent.py` | Pass `settlement_secret_ref` through `mediate_seller_call` |
 | `apps/orchestrator_agent/orchestrator_agent/settings.py` | Buyer internal token URL/token settings |
+| `apps/verifund_agent/verifund_agent/{agent.py,executor.py,card.py,server.py,settings.py,client.py}` | Registered A2A transaction workflow; authenticated buyer settlement API client; no ops or PayPal credentials |
+| `apps/registry/registry/{api.py,store.py,settings.py}` | Separate generic-agent register/list/discover/refresh support; preserve seller catalog routes |
 | `apps/seller_agent/seller_agent/settings.py` | Verifund mode, control-plane URL, request timeout, evidence delay/auto-upload |
 | `apps/seller_agent/seller_agent/settlement.py` | Seller token verification client and evidence payload builder |
 | `apps/seller_agent/seller_agent/evidence_outbox.py` | SQLite outbox with retries |
@@ -1315,6 +1463,8 @@ Control-plane tables: `transactions`, `agreements`, `transaction_events`,
 | `apps/console/lib/stages.ts` | Shared terminal/paused stages and labels; `review_required` paused; `canceled` and `released` terminal |
 | `apps/console/features/runs/use-run.ts` | Slow poll for `review_required`; new terminal stages |
 | `apps/console/features/deal-room/hooks/use-run-detail.ts` | Merge settlement; non-terminal review; actions |
+| `apps/console/features/chat/chat.tsx` | Verifund A2A HITL cards and typed frontend tools for agreement/funding, checkout, evidence, release, and receipt |
+| `apps/orchestrator_agent/orchestrator_agent/agent.py` | Discover/call Verifund for structured settlement tasks; require frontend HITL results before mutating actions |
 | `apps/console/features/deal-room/hooks/use-run-state.ts` | Use shared terminal stages |
 | `apps/console/features/deal-room/console-shell.tsx` | Use shared stages; keep review non-terminal |
 | `apps/console/features/deal-room/hooks/use-settlement.ts` | Settlement data/action hook, including rejection state |
@@ -1322,7 +1472,7 @@ Control-plane tables: `transactions`, `agreements`, `transaction_events`,
 | `apps/console/features/deal-room/components/transaction-room.tsx` | Transaction Room, including seller/buyer rejection reasons |
 | `apps/console/features/deal-room/components/transaction-timeline.tsx` | State/deadline timeline with rejection reasons |
 | `apps/console/features/deal-room/components/evidence-list.tsx` | Evidence metadata/downloads |
-| `apps/console/features/deal-room/components/release-panel.tsx` | Release/override/retry/cancel |
+| `apps/console/features/deal-room/components/release-panel.tsx` | Read-only verification/release status and failure reasons; approval controls live in chat |
 | `apps/console/features/deal-room/components/stage-stepper.tsx` | Settlement stages |
 | `apps/console/features/deal-room/components/approval-card.tsx` | Show transaction ID and agreement hash at approval |
 | `apps/console/features/deal-room/components/run-detail-workspace.tsx` | Replace `EscrowGuide`; new sidebar label |
@@ -1349,6 +1499,10 @@ Control-plane tables: `transactions`, `agreements`, `transaction_events`,
 | `tests/integration/test_verifund_auth.py` | Ops/seller/console/orchestrator auth matrix |
 | `tests/integration/test_verifund_buyer_proxy.py` | Buyer projection/actions, including rejection reasons |
 | `tests/protocol/test_settlement_contracts.py` | Old/new payload compatibility |
+| `tests/integration/test_verifund_agent.py` | Agent Card discovery, structured task dispatch, buyer proxy, error/pending outcomes |
+| `tests/unit/test_verifund_registry.py` | Generic agent registration/discovery without seller catalog requirements |
+| `apps/console/features/chat/chat.test.tsx` | HITL decision binding, checkout handoff, status and receipt rendering |
+| `apps/console/e2e/verifund.spec.ts` | Chat-driven fake agreement-to-receipt flow and `off`-mode regression |
 
 ### 14.3 Scripts, config, compose, docs
 
@@ -1365,7 +1519,7 @@ Control-plane tables: `transactions`, `agreements`, `transaction_events`,
 | `tests/test_standalone.py` | Guard coverage |
 | `pyproject.toml` | Add new workspace members |
 | `Dockerfile.python` | Copy new package/app |
-| `docker-compose.yml` | `verifund` profile service; shared volume; env; port 9300 |
+| `docker-compose.yml` | `verifund` and `verifund-agent` profile services; shared volume; env; ports 9300/9301 |
 | `.env.example` | Verifund/PayPal settings and secrets |
 | `Makefile` | Verifund targets; reset evidence/DB |
 | `.gitignore` | `.coverage`, evidence artifacts |
@@ -1408,26 +1562,41 @@ missing seller payout emails.
 |---|---|---|
 | 0 | Contracts, workspace, env, standalone guard | Off-mode tests unchanged; old payloads validate |
 | 1 | Control plane core, fake adapter, tokens, evidence, receipts, reconciler | Fake-mode unit/integration lifecycle passes |
-| 2 | Buyer graph/client/proxy, orchestrator secret-ref wiring, console Transaction Room | Fake-mode browser E2E passes |
+| 2 | Buyer graph/client/proxy, orchestrator secret-ref wiring, registered Verifund A2A agent, CopilotKit chat workflow, Transaction Room | Fake-mode chat and browser E2E pass |
 | 3 | Seller token verification, evidence outbox, protocol fields | Seller cannot accept/order without valid hash/token/funding |
 | 4 | Sandbox adapter, webhooks, Payouts, preflight | Manual sandbox smoke records real PayPal IDs |
 | 5 | Docs, compose profile, demo scripts, release notes | Acceptance criteria pass |
 
-**Rollback:** set `VERIFUND_MODE=off`, stop the control plane, and redeploy
-buyer, orchestrator, and seller. New fields are optional; old payloads work. No
-existing SQLite table is altered; only new tables are created.
+**Rollback:** set `VERIFUND_MODE=off`, stop the control plane and Verifund A2A
+agent, and redeploy buyer, orchestrator, and seller. New fields are optional;
+old payloads work. No existing SQLite table is altered; only new tables are
+created.
 
-**Deployment order:** control plane → buyer → orchestrator → seller → console.
-Buyer and seller deploy together because both models use `extra="forbid"`; the
-optional fields make a brief skew safe.
+**Deployment order:** control plane → buyer → registry → Verifund A2A agent →
+orchestrator → seller → console. Buyer and seller deploy together because both
+models use `extra="forbid"`; the optional fields make a brief skew safe.
 
 ## 17. Acceptance criteria
 
 **Functional**
 
-- Fake-mode E2E completes award → agreement → seller acceptance → buyer
-  approval → funding → PO → evidence → verification → release → payout →
+- Fake-mode E2E completes award → Verifund agreement draft/canonicalization →
+  buyer agent review → seller agent acceptance → human funding approval → funding →
+  PO → evidence → verification → release → payout →
   receipt.
+- Buyer-agent and Seller-agent decisions are both persisted against the same
+  agreement version/hash; either rejection blocks human funding approval.
+- Changed/counterproposed terms create a new agreement version/hash and require
+  both remote agents to review that version again.
+- Chat HITL presents the exact agreement/hash before checkout and a separate
+  release decision after deterministic evidence verification; no approval is
+  inferred from free-form text.
+- The Verifund Agent Card is discoverable independently of seller catalog
+  discovery and supports structured status, evidence, funding, release, and
+  receipt tasks.
+- Chat checkout handoff opens fake checkout or the hosted PayPal payer-action
+  page; chat reports funding and payout only after the buyer projection confirms
+  them.
 - Seller rejection moves `AWARDED` to `CANCELED` with a recorded reason and no
   ledger impact; buyer rejection does the same before capture.
 - Sandbox smoke completes the same flow with real PayPal Sandbox order, capture,
@@ -1454,6 +1623,8 @@ optional fields make a brief skew safe.
 - Seller cannot read another transaction or buyer-only data.
 - Ops and seller tokens never reach the browser, trace, logs, console bundle,
   orchestrator LLM context, or AG-UI state.
+- The Verifund A2A service's internal credential stays server-side; it receives
+  neither `VERIFUND_OPS_TOKEN` nor PayPal credentials.
 - Evidence upload rejects path traversal, oversized files, and unsupported MIME
   types.
 - Sandbox mode rejects default secrets and live PayPal hosts.
@@ -1520,6 +1691,8 @@ optional fields make a brief skew safe.
 # Mode and service
 VERIFUND_MODE=off                  # off | fake | sandbox
 VERIFUND_PORT=9300
+VERIFUND_AGENT_PORT=9301
+VERIFUND_AGENT_INTERNAL_TOKEN=dev-verifund-agent-internal
 VERIFUND_CONTROL_PLANE_URL=http://127.0.0.1:9300
 VERIFUND_PUBLIC_BASE_URL=http://127.0.0.1:9300
 VERIFUND_CONSOLE_BASE_URL=http://127.0.0.1:3000
