@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from verifund_control_plane.api import health
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
+from verifund_control_plane.repository import Repository
 from verifund_control_plane.settings import Settings
 
 
@@ -21,6 +22,7 @@ def create_app(
     settings.validate_for_mode()
     now = clock or (lambda: datetime.now(UTC))
     engine = create_engine(settings.database_url)
+    repo = Repository(engine)
     settings.evidence_dir.mkdir(parents=True, exist_ok=True)
 
     @asynccontextmanager
@@ -37,6 +39,7 @@ def create_app(
     app.state.settings = settings
     app.state.engine = engine
     app.state.clock = now
+    app.state.repo = repo
     app.add_exception_handler(VerifundError, verifund_error_handler)
     app.include_router(health.router)
     return app
