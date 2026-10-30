@@ -13979,30 +13979,7 @@ In `executor.py`, replace the interrupt response block with explicit branches. T
                     ),
                     "message": interrupt_value.get("message", "Seller call required."),
                 }
-            elif reason == "funding_required":
-                response = {
-                    "status": "funding_required",
-                    "reason": "funding_required",
-                    "task_id": thread_id,
-                    "transaction_id": interrupt_value.get("transaction_id"),
-                    "checkout_url": interrupt_value.get("checkout_url"),
-                    "expires_at": interrupt_value.get("expires_at"),
-                    "message": interrupt_value.get(
-                        "message", "Complete the PayPal checkout."
-                    ),
-                }
-            elif reason == "settlement_release":
-                response = {
-                    "status": "release_pending",
-                    "reason": "settlement_release",
-                    "task_id": thread_id,
-                    "transaction_id": interrupt_value.get("transaction_id"),
-                    "settlement_state": interrupt_value.get("state"),
-                    "message": interrupt_value.get(
-                        "message", "Waiting for evidence verification and release."
-                    ),
-                }
-            else:
+            elif reason == "order_approval":
                 response = {
                     "status": "approval_required",
                     "reason": "order_approval",
@@ -14013,9 +13990,16 @@ In `executor.py`, replace the interrupt response block with explicit branches. T
                     "award": result.get("award"),
                     "mandate": result.get("mandate"),
                 }
+            else:
+                raise RuntimeError(
+                    f"unexpected buyer interrupt: {reason}"
+                )
 ```
 
-The console API (Task 17) resumes `funding_required` and `settlement_release` directly through `app.state.executor.graph`; the A2A executor only needs to emit these statuses so an A2A caller can observe the pause.
+Task 16A deletes the intermediate funding, purchase-order, and release
+nodes; it also adds the final `agreement_create_required` and
+`seller_review_required` branches. Do not add `funding_required`,
+`settlement_release`, or any console graph-resume path here.
 
 - [ ] **Step 8: Run the buyer flow tests**
 
@@ -14723,8 +14707,9 @@ public Next.js proxy.
 - Test: `tests/integration/test_buyer_settlement_api.py`
 
 **Interfaces:**
-- Produces: `console_authorized(request)`, `load_settlement_projection(request, run_id, actor=..., refresh=...)`; router routes `GET /api/runs/{run_id}/settlement`, `POST /api/runs/{run_id}/settlement/advance`, `POST /release`, `POST /review`, `POST /cancel`, `GET /receipt`, `GET /evidence/{evidence_id}`, `POST /internal/settlement/seller-token`.
-- Consumes: `BuyerSettlementClient`, `SettlementStore`, `SettlementCoordinator`, `app.state.executor.graph`, `Command`, `ReleaseRequest`, `FlagReviewRequest`, `CancelRequest`.
+- Produces: `console_authorized(request)`, `load_settlement_projection(request, run_id, actor=..., refresh=...)`; router routes `GET /api/runs/{run_id}/settlement`, `POST /api/runs/{run_id}/settlement/review`, `POST /cancel`, `GET /receipt`, `GET /evidence/{evidence_id}`, `POST /internal/settlement/seller-token`.
+- Consumes: `BuyerSettlementClient`, `SettlementStore`, `SettlementCoordinator`, `FlagReviewRequest`, `CancelRequest`.
+- There is no console funding, release, or graph-advance route. Funding and release are chat HITL decisions that resume the Verifund task.
 
 - [ ] **Step 1: Write the failing buyer settlement API tests**
 
@@ -14868,38 +14853,9 @@ class Trace:
         )
 
 
-class Snapshot:
-    def __init__(self, next_nodes) -> None:
-        self.next = next_nodes
-
-
-class Graph:
-    def __init__(self, paused=True) -> None:
-        self.paused = paused
-        self.resumed: list = []
-
-    async def aget_state(self, config):
-        return Snapshot(("await_release",) if self.paused else ())
-
-    async def ainvoke(self, command, config):
-        self.resumed.append(command)
-        return {
-            "__interrupt__": [
-                SimpleNamespace(
-                    value={
-                        "reason": "settlement_release",
-                        "transaction_id": "vf_1",
-                        "settlement_secret_ref": {"seller_id": "northwind-audio"},
-                    }
-                )
-            ]
-        }
-
-
-def services(*, cached=None, client=None, paused=True):
+def services(*, cached=None, client=None):
     store = Store(cached=cached)
     client = client or Client()
-    graph = Graph(paused=paused)
     value = SimpleNamespace(
         settings=Settings(),
         settlement=client,
@@ -14907,30 +14863,27 @@ def services(*, cached=None, client=None, paused=True):
         coordinator=SettlementCoordinator(),
         trace=Trace(),
     )
-    return value, store, client, graph
+    return value, store, client
 
 
-def build(*, cached=None, client=None, paused=True):
-    value, store, client, graph = services(
-        cached=cached, client=client, paused=paused
-    )
+def build(*, cached=None, client=None):
+    value, store, client = services(cached=cached, client=client)
     app = FastAPI()
     app.state.settings = value.settings
     app.state.services = value
-    app.state.executor = SimpleNamespace(graph=graph)
     app.include_router(console_api.router)
     app.include_router(settlement_api.router)
-    return app, store, client, graph
+    return app, store, client
 
 
 @pytest.fixture
 async def api():
-    app, store, client, graph = build(cached=projection())
+    app, store, client = build(cached=projection())
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://buyer"
     ) as http:
-        yield http, app, store, client, graph
+        yield http, app, store, client
 
 
 CONSOLE = {"x-marketmesh-console-token": "console-token"}
@@ -14940,14 +14893,14 @@ async def test_settlement_routes_require_the_console_token(api):
     http, *_ = api
     refused = await http.get("/api/runs/run-1/settlement")
     assert refused.status_code == 401
-    refused_release = await http.post(
-        "/api/runs/run-1/settlement/release", json={}
+    refused_review = await http.post(
+        "/api/runs/run-1/settlement/review", json={}
     )
-    assert refused_release.status_code == 401
+    assert refused_review.status_code == 401
 
 
 async def test_get_settlement_refreshes_and_caches_the_projection(api):
-    http, _, store, client, _ = api
+    http, _, store, client = api
     response = await http.get("/api/runs/run-1/settlement", headers=CONSOLE)
     assert response.status_code == 200, response.text
     body = response.json()
@@ -14960,7 +14913,7 @@ async def test_get_settlement_refreshes_and_caches_the_projection(api):
 async def test_get_settlement_records_one_trace_event_per_advance():
     cached = projection("FUNDED")
     cached["last_seq"] = 4
-    app, _, _, _ = build(cached=cached)
+    app, _, _ = build(cached=cached)
     trace = app.state.services.trace
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
@@ -14984,7 +14937,7 @@ async def test_get_settlement_records_one_trace_event_per_advance():
 async def test_get_settlement_falls_back_to_the_cached_projection():
     client = Client()
     client.fail_state = True
-    app, _, _, _ = build(cached=projection("VERIFICATION_PENDING"), client=client)
+    app, _, _ = build(cached=projection("VERIFICATION_PENDING"), client=client)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://buyer"
@@ -14997,25 +14950,8 @@ async def test_get_settlement_falls_back_to_the_cached_projection():
     assert response.json()["settlement_unavailable"] is True
 
 
-async def test_release_uses_the_reviewer_actor_and_resumes_the_graph(api):
-    http, _, store, client, graph = api
-    response = await http.post(
-        "/api/runs/run-1/settlement/release",
-        headers=CONSOLE,
-        json={"released_by": "demo-reviewer", "note": "docs verified"},
-    )
-    assert response.status_code == 200, response.text
-    call = client.calls[-1]
-    assert call[0] == "release"
-    assert call[2].released_by == "demo-reviewer"
-    assert call[3] == "console:reviewer"
-    assert response.json()["settlement"]["state"] == "PAYOUT_PENDING"
-    assert graph.resumed
-    assert store.saved[-1]["state"] == "PAYOUT_PENDING"
-
-
 async def test_review_supports_flag_and_retry(api):
-    http, _, _, client, _ = api
+    http, _, _, client = api
     flagged = await http.post(
         "/api/runs/run-1/settlement/review",
         headers=CONSOLE,
@@ -15047,7 +14983,7 @@ async def test_get_run_includes_settlement_only_with_a_valid_console_token(api):
 
 
 async def test_receipt_and_evidence_proxy_the_control_plane(api):
-    http, _, _, client, _ = api
+    http, _, _, client = api
     receipt = await http.get(
         "/api/runs/run-1/settlement/receipt", headers=CONSOLE
     )
@@ -15092,18 +15028,6 @@ async def test_internal_seller_token_endpoint_validates_binding(api):
     }
 
 
-async def test_advance_returns_409_without_a_pending_interrupt():
-    app, _, _, _ = build(cached=projection(), paused=False)
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://buyer"
-    ) as http:
-        response = await http.post(
-            "/api/runs/run-1/settlement/advance",
-            headers=CONSOLE,
-            json={"action": "refresh"},
-        )
-    assert response.status_code == 409
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -15124,26 +15048,14 @@ from datetime import UTC, datetime
 from typing import Any, AsyncIterator, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from langgraph.types import Command
 from pydantic import BaseModel, Field
 from verifund_contracts import (
     CancelRequest,
     FlagReviewRequest,
-    ReleaseRequest,
 )
 
 router = APIRouter()
 REVIEWER = "console:reviewer"
-
-
-class AdvanceBody(BaseModel):
-    action: Literal["refresh"] = "refresh"
-
-
-class ReleaseBody(BaseModel):
-    released_by: str = Field(default=REVIEWER, min_length=1)
-    note: str = ""
-    override: bool = False
 
 
 class ReviewBody(BaseModel):
@@ -15270,34 +15182,11 @@ async def _run_lock(request: Request, run_id: str) -> AsyncIterator[None]:
         yield
 
 
-def _public_interrupt(result: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not result or "__interrupt__" not in result:
-        return None
-    # The reference carries only run/transaction/seller IDs. The seller token
-    # is resolved server-side by the orchestrator and never leaves the buyer.
-    return dict(result["__interrupt__"][0].value)
-
-
-async def _resume_graph(
-    request: Request, run_id: str, value: dict[str, Any]
-) -> dict[str, Any] | None:
-    executor = getattr(request.app.state, "executor", None)
-    graph = getattr(executor, "graph", None)
-    if graph is None:
-        return None
-    config = {"configurable": {"thread_id": run_id}}
-    snapshot = await graph.aget_state(config)
-    if not getattr(snapshot, "next", None):
-        return None
-    return await graph.ainvoke(Command(resume=value), config=config)
-
-
-async def _after_action(
+async def _save(
     request: Request, run_id: str, result: dict[str, Any]
 ) -> dict[str, Any]:
     store = _settlement_store(request)
     await store.save_projection(run_id, result)
-    await _resume_graph(request, run_id, {"action": "refresh"})
     return {"run_id": run_id, "settlement": result}
 
 
@@ -15312,50 +15201,6 @@ async def get_settlement(run_id: str, request: Request) -> dict[str, Any]:
             )
         raise HTTPException(status_code=404, detail="settlement not found")
     return projection
-
-
-@router.post("/api/runs/{run_id}/settlement/advance")
-async def advance_settlement(
-    run_id: str, body: AdvanceBody, request: Request
-) -> dict[str, Any]:
-    _require_console(request)
-    async with _run_lock(request, run_id):
-        result = await _resume_graph(
-            request, run_id, body.model_dump(mode="json")
-        )
-        if result is None:
-            raise HTTPException(
-                status_code=409, detail="no settlement interrupt is pending"
-            )
-        projection = await load_settlement_projection(request, run_id)
-        return {
-            "run_id": run_id,
-            "settlement": projection,
-            "interrupt": _public_interrupt(result),
-        }
-
-
-@router.post("/api/runs/{run_id}/settlement/release")
-async def release_settlement(
-    run_id: str, body: ReleaseBody, request: Request
-) -> dict[str, Any]:
-    _require_console(request)
-    client, _ = _require_client(request)
-    async with _run_lock(request, run_id):
-        transaction_id = await _cached_transaction(request, run_id)
-        try:
-            result = await client.release(
-                transaction_id,
-                ReleaseRequest(
-                    released_by=body.released_by,
-                    note=body.note,
-                    override=body.override,
-                ),
-                actor=REVIEWER,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise _error(exc) from exc
-        return await _after_action(request, run_id, result)
 
 
 @router.post("/api/runs/{run_id}/settlement/review")
@@ -15379,7 +15224,7 @@ async def review_settlement(
                 )
         except Exception as exc:  # noqa: BLE001
             raise _error(exc) from exc
-        return await _after_action(request, run_id, result)
+        return await _save(request, run_id, result)
 
 
 @router.post("/api/runs/{run_id}/settlement/cancel")
@@ -15398,7 +15243,7 @@ async def cancel_settlement(
             )
         except Exception as exc:  # noqa: BLE001
             raise _error(exc) from exc
-        return await _after_action(request, run_id, result)
+        return await _save(request, run_id, result)
 
 
 @router.get("/api/runs/{run_id}/settlement/receipt")
@@ -26576,8 +26421,6 @@ git commit -m "feat(orchestrator): mediate the Verifund lifecycle on one A2A tas
 - Create: `apps/console/lib/buyer-proxy.ts`
 - Modify: `apps/console/app/api/runs/[runId]/route.ts`
 - Create: `apps/console/app/api/runs/[runId]/settlement/route.ts`
-- Create: `apps/console/app/api/runs/[runId]/settlement/advance/route.ts`
-- Create: `apps/console/app/api/runs/[runId]/settlement/release/route.ts`
 - Create: `apps/console/app/api/runs/[runId]/settlement/review/route.ts`
 - Create: `apps/console/app/api/runs/[runId]/settlement/cancel/route.ts`
 - Create: `apps/console/app/api/runs/[runId]/settlement/receipt/route.ts`
@@ -26585,7 +26428,7 @@ git commit -m "feat(orchestrator): mediate the Verifund lifecycle on one A2A tas
 - Test: `apps/console/lib/stages.test.ts`
 
 **Interfaces:**
-- Produces: `SettlementProjection`, `SettlementReceipt`, `SettlementEvidenceItem`, `SettlementReviewReason`, `CancelReasonCode`; `isTerminalStage(stage, settlement)`, `isPausedStage(stage)`, `stageLabel(stage)`; `fetchSettlement`, `advanceSettlement`, `releaseSettlement`, `reviewSettlement`, `cancelSettlement`, `fetchSettlementReceipt`, `settlementEvidenceUrl`; same-origin proxy routes that add `x-marketmesh-console-token` server-side.
+- Produces: `SettlementProjection`, `SettlementReceipt`, `SettlementEvidenceItem`, `SettlementReviewReason`, `CancelReasonCode`; `isTerminalStage(stage, settlement)`, `isPausedStage(stage)`, `stageLabel(stage)`; `fetchSettlement`, `reviewSettlement`, `cancelSettlement`, `fetchSettlementReceipt`, `settlementEvidenceUrl`; same-origin proxy routes that add `x-marketmesh-console-token` server-side. The console has no funding, release, or graph-advance action; those are chat HITL decisions.
 - Consumes: buyer settlement API from Task 17, `BUYER_API_URL`, `BUYER_CONSOLE_API_TOKEN`.
 
 - [ ] **Step 1: Write the failing stage-helper tests**
@@ -26933,23 +26776,6 @@ export function fetchSettlement(runId: string) {
   return settlementJson<SettlementProjection>(runId, "");
 }
 
-export function advanceSettlement(runId: string) {
-  return settlementJson<SettlementResponse>(runId, "/advance", {
-    method: "POST",
-    body: JSON.stringify({ action: "refresh" }),
-  });
-}
-
-export function releaseSettlement(
-  runId: string,
-  body: { released_by: string; note?: string; override?: boolean },
-) {
-  return settlementJson<SettlementResponse>(runId, "/release", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
 export function reviewSettlement(
   runId: string,
   body: {
@@ -27108,7 +26934,7 @@ export async function GET(
 }
 ```
 
-Create a small POST proxy body type in each route file. The advance route:
+Create a small POST proxy body type in each route file. The review route:
 
 ```ts
 import { type NextRequest } from "next/server";
@@ -27119,15 +26945,15 @@ export async function POST(
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId } = await params;
-  const body = (await request.text()) || JSON.stringify({ action: "refresh" });
+  const body = await request.text();
   return buyerJson(
-    `/api/runs/${encodeURIComponent(runId)}/settlement/advance`,
+    `/api/runs/${encodeURIComponent(runId)}/settlement/review`,
     { method: "POST", body, headers: { "content-type": "application/json" } },
   );
 }
 ```
 
-The release, review, and cancel routes are identical apart from the final path segment (`release`, `review`, `cancel`) and must forward the request body unchanged. Create all three with the same shape.
+The cancel route is identical apart from the final path segment (`cancel`) and must forward the request body unchanged.
 
 The receipt route:
 
@@ -27181,12 +27007,13 @@ git commit -m "feat(console): add settlement types, stage helpers, and buyer pro
 
 ### Task 24: Transaction Room components
 
-**Chat-first amendment (normative):** the Transaction Room is a synchronized,
-read-only settlement detail view. Funding approval and payout release controls
-belong in the chat HITL cards from Task 25A. Any `onAdvance`, `onRelease`, or
-button-driven approval/release example below is superseded: replace it with
-status, checkout state, verification reasons, evidence, timeline, and receipt
-rendering. Keep checkout and reviewer decisions actionable only through chat.
+**Chat-first amendment (normative):** the Transaction Room is a synchronized
+settlement detail view. Funding approval and payout release happen only in the
+chat HITL cards from Task 25A. There is no funding-approval or release button
+and no `onRelease` prop. `onAdvance` refreshes the buyer projection only;
+`onReview` and `onCancel` remain for the non-approval maintenance actions
+`flag_review`, `retry_payout`, and `reviewer_cancelled`. The room renders
+status, checkout state, verification reasons, evidence, timeline, and receipt.
 
 **Files:**
 - Create: `apps/console/features/deal-room/components/transaction-timeline.tsx`
@@ -27199,7 +27026,7 @@ rendering. Keep checkout and reviewer decisions actionable only through chat.
 - Test: `apps/console/features/deal-room/components/transaction-room.test.tsx`
 
 **Interfaces:**
-- Produces: read-only `TransactionRoom` with props `settlement`, `receipt`, `error`, `evidenceUrl`; subcomponents `TransactionTimeline`, funding/status summary, `EvidenceList`, verification/release status summary, and `ReceiptPanel`.
+- Produces: `TransactionRoom` with props `settlement`, `receipt`, `busy`, `error`, `onAdvance`, `onReview`, `onCancel`, `onRefreshReceipt`, `evidenceUrl`; subcomponents `TransactionTimeline`, `FundingPanel`, `EvidenceList`, `ReleasePanel`, and `ReceiptPanel`. No funding-approval, release, or graph-advance mutation control.
 - Consumes: `SettlementProjection`, `SettlementReceipt`, `SettlementReviewReason`, `CancelReasonCode`, `money`, `formatDateTime`, `Status`, `Button`.
 
 - [ ] **Step 1: Write the failing component tests**
@@ -27286,7 +27113,6 @@ describe("TransactionRoom", () => {
         busy={false}
         error={null}
         onAdvance={noop}
-        onRelease={noop}
         onReview={noop}
         onCancel={noop}
         onRefreshReceipt={noop}
@@ -27340,7 +27166,6 @@ describe("TransactionRoom", () => {
         busy={false}
         error={null}
         onAdvance={noop}
-        onRelease={noop}
         onReview={noop}
         onCancel={noop}
         onRefreshReceipt={noop}
@@ -27356,8 +27181,7 @@ describe("TransactionRoom", () => {
     expect(screen.getByText(/1 of 2 evidence items/i)).toBeInTheDocument();
   });
 
-  it("sends an audited release with the reviewer note", () => {
-    const onRelease = vi.fn();
+  it("shows release as a chat-gated checkpoint with no release button", () => {
     render(
       <TransactionRoom
         settlement={projection({
@@ -27374,7 +27198,6 @@ describe("TransactionRoom", () => {
         busy={false}
         error={null}
         onAdvance={noop}
-        onRelease={onRelease}
         onReview={noop}
         onCancel={noop}
         onRefreshReceipt={noop}
@@ -27382,19 +27205,18 @@ describe("TransactionRoom", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Release note"), {
-      target: { value: "documents verified" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Release funds" }));
-
-    expect(onRelease).toHaveBeenCalledWith({
-      released_by: "demo-reviewer",
-      note: "documents verified",
-      override: false,
-    });
+    expect(
+      screen.queryByRole("button", { name: /release funds/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/release note/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/request release approval in chat/i),
+    ).toBeInTheDocument();
   });
 
-  it("keeps non-overridable review reasons out of the release action", () => {
+  it("explains non-overridable review reasons", () => {
     render(
       <TransactionRoom
         settlement={projection({
@@ -27411,7 +27233,6 @@ describe("TransactionRoom", () => {
         busy={false}
         error={null}
         onAdvance={noop}
-        onRelease={noop}
         onReview={noop}
         onCancel={noop}
         onRefreshReceipt={noop}
@@ -27420,7 +27241,7 @@ describe("TransactionRoom", () => {
     );
 
     expect(
-      screen.queryByRole("button", { name: "Release funds" }),
+      screen.queryByRole("button", { name: /release funds/i }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByText(/resolve this in paypal/i),
@@ -27445,7 +27266,6 @@ describe("TransactionRoom", () => {
         busy={false}
         error={null}
         onAdvance={noop}
-        onRelease={noop}
         onReview={onReview}
         onCancel={noop}
         onRefreshReceipt={noop}
@@ -27473,7 +27293,6 @@ describe("TransactionRoom", () => {
         busy={false}
         error={null}
         onAdvance={noop}
-        onRelease={noop}
         onReview={noop}
         onCancel={noop}
         onRefreshReceipt={noop}
@@ -27620,15 +27439,21 @@ export function FundingPanel({
       ) : null}
 
       {settlement.state === "FUNDING_PENDING" ? (
-        <Button
-          variant="outline"
-          size="sm"
-          loading={busy}
-          leftIcon={<RefreshCcw size={13} aria-hidden="true" />}
-          onClick={onAdvance}
-        >
-          Refresh funding
-        </Button>
+        <>
+          <p className="mm-empty">
+            Funding approval and checkout happen in chat. This panel follows
+            the buyer projection.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            loading={busy}
+            leftIcon={<RefreshCcw size={13} aria-hidden="true" />}
+            onClick={onAdvance}
+          >
+            Refresh funding
+          </Button>
+        </>
       ) : null}
     </section>
   );
@@ -27716,7 +27541,9 @@ export function EvidenceList({
 
 - [ ] **Step 5: Implement the release, receipt, and room panels**
 
-`release-panel.tsx`:
+`release-panel.tsx` is a status and maintenance panel. Release itself is a
+chat HITL decision, so the panel never renders a release note, override
+checkbox, or release button:
 
 ```tsx
 import { useState } from "react";
@@ -27744,12 +27571,15 @@ const REVIEW_REASONS: SettlementReviewReason[] = [
   "seller_mismatch",
 ];
 
+function label(value: string) {
+  return value.replaceAll("_", " ");
+}
+
 export function ReleasePanel({
   settlement,
   busy,
   error,
   onAdvance,
-  onRelease,
   onReview,
   onCancel,
 }: {
@@ -27757,11 +27587,6 @@ export function ReleasePanel({
   busy: boolean;
   error: string | null;
   onAdvance: () => void;
-  onRelease: (input: {
-    released_by: string;
-    note: string;
-    override: boolean;
-  }) => void;
   onReview: (input: {
     action: "flag_review" | "retry_payout";
     reason?: SettlementReviewReason;
@@ -27773,7 +27598,6 @@ export function ReleasePanel({
   }) => void;
 }) {
   const [note, setNote] = useState("");
-  const [override, setOverride] = useState(false);
   const [reason, setReason] =
     useState<SettlementReviewReason>("manual_flag");
   const allowed = new Set(settlement.allowed_actions);
@@ -27789,7 +27613,7 @@ export function ReleasePanel({
           <p className="mm-kicker">Reviewer checkpoint</p>
           <h2 id="release-title">Release</h2>
         </div>
-        <span className="mm-mono-note">human-gated</span>
+        <span className="mm-mono-note">human-gated in chat</span>
       </header>
 
       {settlement.state === "RELEASED" ? (
@@ -27808,7 +27632,13 @@ export function ReleasePanel({
               Resolve this in PayPal before retrying. This reason cannot be
               overridden in Verifund.
             </p>
-          ) : null}
+          ) : (
+            <p className="mm-empty">
+              A reviewer can approve release in chat with an override note
+              when every blocker is overridable. Funding, ledger, and
+              late-capture failures must be resolved in PayPal.
+            </p>
+          )}
           <label className="mm-field" htmlFor="review-reason">
             <span className="mm-kicker">Review reason</span>
             <select
@@ -27820,13 +27650,13 @@ export function ReleasePanel({
             >
               {REVIEW_REASONS.map((item) => (
                 <option key={item} value={item}>
-                  {item.replaceAll("_", " ")}
+                  {label(item)}
                 </option>
               ))}
             </select>
           </label>
           <label className="mm-field" htmlFor="review-note">
-            <span className="mm-kicker">Review note</span>
+            <span className="mm-kicker">Maintenance note</span>
             <textarea
               id="review-note"
               value={note}
@@ -27872,45 +27702,18 @@ export function ReleasePanel({
             ) : null}
           </div>
         </div>
-      ) : settlement.state === "RELEASE_PERMITTED" &&
-        allowed.has("release") ? (
+      ) : settlement.state === "RELEASE_PERMITTED" ? (
         <div>
           <p className="mm-empty">
-            Verification passed. Releasing creates the PayPal payout and
-            signs the receipt.
+            Verification passed. Request release approval in chat; the
+            Verifund agent opens the reviewer card and releases funds only
+            after the reviewer approves there.
           </p>
-          <label className="mm-field" htmlFor="release-note">
-            <span className="mm-kicker">Release note</span>
-            <textarea
-              id="release-note"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-          </label>
-          {settlement.verification?.override_allowed &&
-          !nonOverridable ? (
-            <label className="mm-checkbox">
-              <input
-                type="checkbox"
-                checked={override}
-                onChange={(event) => setOverride(event.target.checked)}
-              />
-              Override the verification flag with this note
-            </label>
+          {settlement.verification?.override_allowed ? (
+            <p className="mm-mono-note">
+              Any override note is entered in the chat approval card.
+            </p>
           ) : null}
-          <Button
-            size="sm"
-            loading={busy}
-            onClick={() =>
-              onRelease({
-                released_by: "demo-reviewer",
-                note,
-                override,
-              })
-            }
-          >
-            Release funds
-          </Button>
         </div>
       ) : (
         <div>
@@ -28034,11 +27837,6 @@ export type TransactionRoomProps = {
   busy: boolean;
   error: string | null;
   onAdvance: () => void;
-  onRelease: (input: {
-    released_by: string;
-    note: string;
-    override: boolean;
-  }) => void;
   onReview: (input: {
     action: "flag_review" | "retry_payout";
     reason?: SettlementReviewReason;
@@ -28058,7 +27856,6 @@ export function TransactionRoom({
   busy,
   error,
   onAdvance,
-  onRelease,
   onReview,
   onCancel,
   onRefreshReceipt,
@@ -28127,7 +27924,6 @@ export function TransactionRoom({
         busy={busy}
         error={error}
         onAdvance={onAdvance}
-        onRelease={onRelease}
         onReview={onReview}
         onCancel={onCancel}
       />
@@ -28189,15 +27985,6 @@ Append to `apps/console/app/globals.css`:
   font-size: 11px;
 }
 
-.mm-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 10px;
-}
-
 .mm-evidence-list {
   display: grid;
   gap: 8px;
@@ -28232,65 +28019,18 @@ Append to `apps/console/app/globals.css`:
   font-size: 8px;
   text-decoration: underline;
 }
-
-.mm-settlement-deadline {
-  margin: 12px 0 0;
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.mm-settlement-blockers {
-  margin-top: 12px;
-  padding: 10px;
-  border: 1px solid var(--red);
-}
-
-.mm-settlement-blockers ul {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  color: var(--red);
-  font-size: 10px;
-  text-transform: capitalize;
-}
-
-.mm-settlement-warning {
-  margin: 10px 0;
-  padding: 9px 10px;
-  border-left: 2px solid var(--red);
-  background: rgba(154, 52, 40, 0.06);
-  color: var(--red);
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.mm-receipt-verified {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--signal);
-  font-family: var(--font-spline-sans-mono), monospace;
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
 ```
 
-- [ ] **Step 7: Run the component tests**
+- [ ] **Step 7: Run the component tests and typecheck**
 
-Run: `cd apps/console && npm test -- features/deal-room/components/transaction-room.test.tsx`
-Expected: PASS.
+Run: `cd apps/console && npm test -- features/deal-room/components/transaction-room.test.tsx && npm run typecheck`
+Expected: PASS. The suite proves there is no release or funding-approval control in the room, while refresh, review maintenance, cancellation, evidence, and receipt rendering work.
 
-- [ ] **Step 8: Run the console unit tests and typecheck**
-
-Run: `cd apps/console && npm test && npm run typecheck`
-Expected: PASS.
-
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/console/features/deal-room/components apps/console/app/globals.css
-git commit -m "feat(console): build the Verifund Transaction Room"
+git commit -m "feat(console): add the read-only Transaction Room"
 ```
 
 ---
@@ -28310,7 +28050,7 @@ git commit -m "feat(console): build the Verifund Transaction Room"
 - Modify: `apps/console/lib/types.ts`
 
 **Interfaces:**
-- Produces: `mergeRunState(state, run)`, `useRunDetail` settlement fields (`settlement`, `settlementReceipt`, `settlementBusy`, `settlementError`, `refreshSettlement`, `releaseSettlement`, `reviewSettlement`, `cancelSettlement`, `refreshSettlementReceipt`, `settlementEvidenceUrl`), `StageStepper` `settlementState` prop, seller dashboard settlement table.
+- Produces: `mergeRunState(state, run)`, `useRunDetail` settlement fields (`settlement`, `settlementReceipt`, `settlementBusy`, `settlementError`, `refreshSettlement`, `reviewSettlement`, `cancelSettlement`, `refreshSettlementReceipt`, `settlementEvidenceUrl`), `StageStepper` `settlementState` prop, seller dashboard settlement table. Funding and release are chat HITL decisions; the run workspace never calls a console release or graph-advance endpoint.
 - Consumes: Task 23 types/API/stages and Task 24 `TransactionRoom`.
 
 - [ ] **Step 1: Write the failing merge test**
@@ -28433,10 +28173,9 @@ At the top of `use-run-detail.ts`, import:
 ```ts
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  advanceSettlement,
   cancelSettlement,
+  fetchSettlement,
   fetchSettlementReceipt,
-  releaseSettlement,
   reviewSettlement,
   settlementEvidenceUrl,
 } from "@/lib/api";
@@ -28559,19 +28298,9 @@ Add the receipt effect and action callbacks before the return:
 
   const refreshSettlement = useCallback(
     () =>
-      runSettlementAction(() => advanceSettlement(routeRunId)),
-    [routeRunId, runSettlementAction],
-  );
-
-  const releaseSettlementAction = useCallback(
-    (input: {
-      released_by: string;
-      note: string;
-      override: boolean;
-    }) =>
-      runSettlementAction(() =>
-        releaseSettlement(routeRunId, input),
-      ),
+      runSettlementAction(async () => ({
+        settlement: await fetchSettlement(routeRunId),
+      })),
     [routeRunId, runSettlementAction],
   );
 
@@ -28622,7 +28351,6 @@ Add to the returned object:
     settlementBusy,
     settlementError,
     refreshSettlement,
-    releaseSettlement: releaseSettlementAction,
     reviewSettlement: reviewSettlementAction,
     cancelSettlement: cancelSettlementAction,
     refreshSettlementReceipt,
@@ -28639,9 +28367,6 @@ In `run-detail.tsx`, extend the workspace call:
         settlementBusy={detail.settlementBusy}
         settlementError={detail.settlementError}
         onSettlementAdvance={() => void detail.refreshSettlement()}
-        onSettlementRelease={(input) =>
-          void detail.releaseSettlement(input)
-        }
         onSettlementReview={(input) =>
           void detail.reviewSettlement(input)
         }
@@ -28673,11 +28398,6 @@ In `run-detail-workspace.tsx`, add the props to the type and destructuring:
   settlementBusy: boolean;
   settlementError: string | null;
   onSettlementAdvance: () => void;
-  onSettlementRelease: (input: {
-    released_by: string;
-    note: string;
-    override: boolean;
-  }) => void;
   onSettlementReview: (input: {
     action: "flag_review" | "retry_payout";
     reason?: SettlementReviewReason;
@@ -28700,7 +28420,6 @@ Replace `<EscrowGuide />` in the sidebar with:
           busy={settlementBusy}
           error={settlementError}
           onAdvance={onSettlementAdvance}
-          onRelease={onSettlementRelease}
           onReview={onSettlementReview}
           onCancel={onSettlementCancel}
           onRefreshReceipt={onSettlementRefreshReceipt}
