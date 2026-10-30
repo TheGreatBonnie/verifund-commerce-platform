@@ -26,13 +26,20 @@ const SAMPLE_BRIEF =
 
 function mergeRunState(state: BuyerState, run: BuyerRun | null): BuyerState {
   if (!run) return state;
+  // Prefer a run award that still has a `winner`; otherwise keep the
+  // in-memory display award so a winner-less (settlement) award can't
+  // overwrite it.
+  let award = run.award ?? state.award;
+  if (award && !award.winner && state.award?.winner) {
+    award = state.award;
+  }
   return {
     ...state,
     run_id: run.run_id ?? state.run_id,
     task_id: run.run_id ?? state.task_id,
     stage: run.stage ?? state.stage,
     mandate: run.mandate ?? state.mandate,
-    award: run.award ?? state.award,
+    award,
     order: run.order ?? state.order,
     error: run.error ?? state.error,
   };
@@ -69,7 +76,18 @@ export function useRunDetail(routeRunId: string) {
     const latest = parseBuyerStateFromMessages(
       (agent.messages ?? []) as Array<{ role?: string; content?: unknown }>,
     );
-    if (latest) setBuyerState((current) => ({ ...current, ...latest }));
+    if (latest) {
+      setBuyerState((current) => {
+        const merged = { ...current, ...latest };
+        // Preserve the display award (AwardPackage with `winner`) when an
+        // incoming update carries a settlement award (AwardRequest) that has
+        // no `winner`, so the UI never renders a winner-less award.
+        if (latest.award && !latest.award.winner && current.award?.winner) {
+          merged.award = current.award;
+        }
+        return merged;
+      });
+    }
   }, [agent.messages]);
 
   const state = useMemo(
@@ -129,7 +147,13 @@ export function useRunDetail(routeRunId: string) {
   }, [isReady, startRun]);
 
   const onBuyerStateUpdate = useCallback((next: BuyerState) => {
-    setBuyerState((current) => ({ ...current, ...next }));
+    setBuyerState((current) => {
+      const merged = { ...current, ...next };
+      if (next.award && !next.award.winner && current.award?.winner) {
+        merged.award = current.award;
+      }
+      return merged;
+    });
   }, []);
 
   const resetForRun = useCallback(

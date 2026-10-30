@@ -309,36 +309,53 @@ export function AgreementReviewCard({
 }) {
   return (
     <section
-      className="mm-chat-approval"
+      className="mm-approval"
       data-testid="verifund-agreement"
       aria-labelledby="verifund-agreement-title"
     >
-      <p className="mm-kicker">Verifund · canonical agreement</p>
-      <h3 id="verifund-agreement-title">
-        <span>{agreement.seller_id}</span> ·{" "}
-        <span>{money(agreement.amount_cents, agreement.currency)}</span>
-      </h3>
-      <dl>
-        <dt>Transaction</dt>
-        <dd>{agreement.transaction_id}</dd>
-        <dt>Version</dt>
-        <dd>{agreement.agreement_version}</dd>
-        <dt>Hash</dt>
-        <dd className="mm-mono-note">{agreement.agreement_hash}</dd>
-        <dt>Buyer</dt>
-        <dd>{reviewLabel("Buyer", buyerReview)}</dd>
-        <dt>Seller</dt>
-        <dd>{reviewLabel("Seller", sellerDecision)}</dd>
-      </dl>
-      <ul>
+      <div className="mm-verifund-head">
+        <div>
+          <p className="mm-kicker">Verifund · canonical agreement</p>
+          <h3 id="verifund-agreement-title">
+            <span>{agreement.seller_id}</span> ·{" "}
+            <span>{money(agreement.amount_cents, agreement.currency)}</span>
+          </h3>
+        </div>
+        <span className="mm-approval-flag">Agreement</span>
+      </div>
+      <div className="mm-verifund-detail">
+        <div>
+          <span className="mm-kicker">Transaction</span>
+          <strong>{agreement.transaction_id}</strong>
+        </div>
+        <div>
+          <span className="mm-kicker">Version</span>
+          <strong>{agreement.agreement_version}</strong>
+        </div>
+        <div>
+          <span className="mm-kicker">Hash</span>
+          <strong className="mm-mono-note">{agreement.agreement_hash}</strong>
+        </div>
+        <div>
+          <span className="mm-kicker">Buyer</span>
+          <strong>{reviewLabel("Buyer", buyerReview)}</strong>
+        </div>
+        <div>
+          <span className="mm-kicker">Seller</span>
+          <strong>{reviewLabel("Seller", sellerDecision)}</strong>
+        </div>
+      </div>
+      <ul className="mm-verifund-lines">
         {agreement.line_items.map((item) => (
           <li key={`${item.sku}-${item.unit_price_cents}`}>
-            {item.quantity} × {item.name} ·{" "}
-            {money(item.unit_price_cents, agreement.currency)}
+            <span>
+              {item.quantity} × {item.name}
+            </span>
+            <span>{money(item.unit_price_cents, agreement.currency)}</span>
           </li>
         ))}
       </ul>
-      <p>
+      <p className="mm-verifund-meta">
         Delivery in {agreement.delivery_days} days · {agreement.warranty_months}
         -month warranty · {agreement.returns_days}-day returns
       </p>
@@ -360,7 +377,7 @@ export function FundingApprovalCard({
   const ready = readiness === "ready";
   return (
     <section
-      className="mm-chat-approval"
+      className="mm-approval"
       data-testid="verifund-funding"
       aria-labelledby="verifund-funding-title"
     >
@@ -372,7 +389,7 @@ export function FundingApprovalCard({
         sellerDecision={args.seller_decision}
       />
       {!ready ? (
-        <p role="alert" data-testid="verifund-funding-blocked">
+        <p role="alert" data-testid="verifund-funding-blocked" className="mm-verifund-blocked">
           {readiness === "mismatch"
             ? "The recorded reviews are bound to different terms. Funding is blocked."
             : `Waiting for the ${
@@ -380,22 +397,28 @@ export function FundingApprovalCard({
               } decision before funding.`}
         </p>
       ) : null}
-      <label>
+      <label className="mm-note-field">
         Note
         <textarea
           value={note}
           onChange={(event) => setNote(event.target.value)}
         />
       </label>
-      <div>
+      <div className="mm-approval-actions">
         <button
           type="button"
+          className="mm-button mm-button-signal"
           disabled={!ready}
           onClick={() => onApprove(note)}
         >
           Approve funding
         </button>
-        <button type="button" disabled={!ready} onClick={() => onReject(note)}>
+        <button
+          type="button"
+          className="mm-button mm-button-outline-danger"
+          disabled={!ready}
+          onClick={() => onReject(note)}
+        >
           Reject funding
         </button>
       </div>
@@ -418,14 +441,16 @@ export function ReleaseApprovalCard({
   const blocked = !gate.enabled || (override && !note.trim());
   return (
     <section
-      className="mm-chat-approval"
+      className="mm-approval"
       data-testid="verifund-release"
       aria-labelledby="verifund-release-title"
     >
       <p className="mm-kicker">Verifund · human release approval</p>
       <h3 id="verifund-release-title">{args.message}</h3>
-      {!gate.enabled ? <p role="alert">{gate.reason}</p> : null}
-      <label>
+      {!gate.enabled ? (
+        <p role="alert" className="mm-verifund-blocked">{gate.reason}</p>
+      ) : null}
+      <label className="mm-note-field">
         Note
         <textarea
           value={note}
@@ -433,7 +458,7 @@ export function ReleaseApprovalCard({
         />
       </label>
       {gate.overrideAllowed ? (
-        <label>
+        <label className="mm-note-field">
           <input
             type="checkbox"
             checked={override}
@@ -442,9 +467,10 @@ export function ReleaseApprovalCard({
           Override the verification failure
         </label>
       ) : null}
-      <div>
+      <div className="mm-approval-actions">
         <button
           type="button"
+          className="mm-button mm-button-signal"
           disabled={blocked}
           onClick={() =>
             onDecision(
@@ -460,6 +486,7 @@ export function ReleaseApprovalCard({
         </button>
         <button
           type="button"
+          className="mm-button mm-button-outline-danger"
           disabled={!gate.enabled}
           onClick={() =>
             onDecision(
@@ -486,7 +513,7 @@ export function EvidenceSummaryCard({
   if (!projection) return null;
   const evidence = projection.evidence;
   return (
-    <section className="mm-chat-approval" data-testid="verifund-evidence">
+    <section className="mm-approval" data-testid="verifund-evidence">
       <p className="mm-kicker">Verifund · evidence review</p>
       <p>
         {evidence
@@ -507,7 +534,7 @@ export function EvidenceSummaryCard({
 
 export function ReceiptCard({ receipt }: { receipt: SettlementReceipt }) {
   return (
-    <section className="mm-chat-approval" data-testid="verifund-receipt">
+    <section className="mm-approval" data-testid="verifund-receipt">
       <p className="mm-kicker">Verifund · signed receipt</p>
       <h3>{receipt.verified ? "Verified receipt" : "Receipt not verified"}</h3>
       <p>
@@ -529,7 +556,7 @@ export function CheckoutCard({
   expiresAt?: string | null;
 }) {
   return (
-    <section className="mm-chat-approval" data-testid="verifund-checkout">
+    <section className="mm-approval" data-testid="verifund-checkout">
       <p className="mm-kicker">Verifund · funding handoff</p>
       <a href={url} target="_blank" rel="noreferrer">
         Open the payment checkout

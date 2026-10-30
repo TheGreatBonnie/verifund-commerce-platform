@@ -38,6 +38,7 @@ def award_payload() -> dict:
 @pytest.fixture
 async def api(tmp_path):
     settings = Settings(
+        _env_file=None,
         mode="fake",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}",
         evidence_dir=tmp_path / "evidence",
@@ -180,6 +181,7 @@ async def _issue_link(app, transaction_id: str, kind: str):
 
 async def test_paypal_return_redirects_to_the_console_run(tmp_path):
     settings = Settings(
+        _env_file=None,
         mode="fake",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}",
         evidence_dir=tmp_path / "evidence",
@@ -214,6 +216,7 @@ async def test_paypal_return_redirects_to_the_console_run(tmp_path):
 
 async def test_paypal_cancel_cancels_pending_funding(tmp_path):
     settings = Settings(
+        _env_file=None,
         mode="fake",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}",
         evidence_dir=tmp_path / "evidence",
@@ -251,6 +254,7 @@ async def test_paypal_cancel_cancels_pending_funding(tmp_path):
 
 async def test_capture_amount_mismatch_requires_review(tmp_path):
     settings = Settings(
+        _env_file=None,
         mode="fake",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}",
         evidence_dir=tmp_path / "evidence",

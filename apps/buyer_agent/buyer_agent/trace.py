@@ -252,25 +252,43 @@ class TraceStore:
         )
 
     async def upsert_run(self, run_id: str, **fields: Any) -> None:
+        _UNSET = object()
         now = datetime.now(UTC).isoformat()
-        values: dict[str, Any] = {
+        # Resolve optional fields; _UNSET means "not provided by caller".
+        stage = fields.get("stage", _UNSET)
+        mandate = fields.get("mandate_json", fields.get("mandate", _UNSET))
+        award = fields.get("award_json", fields.get("award", _UNSET))
+        order = fields.get("order_json", fields.get("order", _UNSET))
+        error = fields.get("error", _UNSET)
+
+        insert_values: dict[str, Any] = {
             "run_id": run_id,
             "created_at": now,
             "updated_at": now,
-            "stage": fields.get("stage", "new"),
-            "mandate_json": fields.get("mandate_json", fields.get("mandate")),
-            "award_json": fields.get("award_json", fields.get("award")),
-            "order_json": fields.get("order_json", fields.get("order")),
-            "error": fields.get("error"),
+            "stage": stage if stage is not _UNSET else "new",
+            "mandate_json": mandate if mandate is not _UNSET else None,
+            "award_json": award if award is not _UNSET else None,
+            "order_json": order if order is not _UNSET else None,
+            "error": error if error is not _UNSET else None,
         }
-        statement = sqlite_insert(self.runs).values(**values)
+        statement = sqlite_insert(self.runs).values(**insert_values)
+        # On conflict, only overwrite fields the caller actually provided so
+        # that a later stage transition (e.g. "awarded") does not erase an
+        # award/order/mandate persisted by an earlier one.
+        update_set: dict[str, Any] = {"updated_at": now}
+        if stage is not _UNSET:
+            update_set["stage"] = stage
+        if mandate is not _UNSET:
+            update_set["mandate_json"] = mandate
+        if award is not _UNSET:
+            update_set["award_json"] = award
+        if order is not _UNSET:
+            update_set["order_json"] = order
+        if error is not _UNSET:
+            update_set["error"] = error
         statement = statement.on_conflict_do_update(
             index_elements=["run_id"],
-            set_={
-                key: value
-                for key, value in values.items()
-                if key not in {"run_id", "created_at"}
-            },
+            set_=update_set,
         )
         async with self.engine.begin() as conn:
             await conn.execute(statement)

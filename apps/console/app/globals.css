@@ -2700,6 +2700,128 @@
   font-size: 10.5px;
 }
 
+/* ---------- Card accents: signal green for muted labels/notes ---------- */
+.mm-approval .mm-kicker,
+.mm-approval .mm-mono-note {
+  color: var(--signal);
+}
+
+/* ---------- Verifund HITL cards (mirror mm-approval dossier) ---------- */
+
+.mm-approval .mm-verifund-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mm-approval .mm-verifund-head .mm-kicker {
+  color: var(--signal);
+  font-size: 9px;
+}
+
+.mm-approval .mm-verifund-head h3 {
+  margin: 4px 0 0;
+  font-family: var(--font-instrument-serif), Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.mm-approval .mm-verifund-head h3 span:first-child {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.mm-approval .mm-approval-flag {
+  flex: 0 0 auto;
+}
+
+.mm-approval .mm-verifund-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-top: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.mm-approval .mm-verifund-detail > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mm-approval .mm-verifund-detail .mm-kicker {
+  color: var(--signal);
+  font-size: 7.5px;
+}
+
+.mm-approval .mm-verifund-detail strong {
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.mm-approval .mm-verifund-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mm-approval .mm-verifund-lines li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--rule);
+  color: var(--ink-soft);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.mm-approval .mm-verifund-lines li:last-child {
+  border-bottom: 0;
+}
+
+.mm-approval .mm-verifund-lines li > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mm-approval .mm-verifund-lines li > span:last-child {
+  flex: 0 0 auto;
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-weight: 600;
+}
+
+.mm-approval .mm-verifund-meta {
+  margin: 9px 0 0;
+  color: var(--ink-soft);
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.mm-approval .mm-verifund-blocked {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(168, 45, 34, 0.45);
+  background: #fbeeea;
+  color: var(--red);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 /* ---------- Alert / footer ---------- */
 
 .mm-alert {

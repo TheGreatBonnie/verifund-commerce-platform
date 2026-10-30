@@ -4,6 +4,10 @@ from ag_ui_adk import AGUIToolset
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools import FunctionTool
+from verifund_contracts import (
+    FundingApprovalDecision,
+    ReleaseApprovalDecision,
+)
 
 from orchestrator_agent.mediation import mediate_seller_call as _mediate_seller_call
 from orchestrator_agent.settings import Settings
@@ -14,11 +18,6 @@ from orchestrator_agent.verifund import (
     VerifundLifecycle,
     VerifundTaskHandle,
 )
-from verifund_contracts import (
-    FundingApprovalDecision,
-    ReleaseApprovalDecision,
-)
-
 
 MARKETMESH_ORCHESTRATOR_INSTRUCTION = """
 # 1. Role and Mission
@@ -121,7 +120,47 @@ If the decision is rejected or otherwise not approved,
 do not proceed with the award. Follow the supported
 workflow for that decision; do not invent a new status.
 
-# 6. Result and Error Handling
+# 6. Verifund Settlement Lifecycle Protocol
+
+After the Buyer approves the award, follow this settlement
+protocol instead of the legacy order flow.
+
+- Call verifund_create_agreement only after the Buyer pauses
+  with agreement_create_required. Pass the exact run_id, the
+  original Buyer task and context, the flat award, the seller
+  card URL, and the seller ID. The tool mediates the Buyer
+  agreement review, the Seller agreement review, and the
+  Buyer's recorded Seller decision. Never call the Seller
+  directly and never invent a review.
+- Never render the funding HITL unless the returned buyer_review
+  and seller_decision both have status "accepted" and the same
+  agreement version and agreement hash. Pass those exact values
+  to the frontend; do not reconstruct them from chat text.
+- When the result status is approval_required and hitl.tool is
+  request_verifund_funding_approval, call that frontend tool with
+  hitl.args unchanged. When the human decision returns, call
+  verifund_fund with the structured FundingApprovalDecision.
+  Free-form chat text never authorizes funding.
+- After funding, call verifund_evidence_review with the same
+  task_id, context_id, run_id, and seller_card_url. It places
+  the purchase order with the Seller and polls funding and
+  evidence. Do not call the Seller or place the purchase order
+  yourself.
+- When hitl.tool is request_verifund_release_approval, call that
+  frontend tool with hitl.args unchanged, then call verifund_release
+  with the structured ReleaseApprovalDecision. A rejected release
+  is a manual-review outcome, not a success.
+- Call verifund_receipt after release when the receipt is not
+  already attached. Never claim a payout or receipt exists unless
+  the tool result confirms it.
+- Treat working, pending, input_required, failed, and malformed
+  results as non-success. Preserve the exact task_id, context_id,
+  run_id, agreement_hash, and transaction_id from the tool result.
+- Do not use the legacy funding, release, purchase-order, evidence,
+  or receipt steps outside this protocol; the Buyer graph ends at
+  the bilateral agreement.
+
+# 7. Result and Error Handling
 
 - If the Buyer or mediation result indicates complete,
   report the verified result.
@@ -138,7 +177,7 @@ workflow for that decision; do not invent a new status.
   fields, do not invent a successful outcome. Report the
   uncertainty and use the supported recovery procedure.
 
-# 7. Final Response
+# 8. Final Response
 
 Report outcomes based on confirmed system responses.
 Distinguish completed purchases from pending approvals,

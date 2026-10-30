@@ -29,12 +29,12 @@ export function ApprovalCard({
   const approveRef = useRef<HTMLButtonElement>(null);
   const [note, setNote] = useState("");
   const [pending, setPending] = useState<"approve" | "reject" | null>(null);
-  const [expiry, setExpiry] = useState(() => offerExpiry(award?.winner.valid_until));
+  const [expiry, setExpiry] = useState(() => offerExpiry(award?.winner?.valid_until));
 
   useEffect(() => {
-    setExpiry(offerExpiry(award?.winner.valid_until));
+    setExpiry(offerExpiry(award?.winner?.valid_until));
     const timer = window.setInterval(
-      () => setExpiry(offerExpiry(award?.winner.valid_until)),
+      () => setExpiry(offerExpiry(award?.winner?.valid_until)),
       30_000,
     );
     return () => window.clearInterval(timer);
@@ -44,7 +44,7 @@ export function ApprovalCard({
     approveRef.current?.focus();
   }, []);
 
-  if (!award) {
+  if (!award || !award.winner) {
     return (
       <section className="mm-approval mm-approval-empty" aria-live="polite">
         <p className="mm-kicker">Human checkpoint</p>

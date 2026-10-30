@@ -9,11 +9,10 @@ from a2a.types.a2a_pb2 import TaskArtifactUpdateEvent
 from commerce_core.a2a_parts import (
     first_envelope,
     make_artifact,
-    make_message,
 )
 from commerce_core.contracts import Order, PurchaseOrderRequest
 from commerce_core.extension import wrap_payload
-
+from orchestrator_agent.agent import MARKETMESH_ORCHESTRATOR_INSTRUCTION
 from orchestrator_agent.settings import Settings
 from orchestrator_agent.verifund import (
     BuyerA2AAgents,
@@ -25,7 +24,6 @@ from orchestrator_agent.verifund import (
 )
 from verifund_contracts import (
     AgreementProjection,
-    AgreementReviewDecision,
     AgreementReviewResult,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
@@ -720,6 +718,17 @@ async def test_seller_purchase_order_injects_the_token_and_never_returns_it() ->
 async def test_verifund_protocol_errors_are_not_successes() -> None:
     with pytest.raises(VerifundProtocolError):
         raise VerifundProtocolError("Verifund returned no structured result")
+
+
+def test_orchestrator_instruction_describes_the_verifund_settlement_flow() -> None:
+    assert "verifund_create_agreement" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert "verifund_fund" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert "verifund_evidence_review" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert "verifund_release" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert "verifund_receipt" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert "never call the seller" in MARKETMESH_ORCHESTRATOR_INSTRUCTION.lower()
+    assert "never invent a review" in MARKETMESH_ORCHESTRATOR_INSTRUCTION.lower()
+    assert "request_award_approval" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
 
 
 def test_settings_default_to_sandbox_and_keep_verifund_credentials_separate(

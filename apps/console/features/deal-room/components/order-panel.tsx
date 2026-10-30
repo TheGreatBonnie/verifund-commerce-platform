@@ -128,7 +128,7 @@ export function OrderPanel({ state }: { state: BuyerState }) {
             {approval?.note ? <> Note: “{approval.note}”</> : null}
           </p>
           <p className="mm-mono-note">
-            No purchase order was sent to {award?.winner.seller_name ?? "the seller"}.
+            No purchase order was sent to {award?.winner?.seller_name ?? "the seller"}.
           </p>
         </div>
       ) : stage === "order_failed" ? (
@@ -144,7 +144,7 @@ export function OrderPanel({ state }: { state: BuyerState }) {
             <p>Buyer is sending the accepted offer and purchase order to the winner.</p>
           </div>
         </div>
-      ) : award ? (
+      ) : award?.winner ? (
         <div className="mm-order-waiting">
           <Clock3 size={20} aria-hidden="true" />
           <div>

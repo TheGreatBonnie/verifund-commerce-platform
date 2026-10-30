@@ -228,21 +228,23 @@ export function Chat({
       render: ({ args, status, respond }) => {
         if (status === "executing" && respond) {
           return (
-            <FundingApprovalCard
-              args={args as any}
-              onApprove={(note) => {
-                respond(
-                  fundingDecision(args as any, { approved: true, note }),
-                );
-                onVerifundAction?.();
-              }}
-              onReject={(note) => {
-                respond(
-                  fundingDecision(args as any, { approved: false, note }),
-                );
-                onVerifundAction?.();
-              }}
-            />
+            <div className="mm-chat-approval">
+              <FundingApprovalCard
+                args={args as any}
+                onApprove={(note) => {
+                  respond(
+                    fundingDecision(args as any, { approved: true, note }),
+                  );
+                  onVerifundAction?.();
+                }}
+                onReject={(note) => {
+                  respond(
+                    fundingDecision(args as any, { approved: false, note }),
+                  );
+                  onVerifundAction?.();
+                }}
+              />
+            </div>
           );
         }
         return null;
@@ -262,13 +264,15 @@ export function Chat({
       render: ({ args, status, respond }) => {
         if (status === "executing" && respond) {
           return (
-            <ReleaseApprovalCard
-              args={args as any}
-              onDecision={(decision) => {
-                respond(decision);
-                onVerifundAction?.();
-              }}
-            />
+            <div className="mm-chat-approval">
+              <ReleaseApprovalCard
+                args={args as any}
+                onDecision={(decision) => {
+                  respond(decision);
+                  onVerifundAction?.();
+                }}
+              />
+            </div>
           );
         }
         return null;
@@ -288,11 +292,13 @@ export function Chat({
       const agreement = parsed?.data?.agreement;
       if (status !== "complete" || !agreement) return null;
       return (
-        <AgreementReviewCard
-          agreement={agreement as any}
-          buyerReview={(parsed?.data?.buyer_review as any) ?? null}
-          sellerDecision={(parsed?.data?.seller_decision as any) ?? null}
-        />
+        <div className="mm-chat-approval">
+          <AgreementReviewCard
+            agreement={agreement as any}
+            buyerReview={(parsed?.data?.buyer_review as any) ?? null}
+            sellerDecision={(parsed?.data?.seller_decision as any) ?? null}
+          />
+        </div>
       );
     },
   });

@@ -5,13 +5,18 @@ from typing import Any
 
 import pytest
 from a2a.types.a2a_pb2 import Message, Role
+from buyer_agent.review import (
+    parse_review_envelope,
+    parse_review_result_envelope,
+    resume_value,
+)
 from commerce_core.a2a_parts import make_message
-
-from buyer_agent.review import parse_review_envelope, resume_value
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewRequest,
+    AgreementReviewResult,
     wrap_agreement_review_request,
+    wrap_agreement_review_result,
 )
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -99,4 +104,42 @@ def test_review_envelope_rejects_a_missing_envelope() -> None:
                 task_id="buyer-task-1",
                 parts=[],
             )
+        )
+
+
+def seller_message(**overrides) -> Message:
+    fields = {
+        "party": "seller",
+        "status": "accepted",
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": agreement().agreement_hash,
+        "task_id": "seller-task-1",
+        "context_id": "run-1",
+        "reviewed_at": NOW,
+        **overrides,
+    }
+    resolved = AgreementReviewResult.model_validate(fields)
+    return make_message(
+        role=Role.ROLE_USER,
+        text="Seller agreement review.",
+        context_id="run-1",
+        task_id="buyer-task-1",
+        envelope=wrap_agreement_review_result(resolved),
+    )
+
+
+def test_seller_review_result_is_parsed_and_bound_to_the_agreement() -> None:
+    parsed = parse_review_result_envelope(seller_message(), agreement())
+    assert parsed.party == "seller"
+    assert parsed.status == "accepted"
+    assert parsed.agreement_hash == agreement().agreement_hash
+
+
+def test_seller_review_result_rejects_a_hash_mismatch() -> None:
+    with pytest.raises(ValueError):
+        parse_review_result_envelope(
+            seller_message(agreement_hash="b" * 64),
+            agreement(),
         )

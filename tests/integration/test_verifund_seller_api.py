@@ -38,6 +38,7 @@ def payload(run_id="run-1", offer_id="offer-1") -> dict:
 @pytest.fixture
 async def api(tmp_path):
     settings = Settings(
+        _env_file=None,
         mode="fake",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}",
         evidence_dir=tmp_path / "evidence",

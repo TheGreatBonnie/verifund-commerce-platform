@@ -4,13 +4,7 @@ import operator
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, TypedDict
-
-from verifund_contracts import (
-    AgreementProjection,
-    AgreementReviewDecision,
-    AgreementReviewResult,
-)
+from typing import Annotated, Any, Mapping, TypedDict
 
 from commerce_core.cards import validate_agent_card
 from commerce_core.contracts import (
@@ -28,6 +22,7 @@ from commerce_core.contracts import (
     RFQPreferences,
     ShippingAddress,
 )
+from commerce_core.extension import wrap_payload
 from commerce_core.pricing import counter_targets
 from commerce_core.scoring import (
     ScoredOffer,
@@ -36,20 +31,23 @@ from commerce_core.scoring import (
 from commerce_core.scoring import (
     rank_offers as rank_eligible_offers,
 )
-from commerce_core.extension import wrap_payload
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
+from verifund_contracts import (
+    AgreementProjection,
+    AgreementReviewDecision,
+    AgreementReviewResult,
+)
 
-from buyer_agent.a2a_client import A2ATurn
 from buyer_agent.planner import (
     BuyerPlanner,
     CounterChoice,
     ScriptedBuyerPlanner,
     mandate_from_text,
 )
+from buyer_agent.settlement_flow import build_award_request, settlement_enabled
 
 
 def merge_negotiations(
@@ -81,6 +79,10 @@ class BuyerState(TypedDict, total=False):
     order: dict | None
     error: dict | None
     trace: Annotated[list[dict], operator.add]
+    task_id: str
+    context_id: str
+    settlement_mode: bool
+    settlement: dict | None
     # Mediated mode (Task 0 gate proof)
     pending_sellers: list[str]
     current_seller_id: str
@@ -660,6 +662,14 @@ def _mediated_route_after_process(state: BuyerState) -> str:
 
 
 async def _mediated_place_order(state: BuyerState, config: dict) -> dict:
+    if state.get("settlement_mode"):
+        return {
+            "stage": "failed",
+            "order": None,
+            "error": _error(
+                "Settlement runs are funded through the Verifund lifecycle agreement flow."
+            ),
+        }
     services = _services(config)
     run_id = state["run_id"]
     approval = state.get("approval") or {}
@@ -875,14 +885,22 @@ async def await_approval(state: BuyerState, config: dict) -> dict:
     from buyer_agent.policies import normalize_approval
 
     decision = normalize_approval(interrupt(payload))
+    settlement_mode = settlement_enabled(
+        (config.get("configurable") or {}).get("services")
+    )
     return {
         "approval": decision,
+        "settlement_mode": settlement_mode,
         "stage": "approved" if decision["approved"] else "rejected",
     }
 
 
 def approval_route(state: BuyerState) -> str:
-    return "approved" if (state.get("approval") or {}).get("approved") else "rejected"
+    if not (state.get("approval") or {}).get("approved"):
+        return "rejected"
+    if state.get("settlement_mode"):
+        return "settlement"
+    return "off"
 
 
 def _shipping_address() -> ShippingAddress:
@@ -938,6 +956,11 @@ async def finalize(state: BuyerState, config: dict) -> dict:
             "The award was rejected by the human reviewer, so no order was "
             "placed and all seller negotiations were closed."
         )
+    elif stage == "agreed":
+        summary = (
+            "The buyer and seller accepted the settlement agreement, and the "
+            "funded purchase order was placed."
+        )
     elif stage == "order_failed":
         summary = "The order could not be completed."
     else:
@@ -983,16 +1006,16 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
         return await finalize(state, config)
 
     async def _create_settlement_award(state, config):
-        return {"settlement": None, "stage": "awarded"}
+        return await create_settlement_award(state, config)
 
     async def _report_buyer_review(state, config):
-        return {"buyer_review": {"status": "accepted"}, "stage": "buyer_reviewed"}
+        return await report_buyer_review(state, config)
 
     async def _await_seller_review(state, config):
-        return {"seller_decision": {"status": "accepted"}, "stage": "seller_reviewed"}
+        return await await_seller_review(state, config)
 
     async def _report_seller_review(state, config):
-        return {"seller_decision": {"status": "accepted"}, "stage": "seller_reviewed"}
+        return await report_seller_review(state, config)
 
     def with_planner(fn):
         async def wrapped(state, config):
@@ -1055,8 +1078,20 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
     builder.add_conditional_edges(
         "await_approval",
         approval_route,
-        {"approved": "place_order", "rejected": "cancel_losers"},
+        {
+            "settlement": "create_settlement_award",
+            "off": "place_order",
+            "rejected": "cancel_losers",
+        },
     )
+    builder.add_edge("create_settlement_award", "report_buyer_review")
+    builder.add_conditional_edges(
+        "report_buyer_review",
+        buyer_review_route,
+        {"accepted": "await_seller_review", "rejected": "finalize"},
+    )
+    builder.add_edge("await_seller_review", "report_seller_review")
+    builder.add_edge("report_seller_review", "finalize")
     builder.add_edge("place_order", "finalize")
     builder.add_edge("cancel_losers", "finalize")
     builder.add_edge("finalize", END)
@@ -1066,37 +1101,201 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
 
 
 
-def settlement_award_route(state) -> str:
-    return "settlement" if state.get("settlement") else "off"
+async def create_settlement_award(state: BuyerState, config: dict) -> dict:
+    services = _services(config)
+    run_id = str(state.get("run_id") or "")
+    award = build_award_request(
+        run_id, state.get("mandate") or {}, state.get("award") or {}
+    )
+    seller_id = award.seller_id
+    card_url = None
+    for seller in state.get("sellers") or []:
+        if seller.get("seller_id") == seller_id and seller.get("card_url"):
+            card_url = seller["card_url"]
+            break
+    if not card_url:
+        registry = getattr(services, "registry", None)
+        endpoint = registry.endpoint(seller_id) if registry is not None else None
+        card_url = getattr(endpoint, "card_url", None)
+    if not card_url:
+        raise AgreementProtocolError(
+            "the awarded seller is not a validated seller"
+        )
+    interrupted = interrupt(
+        {
+            "reason": "agreement_create_required",
+            "message": "Create the canonical agreement with the Verifund agent.",
+            "run_id": run_id,
+            "buyer_task_id": str(state.get("task_id") or run_id),
+            "buyer_context_id": str(state.get("context_id") or run_id),
+            "award": award.model_dump(mode="json"),
+            "seller_id": seller_id,
+            "seller_card_url": card_url,
+        }
+    )
+    payload = interrupted if isinstance(interrupted, dict) else {}
+    try:
+        agreement = AgreementProjection.model_validate(payload.get("agreement"))
+    except Exception as exc:
+        raise AgreementProtocolError("canonical agreement is invalid") from exc
+    if (
+        agreement.run_id != run_id
+        or agreement.buyer_id != award.buyer_id
+        or agreement.seller_id != award.seller_id
+        or agreement.offer_id != award.offer_id
+    ):
+        raise AgreementProtocolError(
+            "canonical agreement does not match the awarded offer"
+        )
+    if agreement_mismatch_reason(agreement, state):
+        raise AgreementProtocolError(
+            "canonical agreement does not match the awarded offer"
+        )
+    settlement = {
+        "run_id": run_id,
+        "transaction_id": agreement.transaction_id,
+        "agreement_version": agreement.agreement_version,
+        "agreement_hash": agreement.agreement_hash,
+        "agreement": agreement.model_dump(mode="json"),
+        "seller_token_ref": str(
+            payload.get("seller_token_ref")
+            or f"run:{run_id}:transaction:{agreement.transaction_id}"
+        ),
+        "state": "AWARDED",
+        "funding_state": "AWARDED",
+    }
+    await _upsert(services, run_id, stage="awarded")
+    return {
+        "agreement": settlement["agreement"],
+        "settlement": settlement,
+        "stage": "awarded",
+    }
 
 
-def settlement_accept_route(state) -> str:
-    return "rejected" if state.get("stage") == "canceled" else "accepted"
+async def report_buyer_review(state: BuyerState, config: dict) -> dict:
+    services = _services(config)
+    settlement = state.get("settlement") or {}
+    agreement = AgreementProjection.model_validate(
+        settlement.get("agreement") or {}
+    )
+    reason = agreement_mismatch_reason(agreement, state)
+    decision = "accepted" if reason is None else "rejected"
+    projection = await services.settlement.buyer_review(
+        agreement.transaction_id,
+        buyer_id=agreement.buyer_id,
+        agreement_version=agreement.agreement_version,
+        agreement_hash=agreement.agreement_hash,
+        decision=decision,
+        buyer_task_id=str(state.get("task_id") or state.get("run_id") or ""),
+        reviewed_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        reason_code=reason,
+        note="" if reason is None else "Agreement does not match the awarded offer and mandate.",
+        idempotency_key=(
+            f"buyer-review:{agreement.transaction_id}:"
+            f"{agreement.agreement_version}:{agreement.agreement_hash}"
+        ),
+    )
+    review = {
+        "status": decision,
+        "agreement_version": agreement.agreement_version,
+        "agreement_hash": agreement.agreement_hash,
+        "task_id": str(state.get("task_id") or state.get("run_id") or ""),
+        "reviewed_at": str(
+            (projection.get("buyer_agent_review") or {}).get("reviewed_at")
+            or datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        ),
+        "reason_code": reason,
+    }
+    updated = {
+        **settlement,
+        "state": projection.get("state") or settlement.get("state"),
+        "funding_state": projection.get("state") or settlement.get("state"),
+    }
+    stage = "buyer_reviewed" if decision == "accepted" else "rejected"
+    if decision == "rejected":
+        stage = "rejected"
+    await _upsert(services, str(state.get("run_id") or ""), stage=stage)
+    return {"buyer_review": review, "settlement": updated, "stage": stage}
 
 
-def settlement_approval_route(state) -> str:
-    approval = state.get("approval") or {}
-    if state.get("settlement"):
-        return "settlement"
-    return "off" if approval.get("approved") else "rejected"
+async def await_seller_review(state: BuyerState, config: dict) -> dict:
+    settlement = state.get("settlement") or {}
+    agreement = AgreementProjection.model_validate(
+        settlement.get("agreement") or {}
+    )
+    resumed = interrupt(
+        {
+            "reason": "seller_review_required",
+            "message": "Request the Seller agent agreement review.",
+            "run_id": str(state.get("run_id") or ""),
+            "transaction_id": agreement.transaction_id,
+            "agreement": agreement.model_dump(mode="json"),
+            "seller_id": agreement.seller_id,
+            "buyer_task_id": str(state.get("task_id") or state.get("run_id") or ""),
+            "buyer_context_id": str(state.get("context_id") or state.get("run_id") or ""),
+            "buyer_agent_review": state.get("buyer_review"),
+            "seller_task_id": None,
+            "seller_context_id": str(state.get("run_id") or ""),
+        }
+    )
+    payload = resumed if isinstance(resumed, dict) else {}
+    try:
+        decision = AgreementReviewResult.model_validate(
+            payload.get("seller_decision")
+        )
+    except Exception as exc:
+        raise AgreementProtocolError("seller review result is invalid") from exc
+    if not seller_decision_matches(decision, agreement):
+        raise AgreementProtocolError(
+            "seller review result does not match the agreement"
+        )
+    return {
+        "seller_decision": decision.model_dump(mode="json"),
+        "stage": "seller_reviewed",
+    }
 
 
-def settlement_funding_route(state) -> str:
-    funding_state = (state.get("settlement") or {}).get("funding_state")
-    if funding_state == "FUNDED":
-        return "order"
-    if funding_state in {"FAILED", "CANCELED"}:
-        return "failed"
-    return "wait"
-
-
-def settlement_release_route(state) -> str:
-    settlement_state = (state.get("settlement") or {}).get("state")
-    if settlement_state == "RELEASED":
-        return "done"
-    if settlement_state == "REVIEW_REQUIRED":
-        return "review"
-    return "wait"
+async def report_seller_review(state: BuyerState, config: dict) -> dict:
+    services = _services(config)
+    settlement = state.get("settlement") or {}
+    run_id = str(state.get("run_id") or "")
+    decision = AgreementReviewResult.model_validate(
+        state.get("seller_decision") or {}
+    )
+    accepted = decision.status == AgreementReviewDecision.ACCEPTED
+    agreement = settlement.get("agreement") or {}
+    if accepted:
+        projection = await services.settlement.accept(
+            str(settlement.get("transaction_id") or ""),
+            seller_id=str(agreement["seller_id"]),
+            agreement_hash=str(agreement["agreement_hash"]),
+            accepted_total_cents=int(agreement["amount_cents"]),
+            seller_task_id=str(decision.task_id),
+            accepted_at=decision.reviewed_at.isoformat().replace("+00:00", "Z"),
+        )
+        stage = "agreed"
+    else:
+        projection = await services.settlement.reject(
+            str(settlement.get("transaction_id") or ""),
+            seller_id=str(agreement["seller_id"]),
+            agreement_hash=str(agreement["agreement_hash"]),
+            reason_code=str(decision.reason_code or "terms_mismatch"),
+            note=str(decision.note or ""),
+            seller_task_id=str(decision.task_id),
+            rejected_at=decision.reviewed_at.isoformat().replace("+00:00", "Z"),
+        )
+        stage = "rejected"
+    updated = {
+        **settlement,
+        "state": projection.get("state") or settlement.get("state"),
+        "funding_state": projection.get("state") or settlement.get("state"),
+    }
+    await _upsert(services, run_id, stage=stage)
+    return {
+        "seller_decision": decision.model_dump(mode="json"),
+        "settlement": updated,
+        "stage": stage,
+    }
 
 
 class AgreementProtocolError(ValueError):
@@ -1115,7 +1314,7 @@ def _terms_total(line_items: list[dict]) -> int:
     )
 
 
-def agreement_mismatch_reason(agreement, state: dict) -> str | None:
+def agreement_mismatch_reason(agreement, state: Mapping[str, Any]) -> str | None:
     winner = (state.get("award") or {}).get("winner") or {}
     buyer_id = str((state.get("mandate") or {}).get("buyer_id") or "demo-buyer")
     expected = {

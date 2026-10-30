@@ -124,8 +124,9 @@ task/context ids, and — after the fix described in the prior analysis — any 
   `approved`, `approved_by`, `note`.
 - The orchestrator calls the frontend `request_award_approval` tool with the exact values and waits.
 - On resume:
-  - `approved: true` + non-empty `approved_by` → creates an `ApprovalReceipt` and proceeds to
-    `place_order`.
+  - `approved: true` + non-empty `approved_by` → in `VERIFUND_MODE=off`, creates an `ApprovalReceipt`
+    and proceeds to `place_order`; in settlement mode, the buyer resumes at
+    `create_settlement_award` with the canonical agreement flow.
   - `approved: false` or the AG-UI cancellation sentinel → `cancel_losers`.
 - The seller never sees an approval decision that did not come through this graph resume.
 
@@ -158,7 +159,7 @@ Rejection path (`cancel_losers`): all negotiations → `cancelled`, `stage = "re
 
 ### 5.2 Path B — Verifund settlement: award → agreement → funding → order → evidence → release → payout
 
-Triggered when `VERIFUND_MODE != off`. The control-plane state machine:
+Triggered when `VERIFUND_MODE != off`. The Verifund control-plane state machine:
 
 ```
 AWARDED → AGREED → FUNDING_PENDING → FUNDED → FULFILLMENT_PENDING
@@ -168,31 +169,29 @@ AWARDED → AGREED → FUNDING_PENDING → FUNDED → FULFILLMENT_PENDING
 with `REVIEW_REQUIRED`, `CANCELED`, `FAILED` as exception/terminal states. Policy computes
 `RELEASE_PERMITTED`; a reviewer performs the audited release.
 
-Steps (across buyer internal routes, Verifund A2A agent, and control plane):
+After the human award approval, the buyer graph ends at the bilateral agreement and the rest of the
+settlement lifecycle is owned by the Verifund agent through the orchestrator:
 
-1. **Create award** (`create_award`) — buyer calls control plane `/award` with the award terms.
-   Control plane creates the transaction in `AWARDED`, hashes the agreement, returns
-   `transaction_id`, `agreement_hash`, and a seller token. Buyer stores the seller token in
-   `run_secrets` and saves the projection.
-2. **Report approval** (`report_approval`) — if approved, control plane `approve` transitions
-   `AWARDED → AGREED` (requires seller decision `accepted`) and sets a funding deadline. If
-   rejected → `cancel` (`BUYER_REJECTED`) → `CANCELED`.
-3. **Bilateral agreement review** — `await_buyer_review` (buyer reviews canonical agreement;
-   must match run/transaction/version/hash) → `await_seller_review` (seller accepts/rejects).
-   Both accepted → `AGREED`.
-4. **Funding approval** (`await_funding_approval`) — human approves/rejects funding.
-5. **Fund** (`fund_transaction`) — buyer `approve_funding` calls control plane `approve` + `fund`,
-   producing a PayPal checkout URL and expiry → `FUNDING_PENDING`. `await_funding_settlement`
-   waits until state is `FUNDED` (payer completes checkout on PayPal's hosted page).
-6. **Purchase order** (`request_purchase_order` → `await_purchase_order` → `report_purchase_order`)
-   — buyer internal `purchase_order` requires `FUNDED` state and a recorded funding approval,
-   builds a `PurchaseOrderRequest` carrying the approval receipt + agreement hash; seller validates,
-   reserves stock, creates order; buyer reports to control plane → `FULFILLMENT_PENDING`.
-7. **Evidence** (`await_evidence`) — waits for seller fulfillment evidence; control plane computes
-   verification → `RELEASE_PERMITTED` or `REVIEW_REQUIRED`. Partial evidence never releases.
-8. **Release** (`await_release` → `release_transaction`) — reviewer approves payout release (or
-   flags review). On approve → payout → `RELEASED` (or `REVIEW_REQUIRED` on payout failure).
-9. **Receipt** (`get_receipt`) — fetches the signed receipt. Stage `completed`.
+1. **Buyer award → canonical agreement** (`create_settlement_award`) — the buyer graph pauses with
+   `reason="agreement_create_required"` and carries the flat `AwardRequest` (run, buyer, seller, offer,
+   line items, totals) plus the awarded seller's card URL. On resume the buyer validates the canonical
+   agreement against the award and mandate (hash-bound); mismatch → buyer rejects, transaction
+   `CANCELED`. Both parties accepting → `AGREED`.
+2. **Funding approval** (`verifund_fund`) — the Verifund lifecycle returns
+   `approval_required` with `hitl.tool="request_verifund_funding_approval"`; the orchestrator passes
+   `hitl.args` to the frontend unchanged, then resumes the funding checkpoint with the structured
+   human decision (`verifund_fund`). Rejection → transaction `CANCELED`.
+3. **Fund** — `FUNDING_PENDING` until the payer completes the PayPal checkout; `verifund_evidence_review`
+   waits for funding at `FUNDED`, then places the purchase order with the seller and reports it
+   (`FULFILLMENT_PENDING`).
+4. **Evidence / verification** — control plane computes verification from seller fulfillment evidence;
+   partial evidence never releases; outcome `RELEASE_PERMITTED` or `REVIEW_REQUIRED`.
+5. **Release** — reviewer approves the audited release (or flags a manual review); payout → `RELEASED`
+   (or `REVIEW_REQUIRED` on payout failure).
+6. **Receipt** — fetch the signed receipt; stage `completed`.
+
+The Verifund lifecycle task (`VerifundLifecycle`) owns funding, purchase order, evidence, release, and
+receipt steps; the buyer agent only produces the award decision and the bilateral agreement outcome.
 
 The Transaction Room in the console shows synchronized funding, evidence, verification, payout,
 cancellation, and signed receipt details.
@@ -219,6 +218,19 @@ Human award approval protocol (orchestrator, §5 of its instruction):
   `task_id`:
   `{"approval": {"approved": true, "approved_by": "...", "note": "..."}, "task_id": "..."}`.
 - Never lift fields to top level, rename keys, or wrap in prose. Never infer approval.
+
+Verifund settlement protocol (orchestrator, §6 of its instruction):
+
+- After the buyer approval resumes the sourcing run, the buyer graph pauses with
+  `reason="agreement_create_required"`. Call `verifund_create_agreement` with the exact run,
+  task/context, flat award, seller card URL, and seller ID; it mediates the buyer review, seller
+  review, and the buyer's recorded seller decision.
+- When Verifund returns `approval_required` with `hitl.tool="request_verifund_funding_approval"`, pass
+  `hitl.args` to the frontend unchanged and resume with `verifund_fund`.
+- After funding, call `verifund_evidence_review` to place the purchase order and poll funding/evidence.
+- When Verifund returns `approval_required` with `hitl.tool="request_verifund_release_approval"`, pass
+  `hitl.args` unchanged and resume with `verifund_release`; then call `verifund_receipt` for the signed
+  receipt.
 
 ---
 
