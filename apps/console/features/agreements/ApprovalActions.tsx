@@ -15,6 +15,9 @@ type Props = {
   disabled?: boolean;
   stale?: boolean;
   isStale?: boolean;
+  staleDigest?: boolean;
+  isStaleDigest?: boolean;
+  digestStale?: boolean;
 };
 
 export function ApprovalActions({
@@ -29,12 +32,17 @@ export function ApprovalActions({
   disabled,
   stale,
   isStale,
+  staleDigest,
+  isStaleDigest,
+  digestStale,
 }: Props) {
   const [note, setNote] = useState("");
   const a = agreement ?? {};
   const v = version ?? agreementVersion ?? a.current_version ?? a.agreement_version;
   const h = hash ?? agreementHash ?? a.agreement_hash ?? a.version?.agreement_hash;
-  const staleFlag = Boolean(stale || isStale || disabled);
+  const staleFlag = Boolean(
+    stale || isStale || disabled || staleDigest || isStaleDigest || digestStale,
+  );
 
   const handle = async (fn?: (n: string) => void | Promise<void>) => {
     if (!fn || staleFlag) return;
