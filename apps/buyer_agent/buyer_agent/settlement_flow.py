@@ -4,7 +4,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from commerce_core.contracts import PurchaseOrderRequest
+from commerce_core.binding import canonical_offer_binding, offer_hash
+from commerce_core.contracts import Offer, PurchaseOrderRequest
 from verifund_contracts import (
     AwardLineItem,
     AwardRequest,
@@ -33,14 +34,60 @@ def build_award_request(
     run_id: str, mandate: dict[str, Any], award: dict[str, Any]
 ) -> AwardRequest:
     winner = award["winner"]
+    normalized = {
+        "offer_id": winner["offer_id"],
+        "request_id": winner.get("request_id") or f"rfq-{run_id}",
+        "seller_id": winner["seller_id"],
+        "seller_name": winner.get("seller_name") or winner["seller_id"],
+        "seller_rating": winner.get("seller_rating", 4.5),
+        "currency": winner.get("currency", "USD"),
+        "line_items": [
+            {
+                "sku": item["sku"],
+                "name": item["name"],
+                "quantity": item["quantity"],
+                "unit_price_cents": item["unit_price_cents"],
+                "list_unit_price_cents": item.get(
+                    "list_unit_price_cents", item["unit_price_cents"]
+                ),
+                "warranty_addon_cents": item.get("warranty_addon_cents", 0),
+            }
+            for item in winner["line_items"]
+        ],
+        "subtotal_cents": winner.get(
+            "subtotal_cents",
+            sum(
+                (i["unit_price_cents"] + i.get("warranty_addon_cents", 0))
+                * i["quantity"]
+                for i in winner["line_items"]
+            ),
+        ),
+        "shipping_cents": winner.get("shipping_cents", 0),
+        "tax_cents": winner.get("tax_cents", 0),
+        "fees_cents": winner.get("fees_cents", 0),
+        "total_cents": winner["total_cents"],
+        "delivery_days": winner["delivery_days"],
+        "warranty_months": winner["warranty_months"],
+        "returns_days": winner["returns_days"],
+        "round": winner.get("round", 1),
+        "valid_until": winner.get("valid_until")
+        or (datetime.now(UTC) + timedelta(hours=1)),
+    }
+    offer = Offer.model_validate(normalized)
+    computed_offer_hash = offer_hash(canonical_offer_binding(offer))
     return AwardRequest(
         run_id=run_id,
         buyer_id=str(mandate.get("buyer_id") or "demo-buyer"),
         seller_id=winner["seller_id"],
         offer_id=winner["offer_id"],
+        request_id=winner.get("request_id") or f"rfq-{run_id}",
+        buyer_display_name=str(mandate.get("buyer_id") or "Demo Buyer"),
+        seller_display_name=winner.get("seller_name") or winner["seller_id"],
         currency=winner.get("currency", "USD"),
         amount_cents=winner["total_cents"],
         shipping_cents=winner.get("shipping_cents", 0),
+        tax_cents=winner.get("tax_cents", 0),
+        fees_cents=winner.get("fees_cents", 0),
         quantity=sum(item["quantity"] for item in winner["line_items"]),
         line_items=[
             AwardLineItem(
@@ -55,6 +102,18 @@ def build_award_request(
         delivery_days=winner["delivery_days"],
         warranty_months=winner["warranty_months"],
         returns_days=winner["returns_days"],
+        offer_round=winner.get("round", 1),
+        offer_hash=winner.get("offer_hash") or computed_offer_hash,
+        offer_valid_until=winner.get("valid_until")
+        or datetime.now(UTC) + timedelta(hours=1),
+        inspection_period_hours=48,
+        inspection_starts_on="DELIVERY_CONFIRMED",
+        evidence_required=[
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        dispute_window_hours=72,
     )
 
 
@@ -86,6 +145,8 @@ async def create_award(
     return {
         "transaction_id": response["transaction_id"],
         "agreement_hash": response["agreement_hash"],
+        "offer_hash": request.offer_hash,
+        "agreement_version": response.get("agreement_version", 1),
         "seller_id": request.seller_id,
         "offer_id": request.offer_id,
         "amount_cents": request.amount_cents,
@@ -149,6 +210,8 @@ async def report_acceptance(
         accepted_total_cents=settlement["amount_cents"],
         seller_task_id=seller_task_id,
         accepted_at=_iso(accepted_at),
+        agreement_version=settlement.get("agreement_version"),
+        offer_hash=settlement.get("offer_hash"),
     )
 
 
@@ -200,6 +263,7 @@ async def report_approval(
         approved_at=_iso(datetime.now(UTC)),
         note=str(approval.get("note") or ""),
         agreement_hash=settlement["agreement_hash"],
+        agreement_version=settlement.get("agreement_version"),
     )
 
 
@@ -209,6 +273,7 @@ async def start_funding(
     console = str(services.settings.console_base_url).rstrip("/")
     request = FundRequest(
         agreement_hash=settlement["agreement_hash"],
+        agreement_version=settlement.get("agreement_version", 1),
         return_url=f"{console}/runs/{run_id}",
         cancel_url=f"{console}/runs/{run_id}",
     )

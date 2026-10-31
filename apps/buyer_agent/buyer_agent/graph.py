@@ -1017,6 +1017,9 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
     async def _report_seller_review(state, config):
         return await report_seller_review(state, config)
 
+    async def _precheck(state, config):
+        return await precheck_node(state, config)
+
     def with_planner(fn):
         async def wrapped(state, config):
             config = dict(config)
@@ -1045,6 +1048,7 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
         ("report_buyer_review", _report_buyer_review),
         ("await_seller_review", _await_seller_review),
         ("report_seller_review", _report_seller_review),
+        ("precheck", _precheck),
     ]:
         builder.add_node(name, with_planner(fn))
 
@@ -1084,14 +1088,10 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
             "rejected": "cancel_losers",
         },
     )
-    builder.add_edge("create_settlement_award", "report_buyer_review")
-    builder.add_conditional_edges(
-        "report_buyer_review",
-        buyer_review_route,
-        {"accepted": "await_seller_review", "rejected": "finalize"},
-    )
+    builder.add_edge("create_settlement_award", "await_seller_review")
     builder.add_edge("await_seller_review", "report_seller_review")
-    builder.add_edge("report_seller_review", "finalize")
+    builder.add_edge("report_seller_review", "precheck")
+    builder.add_edge("precheck", "finalize")
     builder.add_edge("place_order", "finalize")
     builder.add_edge("cancel_losers", "finalize")
     builder.add_edge("finalize", END)
@@ -1295,6 +1295,36 @@ async def report_seller_review(state: BuyerState, config: dict) -> dict:
         "seller_decision": decision.model_dump(mode="json"),
         "settlement": updated,
         "stage": stage,
+    }
+
+
+async def precheck_node(state: BuyerState, config: dict) -> dict:
+    services = _services(config)
+    settlement = state.get("settlement") or {}
+    transaction_id = str(settlement.get("transaction_id") or "")
+    agreement = settlement.get("agreement") or {}
+    result = None
+    if transaction_id:
+        precheck_fn = None
+        agreements = getattr(services, "agreements", None)
+        if agreements is not None and hasattr(agreements, "precheck"):
+            precheck_fn = agreements.precheck
+        elif getattr(services, "settlement", None) is not None and hasattr(
+            services.settlement, "precheck"
+        ):
+            precheck_fn = services.settlement.precheck
+        if precheck_fn is not None:
+            try:
+                result = await precheck_fn(transaction_id, agreement)
+            except Exception:  # noqa: BLE001
+                result = None
+    updated = {**settlement}
+    if result is not None:
+        updated["buyer_precheck"] = result
+    return {
+        "buyer_precheck": result,
+        "settlement": updated,
+        "stage": state.get("stage"),
     }
 
 

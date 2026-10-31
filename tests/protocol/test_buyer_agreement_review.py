@@ -24,13 +24,18 @@ HASH = "a" * 64
 
 
 def agreement() -> AgreementProjection:
+    # reuse the buyer checkpoint helper payload shape
     payload: dict[str, Any] = {
+        "agreement_id": "agr_1",
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "offer_round": 1,
+        "offer_hash": "a" * 64,
+        "offer_valid_until": "2026-10-28T12:00:00Z",
         "currency": "USD",
         "amount_cents": 123400,
         "quantity": 12,
@@ -44,9 +49,67 @@ def agreement() -> AgreementProjection:
             }
         ],
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": ["delivery_confirmation"],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
+        "terms": {
+            "schema": "verifund.agreement.v1",
+            "agreement_type": "goods",
+            "terms_version": 1,
+            "platform_terms_version": "v1",
+            "parties": {
+                "buyer": {"id": "demo-buyer", "display_name": "Buyer"},
+                "seller": {"id": "northwind-audio", "display_name": "Seller"},
+            },
+            "offer": {
+                "offer_id": "offer-1",
+                "request_id": "r1",
+                "offer_round": 1,
+                "offer_hash": "a" * 64,
+                "offer_valid_until": "2026-10-28T12:00:00Z",
+            },
+            "items": [
+                {
+                    "sku": "NC-700",
+                    "name": "Nimbus NC-700 ANC Headset",
+                    "quantity": 12,
+                    "unit_price_cents": 10000,
+                    "warranty_addon_cents": 0,
+                    "line_total_cents": 120000,
+                }
+            ],
+            "totals": {
+                "currency": "USD",
+                "subtotal_cents": 120000,
+                "shipping_cents": 3400,
+                "tax_cents": 0,
+                "fees_cents": 0,
+                "total_cents": 123400,
+            },
+            "delivery": {"delivery_days": 7, "starts_on": "FUNDING_CONFIRMED"},
+            "warranty_months": 24,
+            "returns_days": 30,
+            "inspection": {"period_hours": 48, "starts_on": "DELIVERY_CONFIRMED"},
+            "evidence_required": ["delivery_confirmation"],
+            "remedies": {
+                "non_delivery": "cancel_and_refund",
+                "late_delivery": "cancel_and_refund",
+                "damaged_goods": "refund_or_replacement",
+            },
+            "dispute_window_hours": 72,
+        },
+        "status": "PENDING_SELLER",
         "created_at": "2026-10-27T12:00:00Z",
     }
     probe = AgreementProjection.model_construct(**payload, agreement_hash="0" * 64)
@@ -115,6 +178,9 @@ def seller_message(**overrides) -> Message:
         "transaction_id": "vf_1",
         "agreement_version": 1,
         "agreement_hash": agreement().agreement_hash,
+        "offer_hash": "a" * 64,
+        "actor_type": "SELLER_AGENT",
+        "actor_id": "northwind-audio",
         "task_id": "seller-task-1",
         "context_id": "run-1",
         "reviewed_at": NOW,

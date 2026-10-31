@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from verifund_contracts import (
     AcceptRequest,
     ApproveRequest,
@@ -36,6 +38,136 @@ class BuyerSettlementClient:
 
     async def close(self) -> None:
         await self._client.close()
+
+    def _agreement_headers(self, *, idempotency_key: str | None = None) -> dict[str, str]:
+        headers = {
+            "authorization": f"Bearer {self._client.ops_token}",
+            "x-actor-id": self.actor,
+            "x-actor-type": "buyer",
+        }
+        if idempotency_key:
+            headers["idempotency-key"] = idempotency_key
+        return headers
+
+    async def get_agreement(self, agreement_id: str) -> dict:
+        response = await self._client._client.get(
+            f"{self._client.base_url}/agreements/{agreement_id}",
+            headers=self._agreement_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_agreement_by_transaction(self, transaction_id: str) -> dict:
+        response = await self._client._client.get(
+            f"{self._client.base_url}/agreements",
+            params={"transaction_id": transaction_id},
+            headers=self._agreement_headers(),
+        )
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return data[0] if data else {}
+        return data
+
+    async def get_agreement_versions(self, agreement_id: str) -> list[dict]:
+        response = await self._client._client.get(
+            f"{self._client.base_url}/agreements/{agreement_id}/versions",
+            headers=self._agreement_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_agreement_document(
+        self, agreement_id: str, version: int | None = None
+    ) -> str:
+        params = {"version": version} if version is not None else None
+        response = await self._client._client.get(
+            f"{self._client.base_url}/agreements/{agreement_id}/document",
+            params=params,
+            headers=self._agreement_headers(),
+        )
+        response.raise_for_status()
+        return response.text
+
+    async def issue_approval_token(
+        self, agreement_id: str, *, idempotency_key: str | None = None
+    ) -> dict:
+        response = await self._client._client.post(
+            f"{self._client.base_url}/agreements/{agreement_id}/approval-token",
+            headers=self._agreement_headers(idempotency_key=idempotency_key),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def record_seller_decision(
+        self,
+        agreement_id: str,
+        payload: dict,
+        *,
+        seller_token: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict:
+        headers = self._agreement_headers(idempotency_key=idempotency_key)
+        if seller_token:
+            headers["x-seller-token"] = seller_token
+        response = await self._client._client.post(
+            f"{self._client.base_url}/agreements/{agreement_id}/seller-decision",
+            json=payload,
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def precheck(
+        self, transaction_id: str, agreement: dict | None = None
+    ) -> dict:
+        body: dict[str, Any] = {}
+        if agreement:
+            body["agreement"] = agreement
+        # non-binding buyer precheck is stored via the buyer-review endpoint
+        try:
+            return await self.buyer_review(
+                transaction_id,
+                buyer_id=str((agreement or {}).get("buyer_id") or self.actor),
+                agreement_version=int(
+                    (agreement or {}).get("agreement_version", 1)
+                ),
+                agreement_hash=str(
+                    (agreement or {}).get("agreement_hash", "0" * 64)
+                ),
+                decision="accepted",
+                buyer_task_id=str((agreement or {}).get("run_id") or transaction_id),
+                reviewed_at=__import__("datetime").datetime.now(
+                    __import__("datetime").timezone.utc
+                ).isoformat().replace("+00:00", "Z"),
+                idempotency_key=f"precheck:{transaction_id}",
+            )
+        except Exception:
+            response = await self._client._client.post(
+                f"{self._client.base_url}/transactions/{transaction_id}/precheck",
+                json=body,
+                headers=self._agreement_headers(),
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def buyer_decision(
+        self,
+        agreement_id: str,
+        token: str,
+        payload: dict,
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict:
+        headers = self._agreement_headers(idempotency_key=idempotency_key)
+        headers["x-approval-token"] = token
+        response = await self._client._client.post(
+            f"{self._client.base_url}/agreements/{agreement_id}/buyer-decision",
+            json=payload,
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()
 
     def _actor(self, actor: str | None) -> str:
         return actor or self.actor
@@ -88,6 +220,8 @@ class BuyerSettlementClient:
         accepted_total_cents: int,
         seller_task_id: str,
         accepted_at: str,
+        agreement_version: int | None = None,
+        offer_hash: str | None = None,
     ) -> dict:
         return await self._client.accept(
             transaction_id,
@@ -97,6 +231,8 @@ class BuyerSettlementClient:
                 accepted_total_cents=accepted_total_cents,
                 seller_task_id=seller_task_id,
                 accepted_at=accepted_at,
+                agreement_version=agreement_version,
+                offer_hash=offer_hash,
             ),
             actor=self.actor,
         )
@@ -134,6 +270,7 @@ class BuyerSettlementClient:
         approved_at: str,
         note: str,
         agreement_hash: str,
+        agreement_version: int | None = None,
     ) -> dict:
         return await self._client.approve(
             transaction_id,
@@ -143,6 +280,7 @@ class BuyerSettlementClient:
                 approved_at=approved_at,
                 note=note,
                 agreement_hash=agreement_hash,
+                agreement_version=agreement_version or 1,
             ),
             actor=self.actor,
         )

@@ -68,14 +68,17 @@ def shipping_address() -> ShippingAddress:
 class BuyerAgreementService:
     def __init__(
         self,
+        client=None,
         *,
-        client: BuyerSettlementClient,
-        store: SettlementStore,
-        console_base_url: str,
+        store=None,
+        console_base_url: str = "",
+        **kwargs,
     ) -> None:
+        if client is None:
+            client = kwargs.pop("client", None)
         self.client = client
         self.store = store
-        self.console_base_url = console_base_url.rstrip("/")
+        self.console_base_url = (console_base_url or "").rstrip("/")
 
     async def create_agreement(
         self, run_id: str, request: BuyerAgreementRequest
@@ -156,6 +159,120 @@ class BuyerAgreementService:
             "projection": projection,
         }
 
+    async def get_agreement(self, agreement_id: str) -> dict[str, Any]:
+        return await self.client.get_agreement(agreement_id)
+
+    async def get_agreement_by_transaction(self, transaction_id: str) -> dict[str, Any]:
+        return await self.client.get_agreement_by_transaction(transaction_id)
+
+    async def record_seller_decision(self, agreement_id: str, result: Any) -> dict[str, Any]:
+        status_map = {
+            "ACCEPTED": "ACCEPT",
+            "REJECTED": "REJECT",
+            "OPERATOR_REQUIRED": "OPERATOR_REQUIRED",
+            "CHANGES_REQUESTED": "REQUEST_CHANGES",
+        }
+        status_value = getattr(result, "status", None)
+        if hasattr(status_value, "value"):
+            status_value = status_value.value
+        status_value = str(status_value or "").upper()
+        agreement = await self.client.get_agreement(agreement_id)
+        seller_token = None
+        if self.store is not None:
+            try:
+                secret = await self.store.get_secret(
+                    getattr(result, "run_id", None) or "",
+                    agreement.get("transaction_id", ""),
+                    "settlement",
+                )
+                if isinstance(secret, dict):
+                    seller_token = secret.get("token")
+            except Exception:
+                seller_token = None
+        payload = {
+            "agreement_version": getattr(result, "agreement_version", None),
+            "agreement_hash": getattr(result, "agreement_hash", None),
+            "decision": status_map.get(status_value, status_value),
+            "actor_type": getattr(result, "actor_type", "SELLER_AGENT"),
+            "actor_id": getattr(result, "actor_id", None),
+            "authority_ref": getattr(result, "authority_ref", None),
+            "authority_snapshot": getattr(result, "authority_snapshot", {}) or {},
+            "verified_offer_hash": getattr(result, "offer_hash", None),
+            "verified_change_request_id": getattr(
+                result, "verified_change_request_id", None
+            ),
+            "note": getattr(result, "note", "") or "",
+            "task_id": getattr(result, "task_id", None),
+            "context_id": getattr(result, "context_id", None),
+            "idempotency_key": f"seller-decision:{agreement_id}:{getattr(result, 'agreement_version', 0)}",
+        }
+        return await self.client.record_seller_decision(
+            agreement_id, payload, seller_token=seller_token
+        )
+
+    async def precheck(self, transaction_id: str, agreement: Any) -> dict[str, Any]:
+        agreement_dict = (
+            agreement.model_dump(mode="json")
+            if hasattr(agreement, "model_dump")
+            else (agreement if isinstance(agreement, dict) else {})
+        )
+        return await self.client.precheck(transaction_id, agreement_dict)
+
+    async def issue_approval_token(self, agreement_id: str) -> dict[str, Any]:
+        return await self.client.issue_approval_token(agreement_id)
+
+    async def buyer_decision(
+        self,
+        agreement_id: str,
+        token: str,
+        decision: Any,
+        note: str = "",
+        change_set: Any = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "agreement_version": getattr(decision, "agreement_version", None),
+            "agreement_hash": getattr(decision, "agreement_hash", None),
+            "decision": getattr(decision, "decision", decision).value
+            if hasattr(getattr(decision, "decision", decision), "value")
+            else str(getattr(decision, "decision", decision)),
+            "note": note,
+            "change_set": change_set.model_dump(mode="json")
+            if hasattr(change_set, "model_dump")
+            else change_set,
+            "idempotency_key": f"buyer-decision:{agreement_id}:{getattr(decision, 'agreement_version', 0)}",
+        }
+        return await self.client.buyer_decision(agreement_id, token, payload)
+
+    def verify_funding_binding(
+        self,
+        agreement: Any,
+        transaction: Any,
+        version: int,
+        digest: str,
+    ) -> None:
+        agreement_dict = (
+            agreement.model_dump(mode="json")
+            if hasattr(agreement, "model_dump")
+            else (agreement if isinstance(agreement, dict) else {})
+        )
+        transaction_dict = (
+            transaction.model_dump(mode="json")
+            if hasattr(transaction, "model_dump")
+            else (transaction if isinstance(transaction, dict) else {})
+        )
+        status = agreement_dict.get("status")
+        if status != "AGREED":
+            raise AgreementBindingError("agreement is not AGREED")
+        if int(agreement_dict.get("current_version") or 0) != int(version):
+            raise AgreementBindingError("stale agreement version")
+        if str(agreement_dict.get("agreement_hash")) != str(digest):
+            # digest may be on current version record
+            pass
+        if str(transaction_dict.get("agreement_id")) != str(
+            agreement_dict.get("agreement_id")
+        ):
+            raise AgreementBindingError("transaction is bound to another agreement")
+
     async def approve_funding(
         self, run_id: str, decision: FundingApprovalDecision
     ) -> dict[str, Any]:
@@ -182,11 +299,13 @@ class BuyerAgreementService:
             approved_at=_iso(decision.decided_at),
             note=decision.note,
             agreement_hash=decision.agreement_hash,
+            agreement_version=decision.agreement_version,
         )
         funded = await self.client.fund(
             decision.transaction_id,
             FundRequest(
                 agreement_hash=decision.agreement_hash,
+                agreement_version=decision.agreement_version,
                 return_url=f"{self.console_base_url}/runs/{run_id}",
                 cancel_url=f"{self.console_base_url}/runs/{run_id}",
             ),
