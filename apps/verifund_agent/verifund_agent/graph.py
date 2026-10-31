@@ -231,6 +231,7 @@ def seller_review_payload(state: VerifundState) -> dict[str, Any]:
         "context_id": state.get("context_id"),
         "buyer_review": state.get("buyer_review"),
         **_binding(agreement),
+        "seller_token_ref": state.get("seller_token_ref"),
         "responseSchema": AgreementReviewResult.model_json_schema(),
     }
 

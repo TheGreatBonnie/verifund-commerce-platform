@@ -300,6 +300,7 @@ async def test_agreement_create_stops_at_the_seller_review() -> None:
     assert result.task_id == "task-1"
     assert result.state == "AWARDED"
     assert result.data["agreement"]["agreement_hash"] == AGREEMENT_HASH
+    assert result.data["seller_token_ref"] == "run:run-1:transaction:vf_1"
     assert result.data["responseSchema"]["title"] == "AgreementReviewResult"
 
 
