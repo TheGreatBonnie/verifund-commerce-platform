@@ -115,6 +115,8 @@ class Offer(CommerceModel):
     line_items: list[OfferLineItem]
     subtotal_cents: int = Field(ge=0)
     shipping_cents: int = Field(default=0, ge=0)
+    tax_cents: int = Field(default=0, ge=0)
+    fees_cents: int = Field(default=0, ge=0)
     total_cents: int = Field(ge=0)
     delivery_days: int = Field(gt=0)
     delivery_date: datetime | None = None
@@ -127,7 +129,7 @@ class Offer(CommerceModel):
     rationale: str = ""
 
     @model_validator(mode="after")
-    def validate_totals(self) -> Offer:
+    def _validate_totals(self) -> Offer:
         computed = 0
         for item in self.line_items:
             if item.quantity <= 0:
@@ -141,8 +143,11 @@ class Offer(CommerceModel):
             ) * item.quantity
         if computed != self.subtotal_cents:
             raise ValueError("subtotal_cents does not match line items")
-        if self.total_cents != self.subtotal_cents + self.shipping_cents:
-            raise ValueError("total_cents does not match subtotal and shipping")
+        if self.total_cents != (
+            self.subtotal_cents + self.shipping_cents
+            + self.tax_cents + self.fees_cents
+        ):
+            raise ValueError("total_cents does not match subtotal, shipping, tax, fees")
         if self.delivery_days <= 0:
             raise ValueError("delivery_days must be positive")
         return self
