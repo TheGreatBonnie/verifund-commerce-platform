@@ -9,11 +9,14 @@ from pydantic import Field, model_validator
 from verifund_contracts.models import (
     AgreementProjection,
     AgreementReviewDecision,
+    BuyerApprovalDecision,
+    ChangeOperation,
+    ChangeSet,
     TransactionState,
     VerifundModel,
 )
 
-VERIFUND_SCHEMA_BASE = "https://marketmesh.example/extensions/verifund/v1/schemas"
+VERIFUND_SCHEMA_BASE = "https://marketmesh.example/extensions/verifund/v2/schemas"
 AGREEMENT_REVIEW_REQUEST_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/agreement-review-request.json"
 AGREEMENT_REVIEW_RESULT_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/agreement-review-result.json"
 VERIFUND_TASK_REQUEST_SCHEMA = f"{VERIFUND_SCHEMA_BASE}/task-request.json"
@@ -33,11 +36,24 @@ class VerifundSkill(StrEnum):
 class VerifundCheckpoint(StrEnum):
     BUYER_REVIEW_REQUIRED = "buyer_review_required"
     SELLER_REVIEW_REQUIRED = "seller_review_required"
+    BUYER_APPROVAL_REQUIRED = "buyer_approval_required"          # NEW
+    SELLER_OPERATOR_REQUIRED = "seller_operator_required"        # NEW
+    AGREEMENT_CHANGES_REQUESTED = "agreement_changes_requested"  # NEW
     FUNDING_APPROVAL_REQUIRED = "funding_approval_required"
     FUNDING_PENDING = "funding_pending"
     PURCHASE_ORDER_REQUIRED = "purchase_order_required"
     EVIDENCE_PENDING = "evidence_pending"
     RELEASE_APPROVAL_REQUIRED = "release_approval_required"
+
+
+class ChangeRequestEnvelope(VerifundModel):
+    """Carries the change-request identity the seller needs to verify the chain."""
+
+    change_request_id: str = Field(min_length=1)
+    base_version: int = Field(ge=1)
+    base_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    operations: list[ChangeOperation] = Field(min_length=1)
+    reason: str = ""
 
 
 class AgreementReviewRequest(VerifundModel):
@@ -51,6 +67,7 @@ class AgreementReviewRequest(VerifundModel):
     seller_context_id: str | None = None
     requested_at: datetime
     idempotency_key: str = Field(min_length=1)
+    change_request: ChangeRequestEnvelope | None = None   # NEW (for N+1)
 
     @model_validator(mode="after")
     def _party_task_is_present(self) -> AgreementReviewRequest:
@@ -83,6 +100,15 @@ class AgreementReviewResult(VerifundModel):
     reviewed_at: datetime
     reason_code: str | None = None
     note: str = ""
+
+
+class BuyerAgreementApprovalDecision(VerifundModel):
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    decision: BuyerApprovalDecision
+    note: str = ""
+    change_set: ChangeSet | None = None
+    idempotency_key: str = Field(min_length=1)
 
 
 class VerifundTaskRequest(VerifundModel):
@@ -150,6 +176,9 @@ class VerifundTaskResult(VerifundModel):
             if self.checkpoint not in {
                 VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
                 VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+                VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+                VerifundCheckpoint.SELLER_OPERATOR_REQUIRED,
+                VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED,
                 VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
             }:
                 raise ValueError(

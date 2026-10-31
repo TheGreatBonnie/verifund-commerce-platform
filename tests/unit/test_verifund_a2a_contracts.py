@@ -15,12 +15,18 @@ from verifund_contracts import (
     AgreementReviewResult,
     AwardRequest,
     AwardResponse,
+    BuyerAgreementApprovalDecision,
     BuyerAgreementRequest,
     BuyerAgreementResponse,
+    BuyerApprovalDecision,
     BuyerOrderReportRequest,
     BuyerOrderReportResponse,
     BuyerPurchaseOrderRequest,
     BuyerPurchaseOrderResponse,
+    ChangeOperation,
+    ChangeOperationType,
+    ChangeRequestEnvelope,
+    ChangeSet,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
     VERIFUND_RESUME_REQUEST_SCHEMA,
@@ -30,6 +36,7 @@ from verifund_contracts import (
     VerifundSkill,
     VerifundTaskRequest,
     VerifundTaskResult,
+    parse_agreement_review_request,
     parse_agreement_review_result,
     parse_verifund_resume_request,
     parse_verifund_task_request,
@@ -245,6 +252,52 @@ def test_agreement_review_envelope_round_trips_and_rejects_a_changed_hash() -> N
         )
 
 
+def test_agreement_review_change_request_envelope_round_trips() -> None:
+    envelope = AgreementReviewRequest(
+        party="seller",
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement=projection(),
+        seller_task_id="seller-task-1",
+        seller_context_id="run-1",
+        requested_at=NOW,
+        idempotency_key="review:vf_1:1",
+        change_request=ChangeRequestEnvelope(
+            change_request_id="cr-1",
+            base_version=1,
+            base_hash=HASH,
+            operations=[
+                ChangeOperation(
+                    op=ChangeOperationType.SET_QUANTITY, quantity=6
+                )
+            ],
+            reason="customer requested fewer units",
+        ),
+    )
+    wire = wrap_agreement_review_request(envelope)
+    assert wire["schema"] == AGREEMENT_REVIEW_REQUEST_SCHEMA
+    parsed = parse_agreement_review_request(wire)
+    assert parsed.change_request is not None
+    assert parsed.change_request.change_request_id == "cr-1"
+    assert parsed.change_request.operations[0].quantity == 6
+
+    # Without change_request the field is optional.
+    plain = AgreementReviewRequest(
+        party="seller",
+        run_id="run-1",
+        transaction_id="vf_1",
+        agreement=projection(),
+        seller_task_id="seller-task-1",
+        seller_context_id="run-1",
+        requested_at=NOW,
+        idempotency_key="review:vf_1:2",
+    )
+    assert plain.change_request is None
+    assert parse_agreement_review_request(
+        wrap_agreement_review_request(plain)
+    ).change_request is None
+
+
 def test_verifund_task_envelope_round_trips_and_requires_known_skill() -> None:
     request = VerifundTaskRequest(
         skill=VerifundSkill.TRANSACTION_FUND,
@@ -342,6 +395,35 @@ def test_task_result_binds_status_checkpoint_and_approval_type() -> None:
         )
 
 
+def test_new_agreement_checkpoints_are_input_required() -> None:
+    for checkpoint in (
+        VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+        VerifundCheckpoint.SELLER_OPERATOR_REQUIRED,
+        VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED,
+    ):
+        result = VerifundTaskResult(
+            skill=VerifundSkill.AGREEMENT_CREATE,
+            status="input_required",
+            task_id="task-1",
+            checkpoint=checkpoint,
+            run_id="run-1",
+        )
+        assert result.checkpoint == checkpoint
+        with pytest.raises(ValidationError):
+            VerifundTaskResult.model_validate(
+                {**result.model_dump(), "approval_type": "funding"}
+            )
+        with pytest.raises(ValidationError):
+            VerifundTaskResult(
+                skill=VerifundSkill.AGREEMENT_CREATE,
+                status="input_required",
+                task_id="task-1",
+                checkpoint=checkpoint,
+                run_id="run-1",
+                approval_type="release",
+            )
+
+
 def test_buyer_agreement_contracts_carry_the_secret_reference_only() -> None:
     request = BuyerAgreementRequest(
         award=AwardRequest(
@@ -402,6 +484,46 @@ def test_buyer_agreement_contracts_carry_the_secret_reference_only() -> None:
     dumped = response.model_dump(mode="json")
     assert "seller_token" not in dumped
     assert dumped["seller_token_ref"] == "run:run-1:transaction:vf_1"
+
+
+def test_buyer_agreement_approval_decision_binds_the_agreement() -> None:
+    decision = BuyerAgreementApprovalDecision(
+        agreement_version=1,
+        agreement_hash=HASH,
+        decision=BuyerApprovalDecision.APPROVE,
+        note="looks good",
+        change_set=None,
+        idempotency_key="buyer-approval:vf_1:1",
+    )
+    assert decision.decision == "APPROVE"
+    assert decision.change_set is None
+
+    with pytest.raises(ValidationError):
+        BuyerAgreementApprovalDecision(
+            agreement_version=1,
+            agreement_hash="not-a-hash",
+            decision=BuyerApprovalDecision.APPROVE,
+            idempotency_key="buyer-approval:vf_1:2",
+        )
+
+    changes = ChangeSet(
+        operations=[
+            ChangeOperation(
+                op=ChangeOperationType.SET_QUANTITY, quantity=6
+            )
+        ],
+        reason="fewer units",
+    )
+    decision_with_changes = BuyerAgreementApprovalDecision(
+        agreement_version=2,
+        agreement_hash=HASH,
+        decision=BuyerApprovalDecision.REQUEST_CHANGES,
+        note="requesting changes",
+        change_set=changes,
+        idempotency_key="buyer-approval:vf_1:3",
+    )
+    assert decision_with_changes.change_set is not None
+    assert decision_with_changes.change_set.operations[0].quantity == 6
 
 
 def test_buyer_purchase_order_contract_binds_and_hides_the_token() -> None:
