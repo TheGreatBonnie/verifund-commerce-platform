@@ -725,8 +725,11 @@ class VerifundLifecycle:
             )
             or f"buyer-approval:{handle.task_id}",
         )
-        agreement = await self.verifund.get_agreement(handle)
-        if agreement.get("status") != "AGREED":
+        agreement = result.data.get("agreement") if isinstance(result.data, dict) else None
+        if not isinstance(agreement, dict) or agreement.get("status") != "AGREED":
+            # Fall back to the buyer store, which may lag the control plane.
+            agreement = await self.verifund.get_agreement(handle)
+        if not isinstance(agreement, dict) or agreement.get("status") != "AGREED":
             raise VerifundProtocolError("agreement is not agreed")
         return self._view(handle, result)
 

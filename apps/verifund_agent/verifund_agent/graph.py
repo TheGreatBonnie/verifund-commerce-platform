@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 
 from langchain_core.runnables import RunnableConfig
@@ -10,6 +11,7 @@ from verifund_contracts import (
     BuyerAgreementApprovalDecision,
     BuyerAgreementRequest,
     BuyerAgreementResponse,
+    BuyerApprovalDecision,
     BuyerOrderReportRequest,
     BuyerOrderReportResponse,
     BuyerPurchaseOrderRequest,
@@ -403,6 +405,11 @@ async def sync_agreement(
     agreement = view.get("agreement")
     if not isinstance(agreement, dict):
         raise VerifundProtocolError("buyer returned no agreement")
+    # The buyer's cached agreement may lag the control plane. If a seller
+    # decision has already been recorded in this lifecycle, a stale
+    # PENDING_SELLER value should be treated as PENDING_BUYER.
+    if agreement.get("status") == "PENDING_SELLER" and state.get("seller_decision"):
+        agreement = {**agreement, "status": "PENDING_BUYER"}
     return {"agreement": agreement, "stage": state.get("stage", "awarded")}
 
 
@@ -446,17 +453,37 @@ async def await_buyer_approval(
     buyer = _buyer(config)
     run_id = state.get("run_id") or agreement.run_id
     latest = await buyer.get_agreement(run_id)
-    if latest.get("status") != "AGREED":
+    # The buyer's cached agreement may lag the control plane (e.g. still
+    # PENDING_SELLER/PENDING_BUYER); only reject clearly terminal mismatches.
+    if latest and str(latest.get("status") or "").upper() in {
+        "REJECTED",
+        "CANCELED",
+        "TERMINATED",
+        "EXPIRED",
+        "FAILED",
+    }:
         raise VerifundProtocolError("agreement is not agreed")
-    if (
-        latest.get("agreement_version", agreement.agreement_version)
-        != agreement.agreement_version
-        or latest.get("agreement_hash", agreement.agreement_hash)
-        != agreement.agreement_hash
-    ):
-        # accept if status agreed; update agreement
-        pass
-    return {"agreement": latest, "stage": "agreed"}
+    buyer_review = {
+        "status": (
+            "accepted"
+            if decision.decision == BuyerApprovalDecision.APPROVE
+            else "rejected"
+        ),
+        "agreement_version": decision.agreement_version,
+        "agreement_hash": decision.agreement_hash,
+        "reviewed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "reason_code": None,
+        "note": decision.note or "",
+    }
+    agreement_payload = (
+        latest if isinstance(latest, dict) else agreement.model_dump(mode="json")
+    )
+    agreement_payload = {**agreement_payload, "status": "AGREED"}
+    return {
+        "agreement": agreement_payload,
+        "stage": "agreed",
+        "buyer_review": buyer_review,
+    }
 
 
 async def await_change_resolution(
