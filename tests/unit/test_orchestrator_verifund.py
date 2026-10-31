@@ -414,7 +414,7 @@ async def test_lifecycle_reviews_buyer_then_seller_and_exposes_funding_hitl() ->
         "context_id": "vf-context-1",
         "run_id": "run-1",
     }
-    assert [call[0] for call in buyer.calls] == ["buyer_seller"]
+    assert [call[0] for call in buyer.calls] == ["buyer", "buyer_seller"]
     resume_calls = [call for call in verifund.calls if call[0] == "resume"]
     assert resume_calls[0][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
     assert resume_calls[0][3]["party"] == "seller"
@@ -450,7 +450,7 @@ async def test_lifecycle_defers_the_buyer_decision_to_the_human_approval() -> No
     assert result["buyer_review"] is None
     assert "hitl" not in result
     assert [call[0] for call in seller.calls] == ["review"]
-    assert [call[0] for call in buyer.calls] == ["buyer_seller"]
+    assert [call[0] for call in buyer.calls] == ["buyer", "buyer_seller"]
     resume_calls = [call for call in verifund.calls if call[0] == "resume"]
     assert len(resume_calls) == 1
     assert resume_calls[0][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED

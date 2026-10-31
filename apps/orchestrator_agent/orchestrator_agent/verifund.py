@@ -587,6 +587,20 @@ class VerifundLifecycle:
             raise VerifundProtocolError(
                 "Verifund returned no seller token reference"
             )
+        buyer_response = await self.buyer.resume_buyer(
+            task_id=buyer_task_id,
+            context_id=buyer_context_id,
+            agreement=agreement,
+            idempotency_key=(
+                f"review:buyer:{agreement.transaction_id}:"
+                f"{agreement.agreement_version}"
+            ),
+        )
+        buyer_status = buyer_response.get("status")
+        if buyer_status not in {"seller_review_required", "rejected"}:
+            raise VerifundProtocolError(
+                "Buyer did not review the canonical agreement"
+            )
         seller_task_id = (
             f"agreement-review:{agreement.transaction_id}:"
             f"{agreement.agreement_version}"
