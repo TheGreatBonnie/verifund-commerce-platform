@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -18,8 +19,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
-
 from verifund_contracts import EvidenceItem, TransactionState
+
 from verifund_control_plane.db import configure_sqlite, transaction
 from verifund_control_plane.domain import TransactionRecord, assert_transition
 from verifund_control_plane.errors import VerifundError
@@ -34,7 +35,7 @@ def _iso(value: datetime) -> str:
 def _dt(value: str | None) -> datetime:
     if not value:
         raise ValueError("missing timestamp")
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)
 
 
 @dataclass(frozen=True)

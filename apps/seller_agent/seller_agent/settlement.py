@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-
 from commerce_core.contracts import Order
 
 

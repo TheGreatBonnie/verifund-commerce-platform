@@ -14,8 +14,6 @@ from a2a.types.a2a_pb2 import (
     TaskStatusUpdateEvent,
 )
 from commerce_core.a2a_parts import first_envelope, make_artifact
-
-from verifund_agent.service import VerifundAgentService
 from verifund_contracts import (
     VERIFUND_RESUME_REQUEST_SCHEMA,
     VerifundTaskResult,
@@ -23,6 +21,8 @@ from verifund_contracts import (
     parse_verifund_task_request,
     wrap_verifund_task_result,
 )
+
+from verifund_agent.service import VerifundAgentService
 
 POLLING_CHECKPOINTS = {"funding_pending", "evidence_pending"}
 

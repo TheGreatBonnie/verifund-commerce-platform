@@ -1,7 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.tokens import LinkSigner, SellerTokenService
 

@@ -3,9 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from buyer_agent.settlement_store import SettlementStore
+from sqlalchemy.ext.asyncio import create_async_engine
 
 
 @pytest.fixture

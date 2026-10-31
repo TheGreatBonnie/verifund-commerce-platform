@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 import httpx
 import respx
-
 from commerce_core.contracts import Fulfillment, OfferLineItem, Order, OrderStatus
 from seller_agent.settlement import (
     SellerSettlementClient,

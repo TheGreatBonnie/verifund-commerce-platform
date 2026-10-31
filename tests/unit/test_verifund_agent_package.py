@@ -4,9 +4,7 @@ import json
 
 import httpx
 import respx
-
 from langgraph.checkpoint.memory import MemorySaver
-
 from verifund_agent.card import build_card
 from verifund_agent.client import BuyerInternalClient
 from verifund_agent.graph import VerifundState, build_graph
@@ -211,7 +209,6 @@ async def test_buyer_client_reports_the_sellers_confirmed_order() -> None:
 
 def test_server_requires_the_a2a_bearer_token() -> None:
     from fastapi.testclient import TestClient
-
     from verifund_agent.server import create_app
 
     app = create_app(

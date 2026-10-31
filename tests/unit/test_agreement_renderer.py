@@ -1,5 +1,5 @@
 from verifund_control_plane.agreements.renderer import (
-    RENDERER_VERSION, render_agreement,
+    render_agreement,
 )
 
 

@@ -1,8 +1,10 @@
-import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
+import pytest
 from verifund_control_plane.agreements.models import (
-    ActorContext, Agreement, AgreementVersion, AgreementEvent,
+    Agreement,
+    AgreementEvent,
+    AgreementVersion,
 )
 from verifund_control_plane.agreements.repository import AgreementRepository
 from verifund_control_plane.db import configure_sqlite, create_engine
@@ -20,7 +22,7 @@ async def repo(tmp_path):
 
 
 async def test_create_and_get(repo):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     from verifund_contracts.models import AgreementState
     agr = Agreement(
         agreement_id="agr_1", transaction_id="txn_1", run_id="run_1",
@@ -52,7 +54,7 @@ async def test_create_and_get(repo):
 
 
 async def test_cas_status(repo):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     from verifund_contracts.models import AgreementState
     agr = Agreement(
         agreement_id="agr_2", transaction_id="txn_2", run_id="run_2",

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from verifund_contracts.models import AgreementState
 
-
 TERMINAL_STATES = {
     AgreementState.REJECTED, AgreementState.EXPIRED, AgreementState.TERMINATED,
 }

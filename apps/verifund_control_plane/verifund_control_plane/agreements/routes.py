@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import HTMLResponse
-
 from verifund_contracts import (
     BuyerAgreementApprovalDecision,
     ChangeSet,
     SellerAgreementDecisionRequest,
 )
+
 from verifund_control_plane.agreements.models import ActorContext, AgreementError
 from verifund_control_plane.agreements.service import AgreementService
 from verifund_control_plane.errors import VerifundError

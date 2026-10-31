@@ -12,8 +12,9 @@ from verifund_contracts import (
 )
 from verifund_contracts.models import canonical_json, sha256_hex
 from verifund_contracts.terms import apply_change_set
-from seller_agent.mandate import SellerMandate
+
 from seller_agent.agreement_store import SellerAgreementReviewStore
+from seller_agent.mandate import SellerMandate
 
 
 def recompute_offer_hash(offer) -> str:
@@ -98,7 +99,7 @@ def _result(projection, status, reason_code, now, task_id, context_id, *,
         verified_change_request_id=verified_change_request_id,
         task_id=task_id,
         context_id=context_id,
-        reviewed_at=now if not isinstance(now, str) else datetime.fromisoformat(now.replace("Z", "+00:00")),
+        reviewed_at=now if not isinstance(now, str) else datetime.fromisoformat(now),
         reason_code=reason_code,
         note="",
     )
@@ -149,7 +150,7 @@ def review_agreement(projection, offer, mandate: SellerMandate,
             expected_terms = apply_change_set(
                 json.loads(previous["terms"]), change_request.operations
             )
-        except Exception:
+        except Exception:  # noqa
             return _result(projection, AgreementReviewDecision.REJECTED,
                            "version_provenance_failed", now, task_id, context_id,
                            offer_hash=computed_offer_hash)

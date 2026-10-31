@@ -162,33 +162,45 @@ Rejection path (`cancel_losers`): all negotiations → `cancelled`, `stage = "re
 Triggered when `VERIFUND_MODE != off`. The Verifund control-plane state machine:
 
 ```
-AWARDED → AGREED → FUNDING_PENDING → FUNDED → FULFILLMENT_PENDING
+AWARDED → (PENDING_SELLER → PENDING_BUYER →) AGREED → FUNDING_PENDING → FUNDED → FULFILLMENT_PENDING
   → VERIFICATION_PENDING → RELEASE_PERMITTED → PAYOUT_PENDING → RELEASED
 ```
 
 with `REVIEW_REQUIRED`, `CANCELED`, `FAILED` as exception/terminal states. Policy computes
 `RELEASE_PERMITTED`; a reviewer performs the audited release.
 
-After the human award approval, the buyer graph ends at the bilateral agreement and the rest of the
-settlement lifecycle is owned by the Verifund agent through the orchestrator:
+After the human award approval, the buyer graph produces the award decision and the bilateral
+agreement outcome, and the rest of the settlement lifecycle is owned by the Verifund agent through
+the orchestrator. Agreement consent is split into three separate surfaces:
 
-1. **Buyer award → canonical agreement** (`create_settlement_award`) — the buyer graph pauses with
-   `reason="agreement_create_required"` and carries the flat `AwardRequest` (run, buyer, seller, offer,
-   line items, totals) plus the awarded seller's card URL. On resume the buyer validates the canonical
-   agreement against the award and mandate (hash-bound); mismatch → buyer rejects, transaction
-   `CANCELED`. Both parties accepting → `AGREED`.
-2. **Funding approval** (`verifund_fund`) — the Verifund lifecycle returns
-   `approval_required` with `hitl.tool="request_verifund_funding_approval"`; the orchestrator passes
-   `hitl.args` to the frontend unchanged, then resumes the funding checkpoint with the structured
-   human decision (`verifund_fund`). Rejection → transaction `CANCELED`.
-3. **Fund** — `FUNDING_PENDING` until the payer completes the PayPal checkout; `verifund_evidence_review`
+1. **Seller review** — the Verifund graph runs `create_agreement` (goods v1, deterministic, no LLM)
+   then `await_seller_review`. The seller agent verifies the offer hash, the agreement digest, the
+   version chain, and its configured mandate; it returns `ACCEPTED`, `REJECTED`, `OPERATOR_REQUIRED`,
+   or `CHANGES_REQUESTED`. `OPERATOR_REQUIRED` keeps the agreement in `PENDING_SELLER` for a human
+   seller operator. On accept, the control plane moves the agreement to `PENDING_BUYER` and issues a
+   single-use, token-bound buyer approval token.
+2. **Buyer approval** (`buyer_approval_required`) — non-blocking for the buyer graph; the console
+   review page (`/agreements/{id}`) shows the rendered agreement, version, digest, seller decision,
+   and the buyer's non-binding precheck. The buyer approves/rejects/requests changes through a
+   server-issued token; both parties must `ACCEPT` the same current version and digest for the
+   agreement to reach `AGREED`. `AGREED` is terminal for consent; funding never mutates the
+   agreement.
+3. **Change requests** — a change request never mutates an existing version; it creates version
+   `N+1` with a new digest and requires two fresh acceptances. One open change request per agreement.
+4. **Funding approval** (`verifund_fund`) — only possible once `status = AGREED` with matching
+   version/digest and both acceptances binding that version/digest; the transaction must point at
+   the agreement. The Verifund lifecycle returns `approval_required` with
+   `hitl.tool="request_verifund_funding_approval"`; the orchestrator passes `hitl.args` to the
+   frontend unchanged, then resumes the funding checkpoint with the structured human decision.
+   Rejection → transaction `CANCELED`.
+5. **Fund** — `FUNDING_PENDING` until the payer completes the PayPal checkout; `verifund_evidence_review`
    waits for funding at `FUNDED`, then places the purchase order with the seller and reports it
    (`FULFILLMENT_PENDING`).
-4. **Evidence / verification** — control plane computes verification from seller fulfillment evidence;
+6. **Evidence / verification** — control plane computes verification from seller fulfillment evidence;
    partial evidence never releases; outcome `RELEASE_PERMITTED` or `REVIEW_REQUIRED`.
-5. **Release** — reviewer approves the audited release (or flags a manual review); payout → `RELEASED`
+7. **Release** — reviewer approves the audited release (or flags a manual review); payout → `RELEASED`
    (or `REVIEW_REQUIRED` on payout failure).
-6. **Receipt** — fetch the signed receipt; stage `completed`.
+8. **Receipt** — fetch the signed receipt; stage `completed`.
 
 The Verifund lifecycle task (`VerifundLifecycle`) owns funding, purchase order, evidence, release, and
 receipt steps; the buyer agent only produces the award decision and the bilateral agreement outcome.
@@ -323,7 +335,9 @@ sequenceDiagram
     else VERIFUND_MODE=fake/sandbox
       Buyer->>VF: create award (AWARDED)
       Buyer->>VF: report approval (AGREED)
-      Buyer->>Buyer: buyer review + seller review (AGREED)
+      Buyer->>VF: create agreement (PENDING_SELLER)
+      Seller->>VF: seller review (PENDING_BUYER)
+      Buyer->>VF: buyer approval (AGREED)
       Buyer->>VF: fund (FUNDING_PENDING → FUNDED, payer checkout)
       Buyer->>Seller: purchase order (FULFILLMENT_PENDING)
       Seller->>VF: evidence (VERIFICATION_PENDING → RELEASE_PERMITTED)
@@ -351,6 +365,15 @@ sequenceDiagram
 - Verifund funding mismatches, ledger inconsistencies, and late captures cannot be overridden and are
   resolved in PayPal; partial evidence never releases.
 - No service shares a database transaction with another.
+- Agreement consent is split into three separate surfaces: seller acceptance, buyer agreement approval,
+  and funding authorization. `AGREED` requires two `ACCEPT` decisions on the same current version and
+  digest; funding is impossible unless `status = AGREED`, version/digest match, both decisions bind
+  that version/digest, and the transaction points at the agreement (`can_start_funding`).
+- A change request never mutates an existing version; it creates version `N+1` with a new digest and
+  requires two fresh acceptances. Old versions, decisions, and change requests are never deleted.
+- One open change request per agreement.
+- Approval tokens are single-use, never stored in plaintext, and never logged or placed in chat.
+- Seller agents may auto-accept only inside their configured mandate; otherwise `OPERATOR_REQUIRED`.
 
 ---
 

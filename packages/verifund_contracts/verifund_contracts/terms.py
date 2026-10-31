@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from verifund_contracts.models import AwardRequest, ChangeOperation, ChangeOperationType, ChangeSet
+from verifund_contracts.models import AwardRequest
 
 
 def validate_terms(terms: dict[str, Any], award: AwardRequest | None = None) -> None:
@@ -82,8 +82,8 @@ def apply_change_set(base_terms: dict[str, Any], change_set: Any) -> dict[str, A
     for op in operations:
         kind = op.op.value if hasattr(op.op, "value") else str(op.op)
 
-        def _required(name: str):
-            value = getattr(op, name)
+        def _required(name: str, _op=op):
+            value = getattr(_op, name)
             if value is None:
                 raise ValueError("invalid_change_set")
             return value

@@ -1,7 +1,8 @@
-from verifund_control_plane.agreements.states import (
-    is_terminal, next_state,
-)
 from verifund_contracts.models import AgreementState
+from verifund_control_plane.agreements.states import (
+    is_terminal,
+    next_state,
+)
 
 
 def test_allowed_transitions():

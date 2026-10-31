@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from commerce_core.binding import canonical_offer_binding, offer_hash
-from commerce_core.contracts import Offer, PurchaseOrderRequest
+from commerce_core.contracts import Offer
 from verifund_contracts import (
     AwardLineItem,
     AwardRequest,
@@ -131,7 +131,7 @@ async def create_award(
     )
     expires_at = response["expires_at"]
     if isinstance(expires_at, str):
-        expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        expires_at = datetime.fromisoformat(expires_at)
     await services.store.settlement.save_secret(
         run_id=run_id,
         transaction_id=response["transaction_id"],
@@ -170,7 +170,7 @@ async def ensure_seller_token(
         return settlement
     expires_at = secret["expires_at"]
     if isinstance(expires_at, str):
-        expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        expires_at = datetime.fromisoformat(expires_at)
     if expires_at - datetime.now(UTC) > timedelta(hours=threshold_hours):
         return settlement
     response = await services.settlement.reissue_seller_token(
@@ -181,7 +181,7 @@ async def ensure_seller_token(
     )
     refreshed = response["expires_at"]
     if isinstance(refreshed, str):
-        refreshed = datetime.fromisoformat(refreshed.replace("Z", "+00:00"))
+        refreshed = datetime.fromisoformat(refreshed)
     await services.store.settlement.save_secret(
         run_id=run_id,
         transaction_id=settlement["transaction_id"],

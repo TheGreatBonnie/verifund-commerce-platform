@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from langgraph.types import Command
@@ -237,7 +238,7 @@ async def release_settlement(
                 ),
                 actor=REVIEWER,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _error(exc) from exc
         return await _after_action(request, run_id, result)
 
@@ -261,7 +262,7 @@ async def review_settlement(
                 result = await client.retry_payout(
                     transaction_id, actor=REVIEWER
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _error(exc) from exc
         return await _after_action(request, run_id, result)
 
@@ -280,7 +281,7 @@ async def cancel_settlement(
                 CancelRequest(reason_code=body.reason_code, note=body.note),
                 actor=REVIEWER,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _error(exc) from exc
         return await _after_action(request, run_id, result)
 
@@ -292,7 +293,7 @@ async def get_receipt(run_id: str, request: Request) -> dict[str, Any]:
     transaction_id = await _cached_transaction(request, run_id)
     try:
         return await client.get_receipt(transaction_id, actor=REVIEWER)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _error(exc) from exc
 
 
@@ -307,7 +308,7 @@ async def get_evidence(
         content, media_type, filename = await client.get_evidence(
             transaction_id, evidence_id, actor=REVIEWER
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _error(exc) from exc
     return Response(
         content=content,
@@ -338,7 +339,7 @@ async def get_seller_token(
     ):
         raise HTTPException(status_code=403, detail="seller token mismatch")
     expires_at = datetime.fromisoformat(
-        str(secret["expires_at"]).replace("Z", "+00:00")
+        str(secret["expires_at"])
     )
     if expires_at <= datetime.now(UTC):
         raise HTTPException(status_code=409, detail="seller token expired")

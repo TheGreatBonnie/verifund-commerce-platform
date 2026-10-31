@@ -5,11 +5,10 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import respx
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from seller_agent.evidence_outbox import EvidenceOutbox
 from seller_agent.settlement import SellerSettlementClient
 from seller_agent.store import SellerStore
+from sqlalchemy.ext.asyncio import create_async_engine
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 URL = "http://control/seller/transactions/vf_1/evidence"

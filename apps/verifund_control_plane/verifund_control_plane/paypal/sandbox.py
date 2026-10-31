@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Callable, Mapping
+from typing import Any
 
 import httpx
 
@@ -204,7 +205,7 @@ class PayPalSandboxPaymentPort:
         captures: list[dict[str, Any]] = []
         for unit in data.get("purchase_units") or []:
             captures.extend(
-                ((unit.get("payments") or {}).get("captures") or [])
+                (unit.get("payments") or {}).get("captures") or []
             )
         if not captures:
             raise VerifundError(

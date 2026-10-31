@@ -4,10 +4,9 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from fastapi import FastAPI
-
 from buyer_agent import console_api, settlement_api
 from buyer_agent.settlement import SettlementCoordinator
+from fastapi import FastAPI
 
 
 class Settings:

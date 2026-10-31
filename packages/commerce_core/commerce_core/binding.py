@@ -22,7 +22,7 @@ def _iso(value: datetime | str) -> str:
     identically; sub-second precision is not part of the commercial terms.
     """
     if isinstance(value, str):
-        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        value = datetime.fromisoformat(value)
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")

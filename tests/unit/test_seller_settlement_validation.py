@@ -16,8 +16,6 @@ from commerce_core.contracts import (
     ShippingAddress,
 )
 from commerce_core.extension import wrap_payload
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from seller_agent.graph import CommerceProtocolError, accept_offer
 from seller_agent.order_service import OrderError, OrderService
 from seller_agent.planner import ScriptedSellerPlanner
@@ -28,6 +26,7 @@ from seller_agent.service import (
 )
 from seller_agent.settlement import SellerSettlementClient
 from seller_agent.store import SellerStore
+from sqlalchemy.ext.asyncio import create_async_engine
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 HASH = "a" * 64

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from verifund_contracts.models import AgreementState, AgreementDecision, ChangeOperation
+from verifund_contracts.models import AgreementDecision, AgreementState, ChangeOperation
 
 
 @dataclass

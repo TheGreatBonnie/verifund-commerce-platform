@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from commerce_core.contracts import (
@@ -12,8 +13,6 @@ from commerce_core.contracts import (
     OrderStatus,
     PurchaseOrderRequest,
 )
-
-from collections.abc import Awaitable, Callable
 
 from seller_agent.store import SellerStore
 
@@ -98,7 +97,7 @@ class OrderService:
                     await settlement_validator(po)
                 except OrderError:
                     raise
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     raise OrderError(
                         CommerceErrorCode.CONFLICT,
                         str(exc) or "Settlement validation failed.",

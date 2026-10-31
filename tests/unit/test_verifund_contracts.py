@@ -6,10 +6,8 @@ import httpx
 import pytest
 import respx
 from pydantic import ValidationError
-
 from verifund_contracts import (
     AwardRequest,
-    CancelReason,
     RejectRequest,
     TransactionProjection,
     VerifundClient,

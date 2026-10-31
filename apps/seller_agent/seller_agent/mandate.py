@@ -30,9 +30,7 @@ class SellerMandate:
             return False
         if inspection_period_hours > self.max_inspection_period_hours:
             return False
-        if dispute_window_hours > self.max_dispute_window_hours:
-            return False
-        return True
+        return not dispute_window_hours > self.max_dispute_window_hours
 
 
 def load_mandate(profile: dict[str, Any]) -> SellerMandate:

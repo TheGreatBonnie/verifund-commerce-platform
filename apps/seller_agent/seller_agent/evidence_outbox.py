@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -145,7 +146,7 @@ class EvidenceOutbox:
         while not self._stop.is_set():
             try:
                 await self.run_once()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("seller evidence outbox sweep failed")
             try:
                 await asyncio.wait_for(

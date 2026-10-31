@@ -1,10 +1,8 @@
 from datetime import UTC, datetime
 
 import pytest
-
 from verifund_contracts import (
     AwardRequest,
-    CancelReason,
     ReviewReason,
     TransactionState,
 )
@@ -27,22 +25,23 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 def award() -> AwardRequest:
     from datetime import timedelta
+
     from commerce_core.binding import binding_from_award, offer_hash
-    payload = dict(
-        run_id="run-1",
-        buyer_id="demo-buyer",
-        seller_id="northwind-audio",
-        offer_id="offer-1",
-        request_id="rfq-1",
-        buyer_display_name="Demo Buyer",
-        seller_display_name="Northwind Audio",
-        currency="USD",
-        amount_cents=123400,
-        shipping_cents=3400,
-        tax_cents=0,
-        fees_cents=0,
-        quantity=12,
-        line_items=[
+    payload = {
+        "run_id": "run-1",
+        "buyer_id": "demo-buyer",
+        "seller_id": "northwind-audio",
+        "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "buyer_display_name": "Demo Buyer",
+        "seller_display_name": "Northwind Audio",
+        "currency": "USD",
+        "amount_cents": 123400,
+        "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
+        "quantity": 12,
+        "line_items": [
             {
                 "sku": "NC-700",
                 "name": "Nimbus NC-700 ANC Headset",
@@ -51,12 +50,12 @@ def award() -> AwardRequest:
                 "warranty_addon_cents": 0,
             }
         ],
-        delivery_days=7,
-        warranty_months=24,
-        returns_days=30,
-        offer_round=1,
-        offer_valid_until=datetime.now(UTC) + timedelta(hours=1),
-    )
+        "delivery_days": 7,
+        "warranty_months": 24,
+        "returns_days": 30,
+        "offer_round": 1,
+        "offer_valid_until": datetime.now(UTC) + timedelta(hours=1),
+    }
     payload["offer_hash"] = offer_hash(binding_from_award(payload))
     return AwardRequest(**payload)
 

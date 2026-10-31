@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from typing import Any, Callable, Mapping
+from typing import Any
 
 from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.errors import VerifundError

@@ -1,29 +1,45 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import datetime, timedelta
+from typing import Any
 
 from verifund_contracts.models import (
-    AgreementDecision, AgreementState, BuyerApprovalDecision, ChangeOperation,
-    ChangeSet, EvidenceKind, RemedyPolicy, RemedyTerms, AwardLineItem,
-    AgreementProjection, AgreementVersionView, AgreementView, AgreementDecisionView,
+    AgreementDecision,
+    AgreementDecisionView,
+    AgreementProjection,
+    AgreementState,
+    AgreementVersionView,
+    AgreementView,
+    AwardLineItem,
+    BuyerApprovalDecision,
     ChangeRequestView,
+    ChangeSet,
+    EvidenceKind,
+    RemedyPolicy,
+    RemedyTerms,
+)
+
+from verifund_control_plane.agreements.digest import agreement_hash
+from verifund_control_plane.agreements.generator import (
+    apply_change_set,
+    build_terms,
+    validate_award,
+    validate_terms,
 )
 from verifund_control_plane.agreements.models import (
-    ActorContext, Agreement, AgreementDecisionRecord, AgreementError,
-    AgreementEvent, ApprovalTokenRecord, ChangeRequest,
+    Agreement,
+    AgreementDecisionRecord,
+    AgreementError,
+    AgreementEvent,
+    ChangeRequest,
 )
+from verifund_control_plane.agreements.renderer import RENDERER_VERSION, render_agreement
 from verifund_control_plane.agreements.repository import AgreementRepository, _iso
-from verifund_control_plane.agreements.states import next_state, is_terminal
-from verifund_control_plane.agreements.generator import (
-    build_terms, validate_award, validate_terms, apply_change_set,
-)
-from verifund_control_plane.agreements.digest import agreement_hash
-from verifund_control_plane.agreements.renderer import render_agreement, RENDERER_VERSION
+from verifund_control_plane.agreements.states import is_terminal, next_state
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
 from verifund_control_plane.settings import Settings
-from verifund_control_plane.errors import VerifundError
 
 
 class AgreementService:
@@ -512,7 +528,7 @@ class AgreementService:
         )
         seller_hours = getattr(self.settings, "agreement_seller_acceptance_hours", 24)
         ok = await self.repo.update_status_cas(
-            agreement_id, expected_status=AgreementState.CHANGES_REQUESTED,
+            conn, agreement_id, expected_status=AgreementState.CHANGES_REQUESTED,
             expected_row_version=agreement.row_version,
             new_status=AgreementState.PENDING_SELLER,
             new_row_version=agreement.row_version + 1,
@@ -534,7 +550,7 @@ class AgreementService:
         ids = await self.repo.list_expired(now)
         expired = []
         for aid in ids:
-            agreement = await self.repo.get(aid, conn=conn)
+            agreement = await self.repo.get(aid)
             if agreement is None:
                 continue
             async with self.repo.transaction() as conn:
@@ -547,7 +563,7 @@ class AgreementService:
         if agreement is None or agreement.status != AgreementState.AGREED:
             return agreement
         ok = await self.repo.update_status_cas(
-            agreement_id, expected_status=AgreementState.AGREED,
+            conn, agreement_id, expected_status=AgreementState.AGREED,
             expected_row_version=agreement.row_version, new_status=AgreementState.TERMINATED,
             new_row_version=agreement.row_version + 1, expires_at=None, now=now,
             extra={"terminated_at": _iso(now), "terminal_reason": reason},
@@ -572,7 +588,7 @@ class AgreementService:
         }:
             return agreement
         ok = await self.repo.update_status_cas(
-            agreement_id, expected_status=agreement.status,
+            conn, agreement_id, expected_status=agreement.status,
             expected_row_version=agreement.row_version, new_status=AgreementState.REJECTED,
             new_row_version=agreement.row_version + 1, expires_at=None, now=now,
             extra={"rejected_at": _iso(now), "terminal_reason": reason},
@@ -587,7 +603,7 @@ class AgreementService:
         ))
         return await self.repo.get(agreement_id, conn=conn)
 
-    async def get(self, agreement_id):
+    async def get(self, agreement_id, conn=None):
         return await self.repo.get(agreement_id, conn=conn)
 
     async def get_by_transaction(self, transaction_id, conn=None):
@@ -597,7 +613,7 @@ class AgreementService:
         return await self.repo.list_versions(agreement_id)
 
     async def document(self, agreement_id, version=None):
-        agr = await self.repo.get(agreement_id, conn=conn)
+        agr = await self.repo.get(agreement_id)
         if agr is None:
             return None
         v = version or agr.current_version
@@ -605,10 +621,6 @@ class AgreementService:
         return ver.rendered_html if ver else None
 
     async def build_view(self, agreement) -> dict[str, Any]:
-        from verifund_contracts.models import (
-            AgreementDecisionView, AgreementVersionView, AgreementView,
-            ChangeRequestView,
-        )
         versions = await self.repo.list_versions(agreement.agreement_id)
         decisions = await self.repo.list_decisions(agreement.agreement_id)
         current = next(
@@ -688,7 +700,6 @@ class AgreementService:
             for i in items
         ]
         quantity = sum(i.get("quantity", 0) for i in items) or 1
-        from verifund_contracts.models import EvidenceKind, RemedyTerms, RemedyPolicy
         evidence_raw = terms.get("evidence_required", []) if isinstance(terms, dict) else []
         evidence = []
         for e in evidence_raw:
@@ -702,7 +713,7 @@ class AgreementService:
         remedies_raw = terms.get("remedies", {}) if isinstance(terms, dict) else {}
         try:
             remedies = RemedyTerms.model_validate(remedies_raw)
-        except Exception:
+        except Exception:  # noqa
             remedies = RemedyTerms(
                 non_delivery=RemedyPolicy.CANCEL_AND_REFUND,
                 late_delivery=RemedyPolicy.CANCEL_AND_REFUND,

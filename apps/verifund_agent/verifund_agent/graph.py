@@ -3,8 +3,6 @@ from typing import Any, Literal, TypedDict
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
-
-from verifund_agent.client import BuyerAPIError, BuyerInternalClient
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewDecision,
@@ -16,12 +14,13 @@ from verifund_contracts import (
     BuyerOrderReportResponse,
     BuyerPurchaseOrderRequest,
     BuyerPurchaseOrderResponse,
-    ChangeRequestEnvelope,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
     TransactionState,
     VerifundCheckpoint,
 )
+
+from verifund_agent.client import BuyerAPIError, BuyerInternalClient
 
 
 class VerifundProtocolError(RuntimeError):
@@ -425,7 +424,7 @@ async def await_seller_review(
 async def await_seller_operator(
     state: VerifundState, config: RunnableConfig
 ) -> dict[str, Any]:
-    value = interrupt(seller_operator_payload(state))
+    interrupt(seller_operator_payload(state))
     # The resume value is informational; re-read the agreement via sync_agreement.
     return {"stage": state.get("stage", "awarded")}
 
@@ -462,7 +461,7 @@ async def await_buyer_approval(
 async def await_change_resolution(
     state: VerifundState, config: RunnableConfig
 ) -> dict[str, Any]:
-    value = interrupt(change_resolution_payload(state))
+    interrupt(change_resolution_payload(state))
     # resume value carries accept/note/change_request_id; re-read agreement.
     buyer = _buyer(config)
     run_id = state.get("run_id") or ""

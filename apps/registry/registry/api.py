@@ -289,7 +289,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             card = await _load_agent_card(body.card_url, settings)
         except HTTPException:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         agent_id = body.agent_id or _slug(card.name)
         if not SELLER_ID_PATTERN.fullmatch(agent_id):
@@ -335,7 +335,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="agent not found")
         try:
             card = await _load_agent_card(row["card_url"], settings)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await store.mark_agent_health(agent_id, False, str(exc))
             raise HTTPException(status_code=400, detail=f"agent card unavailable: {exc}") from exc
         payload = json_format.MessageToDict(card, preserving_proto_field_name=False)

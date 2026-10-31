@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-import pytest
-
 from verifund_control_plane.reconciler import Reconciler
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)

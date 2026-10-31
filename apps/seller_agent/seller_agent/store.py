@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import uuid
 from typing import Any
 
 from commerce_core.contracts import Offer, Order

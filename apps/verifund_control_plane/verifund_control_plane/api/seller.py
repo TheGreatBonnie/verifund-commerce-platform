@@ -4,8 +4,8 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, File, Form, Request, Response, UploadFile
-
 from verifund_contracts import EvidenceList
+
 from verifund_control_plane.errors import VerifundError
 
 router = APIRouter(prefix="/seller")
@@ -68,9 +68,9 @@ async def upload_evidence(
     transaction_id: str,
     request: Request,
     kind: str = Form(...),
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     note: str | None = Form(None),
-    captured_at: datetime | None = Form(None),
+    captured_at: datetime | None = Form(None),  # noqa: B008
 ) -> dict[str, Any]:
     claims = await authenticate(request, transaction_id, "evidence:write")
     data = await file.read(request.app.state.settings.max_evidence_bytes + 1)

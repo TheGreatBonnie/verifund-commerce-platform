@@ -11,7 +11,6 @@ from commerce_core.contracts import (
 )
 from verifund_contracts import (
     AgreementProjection,
-    ApproveRequest,
     BuyerAgreementRequest,
     BuyerAgreementResponse,
     BuyerOrderReportRequest,
@@ -21,8 +20,8 @@ from verifund_contracts import (
     CancelReason,
     CancelRequest,
     FlagReviewRequest,
-    FundRequest,
     FundingApprovalDecision,
+    FundRequest,
     PurchaseOrderLineItem,
     PurchaseOrderReport,
     ReleaseApprovalDecision,
@@ -30,9 +29,6 @@ from verifund_contracts import (
     ReviewReason,
     TransactionState,
 )
-
-from buyer_agent.settlement_client import BuyerSettlementClient
-from buyer_agent.settlement_store import SettlementStore
 
 
 class AgreementBindingError(Exception):
@@ -50,7 +46,7 @@ def _order_datetime(order: dict[str, Any], field: str) -> datetime:
     if isinstance(value, datetime):
         return value
     if isinstance(value, str):
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
     raise AgreementBindingError(f"order {field} is missing", status_code=409)
 
 
@@ -99,7 +95,7 @@ class BuyerAgreementService:
             purpose="settlement",
             token=response["seller_token"],
             expires_at=datetime.fromisoformat(
-                response["expires_at"].replace("Z", "+00:00")
+                response["expires_at"]
             ),
         )
         projection = await self.client.get_state(agreement.transaction_id)
@@ -114,7 +110,7 @@ class BuyerAgreementService:
             agreement_hash=agreement.agreement_hash,
             seller_token_ref=f"run:{run_id}:transaction:{agreement.transaction_id}",
             seller_token_expires_at=datetime.fromisoformat(
-                response["expires_at"].replace("Z", "+00:00")
+                response["expires_at"]
             ),
         ).model_dump(mode="json")
 
@@ -187,7 +183,7 @@ class BuyerAgreementService:
                 )
                 if isinstance(secret, dict):
                     seller_token = secret.get("token")
-            except Exception:
+            except Exception:  # noqa
                 seller_token = None
         payload = {
             "agreement_version": getattr(result, "agreement_version", None),
@@ -343,7 +339,7 @@ class BuyerAgreementService:
             )
         try:
             decided_at = datetime.fromisoformat(
-                str(approval.get("approved_at") or "").replace("Z", "+00:00")
+                str(approval.get("approved_at") or "")
             )
         except ValueError as exc:
             raise AgreementBindingError(

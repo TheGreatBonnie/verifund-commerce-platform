@@ -5,8 +5,9 @@ import hashlib
 import hmac
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .models import ApprovalTokenRecord
 
@@ -25,7 +26,7 @@ class ApprovalTokenService:
                  clock: Callable[[], datetime] | None = None):
         self.secret = secret.encode("utf-8")
         self.ttl_minutes = ttl_minutes
-        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.clock = clock or (lambda: datetime.now(UTC))
 
     def _now(self) -> datetime:
         return self.clock()
@@ -71,7 +72,7 @@ class ApprovalTokenService:
         if not hmac.compare_digest(_b64url_decode(sig), expected_sig):
             raise ValueError("invalid_signature")
         now = self._now()
-        exp = datetime.fromisoformat(claims["exp"].replace("Z", "+00:00"))
+        exp = datetime.fromisoformat(claims["exp"])
         if now > exp:
             raise ValueError("token_expired")
         if claims.get("aud") != "agreement-approval":

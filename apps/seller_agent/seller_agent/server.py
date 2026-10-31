@@ -10,19 +10,19 @@ from a2a.server.routes import (
 )
 from a2a.server.tasks.database_task_store import DatabaseTaskStore
 from commerce_core.pricing import load_policy
-from seller_agent.mandate import load_mandate
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from seller_agent.auth import BearerAuthMiddleware
 from seller_agent.card import build_agent_card
-from seller_agent.executor import SellerExecutor
-from seller_agent.planner import select_seller_planner
 from seller_agent.evidence_outbox import EvidenceOutbox
+from seller_agent.executor import SellerExecutor
+from seller_agent.mandate import load_mandate
+from seller_agent.planner import select_seller_planner
 from seller_agent.service import SellerService
-from seller_agent.settlement import SellerSettlementClient
 from seller_agent.settings import Settings
+from seller_agent.settlement import SellerSettlementClient
 from seller_agent.store import SellerStore
 
 

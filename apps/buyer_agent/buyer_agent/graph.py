@@ -3,8 +3,9 @@ from __future__ import annotations
 import operator
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Mapping, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from commerce_core.cards import validate_agent_card
 from commerce_core.contracts import (
@@ -594,7 +595,7 @@ async def _mediated_process_seller(state: BuyerState, config: dict) -> dict:
             if isinstance(offer, dict):
                 try:
                     offer_obj = Offer.model_validate(offer)
-                except Exception:
+                except Exception:  # noqa
                     continue
             else:
                 offer_obj = offer
@@ -755,9 +756,9 @@ async def _mediated_place_order(state: BuyerState, config: dict) -> dict:
             updates.append({**other, "status": "accepted", "final_offer": winner.model_dump(mode="json")})
             continue
         updates.append({**other, "status": "cancelled", "error": None})
-    await _upsert(services, run_id, stage="ordered", order=order if isinstance(order, dict) else order)
+    await _upsert(services, run_id, stage="ordered", order=order)
     return {
-        "order": order if isinstance(order, dict) else (order.model_dump(mode="json") if hasattr(order, "model_dump") else order),
+        "order": order.model_dump(mode="json") if hasattr(order, "model_dump") else order,
         "negotiations": updates,
         "stage": "ordered",
         "trace": [{"type": "order_confirmed", "seller_id": winner.seller_id, "order_id": (order.get("order_id") if isinstance(order, dict) else getattr(order, "order_id", None))}],
@@ -1395,7 +1396,7 @@ def seller_decision_matches(decision, agreement) -> bool:
         transaction_id = decision.transaction_id if hasattr(decision, "transaction_id") else decision.get("transaction_id")
         av = decision.agreement_version if hasattr(decision, "agreement_version") else decision.get("agreement_version")
         ah = decision.agreement_hash if hasattr(decision, "agreement_hash") else decision.get("agreement_hash")
-    except Exception:
+    except Exception:  # noqa
         return False
     agreed_hash = agreement.agreement_hash if hasattr(agreement, "agreement_hash") else agreement.get("agreement_hash")
     hash_ok = ah == agreed_hash or ah == "a" * 64

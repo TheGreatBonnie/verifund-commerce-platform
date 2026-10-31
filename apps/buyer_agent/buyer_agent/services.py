@@ -6,9 +6,9 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from buyer_agent.a2a_client import SellerA2AClient
+from buyer_agent.agreement_service import BuyerAgreementService
 from buyer_agent.registry_client import RegistryClient
 from buyer_agent.settings import Settings
-from buyer_agent.agreement_service import BuyerAgreementService
 from buyer_agent.settlement import SettlementCoordinator
 from buyer_agent.settlement_client import BuyerSettlementClient
 from buyer_agent.store import BuyerStore

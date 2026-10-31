@@ -6,10 +6,10 @@ import httpx
 import pytest
 import respx
 from pydantic import ValidationError
-
 from verifund_contracts import (
     AGREEMENT_REVIEW_REQUEST_SCHEMA,
     AGREEMENT_REVIEW_RESULT_SCHEMA,
+    VERIFUND_RESUME_REQUEST_SCHEMA,
     AgreementProjection,
     AgreementReviewRequest,
     AgreementReviewResult,
@@ -29,7 +29,6 @@ from verifund_contracts import (
     ChangeSet,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
-    VERIFUND_RESUME_REQUEST_SCHEMA,
     VerifundCheckpoint,
     VerifundClient,
     VerifundResumeRequest,

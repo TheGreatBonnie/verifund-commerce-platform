@@ -2,6 +2,14 @@ from typing import Any, cast
 
 from langgraph.types import Command
 from pydantic import ValidationError
+from verifund_contracts import (
+    TransactionState,
+    VerifundCheckpoint,
+    VerifundResumeRequest,
+    VerifundSkill,
+    VerifundTaskRequest,
+    VerifundTaskResult,
+)
 
 from verifund_agent.client import BuyerAPIError, BuyerInternalClient
 from verifund_agent.graph import (
@@ -18,15 +26,6 @@ from verifund_agent.graph import (
     seller_operator_payload,
     seller_review_payload,
 )
-from verifund_contracts import (
-    TransactionState,
-    VerifundCheckpoint,
-    VerifundResumeRequest,
-    VerifundSkill,
-    VerifundTaskRequest,
-    VerifundTaskResult,
-)
-
 
 CHECKPOINT_ORDER = {
     VerifundCheckpoint.SELLER_REVIEW_REQUIRED: 1,

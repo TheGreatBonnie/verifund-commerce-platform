@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import respx
-from httpx import Response
-
 from buyer_agent.settlement_client import BuyerSettlementClient
+from httpx import Response
 
 
 @respx.mock

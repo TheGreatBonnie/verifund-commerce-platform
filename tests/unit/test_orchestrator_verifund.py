@@ -544,7 +544,7 @@ async def test_advance_places_the_purchase_order_and_reports_evidence() -> None:
     assert purchase["run_id"] == "run-1"
     assert purchase["settlement_transaction_id"] == AGREEMENT.transaction_id
     assert purchase["agreement_hash"] == HASH
-    resume = [call for call in verifund.calls if call[0] == "resume"][0]
+    resume = next(call for call in verifund.calls if call[0] == "resume")
     assert resume[2] is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED
     assert resume[3]["order"]["order_id"] == "ord-1"
 
@@ -616,7 +616,7 @@ async def test_release_decision_resumes_the_same_task_and_returns_the_receipt() 
     assert result["status"] == "completed"
     assert result["state"] == "RELEASED"
     assert result["receipt"]["verified"] is True
-    resume = [call for call in verifund.calls if call[0] == "resume"][0]
+    resume = next(call for call in verifund.calls if call[0] == "resume")
     assert resume[1].task_id == "vf-task-1"
     assert resume[2] is VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED
     assert resume[3] == decision.model_dump(mode="json")
@@ -655,7 +655,7 @@ async def test_funding_decision_requires_a_structured_decision() -> None:
     )
     assert result["status"] == "working"
     assert result["checkout_url"] == "http://paypal.test/checkout/1"
-    resume = [call for call in verifund.calls if call[0] == "resume"][0]
+    resume = next(call for call in verifund.calls if call[0] == "resume")
     assert resume[2] is VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED
     assert resume[3]["approved"] is True
 
@@ -690,7 +690,7 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
     client = VerifundA2AClient(
         base_url="http://verifund", token="agent-token", send=send
     )
-    handle, result = await client.start(
+    handle, _result = await client.start(
         run_id=AGREEMENT.run_id,
         award={"run_id": AGREEMENT.run_id},
         buyer_task_id="buyer-task-1",

@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import httpx
-import pytest
 import respx
 from a2a.types.a2a_pb2 import AgentCard
-from google.protobuf import json_format
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from commerce_core.cards import validate_generic_agent_card
+from google.protobuf import json_format
 from registry.api import create_app
 from registry.settings import Settings
 from registry.store import RegistryStore
+from sqlalchemy.ext.asyncio import create_async_engine
 
 VERIFUND_CARD = {
     "name": "Verifund",
@@ -90,7 +88,7 @@ async def test_agent_routes_register_refresh_and_discover(tmp_path):
     )
     app = create_app(settings)
     transport = httpx.ASGITransport(app=app)
-    async with app.router.lifespan_context(app):
+    async with app.router.lifespan_context(app):  # noqa: SIM117
         async with httpx.AsyncClient(transport=transport, base_url="http://registry") as http:
             refused = await http.post("/v1/agents", json={"card_url": card_url})
             assert refused.status_code == 401

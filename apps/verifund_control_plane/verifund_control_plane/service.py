@@ -1,60 +1,55 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from verifund_contracts import (
     AcceptRequest,
-    AgreementProjection,
     ApproveRequest,
-    AwardLineItem,
     AwardRequest,
     BuyerAgreementReviewRequest,
     CancelRequest,
     EvidenceItem,
-    EvidenceKind,
     EvidenceSummary,
     FlagReviewRequest,
     FundRequest,
     FundResponse,
     PurchaseOrderReport,
     ReceiptResponse,
+    RejectRequest,
     ReleaseRequest,
     ReviewReason,
-    RejectRequest,
+    SellerProjection,
     SellerTokenRequest,
     SellerTokenResponse,
-    SellerProjection,
     TransactionProjection,
     TransactionState,
 )
+
 from verifund_control_plane.domain import (
     EVIDENCE_UPLOAD_STATES,
     NON_OVERRIDABLE_REASONS,
     REQUIRED_EVIDENCE,
     TransactionRecord,
-    agreement_hash,
     allowed_actions,
-    build_agreement,
     canonical_json,
     capture_ledger_entries,
     payout_ledger_entries,
     sha256_hex,
-    validate_award,
 )
-from verifund_control_plane.evidence import EvidenceStore
-from verifund_control_plane.policy import evaluate
 from verifund_control_plane.errors import VerifundError
+from verifund_control_plane.evidence import EvidenceStore
+from verifund_control_plane.paypal.port import CaptureResult, PaymentPort, PayoutResult
+from verifund_control_plane.policy import evaluate
+from verifund_control_plane.receipts import ReceiptSigner, build_receipt_payload
 from verifund_control_plane.repository import (
-    AgreementReviewInput,
     AuditInput,
     EventInput,
     Repository,
 )
 from verifund_control_plane.settings import Settings
-from verifund_control_plane.paypal.port import CaptureResult, PaymentPort, PayoutResult
-from verifund_control_plane.receipts import ReceiptSigner, build_receipt_payload
 from verifund_control_plane.tokens import LinkSigner, SellerTokenService
 
 Mutation = Callable[[Any], Awaitable[dict[str, Any]]]
@@ -141,7 +136,7 @@ class VerifundService:
         received = sorted({item.kind for item in evidence_items})
         deadlines = {
             key: (
-                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                datetime.fromisoformat(value)
                 if isinstance(value, str)
                 else value
             )
@@ -644,7 +639,7 @@ class VerifundService:
                     await self.agreement_service.cancel_pending(
                         conn, agreement.agreement_id, reason="seller_rejected", now=self._now()
                     )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
         return result
 
@@ -664,13 +659,12 @@ class VerifundService:
             agreement = await self.agreement_service.get_by_transaction(transaction_id, conn=conn)
             if agreement is None:
                 raise VerifundError("not_found", "agreement not found", status_code=404)
-            from verifund_contracts.models import TransactionProjection as _TP
             txn_proj = await self._projection(record, "buyer", items=items)
             try:
                 await self.agreement_service.verify_funding_binding(
                     agreement, txn_proj, request.agreement_version, request.agreement_hash
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 from verifund_control_plane.agreements.models import AgreementError
                 if isinstance(exc, AgreementError):
                     code = exc.code
@@ -815,7 +809,7 @@ class VerifundService:
                         await self.agreement_service.terminate(
                             conn, agreement.agreement_id, reason=request.reason_code.value, now=self._now()
                         )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
         return result
 
@@ -924,7 +918,7 @@ class VerifundService:
         received = sorted({item.kind for item in items})
         deadlines = {
             key: (
-                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                datetime.fromisoformat(value)
                 if isinstance(value, str)
                 else value
             )
@@ -1043,7 +1037,7 @@ class VerifundService:
         if raw_deadline:
             try:
                 deadline = datetime.fromisoformat(
-                    str(raw_deadline).replace("Z", "+00:00")
+                    str(raw_deadline)
                 )
             except ValueError:
                 deadline = None
@@ -1140,7 +1134,7 @@ class VerifundService:
         value = (record.deadlines or {}).get("funding")
         if value:
             try:
-                return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                return datetime.fromisoformat(str(value))
             except ValueError:
                 pass
         return self._now() + timedelta(hours=self.settings.funding_timeout_hours)
@@ -1169,7 +1163,7 @@ class VerifundService:
             await self.agreement_service.verify_funding_binding(
                 agreement, txn_proj, request.agreement_version, request.agreement_hash
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             from verifund_control_plane.agreements.models import AgreementError
             if isinstance(exc, AgreementError):
                 raise VerifundError(exc.code, exc.message, status_code=409)

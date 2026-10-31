@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from a2a.types.a2a_pb2 import Role
 from commerce_core.a2a_parts import make_message, part_value
 from commerce_core.contracts import Order, PurchaseOrderRequest
 from commerce_core.extension import wrap_payload
-from orchestrator_agent.mediation import (
-    _a2a_send,
-    _buyer_response,
-    _inject_settlement_token,
-    _redact_settlement,
-    _resolve_seller_token,
-    _resolve_settlement_token,
-)
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewDecision,
@@ -24,7 +17,6 @@ from verifund_contracts import (
     AgreementReviewResult,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
-    TransactionState,
     VerifundCheckpoint,
     VerifundResumeRequest,
     VerifundSkill,
@@ -38,6 +30,14 @@ from verifund_contracts import (
     wrap_verifund_task_request,
 )
 
+from orchestrator_agent.mediation import (
+    _a2a_send,
+    _buyer_response,
+    _inject_settlement_token,
+    _redact_settlement,
+    _resolve_seller_token,
+    _resolve_settlement_token,
+)
 
 Sender = Callable[..., Awaitable[list]]
 TokenResolver = Callable[..., str]
@@ -982,7 +982,7 @@ class VerifundLifecycle:
         reviewed_at = review.get("reviewed_at")
         try:
             reviewed = (
-                datetime.fromisoformat(str(reviewed_at).replace("Z", "+00:00"))
+                datetime.fromisoformat(str(reviewed_at))
                 if reviewed_at
                 else datetime.now(UTC)
             )

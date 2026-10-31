@@ -5,9 +5,10 @@ import hashlib
 import hmac
 import json
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 
 from verifund_control_plane.domain import canonical_json, sha256_hex
 from verifund_control_plane.errors import VerifundError

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from commerce_core.binding import (
     binding_from_award,
@@ -20,7 +20,7 @@ def _offer():
         subtotal_cents=2200, shipping_cents=300, tax_cents=150,
         fees_cents=50, total_cents=2700, delivery_days=3,
         warranty_months=12, returns_days=30,
-        valid_until=datetime.now(timezone.utc) + timedelta(hours=1),
+        valid_until=datetime.now(UTC) + timedelta(hours=1),
     )
 
 

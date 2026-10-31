@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from verifund_contracts.models import (
-    AwardRequest, EvidenceKind, RemedyTerms,
+    AwardRequest,
+    EvidenceKind,
 )
-from verifund_contracts.terms import apply_change_set, validate_terms
-
-from .digest import agreement_hash
 
 
 def _iso(value: datetime) -> str:
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def validate_award(award: AwardRequest, now: datetime) -> None:
@@ -85,3 +83,7 @@ def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:
         "remedies": award.remedies.model_dump(mode="json"),
         "dispute_window_hours": award.dispute_window_hours,
     }
+
+from verifund_contracts.terms import apply_change_set, validate_terms
+
+__all__ = ["apply_change_set", "build_terms", "validate_award", "validate_terms"]

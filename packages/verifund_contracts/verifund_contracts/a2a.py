@@ -205,12 +205,12 @@ def _unwrap(
     if envelope.get("schema") != expected_schema:
         raise ValueError(f"unexpected schema: {envelope.get('schema')}")
     if envelope.get("schema_version") != "1.0":
-        raise ValueError(
+        raise TypeError(
             f"unsupported schema version: {envelope.get('schema_version')}"
         )
     payload = envelope.get("payload")
     if not isinstance(payload, dict):
-        raise ValueError("envelope payload must be an object")
+        raise TypeError("envelope payload must be an object")
     return payload
 
 

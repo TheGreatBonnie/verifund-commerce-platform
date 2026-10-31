@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
 
-NOW = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
 
 
 def test_issue_verify_and_hash():
@@ -23,8 +23,8 @@ def test_issue_verify_and_hash():
 
 def test_token_expires_with_agreement_window():
     svc = ApprovalTokenService("secret-32-chars-minimum-xxxxxxxx", ttl_minutes=30)
-    raw, record = svc.issue(
+    _raw, record = svc.issue(
         "agr_1", 1, "a" * 64, "buyer-1", "buyer", "buyer-1", NOW,
-        agreement_expires_at=datetime(2026, 10, 30, 12, 5, tzinfo=timezone.utc),
+        agreement_expires_at=datetime(2026, 10, 30, 12, 5, tzinfo=UTC),
     )
-    assert record.expires_at == datetime(2026, 10, 30, 12, 5, tzinfo=timezone.utc)
+    assert record.expires_at == datetime(2026, 10, 30, 12, 5, tzinfo=UTC)

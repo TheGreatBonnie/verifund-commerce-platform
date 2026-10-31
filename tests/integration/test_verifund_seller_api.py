@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
-
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
 

@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.evidence import EvidenceStore
 

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import pytest
 from commerce_core.contracts import Offer, OfferLineItem
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from seller_agent.agreement import review_agreement
 from seller_agent.agreement_store import SellerAgreementReviewStore
 from seller_agent.mandate import SellerMandate
 from seller_agent.store import SellerStore
+from sqlalchemy.ext.asyncio import create_async_engine
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewRequest,

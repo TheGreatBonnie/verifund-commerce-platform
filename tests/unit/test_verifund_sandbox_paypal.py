@@ -6,7 +6,6 @@ from typing import cast
 
 import httpx
 import pytest
-
 from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort

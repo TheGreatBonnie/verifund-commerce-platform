@@ -7,8 +7,7 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from pydantic import ValidationError
-
-from verifund_agent.client import BuyerAPIError
+from verifund_agent.client import BuyerAPIError, BuyerInternalClient
 from verifund_agent.graph import (
     VerifundProtocolError,
     build_graph,
@@ -17,7 +16,6 @@ from verifund_agent.graph import (
     release_decision_route,
 )
 from verifund_agent.service import VerifundAgentService
-from verifund_agent.client import BuyerInternalClient
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewResult,

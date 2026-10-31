@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-
-from datetime import timedelta
-
+from commerce_core.binding import binding_from_award, offer_hash
+from verifund_contracts import AgreementProjection
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
-from verifund_contracts import AgreementProjection
-from commerce_core.binding import binding_from_award, offer_hash
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 OPS = {"authorization": "Bearer dev-verifund-ops"}

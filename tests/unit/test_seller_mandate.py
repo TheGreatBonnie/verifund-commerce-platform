@@ -1,4 +1,5 @@
-from seller_agent.mandate import SellerMandate, load_mandate
+from seller_agent.mandate import load_mandate
+
 
 def test_load_mandate_from_profile():
     profile = {"seller_id": "northwind", "mandate": {

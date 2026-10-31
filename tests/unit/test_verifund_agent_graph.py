@@ -6,7 +6,6 @@ from typing import Any
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
-
 from verifund_agent.graph import (
     VerifundProtocolError,
     build_graph,

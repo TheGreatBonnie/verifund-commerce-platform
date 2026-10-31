@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Callable
 
 from fastapi import FastAPI
 
@@ -12,12 +12,12 @@ from verifund_control_plane.agreements.service import AgreementService
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
 from verifund_control_plane.api import checkout, health, ops, seller, webhooks
 from verifund_control_plane.db import configure_sqlite, create_engine
-from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
+from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.paypal.fake import FakePaymentPort
 from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort
-from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.receipts import ReceiptSigner
+from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.service import VerifundService
 from verifund_control_plane.settings import Settings

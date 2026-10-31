@@ -6,12 +6,11 @@ from typing import cast
 
 import httpx
 import pytest
-from fastapi import FastAPI
-
 from buyer_agent import settlement_api
 from buyer_agent.agreement_service import AgreementBindingError, BuyerAgreementService
 from buyer_agent.settlement_client import BuyerSettlementClient
 from buyer_agent.settlement_store import SettlementStore
+from fastapi import FastAPI
 from verifund_contracts import (
     AgreementProjection,
     BuyerOrderReportRequest,

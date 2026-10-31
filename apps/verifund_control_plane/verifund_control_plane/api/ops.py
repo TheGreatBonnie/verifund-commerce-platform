@@ -4,22 +4,21 @@ import secrets
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
-
-from verifund_contracts import EvidenceList
-
 from verifund_contracts import (
     AcceptRequest,
     ApproveRequest,
     AwardRequest,
     BuyerAgreementReviewRequest,
     CancelRequest,
+    EvidenceList,
     FlagReviewRequest,
     FundRequest,
     PurchaseOrderReport,
-    ReleaseRequest,
     RejectRequest,
+    ReleaseRequest,
     SellerTokenRequest,
 )
+
 from verifund_control_plane.errors import VerifundError
 
 router = APIRouter(prefix="")

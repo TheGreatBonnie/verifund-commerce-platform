@@ -13,12 +13,11 @@ from commerce_core.contracts import (
     PurchaseOrderRequest,
     ShippingAddress,
 )
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from seller_agent.planner import ScriptedSellerPlanner
 from seller_agent.service import SellerService
 from seller_agent.settlement import SettlementError
 from seller_agent.store import SellerStore
+from sqlalchemy.ext.asyncio import create_async_engine
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 HASH = "a" * 64

@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pytest
-
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.errors import VerifundError

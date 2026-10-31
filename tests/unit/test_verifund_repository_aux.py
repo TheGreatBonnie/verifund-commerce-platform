@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
-from verifund_contracts import EvidenceItem, TransactionState
+from verifund_contracts import EvidenceItem
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.repository import Repository
 

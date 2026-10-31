@@ -4,9 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
-
-from verifund_contracts import EvidenceItem, ReviewReason, TransactionState
+from verifund_contracts import ReviewReason, TransactionState
 from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.policy import evaluate

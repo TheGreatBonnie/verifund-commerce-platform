@@ -4,10 +4,9 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from langgraph.checkpoint.memory import MemorySaver
-
+from verifund_agent.client import BuyerInternalClient
 from verifund_agent.graph import build_graph
 from verifund_agent.service import VerifundAgentService
-from verifund_agent.client import BuyerInternalClient
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewResult,

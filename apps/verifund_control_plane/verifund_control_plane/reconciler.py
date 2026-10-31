@@ -99,7 +99,7 @@ class Reconciler:
             await self._safe(stats, self._sweep_ledger(stats))
             await self._safe(stats, self._sweep_provider_intents(stats))
             await self._safe(stats, self._sweep_agreements(stats))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             error = type(exc).__name__
             raise
         finally:
@@ -208,7 +208,7 @@ class Reconciler:
                 continue
             try:
                 record = await self.repo.get_transaction(txn_id)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S112
                 continue
             if record.state in {
                 TransactionState.FUNDED, TransactionState.REVIEW_REQUIRED,
@@ -232,7 +232,7 @@ class Reconciler:
             if not deadline_raw:
                 continue
             try:
-                deadline = datetime.fromisoformat(str(deadline_raw).replace("Z", "+00:00"))
+                deadline = datetime.fromisoformat(str(deadline_raw))
             except ValueError:
                 continue
             if now <= deadline:
@@ -245,7 +245,7 @@ class Reconciler:
                     await agreement_service.terminate(
                         conn, agreement.agreement_id, reason="funding_expired", now=now
                     )
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110
                 pass
 
     async def _sweep_provider_intents(self, stats: dict[str, int]) -> None:
@@ -261,7 +261,7 @@ class Reconciler:
             if started_at is not None:
                 try:
                     parsed = datetime.fromisoformat(
-                        str(started_at).replace("Z", "+00:00")
+                        str(started_at)
                     )
                 except ValueError:
                     parsed = None

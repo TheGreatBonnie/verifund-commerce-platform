@@ -1,8 +1,7 @@
-import json
-from datetime import datetime, timezone
 
 from verifund_control_plane.agreements.digest import (
-    agreement_hash, canonical_json, sha256_hex,
+    agreement_hash,
+    canonical_json,
 )
 
 

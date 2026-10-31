@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-import pytest
-
 from buyer_agent.settlement_flow import (
     build_award_request,
     create_award,

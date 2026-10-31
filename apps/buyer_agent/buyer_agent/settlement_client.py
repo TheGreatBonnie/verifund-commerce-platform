@@ -12,8 +12,8 @@ from verifund_contracts import (
     FundRequest,
     PurchaseOrderReport,
     RejectReason,
-    ReleaseRequest,
     RejectRequest,
+    ReleaseRequest,
     SellerTokenRequest,
     VerifundClient,
 )
@@ -142,7 +142,7 @@ class BuyerSettlementClient:
                 ).isoformat().replace("+00:00", "Z"),
                 idempotency_key=f"precheck:{transaction_id}",
             )
-        except Exception:
+        except Exception:  # noqa
             response = await self._client._client.post(
                 f"{self._client.base_url}/transactions/{transaction_id}/precheck",
                 json=body,

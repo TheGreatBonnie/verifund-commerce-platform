@@ -1,19 +1,31 @@
 from __future__ import annotations
 
 import json as _json_mod
-import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import Column, Integer, MetaData, String, Table, Text, select, update, insert, delete
+from sqlalchemy import (
+    Column,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+)
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from verifund_contracts.models import AgreementDecision, AgreementState
 
 from verifund_control_plane.db import transaction as _engine_transaction
-from verifund_contracts.models import AgreementDecision, AgreementState
+
 from .models import (
-    Agreement, AgreementDecisionRecord, AgreementEvent,
-    AgreementVersion, ApprovalTokenRecord, ChangeRequest,
+    Agreement,
+    AgreementDecisionRecord,
+    AgreementEvent,
+    AgreementVersion,
+    ApprovalTokenRecord,
+    ChangeRequest,
 )
 
 _ = _engine_transaction
@@ -23,14 +35,14 @@ def _iso(v: datetime | None) -> str | None:
     if v is None:
         return None
     if v.tzinfo is None:
-        v = v.replace(tzinfo=timezone.utc)
-    return v.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        v = v.replace(tzinfo=UTC)
+    return v.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _dt(v: str | None) -> datetime | None:
     if not v:
         return None
-    return datetime.fromisoformat(v.replace("Z", "+00:00"))
+    return datetime.fromisoformat(v)
 
 
 class AgreementRepository:
@@ -273,8 +285,16 @@ class AgreementRepository:
             return None
         return await self.get(row["agreement_id"], conn=conn)
 
-    async def get_version(self, agreement_id: str, version: int) -> AgreementVersion | None:
-        async with self.engine.connect() as conn:
+    async def get_version(self, agreement_id: str, version: int, conn=None) -> AgreementVersion | None:
+        if conn is None:
+            async with self.engine.connect() as c:
+                row = (await c.execute(
+                    self.agreement_versions.select().where(
+                        self.agreement_versions.c.agreement_id == agreement_id,
+                        self.agreement_versions.c.version == version,
+                    )
+                )).mappings().first()
+        else:
             row = (await conn.execute(
                 self.agreement_versions.select().where(
                     self.agreement_versions.c.agreement_id == agreement_id,
@@ -292,8 +312,15 @@ class AgreementRepository:
             superseded_at=_dt(row["superseded_at"]),
         )
 
-    async def list_versions(self, agreement_id: str) -> list[AgreementVersion]:
-        async with self.engine.connect() as conn:
+    async def list_versions(self, agreement_id: str, conn=None) -> list[AgreementVersion]:
+        if conn is None:
+            async with self.engine.connect() as c:
+                rows = (await c.execute(
+                    self.agreement_versions.select().where(
+                        self.agreement_versions.c.agreement_id == agreement_id
+                    ).order_by(self.agreement_versions.c.version)
+                )).mappings().all()
+        else:
             rows = (await conn.execute(
                 self.agreement_versions.select().where(
                     self.agreement_versions.c.agreement_id == agreement_id
@@ -507,8 +534,15 @@ class AgreementRepository:
             created_at=_iso(event.created_at),
         ))
 
-    async def list_events(self, agreement_id: str) -> list[AgreementEvent]:
-        async with self.engine.connect() as conn:
+    async def list_events(self, agreement_id: str, conn=None) -> list[AgreementEvent]:
+        if conn is None:
+            async with self.engine.connect() as c:
+                rows = (await c.execute(
+                    self.agreement_events.select().where(
+                        self.agreement_events.c.agreement_id == agreement_id
+                    ).order_by(self.agreement_events.c.event_id)
+                )).mappings().all()
+        else:
             rows = (await conn.execute(
                 self.agreement_events.select().where(
                     self.agreement_events.c.agreement_id == agreement_id
@@ -521,8 +555,17 @@ class AgreementRepository:
             actor_id=r["actor_id"], created_at=_dt(r["created_at"]),
         ) for r in rows]
 
-    async def list_expired(self, now: datetime, limit: int = 100) -> list[str]:
-        async with self.engine.connect() as conn:
+    async def list_expired(self, now: datetime, limit: int = 100, conn=None) -> list[str]:
+        if conn is None:
+            async with self.engine.connect() as c:
+                rows = (await c.execute(
+                    self.agreements.select().where(
+                        self.agreements.c.status.in_(["PENDING_SELLER", "PENDING_BUYER", "CHANGES_REQUESTED"]),
+                        self.agreements.c.expires_at.is_not(None),
+                        self.agreements.c.expires_at <= _iso(now),
+                    ).limit(limit)
+                )).mappings().all()
+        else:
             rows = (await conn.execute(
                 self.agreements.select().where(
                     self.agreements.c.status.in_(["PENDING_SELLER", "PENDING_BUYER", "CHANGES_REQUESTED"]),

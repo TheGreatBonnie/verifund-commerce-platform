@@ -1,10 +1,15 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from verifund_contracts.models import (
-    AwardLineItem, AwardRequest, EvidenceKind, RemedyTerms, RemedyPolicy,
+    AwardLineItem,
+    AwardRequest,
+    RemedyPolicy,
+    RemedyTerms,
 )
 from verifund_control_plane.agreements.generator import (
-    apply_change_set, build_terms, validate_award, validate_terms,
+    apply_change_set,
+    build_terms,
+    validate_terms,
 )
 
 
@@ -19,7 +24,7 @@ def _award():
                                  unit_price_cents=4200, warranty_addon_cents=300)],
         delivery_days=5, warranty_months=12, returns_days=30,
         offer_round=2, offer_hash="a" * 64,
-        offer_valid_until=datetime.now(timezone.utc) + timedelta(hours=1),
+        offer_valid_until=datetime.now(UTC) + timedelta(hours=1),
         remedies=RemedyTerms(
             non_delivery=RemedyPolicy.CANCEL_AND_REFUND,
             late_delivery=RemedyPolicy.CANCEL_AND_REFUND,
@@ -30,7 +35,7 @@ def _award():
 
 def test_build_terms_totals():
     award = _award()
-    terms = build_terms(award, datetime.now(timezone.utc))
+    terms = build_terms(award, datetime.now(UTC))
     assert terms["totals"]["total_cents"] == 51600
     assert terms["totals"]["subtotal_cents"] == 45000
     assert terms["items"][0]["line_total_cents"] == 45000
@@ -39,7 +44,7 @@ def test_build_terms_totals():
 def test_validate_terms_rejects_bad_arithmetic():
     import pytest
     award = _award()
-    terms = build_terms(award, datetime.now(timezone.utc))
+    terms = build_terms(award, datetime.now(UTC))
     terms["totals"]["total_cents"] = 1
     with pytest.raises(ValueError):
         validate_terms(terms, award)
@@ -48,7 +53,7 @@ def test_validate_terms_rejects_bad_arithmetic():
 def test_apply_change_set_recomputes():
     from verifund_contracts.models import ChangeOperation, ChangeOperationType, ChangeSet
     award = _award()
-    terms = build_terms(award, datetime.now(timezone.utc))
+    terms = build_terms(award, datetime.now(UTC))
     cs = ChangeSet(operations=[ChangeOperation(
         op=ChangeOperationType.SET_SHIPPING, shipping_cents=1000,
     )])
