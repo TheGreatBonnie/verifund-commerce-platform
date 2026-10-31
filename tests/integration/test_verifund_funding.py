@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from commerce_core.binding import binding_from_award, offer_hash
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
 
@@ -12,13 +13,19 @@ OPS = {"authorization": "Bearer dev-verifund-ops", "x-verifund-actor": "buyer-ag
 
 
 def award_payload() -> dict:
-    return {
+    payload = {
         "run_id": "run-1",
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "buyer_display_name": "Demo Buyer",
+        "seller_display_name": "Northwind Audio",
+        "currency": "USD",
         "amount_cents": 123400,
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "quantity": 12,
         "line_items": [
             {
@@ -31,7 +38,13 @@ def award_payload() -> dict:
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "offer_round": 1,
+        "offer_valid_until": (NOW + timedelta(hours=1)).isoformat().replace(
+            "+00:00", "Z"
+        ),
     }
+    payload["offer_hash"] = offer_hash(binding_from_award(payload))
+    return payload
 
 
 @pytest.fixture
@@ -68,8 +81,27 @@ async def agreed(client) -> dict:
             "accepted_total_cents": 123400,
             "seller_task_id": "task-1",
             "accepted_at": NOW.isoformat(),
+            "agreement_version": award["agreement_version"],
         },
         headers=OPS,
+    )
+    # buyer approval via agreement token
+    agr_id = award["agreement"]["agreement_id"]
+    token_resp = await client.post(
+        f"/agreements/{agr_id}/approval-token",
+        headers={**OPS, "idempotency-key": "tok:run-1"},
+    )
+    token = token_resp.json()["token"]
+    await client.post(
+        f"/agreements/{agr_id}/buyer-decision",
+        json={
+            "agreement_version": award["agreement_version"],
+            "agreement_hash": award["agreement_hash"],
+            "decision": "APPROVE",
+            "note": "",
+            "idempotency_key": "bd:run-1",
+        },
+        headers={**OPS, "idempotency-key": "bd:run-1", "X-Approval-Token": token},
     )
     await client.post(
         f"/transactions/{txid}/approve",
@@ -78,6 +110,7 @@ async def agreed(client) -> dict:
             "approved_by": "demo-reviewer",
             "approved_at": NOW.isoformat(),
             "agreement_hash": award["agreement_hash"],
+            "agreement_version": award["agreement_version"],
         },
         headers=OPS,
     )
@@ -89,6 +122,7 @@ async def fund(client, award) -> dict:
         f"/transactions/{award['transaction_id']}/fund",
         json={
             "agreement_hash": award["agreement_hash"],
+            "agreement_version": award["agreement_version"],
             "return_url": "http://127.0.0.1:3000/runs/run-1",
             "cancel_url": "http://127.0.0.1:3000/runs/run-1",
         },
@@ -144,6 +178,7 @@ async def test_fund_rejects_external_return_url(api):
         f"/transactions/{award['transaction_id']}/fund",
         json={
             "agreement_hash": award["agreement_hash"],
+            "agreement_version": award["agreement_version"],
             "return_url": "https://evil.example/steal",
             "cancel_url": "http://127.0.0.1:3000/runs/run-1",
         },

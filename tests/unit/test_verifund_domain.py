@@ -57,7 +57,7 @@ def award() -> AwardRequest:
         "offer_valid_until": datetime.now(UTC) + timedelta(hours=1),
     }
     payload["offer_hash"] = offer_hash(binding_from_award(payload))
-    return AwardRequest(**payload)
+    return AwardRequest.model_validate(payload)
 
 
 @pytest.mark.parametrize(

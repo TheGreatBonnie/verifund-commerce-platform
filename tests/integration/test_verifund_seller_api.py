@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from commerce_core.binding import binding_from_award, offer_hash
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
 
@@ -12,13 +13,19 @@ OPS = {"authorization": "Bearer dev-verifund-ops", "x-verifund-actor": "buyer-ag
 
 
 def payload(run_id="run-1", offer_id="offer-1") -> dict:
-    return {
+    award = {
         "run_id": run_id,
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": offer_id,
+        "request_id": f"rfq-{run_id}",
+        "buyer_display_name": "Demo Buyer",
+        "seller_display_name": "Northwind Audio",
+        "currency": "USD",
         "amount_cents": 123400,
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "quantity": 12,
         "line_items": [
             {
@@ -31,7 +38,13 @@ def payload(run_id="run-1", offer_id="offer-1") -> dict:
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "offer_round": 1,
+        "offer_valid_until": (NOW + timedelta(hours=1)).isoformat().replace(
+            "+00:00", "Z"
+        ),
     }
+    award["offer_hash"] = offer_hash(binding_from_award(award))
+    return award
 
 
 @pytest.fixture

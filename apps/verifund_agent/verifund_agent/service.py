@@ -488,16 +488,16 @@ class VerifundAgentService:
                 next_action="purchase_order",
             )
         if checkpoint in {
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
         }:
             return VerifundTaskResult(
                 **common,
                 status="input_required",
                 checkpoint=checkpoint,
                 next_action=(
-                    "buyer_review"
-                    if checkpoint is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+                    "buyer_approval"
+                    if checkpoint is VerifundCheckpoint.BUYER_APPROVAL_REQUIRED
                     else "seller_review"
                 ),
             )

@@ -27,10 +27,10 @@ def _award():
                              late_delivery=RemedyPolicy.CANCEL_AND_REFUND,
                              damaged_goods=RemedyPolicy.REFUND_OR_REPLACEMENT),
     }
-    tmp = AwardRequest(**base)
+    tmp = AwardRequest.model_validate(base)
     oh = offer_hash(binding_from_award(tmp.model_dump(mode="json")))
     base["offer_hash"] = oh
-    return AwardRequest(**base)
+    return AwardRequest.model_validate(base)
 
 
 @pytest.mark.asyncio

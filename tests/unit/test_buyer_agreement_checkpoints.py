@@ -112,7 +112,16 @@ def agreement(**overrides) -> AgreementProjection:
         "status": "PENDING_SELLER",
         "created_at": "2026-10-27T12:00:00Z",
     }
-    payload.update(overrides)
+    if "amount_cents" in overrides:
+        amount = overrides["amount_cents"]
+        payload["amount_cents"] = amount
+        payload["terms"] = {
+            **payload["terms"],
+            "totals": {**payload["terms"]["totals"], "total_cents": amount},
+        }
+    payload.update(
+        {key: value for key, value in overrides.items() if key != "amount_cents"}
+    )
     probe = AgreementProjection.model_construct(
         **payload, agreement_hash="0" * 64
     )

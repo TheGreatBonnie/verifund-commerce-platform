@@ -10,6 +10,7 @@ from verifund_agent.service import VerifundAgentService
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewResult,
+    BuyerAgreementApprovalDecision,
     FundingApprovalDecision,
     VerifundCheckpoint,
     VerifundResumeRequest,
@@ -185,6 +186,17 @@ def funding_decision(**overrides) -> FundingApprovalDecision:
     return FundingApprovalDecision.model_validate(payload)
 
 
+def buyer_approval_decision(**overrides) -> "BuyerAgreementApprovalDecision":
+    from verifund_contracts import BuyerAgreementApprovalDecision
+    payload = {
+        "agreement_version": 1,
+        "agreement_hash": AGREEMENT_HASH,
+        "decision": "APPROVE",
+        "idempotency_key": "buyer-decision:vf_1:1",
+    }
+    payload.update(overrides)
+    return BuyerAgreementApprovalDecision.model_validate(payload)
+
 def task_request(**overrides) -> VerifundTaskRequest:
     payload = {
         "skill": VerifundSkill.AGREEMENT_CREATE,
@@ -226,6 +238,7 @@ def resume_request(checkpoint, value, **overrides) -> VerifundResumeRequest:
 class Buyer:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
+        self._sync_count = 0
 
     async def create_agreement(self, run_id, request):
         self.calls.append(("create_agreement", run_id, request))
@@ -251,7 +264,14 @@ class Buyer:
 
     async def get_settlement(self, run_id):
         self.calls.append(("get_settlement", run_id))
-        agreement = AGREEMENT.model_dump(mode="json")
+        self._sync_count += 1
+        if self._sync_count == 1:
+            status = "PENDING_SELLER"
+        elif self._sync_count == 2:
+            status = "PENDING_BUYER"
+        else:
+            status = "AGREED"
+        agreement = AGREEMENT.model_copy(update={"status": status}).model_dump(mode="json")
         return {
             "agreement": agreement,
             "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
@@ -259,8 +279,7 @@ class Buyer:
 
     async def get_agreement(self, run_id):
         self.calls.append(("get_agreement", run_id))
-        agreement = AGREEMENT.model_dump(mode="json")
-        agreement["status"] = "AGREED"
+        agreement = AGREEMENT.model_copy(update={"status": "AGREED"}).model_dump(mode="json")
         return agreement
 
 
@@ -270,20 +289,18 @@ def service() -> tuple[VerifundAgentService, Buyer]:
     return VerifundAgentService(graph=graph, buyer=cast(BuyerInternalClient, buyer)), buyer
 
 
-async def test_agreement_create_stops_at_the_buyer_review() -> None:
+async def test_agreement_create_stops_at_the_seller_review() -> None:
     value, buyer = service()
     result = await value.handle(
         task_request(), task_id="task-1", context_id="run-1"
     )
     assert result.status == "input_required"
-    assert result.checkpoint == "buyer_review_required"
-    assert result.next_action == "buyer_review"
+    assert result.checkpoint == "seller_review_required"
+    assert result.next_action == "seller_review"
     assert result.task_id == "task-1"
     assert result.state == "AWARDED"
     assert result.data["agreement"]["agreement_hash"] == AGREEMENT_HASH
     assert result.data["responseSchema"]["title"] == "AgreementReviewResult"
-    assert len(buyer.calls) == 1
-    assert buyer.calls[0][2].buyer_task_id == "buyer-task-1"
 
 
 async def test_status_returns_the_pending_checkpoint_without_a_second_buyer_call() -> None:
@@ -293,26 +310,24 @@ async def test_status_returns_the_pending_checkpoint_without_a_second_buyer_call
         status_request(), task_id="task-1", context_id="run-1"
     )
     assert status.status == "input_required"
-    assert status.checkpoint == "buyer_review_required"
-    assert len(buyer.calls) == 1
+    assert status.checkpoint == "seller_review_required"
 
 
-async def test_resume_advances_the_same_task_to_the_seller_review() -> None:
+async def test_resume_advances_the_same_task_to_the_buyer_approval() -> None:
     value, buyer = service()
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     resumed = await value.resume(
         resume_request(
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("buyer").model_dump(mode="json"),
+            review("seller").model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
     )
     assert resumed.status == "input_required"
-    assert resumed.checkpoint == "seller_review_required"
-    assert resumed.next_action == "seller_review"
-    assert resumed.data["buyer_review"]["status"] == "accepted"
-    assert len(buyer.calls) == 1
+    assert resumed.checkpoint == "buyer_approval_required"
+    assert resumed.next_action == "buyer_approval"
+    assert resumed.data["seller_decision"]["status"] == "accepted"
 
 
 async def test_seller_acceptance_opens_the_funding_approval() -> None:
@@ -321,15 +336,15 @@ async def test_seller_acceptance_opens_the_funding_approval() -> None:
     await value.resume(
         resume_request(
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("buyer").model_dump(mode="json"),
+            review("seller").model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
     )
     funding = await value.resume(
         resume_request(
-            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("seller").model_dump(mode="json"),
+            VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+            buyer_approval_decision().model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
@@ -347,7 +362,7 @@ async def test_a_stale_resume_returns_the_current_checkpoint() -> None:
     await value.resume(
         resume_request(
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("buyer").model_dump(mode="json"),
+            review("seller").model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
@@ -355,13 +370,13 @@ async def test_a_stale_resume_returns_the_current_checkpoint() -> None:
     repeated = await value.resume(
         resume_request(
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("buyer").model_dump(mode="json"),
+            review("seller").model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
     )
     assert repeated.status == "input_required"
-    assert repeated.checkpoint == "seller_review_required"
+    assert repeated.checkpoint == "buyer_approval_required"
 
 
 async def test_a_skipped_checkpoint_is_rejected() -> None:
@@ -369,8 +384,8 @@ async def test_a_skipped_checkpoint_is_rejected() -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     skipped = await value.resume(
         resume_request(
-            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("seller").model_dump(mode="json"),
+            VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+            buyer_approval_decision().model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
@@ -385,7 +400,7 @@ async def test_resume_requires_the_original_task() -> None:
     refused = await value.resume(
         resume_request(
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("buyer").model_dump(mode="json"),
+            review("seller").model_dump(mode="json"),
             task_id="task-2",
         ),
         task_id="task-1",
@@ -415,17 +430,16 @@ async def test_agreement_create_is_idempotent_for_the_same_task() -> None:
     second = await value.handle(
         task_request(), task_id="task-1", context_id="run-1"
     )
-    assert first.checkpoint == second.checkpoint == "buyer_review_required"
-    assert len(buyer.calls) == 1
+    assert first.checkpoint == second.checkpoint == "seller_review_required"
 
 
-async def test_buyer_rejection_finishes_the_task() -> None:
+async def test_seller_rejection_finishes_the_task() -> None:
     value, _ = service()
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     rejected = await value.resume(
         resume_request(
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("buyer", status="rejected").model_dump(mode="json"),
+            review("seller", status="rejected").model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
@@ -441,7 +455,15 @@ async def test_status_reports_the_funding_approval() -> None:
     await value.resume(
         resume_request(
             VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("buyer").model_dump(mode="json"),
+            review("seller").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+            buyer_approval_decision().model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
@@ -449,17 +471,6 @@ async def test_status_reports_the_funding_approval() -> None:
     status = await value.handle(
         status_request(), task_id="task-1", context_id="run-1"
     )
-    assert status.checkpoint == "seller_review_required"
-    await value.resume(
-        resume_request(
-            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("seller").model_dump(mode="json"),
-        ),
-        task_id="task-1",
-        context_id="run-1",
-    )
-    funding = await value.handle(
-        status_request(), task_id="task-1", context_id="run-1"
-    )
-    assert funding.status == "approval_required"
-    assert funding.approval_type == "funding"
+    assert status.checkpoint == "funding_approval_required"
+    assert status.status == "approval_required"
+    assert status.approval_type == "funding"

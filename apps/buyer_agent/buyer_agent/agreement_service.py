@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 from commerce_core.contracts import (
     ApprovalReceipt,
@@ -37,6 +37,32 @@ class AgreementBindingError(Exception):
         self.status_code = status_code
 
 
+class SettlementStoreProtocol(Protocol):
+    async def save_secret(
+        self,
+        *,
+        run_id: str,
+        transaction_id: str,
+        seller_id: str,
+        purpose: str,
+        token: str | None = None,
+        seller_token: str | None = None,
+        expires_at: datetime,
+    ) -> None: ...
+
+    async def get_secret(
+        self, run_id: str, transaction_id: str, purpose: str
+    ) -> dict[str, Any] | None: ...
+
+    async def save_projection(
+        self, run_id: str, projection: dict[str, Any]
+    ) -> bool: ...
+
+    async def get_projection(self, run_id: str) -> dict[str, Any] | None: ...
+
+    async def get_agreement(self, run_id: str) -> dict[str, Any] | None: ...
+
+
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
@@ -66,7 +92,7 @@ class BuyerAgreementService:
         self,
         client=None,
         *,
-        store=None,
+        store: SettlementStoreProtocol | None = None,
         console_base_url: str = "",
         **kwargs,
     ) -> None:
@@ -75,6 +101,12 @@ class BuyerAgreementService:
         self.client = client
         self.store = store
         self.console_base_url = (console_base_url or "").rstrip("/")
+
+    @property
+    def _store(self) -> SettlementStoreProtocol:
+        if self.store is None:
+            raise RuntimeError("settlement store is not configured")
+        return self.store
 
     async def create_agreement(
         self, run_id: str, request: BuyerAgreementRequest
@@ -88,7 +120,7 @@ class BuyerAgreementService:
         agreement = AgreementProjection.model_validate(response["agreement"])
         if agreement.run_id != run_id or agreement.transaction_id != response["transaction_id"]:
             raise AgreementBindingError("control plane returned a different run binding")
-        await self.store.save_secret(
+        await self._store.save_secret(
             run_id=run_id,
             transaction_id=agreement.transaction_id,
             seller_id=agreement.seller_id,
@@ -99,7 +131,7 @@ class BuyerAgreementService:
             ),
         )
         projection = await self.client.get_state(agreement.transaction_id)
-        await self.store.save_projection(
+        await self._store.save_projection(
             run_id, {**projection, "agreement": agreement.model_dump(mode="json")}
         )
         return BuyerAgreementResponse(
@@ -115,8 +147,8 @@ class BuyerAgreementService:
         ).model_dump(mode="json")
 
     async def _binding(self, run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        projection = await self.store.get_projection(run_id)
-        agreement = await self.store.get_agreement(run_id)
+        projection = await self._store.get_projection(run_id)
+        agreement = await self._store.get_agreement(run_id)
         if projection is None or agreement is None:
             raise AgreementBindingError("settlement is not initialized", status_code=404)
         return projection, agreement
@@ -141,7 +173,7 @@ class BuyerAgreementService:
 
     async def view(self, run_id: str) -> dict[str, Any]:
         projection, agreement = await self._binding(run_id)
-        secret = await self.store.get_secret(run_id, projection["transaction_id"], "settlement")
+        secret = await self._store.get_secret(run_id, projection["transaction_id"], "settlement")
         return {
             "run_id": run_id,
             "transaction_id": projection["transaction_id"],
@@ -176,7 +208,7 @@ class BuyerAgreementService:
         seller_token = None
         if self.store is not None:
             try:
-                secret = await self.store.get_secret(
+                secret = await self._store.get_secret(
                     getattr(result, "run_id", None) or "",
                     agreement.get("transaction_id", ""),
                     "settlement",
@@ -286,7 +318,7 @@ class BuyerAgreementService:
                 CancelRequest(reason_code=CancelReason.BUYER_REJECTED, note=decision.note),
                 actor="buyer-agent",
             )
-            await self.store.save_projection(run_id, canceled)
+            await self._store.save_projection(run_id, canceled)
             return {"projection": canceled, "checkout_url": None, "expires_at": None}
         await self.client.approve(
             decision.transaction_id,
@@ -308,7 +340,7 @@ class BuyerAgreementService:
             idempotency_key=f"{decision.idempotency_key}:fund",
         )
         refreshed = await self.client.get_state(decision.transaction_id)
-        await self.store.save_projection(run_id, refreshed)
+        await self._store.save_projection(run_id, refreshed)
         return {
             "projection": refreshed,
             "checkout_url": funded["checkout_url"],
@@ -459,7 +491,7 @@ class BuyerAgreementService:
             "state": result.get("state")
             or TransactionState.FULFILLMENT_PENDING.value,
         }
-        await self.store.save_projection(run_id, projection)
+        await self._store.save_projection(run_id, projection)
         return BuyerOrderReportResponse(
             run_id=run_id,
             transaction_id=agreement.transaction_id,
@@ -491,7 +523,7 @@ class BuyerAgreementService:
                 flagged_request,
                 actor="console:reviewer",
             )
-            await self.store.save_projection(run_id, flagged)
+            await self._store.save_projection(run_id, flagged)
             return flagged
         result = await self.client.release(
             decision.transaction_id,
@@ -502,7 +534,7 @@ class BuyerAgreementService:
             ),
             actor="console:reviewer",
         )
-        await self.store.save_projection(run_id, result)
+        await self._store.save_projection(run_id, result)
         return result
 
     async def receipt(self, run_id: str) -> dict[str, Any]:

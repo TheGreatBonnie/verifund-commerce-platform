@@ -139,6 +139,10 @@ class Service:
         self.calls.append(("backfill_receipt", transaction_id))
         return True
 
+    async def cancel(self, transaction_id, request, *, actor, idempotency_key):
+        self.calls.append(("cancel", transaction_id))
+        return {"state": "CANCELED"}
+
 
 class Settings:
     reconciler_pending_seconds = 30

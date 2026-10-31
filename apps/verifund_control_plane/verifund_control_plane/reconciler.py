@@ -30,6 +30,15 @@ class ReconcilerService(Protocol):
         self, transaction_id: str, *, actor: str
     ) -> bool: ...
 
+    async def cancel(
+        self,
+        transaction_id: str,
+        request: Any,
+        *,
+        actor: str,
+        idempotency_key: str | None,
+    ) -> dict[str, Any]: ...
+
 
 class ReconcilerSettings(Protocol):
     @property

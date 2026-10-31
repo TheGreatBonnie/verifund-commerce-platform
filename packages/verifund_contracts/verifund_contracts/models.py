@@ -134,9 +134,27 @@ class AwardLineItem(VerifundModel):
     warranty_addon_cents: int = Field(default=0, ge=0)
 
 
+def _normalize_numbers(value: Any) -> Any:
+    """Collapse integral floats to ints so hashes survive JSON/A2A round trips.
+
+    Protobuf-backed A2A envelopes decode every JSON number as a float. Without
+    this normalization ``terms`` (a free-form mapping) would hash differently
+    after transport and the agreement digest would fail verification.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _normalize_numbers(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_numbers(item) for item in value]
+    return value
+
+
 def canonical_json(value: Any) -> bytes:
     return json.dumps(
-        value,
+        _normalize_numbers(value),
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,

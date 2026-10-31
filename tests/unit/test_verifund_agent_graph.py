@@ -225,6 +225,12 @@ class Buyer:
             "agreement": agreement,
             "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
         }
+
+    async def get_agreement(self, run_id):
+        self.calls.append(("get_agreement", run_id))
+        agreement = AGREEMENT.model_dump(mode="json")
+        agreement["status"] = "AGREED"
+        return agreement
     
     async def approve_funding(self, run_id, decision):
         self.calls.append(("approve_funding", run_id, decision))
@@ -301,12 +307,12 @@ async def test_the_buyer_is_called_once_across_every_resume() -> None:
     runtime = config(buyer)
     await graph.ainvoke(initial_state(), runtime)
     await graph.ainvoke(
-        Command(resume=review("buyer").model_dump(mode="json")), runtime
-    )
-    await graph.ainvoke(
         Command(resume=review("seller").model_dump(mode="json")), runtime
     )
-    assert [call[0] for call in buyer.calls] == ["create_agreement"]
+    await graph.ainvoke(
+        Command(resume=buyer_approval_decision().model_dump(mode="json")), runtime
+    )
+    assert [call[0] for call in buyer.calls].count("create_agreement") == 1
 
 
 async def test_buyer_rejection_ends_before_the_seller_is_asked() -> None:
@@ -316,7 +322,7 @@ async def test_buyer_rejection_ends_before_the_seller_is_asked() -> None:
     await graph.ainvoke(initial_state(), runtime)
     done = await graph.ainvoke(
         Command(
-            resume=review("buyer", status="rejected").model_dump(mode="json")
+            resume=review("seller", status="rejected").model_dump(mode="json")
         ),
         runtime,
     )
@@ -326,7 +332,7 @@ async def test_buyer_rejection_ends_before_the_seller_is_asked() -> None:
 
 @pytest.mark.parametrize(
     "overrides",
-    [{"agreement_hash": "b" * 64}, {"party": "seller"}],
+    [{"agreement_hash": "b" * 64}, {"party": "buyer"}],
 )
 async def test_resume_must_echo_the_frozen_agreement(overrides) -> None:
     buyer = Buyer()
@@ -336,7 +342,7 @@ async def test_resume_must_echo_the_frozen_agreement(overrides) -> None:
     with pytest.raises(VerifundProtocolError):
         await graph.ainvoke(
             Command(
-                resume=review("buyer", **overrides).model_dump(mode="json")
+                resume=review("seller", **overrides).model_dump(mode="json")
             ),
             runtime,
         )

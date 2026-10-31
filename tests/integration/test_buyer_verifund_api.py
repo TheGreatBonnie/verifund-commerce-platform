@@ -53,12 +53,16 @@ def projection(state: str = "AWARDED") -> dict:
 
 def agreement() -> dict:
     return {
+        "agreement_id": "agr_1",
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "offer_round": 1,
+        "offer_hash": "a" * 64,
+        "offer_valid_until": "2026-10-28T12:00:00Z",
         "currency": "USD",
         "amount_cents": 123400,
         "quantity": 12,
@@ -72,12 +76,89 @@ def agreement() -> dict:
             }
         ],
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": [
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
+        "terms": {
+            "schema": "verifund.agreement.v1",
+            "agreement_type": "goods",
+            "terms_version": 1,
+            "totals": {
+                "subtotal_cents": 120000,
+                "shipping_cents": 3400,
+                "tax_cents": 0,
+                "fees_cents": 0,
+                "total_cents": 123400,
+            },
+            "delivery": {"delivery_days": 7},
+            "warranty": {"warranty_months": 24},
+            "returns": {"returns_days": 30},
+            "inspection": {"period_hours": 48, "starts_on": "DELIVERY_CONFIRMED"},
+            "evidence_required": [
+                "shipment_manifest",
+                "delivery_confirmation",
+                "invoice",
+            ],
+            "remedies": {
+                "non_delivery": "cancel_and_refund",
+                "late_delivery": "cancel_and_refund",
+                "damaged_goods": "refund_or_replacement",
+            },
+            "dispute_window_hours": 72,
+        },
+        "status": "PENDING_SELLER",
+        "expires_at": None,
         "created_at": "2026-10-27T12:00:00Z",
         "agreement_hash": HASH,
     }
+
+
+def award_body(**overrides) -> dict:
+    award = {
+        "run_id": "run-1",
+        "buyer_id": "demo-buyer",
+        "seller_id": "northwind-audio",
+        "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "buyer_display_name": "Demo Buyer",
+        "seller_display_name": "Northwind Audio",
+        "amount_cents": 123400,
+        "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
+        "quantity": 12,
+        "line_items": [
+            {
+                "sku": "NC-700",
+                "name": "Nimbus NC-700 ANC Headset",
+                "quantity": 12,
+                "unit_price_cents": 10000,
+            }
+        ],
+        "delivery_days": 7,
+        "warranty_months": 24,
+        "returns_days": 30,
+        "offer_round": 1,
+        "offer_hash": HASH,
+        "offer_valid_until": "2026-10-28T12:00:00Z",
+    }
+    award.update(overrides)
+    return award
 
 
 def valid_agreement() -> dict:
@@ -226,26 +307,7 @@ async def test_internal_routes_require_the_agent_token(api):
 async def test_agreement_route_rejects_a_run_mismatch(api):
     http, services = api
     body = {
-        "award": {
-            "run_id": "run-2",
-            "buyer_id": "demo-buyer",
-            "seller_id": "northwind-audio",
-            "offer_id": "offer-1",
-            "amount_cents": 123400,
-            "shipping_cents": 3400,
-            "quantity": 12,
-            "line_items": [
-                {
-                    "sku": "NC-700",
-                    "name": "Nimbus NC-700 ANC Headset",
-                    "quantity": 12,
-                    "unit_price_cents": 10000,
-                }
-            ],
-            "delivery_days": 7,
-            "warranty_months": 24,
-            "returns_days": 30,
-        },
+        "award": award_body(run_id="run-2"),
         "buyer_task_id": "buyer-task-1",
         "buyer_context_id": "run-1",
         "idempotency_key": "agreement:run-1:offer-1",
@@ -262,26 +324,7 @@ async def test_agreement_route_rejects_a_run_mismatch(api):
 async def test_agreement_route_returns_the_canonical_projection_without_a_token(api):
     http, services = api
     body = {
-        "award": {
-            "run_id": "run-1",
-            "buyer_id": "demo-buyer",
-            "seller_id": "northwind-audio",
-            "offer_id": "offer-1",
-            "amount_cents": 123400,
-            "shipping_cents": 3400,
-            "quantity": 12,
-            "line_items": [
-                {
-                    "sku": "NC-700",
-                    "name": "Nimbus NC-700 ANC Headset",
-                    "quantity": 12,
-                    "unit_price_cents": 10000,
-                }
-            ],
-            "delivery_days": 7,
-            "warranty_months": 24,
-            "returns_days": 30,
-        },
+        "award": award_body(),
         "buyer_task_id": "buyer-task-1",
         "buyer_context_id": "run-1",
         "idempotency_key": "agreement:run-1:offer-1",

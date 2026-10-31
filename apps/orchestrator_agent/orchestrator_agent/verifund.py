@@ -995,6 +995,12 @@ class VerifundLifecycle:
             transaction_id=agreement.transaction_id,
             agreement_version=agreement.agreement_version,
             agreement_hash=agreement.agreement_hash,
+            offer_hash=str(review.get("offer_hash") or agreement.offer_hash),
+            actor_type=str(review.get("actor_type") or "BUYER_AGENT"),
+            actor_id=str(review.get("actor_id") or agreement.buyer_id),
+            authority_ref=review.get("authority_ref"),
+            authority_snapshot=review.get("authority_snapshot") or {},
+            verified_change_request_id=review.get("verified_change_request_id"),
             task_id=str(response.get("task_id") or buyer_task_id),
             context_id=str(
                 response.get("buyer_context_id") or buyer_context_id

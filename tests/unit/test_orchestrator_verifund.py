@@ -420,7 +420,7 @@ async def test_lifecycle_reviews_buyer_then_seller_and_exposes_funding_hitl() ->
     assert resume_calls[0][3]["party"] == "seller"
 
 
-async def test_lifecycle_stops_after_a_buyer_rejection() -> None:
+async def test_lifecycle_defers_the_buyer_decision_to_the_human_approval() -> None:
     verifund = FakeVerifund(
         start_result=task_result(
             checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
@@ -428,15 +428,12 @@ async def test_lifecycle_stops_after_a_buyer_rejection() -> None:
         ),
         resume_results=[
             task_result(
-                status="completed",
-                state=TransactionState.CANCELED,
-                data={**binding(), "stage": "rejected"},
-                message="The transaction was rejected; no funds moved.",
+                checkpoint=VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+                data=binding(),
             )
         ],
     )
     buyer = FakeBuyer()
-    buyer.review_status = "rejected"
     seller = FakeSeller()
     result = await lifecycle(verifund, buyer, seller).start(
         run_id=AGREEMENT.run_id,
@@ -447,15 +444,17 @@ async def test_lifecycle_stops_after_a_buyer_rejection() -> None:
         seller_id=AGREEMENT.seller_id,
         idempotency_key="agreement:run-1:offer-1",
     )
-    assert result["status"] == "completed"
-    assert result["state"] == "CANCELED"
-    assert result["buyer_review"]["status"] == "rejected"
-    assert result["seller_decision"] is None
+    assert result["status"] == "input_required"
+    assert result["checkpoint"] == "buyer_approval_required"
+    assert result["seller_decision"]["status"] == "accepted"
+    assert result["buyer_review"] is None
     assert "hitl" not in result
-    assert seller.calls == []
+    assert [call[0] for call in seller.calls] == ["review"]
+    assert [call[0] for call in buyer.calls] == ["buyer_seller"]
     resume_calls = [call for call in verifund.calls if call[0] == "resume"]
     assert len(resume_calls) == 1
     assert resume_calls[0][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
+    assert resume_calls[0][3]["party"] == "seller"
 
 
 async def test_lifecycle_never_funds_after_seller_rejection() -> None:
@@ -466,10 +465,6 @@ async def test_lifecycle_never_funds_after_seller_rejection() -> None:
         ),
         resume_results=[
             task_result(
-                checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-                data=binding(),
-            ),
-            task_result(
                 status="completed",
                 state=TransactionState.CANCELED,
                 data={**binding(), "stage": "rejected"},
@@ -478,7 +473,6 @@ async def test_lifecycle_never_funds_after_seller_rejection() -> None:
         ],
     )
     buyer = FakeBuyer()
-    buyer.status = "rejected"
     result = await lifecycle(verifund, buyer, FakeSeller("rejected")).start(
         run_id=AGREEMENT.run_id,
         award={"run_id": AGREEMENT.run_id, "offer_id": AGREEMENT.offer_id},
@@ -490,10 +484,15 @@ async def test_lifecycle_never_funds_after_seller_rejection() -> None:
     )
     assert result["status"] == "completed"
     assert result["state"] == "CANCELED"
+    assert result["seller_decision"]["status"] == "rejected"
+    assert result["buyer_review"] is None
     assert "hitl" not in result
+    resume_calls = [call for call in verifund.calls if call[0] == "resume"]
+    assert len(resume_calls) == 1
+    assert resume_calls[0][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
     assert not [
-        call for call in verifund.calls if call[0] == "resume"
-        and call[2] is VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED
+        call for call in resume_calls
+        if call[2] is VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED
     ]
 
 

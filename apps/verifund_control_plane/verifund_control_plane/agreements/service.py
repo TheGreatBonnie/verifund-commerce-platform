@@ -33,6 +33,7 @@ from verifund_control_plane.agreements.models import (
     AgreementDecisionRecord,
     AgreementError,
     AgreementEvent,
+    AgreementVersion,
     ChangeRequest,
 )
 from verifund_control_plane.agreements.renderer import RENDERER_VERSION, render_agreement
@@ -53,6 +54,17 @@ class AgreementService:
         self.sync_transaction = sync_transaction
 
     def _now(self): return self.clock()
+
+    @staticmethod
+    def _current_record(agreement: Agreement) -> AgreementVersion:
+        current = agreement.current_version_record
+        if current is None:
+            raise AgreementError(
+                "invalid_state",
+                "agreement has no current version",
+                agreement_id=agreement.agreement_id,
+            )
+        return current
 
     async def create_from_award(self, conn, award, transaction_id, run_id, now):
         validate_award(award, now)
@@ -98,7 +110,8 @@ class AgreementService:
     async def record_seller_decision(self, conn, agreement_id, *, decision, actor_type,
                                      actor_id, authority_ref, authority_snapshot,
                                      agreement_version, agreement_hash, verified_offer_hash,
-                                     note, idempotency_key, now, change_set=None):
+                                     note, idempotency_key, now, change_set=None,
+                                     verified_change_request_id: str | None = None):
         replay = await self.repo.get_decision_by_idempotency(idempotency_key)
         if replay is not None:
             return await self.repo.get(agreement_id, conn=conn)
@@ -126,7 +139,8 @@ class AgreementService:
                 version=agreement_version, party="seller", decision=AgreementDecision.ACCEPT,
                 actor_type=actor_type, actor_id=actor_id, authority_ref=authority_ref,
                 authority_snapshot=authority_snapshot or {}, agreement_hash=agreement_hash,
-                verified_offer_hash=verified_offer_hash, verified_change_request_id=None,
+                verified_offer_hash=verified_offer_hash,
+                verified_change_request_id=verified_change_request_id,
                 reason_code=None, note=note, change_request_id=None,
                 idempotency_key=idempotency_key, decided_at=now,
             ))
@@ -152,7 +166,8 @@ class AgreementService:
                 version=agreement_version, party="seller", decision=AgreementDecision.REJECT,
                 actor_type=actor_type, actor_id=actor_id, authority_ref=authority_ref,
                 authority_snapshot=authority_snapshot or {}, agreement_hash=agreement_hash,
-                verified_offer_hash=verified_offer_hash, verified_change_request_id=None,
+                verified_offer_hash=verified_offer_hash,
+                verified_change_request_id=verified_change_request_id,
                 reason_code=None, note=note, change_request_id=None,
                 idempotency_key=idempotency_key, decided_at=now,
             ))
@@ -191,7 +206,8 @@ class AgreementService:
                 decision=AgreementDecision.REQUEST_CHANGES, actor_type=actor_type,
                 actor_id=actor_id, authority_ref=authority_ref,
                 authority_snapshot=authority_snapshot or {}, agreement_hash=agreement_hash,
-                verified_offer_hash=verified_offer_hash, verified_change_request_id=None,
+                verified_offer_hash=verified_offer_hash,
+                verified_change_request_id=verified_change_request_id,
                 reason_code=None, note=note, change_request_id=cr_id,
                 idempotency_key=idempotency_key, decided_at=now,
             ))
@@ -244,7 +260,7 @@ class AgreementService:
             conn,
             agreement.transaction_id,
             version if version is not None else agreement.current_version,
-            digest if digest is not None else agreement.current_version_record.agreement_hash,
+            digest if digest is not None else self._current_record(agreement).agreement_hash,
             now,
         )
 
@@ -281,6 +297,8 @@ class AgreementService:
         except ValueError as exc:
             raise AgreementError("token_revoked", str(exc)) from exc
         jti = token_claims.get("jti")
+        if not isinstance(jti, str):
+            raise AgreementError("token_revoked", "token is missing its identifier")
         token = await self.repo.get_token(jti, conn=conn)
         if token is None:
             raise AgreementError("token_revoked", "unknown token")
@@ -294,9 +312,10 @@ class AgreementService:
             raise AgreementError("token_expired", "token expired")
         if token.subject_id != agreement.buyer_id:
             raise AgreementError("forbidden", "token subject mismatch")
-        if token.version != agreement.current_version or token.agreement_hash != agreement.current_version_record.agreement_hash:
+        current_hash = self._current_record(agreement).agreement_hash
+        if token.version != agreement.current_version or token.agreement_hash != current_hash:
             raise AgreementError("hash_mismatch", "token does not bind current version")
-        if request.agreement_version != agreement.current_version or request.agreement_hash != agreement.current_version_record.agreement_hash:
+        if request.agreement_version != agreement.current_version or request.agreement_hash != current_hash:
             raise AgreementError("hash_mismatch", "stale version/digest")
         decision = request.decision
         decision_id = f"dec_{uuid.uuid4().hex}"
@@ -311,7 +330,7 @@ class AgreementService:
                 version=agreement.current_version, party="buyer",
                 decision=AgreementDecision.ACCEPT, actor_type=actor.actor_type,
                 actor_id=actor.actor_id, authority_ref=None,
-                authority_snapshot={}, agreement_hash=agreement.current_version_record.agreement_hash,
+                authority_snapshot={}, agreement_hash=current_hash,
                 verified_offer_hash=None, verified_change_request_id=None,
                 reason_code=None, note=request.note, change_request_id=None,
                 idempotency_key=request.idempotency_key, decided_at=now,
@@ -327,7 +346,7 @@ class AgreementService:
             await self.sync_transaction_pointer(
                 agreement, conn, now,
                 version=agreement.current_version,
-                digest=agreement.current_version_record.agreement_hash,
+                digest=current_hash,
             )
             await self.repo.revoke_tokens(conn, agreement_id, agreement.current_version, now)
             await self.repo.append_event(conn, AgreementEvent(
@@ -343,7 +362,7 @@ class AgreementService:
                 version=agreement.current_version, party="buyer",
                 decision=AgreementDecision.REJECT, actor_type=actor.actor_type,
                 actor_id=actor.actor_id, authority_ref=None,
-                authority_snapshot={}, agreement_hash=agreement.current_version_record.agreement_hash,
+                authority_snapshot={}, agreement_hash=current_hash,
                 verified_offer_hash=None, verified_change_request_id=None,
                 reason_code=None, note=request.note, change_request_id=None,
                 idempotency_key=request.idempotency_key, decided_at=now,
@@ -366,7 +385,7 @@ class AgreementService:
             cr_id = f"cr_{uuid.uuid4().hex}"
             cr = ChangeRequest(
                 change_request_id=cr_id, agreement_id=agreement_id,
-                base_version=agreement.current_version, base_hash=agreement.current_version_record.agreement_hash,
+                base_version=agreement.current_version, base_hash=current_hash,
                 requested_by_party="buyer", requested_by_actor_type=actor.actor_type,
                 requested_by_actor_id=actor.actor_id, operations=request.change_set.operations,
                 reason=request.change_set.reason, status="PENDING", created_at=now,
@@ -377,7 +396,7 @@ class AgreementService:
                 version=agreement.current_version, party="buyer",
                 decision=AgreementDecision.REQUEST_CHANGES, actor_type=actor.actor_type,
                 actor_id=actor.actor_id, authority_ref=None,
-                authority_snapshot={}, agreement_hash=agreement.current_version_record.agreement_hash,
+                authority_snapshot={}, agreement_hash=current_hash,
                 verified_offer_hash=None, verified_change_request_id=None,
                 reason_code=None, note=request.note, change_request_id=cr_id,
                 idempotency_key=request.idempotency_key, decided_at=now,
@@ -419,7 +438,7 @@ class AgreementService:
             actor_type=actor.actor_type, actor_id=actor.actor_id,
             authority_ref=None, authority_snapshot={},
             agreement_version=agreement.current_version,
-            agreement_hash=agreement.current_version_record.agreement_hash,
+            agreement_hash=self._current_record(agreement).agreement_hash,
             verified_offer_hash=agreement.offer_hash, note=note,
             idempotency_key=idempotency_key, now=now, change_set=change_set,
         )
@@ -462,14 +481,15 @@ class AgreementService:
                 raise AgreementError("forbidden", "buyer change resolution requires an approval token")
             if agreement.status != AgreementState.CHANGES_REQUESTED:
                 raise AgreementError("invalid_state", "no open change request")
+            current_hash = self._current_record(agreement).agreement_hash
             if (cr.base_version != agreement.current_version
-                    or cr.base_hash != agreement.current_version_record.agreement_hash):
+                    or cr.base_hash != current_hash):
                 raise AgreementError("hash_mismatch", "change request base is stale")
             claims = self.token_service.verify(raw_token)
             if claims.get("sub") != agreement.buyer_id:
                 raise AgreementError("forbidden", "approval token subject mismatch")
             if (claims.get("version") != agreement.current_version
-                    or claims.get("agreement_hash") != agreement.current_version_record.agreement_hash):
+                    or claims.get("agreement_hash") != current_hash):
                 raise AgreementError("hash_mismatch", "approval token binds a different version")
             await self._ensure_not_expired(conn, agreement, now)
             consumed = await self.token_service.consume(
@@ -686,7 +706,13 @@ class AgreementService:
         cur = agreement.current_version_record
         if cur is None:
             cur = await self.repo.get_version(agreement.agreement_id, agreement.current_version)
-        terms = cur.terms if cur is not None else {}
+        if cur is None:
+            raise AgreementError(
+                "invalid_state",
+                "agreement has no current version",
+                agreement_id=agreement.agreement_id,
+            )
+        terms = cur.terms
         totals = terms.get("totals", {}) if isinstance(terms, dict) else {}
         items = terms.get("items", []) if isinstance(terms, dict) else []
         line_items = [
@@ -723,9 +749,9 @@ class AgreementService:
         delivery = terms.get("delivery", {}) if isinstance(terms, dict) else {}
         status = agreement.status
         created_at = _iso(agreement.created_at)
-        supersedes = cur.supersedes_version if cur is not None else None
-        change_request_id = cur.change_request_id if cur is not None else None
-        agreement_hash = cur.agreement_hash if cur is not None else agreement.current_version_record.agreement_hash
+        supersedes = cur.supersedes_version
+        change_request_id = cur.change_request_id
+        agreement_hash = cur.agreement_hash
         return AgreementProjection(
             agreement_id=agreement.agreement_id,
             agreement_version=agreement.current_version,

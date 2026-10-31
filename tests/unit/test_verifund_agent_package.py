@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import httpx
 import respx
@@ -15,6 +16,8 @@ from verifund_contracts import (
     BuyerOrderReportRequest,
     BuyerPurchaseOrderRequest,
 )
+
+NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 REQUIRED_SKILLS = {
     "verifund.agreement.create",
@@ -105,8 +108,13 @@ async def test_buyer_client_creates_an_agreement_with_the_exact_award() -> None:
             buyer_id="demo-buyer",
             seller_id="northwind-audio",
             offer_id="offer-1",
+            request_id="rfq-1",
+            buyer_display_name="Demo Buyer",
+            seller_display_name="Northwind Audio",
             amount_cents=123400,
             shipping_cents=3400,
+            tax_cents=0,
+            fees_cents=0,
             quantity=12,
             line_items=[
                 {
@@ -119,6 +127,9 @@ async def test_buyer_client_creates_an_agreement_with_the_exact_award() -> None:
             delivery_days=7,
             warranty_months=24,
             returns_days=30,
+            offer_round=1,
+            offer_hash="a" * 64,
+            offer_valid_until=NOW,
         ),
         buyer_task_id="buyer-task-1",
         buyer_context_id="run-1",

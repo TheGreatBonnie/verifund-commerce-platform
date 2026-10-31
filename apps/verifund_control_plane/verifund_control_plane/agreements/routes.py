@@ -61,8 +61,8 @@ def _seller_claims(request: Request, token: str):
     return request.app.state.tokens.verify(token, required_scope="txn:read")
 
 
-def _view(svc: AgreementService, agreement) -> dict:
-    return svc.build_view(agreement)
+async def _view(svc: AgreementService, agreement) -> dict:
+    return await svc.build_view(agreement)
 
 
 @router.get("")
@@ -71,7 +71,7 @@ async def list_agreements(transaction_id: str, request: Request):
     agreement = await svc.get_by_transaction(transaction_id)
     if agreement is None:
         return []
-    return [_view(svc, agreement)]
+    return [await _view(svc, agreement)]
 
 
 @router.get("/{agreement_id}")
@@ -80,7 +80,7 @@ async def get_agreement(agreement_id: str, request: Request):
     agreement = await svc.get(agreement_id)
     if agreement is None:
         _raise(AgreementError("not_found", "agreement not found", agreement_id=agreement_id))
-    return _view(svc, agreement)
+    return await _view(svc, agreement)
 
 
 @router.get("/{agreement_id}/versions")

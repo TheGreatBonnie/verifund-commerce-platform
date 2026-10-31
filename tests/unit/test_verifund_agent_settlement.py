@@ -19,6 +19,7 @@ from verifund_agent.service import VerifundAgentService
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewResult,
+    BuyerAgreementApprovalDecision,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
     TransactionState,
@@ -37,9 +38,14 @@ def award(**overrides):
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "buyer_display_name": "Buyer",
+        "seller_display_name": "Seller",
         "currency": "USD",
         "amount_cents": 123400,
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "quantity": 12,
         "line_items": [
             {
@@ -53,6 +59,22 @@ def award(**overrides):
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "offer_round": 1,
+        "offer_hash": "a" * 64,
+        "offer_valid_until": NOW,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": [
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
     }
     payload.update(overrides)
     return payload
@@ -179,6 +201,12 @@ def review(party: str, **overrides) -> AgreementReviewResult:
         "transaction_id": "vf_1",
         "agreement_version": 1,
         "agreement_hash": HASH,
+        "offer_hash": "a" * 64,
+        "actor_type": "SELLER_AGENT" if party == "seller" else "BUYER_AGENT",
+        "actor_id": "northwind-audio" if party == "seller" else "demo-buyer",
+        "authority_ref": f"{party}-mandate:1",
+        "authority_snapshot": {},
+        "verified_change_request_id": None,
         "task_id": f"{party}-task-1",
         "context_id": "run-1",
         "reviewed_at": NOW,
@@ -201,6 +229,17 @@ def funding_decision(**overrides) -> FundingApprovalDecision:
     }
     payload.update(overrides)
     return FundingApprovalDecision.model_validate(payload)
+
+
+def buyer_approval_decision(**overrides) -> BuyerAgreementApprovalDecision:
+    payload = {
+        "agreement_version": 1,
+        "agreement_hash": HASH,
+        "decision": "APPROVE",
+        "idempotency_key": "buyer-decision:vf_1:1",
+    }
+    payload.update(overrides)
+    return BuyerAgreementApprovalDecision.model_validate(payload)
 
 
 def release_decision(**overrides) -> ReleaseApprovalDecision:
@@ -279,13 +318,27 @@ class Buyer:
 
     async def get_settlement(self, run_id):
         self.calls.append(("get_settlement", run_id))
+        self._sync_count = getattr(self, "_sync_count", 0) + 1
+        if self._sync_count == 1:
+            status = "PENDING_SELLER"
+        elif self._sync_count == 2:
+            status = "PENDING_BUYER"
+        else:
+            status = "AGREED"
+        agreement = AGREEMENT.model_copy(update={"status": status})
         return {
             "run_id": run_id,
             "transaction_id": "vf_1",
             "agreement_version": 1,
             "agreement_hash": HASH,
+            "agreement": agreement.model_dump(mode="json"),
             "projection": self.view_projection,
         }
+
+    async def get_agreement(self, run_id):
+        self.calls.append(("get_agreement", run_id))
+        agreement = AGREEMENT.model_copy(update={"status": "AGREED"})
+        return agreement.model_dump(mode="json")
 
     async def purchase_order(self, run_id, request):
         self.calls.append(("purchase_order", run_id, request))
@@ -375,10 +428,10 @@ def config(buyer: Buyer) -> dict:
 async def reach_funding_approval(graph, runtime, buyer: Buyer) -> None:
     await graph.ainvoke(initial_state(), runtime)
     await graph.ainvoke(
-        Command(resume=review("buyer").model_dump(mode="json")), runtime
+        Command(resume=review("seller").model_dump(mode="json")), runtime
     )
     await graph.ainvoke(
-        Command(resume=review("seller").model_dump(mode="json")), runtime
+        Command(resume=buyer_approval_decision().model_dump(mode="json")), runtime
     )
 
 
@@ -457,6 +510,10 @@ async def test_graph_funding_rejection_never_orders() -> None:
     assert done["stage"] == "funding_rejected"
     assert [call[0] for call in buyer.calls] == [
         "create_agreement",
+        "get_settlement",
+        "get_settlement",
+        "get_agreement",
+        "get_settlement",
         "approve_funding",
     ]
 
@@ -596,16 +653,16 @@ async def reach_funding_checkpoint(value, buyer) -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
-            review("buyer").model_dump(mode="json"),
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            review("seller").model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",
     )
     await value.resume(
         resume_request(
-            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-            review("seller").model_dump(mode="json"),
+            VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+            buyer_approval_decision().model_dump(mode="json"),
         ),
         task_id="task-1",
         context_id="run-1",

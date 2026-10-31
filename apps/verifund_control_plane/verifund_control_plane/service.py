@@ -913,7 +913,13 @@ class VerifundService:
                 "forbidden", "seller does not own this transaction", status_code=403
             )
         agreement_record = await self.agreement_service.get_by_transaction(transaction_id)
-        agreement = await self.agreement_service.build_projection(agreement_record) if agreement_record is not None else None
+        if agreement_record is None:
+            raise VerifundError(
+                "not_found",
+                "agreement not found for transaction",
+                status_code=404,
+            )
+        agreement = await self.agreement_service.build_projection(agreement_record)
         items = await self.repo.list_evidence(transaction_id)
         received = sorted({item.kind for item in items})
         deadlines = {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from verifund_contracts.models import AgreementDecision, AgreementState, ChangeOperation
 
@@ -59,7 +59,7 @@ class AgreementDecisionRecord:
     decision_id: str
     agreement_id: str
     version: int
-    party: str
+    party: Literal["buyer", "seller"]
     decision: AgreementDecision
     actor_type: str
     actor_id: str
@@ -81,13 +81,13 @@ class ChangeRequest:
     agreement_id: str
     base_version: int
     base_hash: str
-    requested_by_party: str
+    requested_by_party: Literal["buyer", "seller"]
     requested_by_actor_type: str
     requested_by_actor_id: str
     operations: list[ChangeOperation]
     reason: str
-    status: str
-    resolved_by_party: str | None = None
+    status: Literal["PENDING", "ACCEPTED", "REJECTED", "EXPIRED"]
+    resolved_by_party: Literal["buyer", "seller"] | None = None
     resolved_by_actor_type: str | None = None
     resolved_by_actor_id: str | None = None
     resolution_note: str = ""

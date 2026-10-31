@@ -17,9 +17,9 @@ from seller_agent.agreement_store import SellerAgreementReviewStore
 from seller_agent.mandate import SellerMandate
 
 
-def recompute_offer_hash(offer) -> str:
+def recompute_offer_hash(offer) -> str | None:
     if offer is None:
-        return None  # type: ignore[return-value]
+        return None
     return offer_hash(canonical_offer_binding(offer))
 
 

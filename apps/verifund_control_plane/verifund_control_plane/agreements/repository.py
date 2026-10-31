@@ -4,7 +4,7 @@ import json as _json_mod
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, overload
 
 from sqlalchemy import (
     Column,
@@ -31,6 +31,18 @@ from .models import (
 _ = _engine_transaction
 
 
+@overload
+def _iso(v: datetime) -> str: ...
+
+
+@overload
+def _iso(v: None) -> None: ...
+
+
+@overload
+def _iso(v: datetime | None) -> str | None: ...
+
+
 def _iso(v: datetime | None) -> str | None:
     if v is None:
         return None
@@ -39,7 +51,13 @@ def _iso(v: datetime | None) -> str | None:
     return v.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _dt(v: str | None) -> datetime | None:
+def _dt(v: str | None) -> datetime:
+    if not v:
+        raise ValueError("expected a non-null timestamp")
+    return datetime.fromisoformat(v)
+
+
+def _dt_optional(v: str | None) -> datetime | None:
     if not v:
         return None
     return datetime.fromisoformat(v)
@@ -186,11 +204,11 @@ class AgreementRepository:
             offer_round=row["offer_round"],
             offer_hash=row["offer_hash"],
             offer_valid_until=_dt(row["offer_valid_until"]),
-            expires_at=_dt(row["expires_at"]),
-            agreed_at=_dt(row["agreed_at"]),
-            rejected_at=_dt(row["rejected_at"]),
-            expired_at=_dt(row["expired_at"]),
-            terminated_at=_dt(row["terminated_at"]),
+            expires_at=_dt_optional(row["expires_at"]),
+            agreed_at=_dt_optional(row["agreed_at"]),
+            rejected_at=_dt_optional(row["rejected_at"]),
+            expired_at=_dt_optional(row["expired_at"]),
+            terminated_at=_dt_optional(row["terminated_at"]),
             terminal_reason=row["terminal_reason"],
             seller_operator_required=bool(row["seller_operator_required"]),
             row_version=row["row_version"],
@@ -265,7 +283,7 @@ class AgreementRepository:
                 created_at=_dt(ver_row["created_at"]),
                 supersedes_version=ver_row["supersedes_version"],
                 change_request_id=ver_row["change_request_id"],
-                superseded_at=_dt(ver_row["superseded_at"]),
+                superseded_at=_dt_optional(ver_row["superseded_at"]),
             )
         return agr
 
@@ -309,7 +327,7 @@ class AgreementRepository:
             rendered_html=row["rendered_html"], renderer_version=row["renderer_version"],
             created_at=_dt(row["created_at"]), supersedes_version=row["supersedes_version"],
             change_request_id=row["change_request_id"],
-            superseded_at=_dt(row["superseded_at"]),
+            superseded_at=_dt_optional(row["superseded_at"]),
         )
 
     async def list_versions(self, agreement_id: str, conn=None) -> list[AgreementVersion]:
@@ -332,7 +350,7 @@ class AgreementRepository:
             rendered_html=r["rendered_html"], renderer_version=r["renderer_version"],
             created_at=_dt(r["created_at"]), supersedes_version=r["supersedes_version"],
             change_request_id=r["change_request_id"],
-            superseded_at=_dt(r["superseded_at"]),
+            superseded_at=_dt_optional(r["superseded_at"]),
         ) for r in rows]
 
     async def append_decision(self, conn, decision: AgreementDecisionRecord) -> None:
@@ -441,7 +459,7 @@ class AgreementRepository:
             resolution_note=row["resolution_note"] or "",
             resulting_version=row["resulting_version"],
             created_at=_dt(row["created_at"]),
-            resolved_at=_dt(row["resolved_at"]),
+            resolved_at=_dt_optional(row["resolved_at"]),
         )
 
     async def resolve_change_request(self, conn, change_request_id: str, *,
@@ -517,7 +535,7 @@ class AgreementRepository:
             version=row["version"], agreement_hash=row["agreement_hash"],
             subject_id=row["subject_id"], token_hash=row["token_hash"],
             issued_at=_dt(row["issued_at"]), expires_at=_dt(row["expires_at"]),
-            used_at=_dt(row["used_at"]), revoked_at=_dt(row["revoked_at"]),
+            used_at=_dt_optional(row["used_at"]), revoked_at=_dt_optional(row["revoked_at"]),
             issued_by_actor_type=row["issued_by_actor_type"],
             issued_by_actor_id=row["issued_by_actor_id"],
             consumed_by_decision_id=row["consumed_by_decision_id"],
