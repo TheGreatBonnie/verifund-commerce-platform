@@ -40,12 +40,16 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 def agreement() -> AgreementProjection:
     payload: dict[str, Any] = {
+        "agreement_id": "agr_1",
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "offer_round": 1,
+        "offer_hash": "a" * 64,
+        "offer_valid_until": NOW,
         "currency": "USD",
         "amount_cents": 123400,
         "quantity": 12,
@@ -59,9 +63,53 @@ def agreement() -> AgreementProjection:
             }
         ],
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": [
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
+        "terms": {
+            "schema": "verifund.agreement.v1",
+            "agreement_type": "goods",
+            "terms_version": 1,
+            "totals": {
+                "subtotal_cents": 120000,
+                "shipping_cents": 3400,
+                "tax_cents": 0,
+                "fees_cents": 0,
+                "total_cents": 123400,
+            },
+            "delivery": {"delivery_days": 7},
+            "warranty": {"warranty_months": 24},
+            "returns": {"returns_days": 30},
+            "inspection": {"period_hours": 48, "starts_on": "DELIVERY_CONFIRMED"},
+            "evidence_required": [
+                "shipment_manifest",
+                "delivery_confirmation",
+                "invoice",
+            ],
+            "remedies": {
+                "non_delivery": "cancel_and_refund",
+                "late_delivery": "cancel_and_refund",
+                "damaged_goods": "refund_or_replacement",
+            },
+            "dispute_window_hours": 72,
+        },
+        "status": "PENDING_SELLER",
+        "expires_at": None,
         "created_at": "2026-10-27T12:00:00Z",
     }
     probe = AgreementProjection.model_construct(

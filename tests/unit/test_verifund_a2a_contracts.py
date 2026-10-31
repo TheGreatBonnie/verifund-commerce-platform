@@ -44,12 +44,16 @@ HASH = "a" * 64
 
 def agreement_payload(**overrides):
     payload = {
+        "agreement_id": "agr_1",
         "agreement_version": 1,
         "transaction_id": "vf_1",
         "run_id": "run-1",
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "offer_round": 1,
+        "offer_hash": HASH,
+        "offer_valid_until": NOW,
         "currency": "USD",
         "amount_cents": 123400,
         "quantity": 12,
@@ -63,10 +67,55 @@ def agreement_payload(**overrides):
             }
         ],
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": [
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
+        "terms": {
+            "schema": "verifund.agreement.v1",
+            "agreement_type": "goods",
+            "terms_version": 1,
+            "totals": {
+                "subtotal_cents": 120000,
+                "shipping_cents": 3400,
+                "tax_cents": 0,
+                "fees_cents": 0,
+                "total_cents": 123400,
+            },
+            "delivery": {"delivery_days": 7},
+            "warranty": {"warranty_months": 24},
+            "returns": {"returns_days": 30},
+            "inspection": {"period_hours": 48, "starts_on": "DELIVERY_CONFIRMED"},
+            "evidence_required": [
+                "shipment_manifest",
+                "delivery_confirmation",
+                "invoice",
+            ],
+            "remedies": {
+                "non_delivery": "cancel_and_refund",
+                "late_delivery": "cancel_and_refund",
+                "damaged_goods": "refund_or_replacement",
+            },
+            "dispute_window_hours": 72,
+        },
+        "status": "PENDING_SELLER",
+        "expires_at": None,
         "created_at": "2026-10-27T12:00:00Z",
+        "agreement_hash": HASH,
     }
     payload.update(overrides)
     return payload
@@ -74,21 +123,17 @@ def agreement_payload(**overrides):
 
 def projection(**overrides) -> AgreementProjection:
     body = agreement_payload(**overrides)
-    probe = AgreementProjection.model_construct(
-        **body, agreement_hash="0" * 64
-    )
-    return AgreementProjection(
-        **body, agreement_hash=probe.recompute_hash()
-    )
+    body.pop("agreement_hash", None)
+    probe = AgreementProjection.model_construct(**body, agreement_hash="0" * 64)
+    return AgreementProjection(**body, agreement_hash=probe.recompute_hash())
 
 
 def test_agreement_projection_hash_binds_every_term() -> None:
     item = projection()
     assert item.agreement_hash == item.recompute_hash()
     tampered = agreement_payload(amount_cents=123401)
-    probe = AgreementProjection.model_construct(
-        **tampered, agreement_hash=item.agreement_hash
-    )
+    tampered.pop("agreement_hash", None)
+    probe = AgreementProjection.model_construct(**tampered, agreement_hash=item.agreement_hash)
     assert probe.recompute_hash() != item.agreement_hash
     with pytest.raises(ValidationError):
         AgreementProjection(**tampered, agreement_hash=item.agreement_hash)
@@ -164,6 +209,12 @@ def test_agreement_review_envelope_round_trips_and_rejects_a_changed_hash() -> N
         transaction_id="vf_1",
         agreement_version=1,
         agreement_hash=request.agreement.agreement_hash,
+        offer_hash=request.agreement.offer_hash,
+        actor_type="SELLER_AGENT",
+        actor_id="northwind-audio",
+        authority_ref="seller-mandate:northwind-audio:1",
+        authority_snapshot={},
+        verified_change_request_id=None,
         task_id="seller-task-1",
         context_id="run-1",
         reviewed_at=NOW,
@@ -298,8 +349,13 @@ def test_buyer_agreement_contracts_carry_the_secret_reference_only() -> None:
             buyer_id="demo-buyer",
             seller_id="northwind-audio",
             offer_id="offer-1",
+            request_id="rfq-1",
+            buyer_display_name="Demo Buyer",
+            seller_display_name="Northwind Audio",
             amount_cents=123400,
             shipping_cents=3400,
+            tax_cents=0,
+            fees_cents=0,
             quantity=12,
             line_items=[
                 {
@@ -312,18 +368,35 @@ def test_buyer_agreement_contracts_carry_the_secret_reference_only() -> None:
             delivery_days=7,
             warranty_months=24,
             returns_days=30,
+            offer_round=1,
+            offer_hash=HASH,
+            offer_valid_until=NOW,
+            inspection_period_hours=48,
+            inspection_starts_on="DELIVERY_CONFIRMED",
+            evidence_required=[
+                "shipment_manifest",
+                "delivery_confirmation",
+                "invoice",
+            ],
+            remedies={
+                "non_delivery": "cancel_and_refund",
+                "late_delivery": "cancel_and_refund",
+                "damaged_goods": "refund_or_replacement",
+            },
+            dispute_window_hours=72,
         ),
         buyer_task_id="buyer-task-1",
         buyer_context_id="run-1",
         idempotency_key="agreement:run-1:offer-1",
     )
     assert request.award.run_id == "run-1"
+    agreement = projection()
     response = BuyerAgreementResponse(
         transaction_id="vf_1",
         state="AWARDED",
-        agreement=projection(),
+        agreement=agreement,
         agreement_version=1,
-        agreement_hash=projection().agreement_hash,
+        agreement_hash=agreement.agreement_hash,
         seller_token_ref="run:run-1:transaction:vf_1",
     )
     dumped = response.model_dump(mode="json")

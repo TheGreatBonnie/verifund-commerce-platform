@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,6 +28,40 @@ class TransactionState(StrEnum):
     FAILED = "FAILED"
 
 
+class AgreementState(StrEnum):
+    PENDING_SELLER = "PENDING_SELLER"
+    PENDING_BUYER = "PENDING_BUYER"
+    CHANGES_REQUESTED = "CHANGES_REQUESTED"
+    AGREED = "AGREED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+    TERMINATED = "TERMINATED"
+
+
+class AgreementDecision(StrEnum):
+    ACCEPT = "ACCEPT"
+    REJECT = "REJECT"
+    REQUEST_CHANGES = "REQUEST_CHANGES"
+    OPERATOR_REQUIRED = "OPERATOR_REQUIRED"  # not persisted as a decision row
+
+
+class BuyerApprovalDecision(StrEnum):
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    REQUEST_CHANGES = "REQUEST_CHANGES"
+
+
+class RemedyPolicy(StrEnum):
+    CANCEL_AND_REFUND = "cancel_and_refund"
+    REFUND_OR_REPLACEMENT = "refund_or_replacement"
+
+
+class RemedyTerms(VerifundModel):
+    non_delivery: RemedyPolicy
+    late_delivery: RemedyPolicy
+    damaged_goods: RemedyPolicy
+
+
 class EvidenceKind(StrEnum):
     SHIPMENT_MANIFEST = "shipment_manifest"
     DELIVERY_CONFIRMATION = "delivery_confirmation"
@@ -46,6 +80,8 @@ class RejectReason(StrEnum):
 class AgreementReviewDecision(StrEnum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    OPERATOR_REQUIRED = "operator_required"   # NEW
+    CHANGES_REQUESTED = "changes_requested"  # NEW
 
 
 class CancelReason(StrEnum):
@@ -53,6 +89,8 @@ class CancelReason(StrEnum):
     BUYER_CANCELLED = "buyer_cancelled"
     REVIEWER_CANCELLED = "reviewer_cancelled"
     FUNDING_EXPIRED = "funding_expired"
+    AGREEMENT_EXPIRED = "agreement_expired"  # NEW; reconciler only
+    SELLER_REJECTED = "seller_rejected"      # NEW; seller decision path
 
 
 class ReviewReason(StrEnum):
@@ -110,25 +148,57 @@ def sha256_hex(value: bytes) -> str:
 
 
 class AgreementProjection(VerifundModel):
+    agreement_id: str = Field(min_length=1)            # NEW
     agreement_version: int = Field(ge=1)
     transaction_id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
     buyer_id: str = Field(min_length=1)
     seller_id: str = Field(min_length=1)
     offer_id: str = Field(min_length=1)
+    offer_round: int = Field(ge=1)                     # NEW
+    offer_hash: str = Field(pattern="^[0-9a-f]{64}$")  # NEW
+    offer_valid_until: datetime                        # NEW
     currency: str = Field(default="USD", pattern="^USD$")
     amount_cents: int = Field(gt=0)
     quantity: int = Field(gt=0)
     line_items: list[AwardLineItem] = Field(min_length=1)
     shipping_cents: int = Field(ge=0)
+    tax_cents: int = Field(ge=0)                      # NEW
+    fees_cents: int = Field(ge=0)                      # NEW
     delivery_days: int = Field(ge=0)
     warranty_months: int = Field(ge=0)
     returns_days: int = Field(ge=0)
+    inspection_period_hours: int = Field(ge=1)          # NEW
+    inspection_starts_on: str = Field(min_length=1)     # NEW
+    evidence_required: list[EvidenceKind] = Field(min_length=1)  # NEW
+    remedies: RemedyTerms                              # NEW
+    dispute_window_hours: int = Field(ge=1)             # NEW
+    terms: dict[str, Any]                             # NEW
+    status: AgreementState                            # NEW
+    expires_at: datetime | None = None                 # NEW
+    supersedes_version: int | None = None              # NEW
+    change_request_id: str | None = None               # NEW
     created_at: str = Field(min_length=1)
     agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
 
     def canonical_payload(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", exclude={"agreement_hash"})
+        # §5.5 digest envelope
+        return {
+            "schema": "verifund.agreement.v1",
+            "agreement_id": self.agreement_id,
+            "version": self.agreement_version,
+            "agreement_type": self.terms.get("agreement_type", "goods") if self.terms else "goods",
+            "terms_version": self.terms.get("terms_version", 1) if self.terms else 1,
+            "terms": self.terms or {},
+            "amount_cents": self.amount_cents,
+            "shipping_cents": self.shipping_cents,
+            "tax_cents": self.tax_cents,
+            "fees_cents": self.fees_cents,
+            "total_cents": self.amount_cents,
+            "offer_id": self.offer_id,
+            "offer_round": self.offer_round,
+            "offer_hash": self.offer_hash,
+        }
 
     def recompute_hash(self) -> str:
         return sha256_hex(canonical_json(self.canonical_payload()))
@@ -137,6 +207,31 @@ class AgreementProjection(VerifundModel):
     def _hash_must_match(self) -> AgreementProjection:
         if self.recompute_hash() != self.agreement_hash:
             raise ValueError("agreement hash does not match canonical payload")
+        return self
+
+    @model_validator(mode="after")
+    def _summary_must_match_terms(self) -> AgreementProjection:
+        terms = self.terms or {}
+        totals = terms.get("totals") or {}
+
+        def _match(term_value: Any, field_value: Any, label: str) -> None:
+            if term_value is None or field_value is None:
+                return
+            if term_value != field_value:
+                raise ValueError(f"{label} must match terms")
+
+        _match(totals.get("total_cents"), self.amount_cents, "amount_cents")
+        _match(totals.get("shipping_cents"), self.shipping_cents, "shipping_cents")
+        _match(totals.get("tax_cents"), self.tax_cents, "tax_cents")
+        _match(totals.get("fees_cents"), self.fees_cents, "fees_cents")
+        _match((terms.get("delivery") or {}).get("delivery_days"), self.delivery_days, "delivery_days")
+        _match((terms.get("warranty") or {}).get("warranty_months"), self.warranty_months, "warranty_months")
+        _match((terms.get("returns") or {}).get("returns_days"), self.returns_days, "returns_days")
+        _match((terms.get("inspection") or {}).get("period_hours"), self.inspection_period_hours, "inspection_period_hours")
+        _match((terms.get("inspection") or {}).get("starts_on"), self.inspection_starts_on, "inspection_starts_on")
+        _match(list(terms.get("evidence_required") or []), list(self.evidence_required or []), "evidence_required")
+        _match(terms.get("remedies"), self.remedies.model_dump(mode="json") if self.remedies else None, "remedies")
+        _match(terms.get("dispute_window_hours"), self.dispute_window_hours, "dispute_window_hours")
         return self
 
 
@@ -150,9 +245,33 @@ class AwardRequest(VerifundModel):
     shipping_cents: int = Field(ge=0)
     quantity: int = Field(gt=0)
     line_items: list[AwardLineItem] = Field(min_length=1)
-    delivery_days: int = Field(ge=0)
+    delivery_days: int = Field(ge=1)                    # NEW (was ge=0)
     warranty_months: int = Field(ge=0)
     returns_days: int = Field(ge=0)
+    offer_round: int = Field(ge=1)                     # NEW
+    offer_hash: str = Field(pattern="^[0-9a-f]{64}$")  # NEW
+    offer_valid_until: datetime                        # NEW
+    inspection_period_hours: int = Field(default=48, ge=1)  # NEW
+    inspection_starts_on: str = Field(default="DELIVERY_CONFIRMED", min_length=1)  # NEW
+    evidence_required: list[EvidenceKind] = Field(      # NEW
+        default_factory=lambda: [EvidenceKind.SHIPMENT_MANIFEST,
+                                 EvidenceKind.DELIVERY_CONFIRMATION,
+                                 EvidenceKind.INVOICE],
+        min_length=1,
+    )
+    remedies: RemedyTerms = Field(              # NEW; default keeps existing callers working
+        default_factory=lambda: RemedyTerms(
+            non_delivery=RemedyPolicy.CANCEL_AND_REFUND,
+            late_delivery=RemedyPolicy.CANCEL_AND_REFUND,
+            damaged_goods=RemedyPolicy.REFUND_OR_REPLACEMENT,
+        )
+    )
+    dispute_window_hours: int = Field(default=72, ge=1)  # NEW
+    tax_cents: int = Field(ge=0)                       # NEW
+    fees_cents: int = Field(ge=0)                      # NEW
+    request_id: str = Field(min_length=1)               # NEW
+    buyer_display_name: str = Field(min_length=1)       # NEW
+    seller_display_name: str = Field(min_length=1)      # NEW
 
     @model_validator(mode="after")
     def _totals_must_match(self) -> AwardRequest:
@@ -163,8 +282,10 @@ class AwardRequest(VerifundModel):
             (item.unit_price_cents + item.warranty_addon_cents) * item.quantity
             for item in self.line_items
         )
-        if line_total + self.shipping_cents != self.amount_cents:
-            raise ValueError("amount_cents must equal line items plus shipping")
+        if line_total + self.shipping_cents + self.tax_cents + self.fees_cents != self.amount_cents:
+            raise ValueError("amount_cents must equal line items plus shipping, tax, fees")
+        if EvidenceKind.DELIVERY_CONFIRMATION not in self.evidence_required:
+            raise ValueError("evidence_required must include delivery_confirmation")
         return self
 
 
@@ -176,6 +297,126 @@ class AwardResponse(VerifundModel):
     agreement_version: int = Field(ge=1)
     seller_token: str
     expires_at: datetime
+
+
+class ChangeOperationType(StrEnum):
+    SET_UNIT_PRICE = "set_unit_price"
+    SET_QUANTITY = "set_quantity"
+    SET_SHIPPING = "set_shipping"
+    SET_TAX = "set_tax"
+    SET_FEES = "set_fees"
+    SET_DELIVERY_DAYS = "set_delivery_days"
+    SET_WARRANTY_MONTHS = "set_warranty_months"
+    SET_RETURNS_DAYS = "set_returns_days"
+    SET_INSPECTION_PERIOD = "set_inspection_period"
+    SET_EVIDENCE_REQUIRED = "set_evidence_required"
+    SET_REMEDIES = "set_remedies"
+
+
+class ChangeOperation(VerifundModel):
+    op: ChangeOperationType
+    sku: str | None = None
+    unit_price_cents: int | None = Field(default=None, ge=0)
+    quantity: int | None = Field(default=None, gt=0)
+    shipping_cents: int | None = Field(default=None, ge=0)
+    tax_cents: int | None = Field(default=None, ge=0)
+    fees_cents: int | None = Field(default=None, ge=0)
+    delivery_days: int | None = Field(default=None, ge=1)
+    warranty_months: int | None = Field(default=None, ge=0)
+    returns_days: int | None = Field(default=None, ge=0)
+    inspection_period_hours: int | None = Field(default=None, ge=1)
+    evidence_required: list[EvidenceKind] | None = None
+    remedies: RemedyTerms | None = None
+    dispute_window_hours: int | None = Field(default=None, ge=1)
+
+
+class ChangeSet(VerifundModel):
+    operations: list[ChangeOperation] = Field(min_length=1)
+    reason: str = ""
+
+
+class AgreementDecisionView(VerifundModel):
+    decision_id: str
+    party: Literal["buyer", "seller"]
+    decision: AgreementDecision
+    actor_type: str
+    actor_id: str
+    authority_ref: str | None = None
+    agreement_hash: str
+    version: int
+    note: str = ""
+    decided_at: datetime
+
+
+class ChangeRequestView(VerifundModel):
+    change_request_id: str
+    base_version: int
+    base_hash: str
+    requested_by_party: Literal["buyer", "seller"]
+    requested_by_actor_type: str
+    requested_by_actor_id: str
+    operations: list[ChangeOperation]
+    reason: str = ""
+    status: Literal["PENDING", "ACCEPTED", "REJECTED", "EXPIRED"]
+    resolved_by_party: Literal["buyer", "seller"] | None = None
+    resolution_note: str = ""
+    resulting_version: int | None = None
+    created_at: datetime
+    resolved_at: datetime | None = None
+
+
+class AgreementVersionView(VerifundModel):
+    version: int
+    agreement_hash: str
+    created_at: datetime
+    supersedes_version: int | None = None
+    change_request_id: str | None = None
+    superseded_at: datetime | None = None
+    decisions: list[AgreementDecisionView] = Field(default_factory=list)
+    is_current: bool
+
+
+class ApprovalTokenResponse(VerifundModel):
+    token: str
+    review_url: str
+    expires_at: datetime
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+
+
+class AgreementView(VerifundModel):
+    agreement_id: str
+    transaction_id: str
+    run_id: str
+    buyer_id: str
+    seller_id: str
+    status: AgreementState
+    current_version: int = Field(ge=1)
+    expires_at: datetime | None = None
+    agreed_at: datetime | None = None
+    offer_id: str
+    offer_round: int = Field(ge=1)
+    offer_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    offer_valid_until: datetime
+    seller_operator_required: bool = False
+    version: AgreementVersionView
+    decisions: list[AgreementDecisionView] = Field(default_factory=list)
+    change_request: ChangeRequestView | None = None
+    review_url: str | None = None
+
+
+class SellerAgreementDecisionRequest(VerifundModel):
+    decision: AgreementDecision
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    offer_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    actor_type: str = Field(default="SELLER_AGENT", min_length=1)
+    actor_id: str = Field(min_length=1)
+    authority_ref: str | None = None
+    authority_snapshot: dict[str, Any] = Field(default_factory=dict)
+    verified_change_request_id: str | None = None
+    note: str = ""
+    change_set: ChangeSet | None = None
 
 
 class BuyerAgreementRequest(VerifundModel):
@@ -306,6 +547,12 @@ class AcceptRequest(VerifundModel):
     accepted_total_cents: int = Field(gt=0)
     seller_task_id: str = Field(min_length=1)
     accepted_at: datetime
+    agreement_version: int | None = Field(default=None, ge=1)  # NEW
+    offer_hash: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")  # NEW
+    actor_type: str = "SELLER_AGENT"  # NEW
+    actor_id: str | None = None       # NEW; defaults to seller_id in the service
+    authority_ref: str | None = None  # NEW
+    authority_snapshot: dict[str, Any] = Field(default_factory=dict)  # NEW
 
 
 class BuyerAgreementReviewRequest(VerifundModel):
@@ -334,6 +581,7 @@ class ApproveRequest(VerifundModel):
     approved_at: datetime
     note: str = ""
     agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    agreement_version: int = Field(ge=1)   # NEW
 
 
 class CancelRequest(VerifundModel):
@@ -342,13 +590,14 @@ class CancelRequest(VerifundModel):
 
     @model_validator(mode="after")
     def _reject_reconciler_only_reason(self) -> CancelRequest:
-        if self.reason_code == CancelReason.FUNDING_EXPIRED:
-            raise ValueError("funding_expired is set by the reconciler")
+        if self.reason_code in {CancelReason.FUNDING_EXPIRED, CancelReason.AGREEMENT_EXPIRED}:
+            raise ValueError("reconciler-only cancellation reasons must not be buyer-set")
         return self
 
 
 class FundRequest(VerifundModel):
     agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    agreement_version: int = Field(ge=1)   # NEW
     return_url: str
     cancel_url: str
 
@@ -429,6 +678,8 @@ class ApprovalProjection(VerifundModel):
     approved_by: str
     approved_at: datetime
     note: str | None = None
+    agreement_version: int | None = None   # NEW; binds the consuming approval to a version
+    agreement_hash: str | None = None      # NEW; binds the consuming approval to a digest
 
 
 class CancellationProjection(VerifundModel):
@@ -492,6 +743,7 @@ class EvidenceList(VerifundModel):
 
 class TransactionProjection(VerifundModel):
     transaction_id: str
+    agreement_id: str | None = None   # NEW; written on award, read by funding binding
     run_id: str
     state: TransactionState
     last_seq: int

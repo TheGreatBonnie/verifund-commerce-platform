@@ -25,9 +25,14 @@ def award_payload(**overrides):
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "buyer_display_name": "Demo Buyer",
+        "seller_display_name": "Northwind Audio",
         "currency": "USD",
         "amount_cents": 123400,
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "quantity": 12,
         "line_items": [
             {
@@ -41,6 +46,22 @@ def award_payload(**overrides):
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "offer_round": 1,
+        "offer_hash": "a" * 64,
+        "offer_valid_until": NOW,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": [
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
     }
     payload.update(overrides)
     return payload

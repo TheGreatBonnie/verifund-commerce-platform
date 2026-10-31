@@ -72,6 +72,12 @@ class AgreementReviewResult(VerifundModel):
     transaction_id: str = Field(min_length=1)
     agreement_version: int = Field(ge=1)
     agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    offer_hash: str = Field(pattern="^[0-9a-f]{64}$")  # NEW
+    actor_type: str = Field(min_length=1)               # NEW
+    actor_id: str = Field(min_length=1)                # NEW
+    authority_ref: str | None = None                    # NEW
+    authority_snapshot: dict[str, Any] = Field(default_factory=dict)  # NEW
+    verified_change_request_id: str | None = None       # NEW
     task_id: str = Field(min_length=1)
     context_id: str = Field(min_length=1)
     reviewed_at: datetime
