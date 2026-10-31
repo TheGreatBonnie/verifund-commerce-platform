@@ -104,31 +104,6 @@ class Repository:
             Column("created_at", String, nullable=False),
             Column("updated_at", String, nullable=False),
         )
-        self.agreements = Table(
-            "agreements",
-            self.metadata,
-            Column("agreement_id", String, primary_key=True),
-            Column("transaction_id", String, nullable=False, index=True),
-            Column("version", Integer, nullable=False),
-            Column("payload", JSON, nullable=False),
-            Column("agreement_hash", String, nullable=False),
-            Column("created_at", String, nullable=False),
-        )
-        self.agreement_reviews = Table(
-            "agreement_reviews",
-            self.metadata,
-            Column("review_id", String, primary_key=True),
-            Column("transaction_id", String, nullable=False, index=True),
-            Column("agreement_version", Integer, nullable=False),
-            Column("agreement_hash", String, nullable=False),
-            Column("party", String, nullable=False),
-            Column("decision", String, nullable=False),
-            Column("task_id", String, nullable=False),
-            Column("reason_code", String, nullable=True),
-            Column("note", String, nullable=False),
-            Column("idempotency_key", String, nullable=False, unique=True),
-            Column("reviewed_at", String, nullable=False),
-        )
         self.transaction_events = Table(
             "transaction_events",
             self.metadata,
@@ -336,19 +311,6 @@ class Repository:
             updated_at=_dt(row.updated_at),
         )
 
-    async def get_agreement(self, transaction_id: str) -> dict[str, Any]:
-        async with self.engine.connect() as conn:
-            row = (
-                await conn.execute(
-                    select(self.agreements).where(
-                        self.agreements.c.transaction_id == transaction_id
-                    )
-                )
-            ).first()
-        if row is None:
-            raise VerifundError("not_found", "agreement not found", status_code=404)
-        return row.payload
-
     async def count_transactions(self) -> int:
         async with self.engine.connect() as conn:
             result = await conn.execute(select(self.transactions.c.transaction_id))
@@ -430,16 +392,6 @@ class Repository:
                 last_error=txn.last_error,
                 created_at=_iso(txn.created_at),
                 updated_at=_iso(txn.updated_at),
-            )
-        )
-        await conn.execute(
-            self.agreements.insert().values(
-                agreement_id=txn.agreement_id,
-                transaction_id=txn.transaction_id,
-                version=txn.agreement_version,
-                payload=agreement,
-                agreement_hash=txn.agreement_hash,
-                created_at=_iso(txn.created_at),
             )
         )
         for seq, event in enumerate(events, start=1):
@@ -676,44 +628,6 @@ class Repository:
             .on_conflict_do_nothing(index_elements=["scope", "key"])
         )
         await conn.execute(statement)
-
-    async def record_agreement_review(
-        self, conn: AsyncConnection, review: AgreementReviewInput
-    ) -> bool:
-        statement = (
-            sqlite_insert(self.agreement_reviews)
-            .values(
-                review_id=f"ar_{uuid.uuid4().hex}",
-                transaction_id=review.transaction_id,
-                agreement_version=review.agreement_version,
-                agreement_hash=review.agreement_hash,
-                party=review.party,
-                decision=review.decision,
-                task_id=review.task_id,
-                reason_code=review.reason_code,
-                note=review.note,
-                idempotency_key=review.idempotency_key,
-                reviewed_at=_iso(review.reviewed_at),
-            )
-            .on_conflict_do_nothing(index_elements=["idempotency_key"])
-        )
-        result = await conn.execute(statement)
-        return result.rowcount == 1
-
-    async def get_agreement_reviews(
-        self,
-        transaction_id: str,
-        *,
-        party: str | None = None,
-    ) -> list[dict[str, Any]]:
-        statement = select(self.agreement_reviews).where(
-            self.agreement_reviews.c.transaction_id == transaction_id
-        )
-        if party:
-            statement = statement.where(self.agreement_reviews.c.party == party)
-        async with self.engine.connect() as conn:
-            rows = (await conn.execute(statement)).all()
-        return [dict(row._mapping) for row in rows]
 
     async def audit(
         self, conn: AsyncConnection, transaction_id: str, audit: AuditInput

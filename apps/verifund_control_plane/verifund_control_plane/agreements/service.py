@@ -83,12 +83,10 @@ class AgreementService:
                                      actor_id, authority_ref, authority_snapshot,
                                      agreement_version, agreement_hash, verified_offer_hash,
                                      note, idempotency_key, now, change_set=None):
-        _conn = locals().get('conn')
-        print('DEBUG conn type:', type(_conn), 'id:', id(_conn) if _conn else None, flush=True)
-        replay = await self.repo.get_decision_by_idempotency(idempotency_key, conn=_conn)
+        replay = await self.repo.get_decision_by_idempotency(idempotency_key)
         if replay is not None:
-            return await self.repo.get(agreement_id, conn=locals().get('conn'))
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+            return await self.repo.get(agreement_id, conn=conn)
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found", agreement_id=agreement_id)
         if is_terminal(agreement.status):
@@ -235,7 +233,7 @@ class AgreementService:
         )
 
     async def issue_buyer_token(self, conn, agreement_id, actor, now):
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None or agreement.status != AgreementState.PENDING_BUYER:
             raise AgreementError("invalid_state", "not pending buyer")
         if actor.actor_type != "buyer" or actor.actor_id != agreement.buyer_id:
@@ -252,7 +250,7 @@ class AgreementService:
         return raw, record
 
     async def record_buyer_decision(self, conn, agreement_id, raw_token, request, actor, now):
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
         if is_terminal(agreement.status):
@@ -267,7 +265,7 @@ class AgreementService:
         except ValueError as exc:
             raise AgreementError("token_revoked", str(exc)) from exc
         jti = token_claims.get("jti")
-        token = await self.repo.get_token(jti, conn=locals().get('conn'))
+        token = await self.repo.get_token(jti, conn=conn)
         if token is None:
             raise AgreementError("token_revoked", "unknown token")
         if token.token_hash != self.token_service.token_hash(raw_token):
@@ -386,7 +384,7 @@ class AgreementService:
 
     async def create_change_request(self, conn, agreement_id, party, actor, change_set,
                                     note, idempotency_key, now):
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
         if is_terminal(agreement.status):
@@ -411,7 +409,7 @@ class AgreementService:
         )
 
     async def record_seller_operator_required(self, conn, agreement_id, actor, note, now):
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
         if agreement.status != AgreementState.PENDING_SELLER:
@@ -428,14 +426,14 @@ class AgreementService:
             payload={"note": note}, actor_type=actor.actor_type,
             actor_id=actor.actor_id, created_at=now,
         ))
-        return await self.repo.get(agreement_id, conn=locals().get('conn'))
+        return await self.repo.get(agreement_id, conn=conn)
 
     async def resolve_change_request(self, conn, agreement_id, change_request_id, accept,
                                      actor, note, now, *, raw_token: str | None = None):
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
-        cr = await self.repo.get_open_change_request(agreement_id, conn=locals().get('conn'))
+        cr = await self.repo.get_open_change_request(agreement_id, conn=conn)
         if cr is None or cr.change_request_id != change_request_id:
             raise AgreementError("not_found", "change request not found")
         if cr.requested_by_party == "buyer":
@@ -488,7 +486,7 @@ class AgreementService:
                 event_type="changes_rejected", payload={"change_request_id": change_request_id},
                 actor_type=actor.actor_type, actor_id=actor.actor_id, created_at=now,
             ))
-            return await self.repo.get(agreement_id, conn=locals().get('conn'))
+            return await self.repo.get(agreement_id, conn=conn)
         base_version = await self.repo.get_version(agreement_id, cr.base_version)
         if base_version is None:
             raise AgreementError("not_found", "base version not found")
@@ -530,13 +528,13 @@ class AgreementService:
             event_type="changes_accepted", payload={"change_request_id": change_request_id},
             actor_type=actor.actor_type, actor_id=actor.actor_id, created_at=now,
         ))
-        return await self.repo.get(agreement_id, conn=locals().get('conn'))
+        return await self.repo.get(agreement_id, conn=conn)
 
     async def expire_due(self, now):
         ids = await self.repo.list_expired(now)
         expired = []
         for aid in ids:
-            agreement = await self.repo.get(aid, conn=locals().get('conn'))
+            agreement = await self.repo.get(aid, conn=conn)
             if agreement is None:
                 continue
             async with self.repo.transaction() as conn:
@@ -545,7 +543,7 @@ class AgreementService:
         return expired
 
     async def terminate(self, conn, agreement_id, reason, now):
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None or agreement.status != AgreementState.AGREED:
             return agreement
         ok = await self.repo.update_status_cas(
@@ -561,10 +559,10 @@ class AgreementService:
             event_type="agreement.terminated", payload={"reason": reason},
             actor_type="system", actor_id="control-plane", created_at=now,
         ))
-        return await self.repo.get(agreement_id, conn=locals().get('conn'))
+        return await self.repo.get(agreement_id, conn=conn)
 
     async def cancel_pending(self, conn, agreement_id, reason, now):
-        agreement = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             return None
         if agreement.status not in {
@@ -587,19 +585,19 @@ class AgreementService:
             event_type="agreement.canceled", payload={"reason": reason},
             actor_type="system", actor_id="control-plane", created_at=now,
         ))
-        return await self.repo.get(agreement_id, conn=locals().get('conn'))
+        return await self.repo.get(agreement_id, conn=conn)
 
     async def get(self, agreement_id):
-        return await self.repo.get(agreement_id, conn=locals().get('conn'))
+        return await self.repo.get(agreement_id, conn=conn)
 
-    async def get_by_transaction(self, transaction_id):
-        return await self.repo.get_by_transaction(transaction_id)
+    async def get_by_transaction(self, transaction_id, conn=None):
+        return await self.repo.get_by_transaction(transaction_id, conn=conn)
 
     async def list_versions(self, agreement_id):
         return await self.repo.list_versions(agreement_id)
 
     async def document(self, agreement_id, version=None):
-        agr = await self.repo.get(agreement_id, conn=locals().get('conn'))
+        agr = await self.repo.get(agreement_id, conn=conn)
         if agr is None:
             return None
         v = version or agr.current_version
@@ -612,7 +610,7 @@ class AgreementService:
             ChangeRequestView,
         )
         versions = await self.repo.list_versions(agreement.agreement_id)
-        decisions = await self.repo.list_decisions(agreement.agreement_id, conn=locals().get('conn'))
+        decisions = await self.repo.list_decisions(agreement.agreement_id)
         current = next(
             (v for v in versions if v.version == agreement.current_version), None
         )
@@ -761,7 +759,7 @@ class AgreementService:
         cur = agreement.current_version_record
         if cur is None or cur.agreement_hash != digest:
             raise AgreementError("hash_mismatch", "stale agreement digest")
-        decisions = await self.repo.list_decisions(agreement.agreement_id, conn=locals().get('conn'))
+        decisions = await self.repo.list_decisions(agreement.agreement_id)
         buyer = next((d for d in decisions
                       if d.party == "buyer" and d.version == version
                       and d.decision is AgreementDecision.ACCEPT), None)

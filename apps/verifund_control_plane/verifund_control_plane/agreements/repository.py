@@ -257,14 +257,21 @@ class AgreementRepository:
             )
         return agr
 
-    async def get_by_transaction(self, transaction_id: str) -> Agreement | None:
-        async with self.engine.connect() as conn:
-            row = (await conn.execute(
-                self.agreements.select().where(self.agreements.c.transaction_id == transaction_id)
-            )).mappings().first()
+    async def get_by_transaction(self, transaction_id: str, conn=None) -> Agreement | None:
+        if conn is None:
+            async with self.engine.connect() as c:
+                row = (await c.execute(
+                    self.agreements.select().where(self.agreements.c.transaction_id == transaction_id)
+                )).mappings().first()
+                if row is None:
+                    return None
+                return await self.get(row["agreement_id"], conn=c)
+        row = (await conn.execute(
+            self.agreements.select().where(self.agreements.c.transaction_id == transaction_id)
+        )).mappings().first()
         if row is None:
             return None
-        return await self.get(row["agreement_id"])
+        return await self.get(row["agreement_id"], conn=conn)
 
     async def get_version(self, agreement_id: str, version: int) -> AgreementVersion | None:
         async with self.engine.connect() as conn:

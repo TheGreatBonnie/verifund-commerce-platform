@@ -74,10 +74,22 @@ def create_app(
         conn, transaction_id: str, version: int, digest: str, at: datetime
     ) -> None:
         record = await repo.get_transaction(transaction_id, conn)
-        await repo.update_transaction(
-            conn, transaction_id, expected_version=record.version,
-            changes={"agreement_version": version, "agreement_hash": digest},
-        )
+        changes = {"agreement_version": version, "agreement_hash": digest}
+        if record.state.value == "AWARDED":
+            await repo.transition(
+                conn, transaction_id,
+                expected_version=record.version,
+                expected_state=__import__("verifund_control_plane.domain", fromlist=["TransactionState"]).TransactionState.AWARDED,
+                new_state=__import__("verifund_control_plane.domain", fromlist=["TransactionState"]).TransactionState.AGREED,
+                changes=changes,
+                events=[],
+                audit=None,
+            )
+        else:
+            await repo.update_transaction(
+                conn, transaction_id, expected_version=record.version,
+                changes=changes,
+            )
 
     agreement_service = AgreementService(
         repo=agreement_repo, token_service=agreement_tokens,

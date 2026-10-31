@@ -39,28 +39,36 @@ The enhancement document uses illustrative names. The approved design refines th
 | `verifund_get_agreement` etc. | `GET /agreements/{id}` plus the A2A operations in Phase 5 | Independently callable operations without inventing a second API style. |
 | `agreement_digest` | `agreement_hash` | Existing field name is retained for compatibility; it is the SHA-256 digest. |
 
-The invariant from the enhancement doc is implemented verbatim in `AgreementService.verify_funding_binding()`:
+The invariant from the enhancement doc is implemented in `AgreementService.verify_funding_binding()`. Decisions are append-only rows, so the service reads them from the repository; there is no `Agreement.effective_decision()` helper.
 
 ```python
-def verify_funding_binding(agreement: Agreement, transaction: TransactionProjection,
-                           version: int, digest: str) -> None:
-    if agreement.status is not AgreementState.AGREED:
+async def verify_funding_binding(self, agreement: Agreement,
+                                 transaction: TransactionProjection,
+                                 version: int, digest: str) -> None:
+    if agreement is None or agreement.status is not AgreementState.AGREED:
         raise AgreementError("invalid_state", "agreement is not AGREED")
     if agreement.current_version != version:
         raise AgreementError("hash_mismatch", "stale agreement version")
     current = agreement.current_version_record
-    if current.agreement_hash != digest:
+    if current is None or current.agreement_hash != digest:
         raise AgreementError("hash_mismatch", "stale agreement digest")
-    buyer = agreement.effective_decision("buyer")
-    seller = agreement.effective_decision("seller")
+    decisions = await self.repo.list_decisions(agreement.agreement_id)
+    buyer = next((d for d in decisions
+                  if d.party == "buyer" and d.version == version
+                  and d.decision is AgreementDecision.ACCEPT), None)
+    seller = next((d for d in decisions
+                   if d.party == "seller" and d.version == version
+                   and d.decision is AgreementDecision.ACCEPT), None)
     if buyer is None or seller is None:
         raise AgreementError("invalid_state", "both acceptances are required")
     for decision in (buyer, seller):
-        if decision.version != version or decision.agreement_hash != digest:
+        if decision.agreement_hash != digest:
             raise AgreementError("hash_mismatch", "acceptance does not bind this version")
     if transaction.agreement_id != agreement.agreement_id:
         raise AgreementError("invalid_state", "transaction is bound to another agreement")
 ```
+
+`TransactionProjection.agreement_id` is added in Task 0.3; the value is written by `VerifundService.award()` in Task 2.1 and kept in sync by Task 1.6's `sync_transaction_pointer()`.
 
 ## Global Constraints
 
@@ -86,6 +94,7 @@ def verify_funding_binding(agreement: Agreement, transaction: TransactionProject
 | Path | Responsibility |
 |---|---|
 | `packages/commerce_core/commerce_core/binding.py` | `canonical_offer_binding`, `binding_from_award`, `offer_hash`; the single offer projection shared by buyer, seller, and control plane. |
+| `packages/verifund_contracts/verifund_contracts/terms.py` | Shared `validate_terms(terms, award=None)` and `apply_change_set(terms, operations)`; used by the control plane and seller so chain verification cannot drift. |
 | `apps/verifund_control_plane/verifund_control_plane/agreements/__init__.py` | Package exports. |
 | `.../agreements/models.py` | Aggregate dataclasses, enums, `ActorContext`, `AgreementProjection` builder. |
 | `.../agreements/states.py` | Transition table and guards. |
@@ -229,7 +238,7 @@ def verify_funding_binding(agreement: Agreement, transaction: TransactionProject
 
 ```python
 # tests/unit/test_commerce_contracts.py
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from commerce_core.contracts import (
     Currency,
@@ -278,7 +287,7 @@ Expected: FAIL — `tax_cents` unknown field.
 
 - [ ] **Step 3: Implement**
 
-In `packages/commerce_core/commerce_core/contracts.py`, add fields and fix the validator:
+In `packages/commerce_core/commerce_core/contracts.py`, add fields and replace the whole `_validate_totals` body (the existing validator currently checks only subtotal + shipping):
 
 ```python
 # packages/commerce_core/commerce_core/contracts.py — in class Offer(CommerceModel):
@@ -286,33 +295,30 @@ In `packages/commerce_core/commerce_core/contracts.py`, add fields and fix the v
     tax_cents: int = Field(default=0, ge=0)
     fees_cents: int = Field(default=0, ge=0)
 
-# In Offer.validate_totals, replace the total check with:
+# Replace Offer._validate_totals with:
+@model_validator(mode="after")
+def _validate_totals(self) -> "Offer":
+    computed = 0
+    for item in self.line_items:
+        if item.quantity <= 0:
+            raise ValueError("line item quantity must be positive")
+        if item.unit_price_cents <= 0:
+            raise ValueError("line item unit price must be positive")
+        if item.warranty_addon_cents < 0:
+            raise ValueError("warranty add-on must not be negative")
+        computed += (
+            item.unit_price_cents + item.warranty_addon_cents
+        ) * item.quantity
+    if computed != self.subtotal_cents:
+        raise ValueError("subtotal_cents does not match line items")
     if self.total_cents != (
         self.subtotal_cents + self.shipping_cents
         + self.tax_cents + self.fees_cents
     ):
         raise ValueError("total_cents does not match subtotal, shipping, tax, fees")
-        computed = 0
-        for item in self.line_items:
-            if item.quantity <= 0:
-                raise ValueError("line item quantity must be positive")
-            if item.unit_price_cents <= 0:
-                raise ValueError("line item unit price must be positive")
-            if item.warranty_addon_cents < 0:
-                raise ValueError("warranty add-on must not be negative")
-            computed += (
-                item.unit_price_cents + item.warranty_addon_cents
-            ) * item.quantity
-        if computed != self.subtotal_cents:
-            raise ValueError("subtotal_cents does not match line items")
-        if self.total_cents != (
-            self.subtotal_cents + self.shipping_cents
-            + self.tax_cents + self.fees_cents
-        ):
-            raise ValueError("total_cents does not match subtotal, shipping, tax, fees")
-        if self.delivery_days <= 0:
-            raise ValueError("delivery_days must be positive")
-        return self
+    if self.delivery_days <= 0:
+        raise ValueError("delivery_days must be positive")
+    return self
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -411,18 +417,32 @@ Expected: FAIL — module does not exist.
 # packages/commerce_core/commerce_core/binding.py
 from __future__ import annotations
 
-from datetime import datetime
+import hashlib
+import json
+from datetime import UTC, datetime
 from typing import Any
 
 from commerce_core.contracts import Offer
-from verifund_contracts.models import canonical_json, sha256_hex
 
 
-def _iso(value: datetime) -> str:
+def _canonical_json(value: Any) -> bytes:
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
+def _iso(value: datetime | str) -> str:
+    """Normalize to second-precision UTC so buyer, seller, and control plane agree.
+
+    Award payloads may arrive as second-precision `Z` strings while in-process
+    values carry microseconds. Truncating to seconds makes the two forms hash
+    identically; sub-second precision is not part of the commercial terms.
+    """
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if value.tzinfo is None:
-        from datetime import UTC
         value = value.replace(tzinfo=UTC)
-    return value.astimezone(__import__("datetime").timezone.utc).isoformat().replace("+00:00", "Z")
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def canonical_offer_binding(offer: Offer) -> dict[str, Any]:
@@ -455,38 +475,43 @@ def canonical_offer_binding(offer: Offer) -> dict[str, Any]:
 
 
 def binding_from_award(award: dict[str, Any]) -> dict[str, Any]:
+    line_items = [
+        {
+            "sku": item["sku"],
+            "name": item["name"],
+            "quantity": item["quantity"],
+            "unit_price_cents": item["unit_price_cents"],
+            "warranty_addon_cents": item.get("warranty_addon_cents", 0),
+        }
+        for item in award["line_items"]
+    ]
+    subtotal = award.get("subtotal_cents")
+    if subtotal is None:
+        subtotal = sum(
+            (item["unit_price_cents"] + item["warranty_addon_cents"]) * item["quantity"]
+            for item in line_items
+        )
     return {
         "offer_id": award["offer_id"],
         "request_id": award["request_id"],
         "seller_id": award["seller_id"],
         "currency": award["currency"],
         "round": award["offer_round"],
-        "line_items": [
-            {
-                "sku": item["sku"],
-                "name": item["name"],
-                "quantity": item["quantity"],
-                "unit_price_cents": item["unit_price_cents"],
-                "warranty_addon_cents": item.get("warranty_addon_cents", 0),
-            }
-            for item in award["line_items"]
-        ],
-        "subtotal_cents": award["subtotal_cents"],
+        "line_items": line_items,
+        "subtotal_cents": subtotal,
         "shipping_cents": award["shipping_cents"],
         "tax_cents": award["tax_cents"],
         "fees_cents": award["fees_cents"],
-        "total_cents": award["total_cents"],
+        "total_cents": award.get("total_cents", award["amount_cents"]),
         "delivery_days": award["delivery_days"],
         "warranty_months": award["warranty_months"],
         "returns_days": award["returns_days"],
-        "offer_valid_until": _iso(award["offer_valid_until"])
-        if not isinstance(award["offer_valid_until"], str)
-        else award["offer_valid_until"],
+        "offer_valid_until": _iso(award["offer_valid_until"]),
     }
 
 
 def offer_hash(binding: dict[str, Any]) -> str:
-    return sha256_hex(canonical_json(binding))
+    return hashlib.sha256(_canonical_json(binding)).hexdigest()
 ```
 
 Then export from `commerce_core/__init__.py`:
@@ -496,15 +521,7 @@ from commerce_core.binding import (
 )
 ```
 
-Note: `verifund_contracts` must be importable by `commerce_core`. It already is (used elsewhere). If a circular import appears, move `canonical_json`/`sha256_hex` duplication into `binding.py` using `json`/`hashlib` directly. To avoid coupling, implement canonical JSON locally:
-
-```python
-import hashlib, json
-def _canonical_json(value): return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-def offer_hash(binding): return hashlib.sha256(_canonical_json(binding)).hexdigest()
-```
-
-Keep `verifund_contracts` import only where needed; better to avoid import in `commerce_core`.
+`commerce_core` must not import `verifund_contracts`; the local `_canonical_json` keeps the package dependency-free. The control plane and agents must use `offer_hash(binding_from_award(...))`, not `json.dumps` of a Pydantic dump, so all three sides hash the same projection.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -526,7 +543,9 @@ git commit -m "feat(commerce): add canonical offer binding and offer_hash"
 
 **Interfaces:**
 - Consumes: none.
-- Produces: `AgreementState`, `AgreementDecision`, `BuyerApprovalDecision`, `RemedyPolicy`, `RemedyTerms`, `ChangeOperationType`, `ChangeOperation`, `ChangeSet`, `ChangeRequestView`, `ApprovalTokenResponse`, `AgreementVersionView`, `AgreementView`, `AgreementDecisionView`, `AgreementProjection` with `agreement_id`, `status`, `expires_at`, `terms`, `offer_round`, `offer_hash`, `offer_valid_until`, `tax_cents`, `fees_cents`, `inspection_period_hours`, `inspection_starts_on`, `evidence_required`, `remedies`, `dispute_window_hours`, `supersedes_version`, `change_request_id`; `canonical_payload()` returns the §5.5 digest envelope; `AwardRequest` extended; `ApproveRequest.agreement_version`, `FundRequest.agreement_version`.
+- Produces: `AgreementState`, `AgreementDecision`, `BuyerApprovalDecision`, `RemedyPolicy`, `RemedyTerms`, `ChangeOperationType`, `ChangeOperation`, `ChangeSet`, `ChangeRequestView`, `ApprovalTokenResponse`, `AgreementVersionView`, `AgreementView`, `AgreementDecisionView`, `SellerAgreementDecisionRequest`, `AgreementProjection` with `agreement_id`, `status`, `expires_at`, `terms`, `offer_round`, `offer_hash`, `offer_valid_until`, `tax_cents`, `fees_cents`, `inspection_period_hours`, `inspection_starts_on`, `evidence_required`, `remedies`, `dispute_window_hours`, `supersedes_version`, `change_request_id`; `canonical_payload()` returns the §5.5 digest envelope; `AwardRequest` extended; `AcceptRequest` extended; `ApproveRequest.agreement_version`, `FundRequest.agreement_version`; `TransactionProjection.agreement_id`.
+
+- [ ] **Step 1: Append the agreement models, views, and request extensions.**
 
 Ensure `from typing import Any, Literal` is present in `models.py` (the views use `Literal`).
 
@@ -547,6 +566,17 @@ class AgreementDecision(StrEnum):
     ACCEPT = "ACCEPT"
     REJECT = "REJECT"
     REQUEST_CHANGES = "REQUEST_CHANGES"
+    OPERATOR_REQUIRED = "OPERATOR_REQUIRED"  # not persisted as a decision row
+
+
+# Extend the existing CancelReason enum (defined near the top of models.py):
+class CancelReason(StrEnum):
+    BUYER_REJECTED = "buyer_rejected"
+    BUYER_CANCELLED = "buyer_cancelled"
+    REVIEWER_CANCELLED = "reviewer_cancelled"
+    FUNDING_EXPIRED = "funding_expired"
+    AGREEMENT_EXPIRED = "agreement_expired"  # NEW; reconciler only
+    SELLER_REJECTED = "seller_rejected"      # NEW; seller decision path
 
 
 class BuyerApprovalDecision(StrEnum):
@@ -759,6 +789,8 @@ def _summary_must_match_terms(self) -> "AgreementProjection":
     return self
 ```
 
+Also extend `CancelRequest._reject_reconciler_only_reason` to reject `AGREEMENT_EXPIRED` as well as `FUNDING_EXPIRED`; both are reconciler-set reasons.
+
 Extend `AwardRequest`:
 ```python
 class AwardRequest(VerifundModel):
@@ -790,7 +822,13 @@ class AwardRequest(VerifundModel):
                                  EvidenceKind.INVOICE],
         min_length=1,
     )
-    remedies: RemedyTerms                              # NEW
+    remedies: RemedyTerms = Field(              # NEW; default keeps existing callers working
+        default_factory=lambda: RemedyTerms(
+            non_delivery=RemedyPolicy.CANCEL_AND_REFUND,
+            late_delivery=RemedyPolicy.CANCEL_AND_REFUND,
+            damaged_goods=RemedyPolicy.REFUND_OR_REPLACEMENT,
+        )
+    )
     dispute_window_hours: int = Field(default=72, ge=1)  # NEW
 ```
 
@@ -810,6 +848,15 @@ def _totals_must_match(self) -> "AwardRequest":
     if EvidenceKind.DELIVERY_CONFIRMATION not in self.evidence_required:
         raise ValueError("evidence_required must include delivery_confirmation")
     return self
+```
+
+Extend `ApprovalProjection` so funding can prove the approval it consumes binds the same version and digest:
+
+```python
+class ApprovalProjection(VerifundModel):
+    ...existing fields...
+    agreement_version: int | None = None   # NEW
+    agreement_hash: str | None = None      # NEW
 ```
 
 Extend `ApproveRequest`:
@@ -832,7 +879,51 @@ class FundRequest(VerifundModel):
     cancel_url: str
 ```
 
+Extend `AcceptRequest` (currently only `seller_id`, `agreement_hash`, `accepted_total_cents`, `seller_task_id`, `accepted_at`). The new fields are optional so old callers still construct, but `VerifundService.accept()` requires `agreement_version` and `offer_hash` at runtime:
+
+```python
+class AcceptRequest(VerifundModel):
+    seller_id: str
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    accepted_total_cents: int = Field(gt=0)
+    seller_task_id: str = Field(min_length=1)
+    accepted_at: datetime
+    agreement_version: int | None = Field(default=None, ge=1)  # NEW
+    offer_hash: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")  # NEW
+    actor_type: str = "SELLER_AGENT"  # NEW
+    actor_id: str | None = None       # NEW; defaults to seller_id in the service
+    authority_ref: str | None = None  # NEW
+    authority_snapshot: dict[str, Any] = Field(default_factory=dict)  # NEW
+```
+
+Add `agreement_id` to `TransactionProjection` so the funding-binding invariant can prove the transaction points at the same agreement. Keep it optional for existing fixtures:
+
+```python
+class TransactionProjection(VerifundModel):
+    transaction_id: str
+    agreement_id: str | None = None   # NEW; written on award, read by funding binding
+    ...
+```
+
+Add the seller-decision request used by the HTTP route:
+
+```python
+class SellerAgreementDecisionRequest(VerifundModel):
+    decision: AgreementDecision
+    agreement_version: int = Field(ge=1)
+    agreement_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    offer_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    actor_type: str = Field(default="SELLER_AGENT", min_length=1)
+    actor_id: str = Field(min_length=1)
+    authority_ref: str | None = None
+    authority_snapshot: dict[str, Any] = Field(default_factory=dict)
+    verified_change_request_id: str | None = None
+    note: str = ""
+    change_set: ChangeSet | None = None
+```
+
 Extend `AgreementReviewDecision` in `models.py` (already defined earlier):
+
 ```python
 class AgreementReviewDecision(StrEnum):
     ACCEPTED = "accepted"
@@ -843,14 +934,30 @@ class AgreementReviewDecision(StrEnum):
 
 - [ ] **Step 2: Extend `BuyerAgreementReviewRequest` to carry extended seller result fields (non-binding precheck).** Add optional `recommendation: str | None = None`, `rationale: str = ""`.
 
-- [ ] **Step 3: Run tests**
+- [ ] **Step 3: Update existing fixtures and call sites before running tests.**
 
-Run: `uv run pytest tests/unit/test_verifund_contracts.py -v`
-Expected: PASS (update fixtures if needed; keep `agreement_hash` field name).
-
-- [ ] **Step 4: Commit**
+The new `AgreementProjection` fields (`agreement_id`, `offer_round`, `offer_hash`, `offer_valid_until`, `tax_cents`, `fees_cents`, `inspection_period_hours`, `inspection_starts_on`, `evidence_required`, `remedies`, `dispute_window_hours`, `terms`, `status`) are required. Update every constructor:
 
 ```bash
+grep -rn "AgreementProjection(" apps tests scripts --include='*.py'
+grep -rn "AwardRequest(" apps tests scripts --include='*.py'
+```
+
+- `apps/verifund_control_plane/verifund_control_plane/service.py` — `_projection` / `award`.
+- `apps/buyer_agent/buyer_agent/settlement_flow.py` — `build_award_request` supplies `request_id`, display names, tax/fees, `offer_round`, `offer_hash`, `offer_valid_until`, inspection fields, and remedies (or relies on the defaults).
+- Test fixtures in `tests/unit/test_verifund_agent_service.py`, `test_verifund_agent_graph.py`, `test_orchestrator_verifund.py`, `test_verifund_agent_settlement.py`, `test_seller_agreement_review.py`, `test_verifund_a2a_contracts.py`, `test_buyer_agreement_checkpoints.py`, `tests/integration/test_buyer_verifund_api.py`, `tests/protocol/test_buyer_agreement_review.py`.
+
+Update `ApproveRequest` and `FundRequest` constructors in the same pass (`agreement_version` is now required). Do not defer this to a later phase; Task 0.3 must leave the tree green.
+
+- [ ] **Step 4: Run tests**
+
+Run: `uv run pytest tests/unit/test_verifund_contracts.py tests/unit/test_verifund_a2a_contracts.py -v`
+Expected: PASS (update fixtures as above; keep `agreement_hash` field name).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/verifund_contracts packages/commerce_core apps tests
 git commit -m "feat(contracts): add agreement state, versioning, and binding fields"
 ```
 
@@ -885,6 +992,15 @@ class VerifundCheckpoint(StrEnum):
 ```
 
 ```python
+class ChangeRequestEnvelope(VerifundModel):
+    """Carries the change-request identity the seller needs to verify the chain."""
+    change_request_id: str = Field(min_length=1)
+    base_version: int = Field(ge=1)
+    base_hash: str = Field(pattern="^[0-9a-f]{64}$")
+    operations: list[ChangeOperation] = Field(min_length=1)
+    reason: str = ""
+
+
 class AgreementReviewRequest(VerifundModel):
     party: Literal["buyer", "seller"]
     run_id: str = Field(min_length=1)
@@ -896,7 +1012,7 @@ class AgreementReviewRequest(VerifundModel):
     seller_context_id: str | None = None
     requested_at: datetime
     idempotency_key: str = Field(min_length=1)
-    change_request: ChangeSet | None = None   # NEW (for N+1)
+    change_request: ChangeRequestEnvelope | None = None   # NEW (for N+1)
 ```
 
 ```python
@@ -930,9 +1046,26 @@ class BuyerAgreementApprovalDecision(VerifundModel):
     idempotency_key: str = Field(min_length=1)
 ```
 
-- [ ] **Step 2: Update `_wrap`/`_unwrap` schema version to `"2.0"`?** The envelope `schema_version` field stays `"1.0"` (internal envelope version); only `VERIFUND_SCHEMA_BASE` path changes. Keep `"1.0"`.
+- [ ] **Step 2: Update `VerifundTaskResult._checkpoint_contract()`** so the new checkpoints are legal for `input_required`:
 
-- [ ] **Step 3: Run tests and commit.**
+```python
+elif self.status == "input_required":
+    if self.checkpoint not in {
+        VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+        VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+        VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+        VerifundCheckpoint.SELLER_OPERATOR_REQUIRED,
+        VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED,
+        VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+    }:
+        raise ValueError("input_required requires a review or order checkpoint")
+```
+
+Also extend `parse_agreement_review_request()` and `parse_agreement_review_result()` tests so the new required `offer_hash`, `actor_type`, and `actor_id` fields are exercised. `ChangeSet` is no longer accepted directly on the wire; only `ChangeRequestEnvelope` is.
+
+- [ ] **Step 3: Update `_wrap`/`_unwrap` schema version to `"2.0"`?** The envelope `schema_version` field stays `"1.0"` (internal envelope version); only `VERIFUND_SCHEMA_BASE` path changes. Keep `"1.0"`.
+
+- [ ] **Step 4: Run tests and commit.**
 
 Run: `uv run pytest tests/unit/test_verifund_a2a_contracts.py tests/unit/test_verifund_contracts.py -v`
 Expected: PASS
@@ -1421,7 +1554,7 @@ def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:
     }
 
 
-def validate_terms(terms: dict[str, Any], award: AwardRequest) -> None:
+def validate_terms(terms: dict[str, Any], award: AwardRequest | None = None) -> None:
     if terms.get("schema") != "verifund.agreement.v1":
         raise ValueError("invalid_terms")
     if terms.get("agreement_type") != "goods":
@@ -1429,17 +1562,18 @@ def validate_terms(terms: dict[str, Any], award: AwardRequest) -> None:
     if terms.get("terms_version") != 1:
         raise ValueError("invalid_terms")
     parties = terms.get("parties", {})
-    if parties.get("buyer", {}).get("id") != award.buyer_id:
-        raise ValueError("invalid_terms")
-    if parties.get("seller", {}).get("id") != award.seller_id:
-        raise ValueError("invalid_terms")
     offer = terms.get("offer", {})
-    if offer.get("offer_id") != award.offer_id:
-        raise ValueError("invalid_terms")
-    if offer.get("offer_round") != award.offer_round:
-        raise ValueError("offer_mismatch")
-    if offer.get("offer_hash") != award.offer_hash:
-        raise ValueError("offer_mismatch")
+    if award is not None:
+        if parties.get("buyer", {}).get("id") != award.buyer_id:
+            raise ValueError("invalid_terms")
+        if parties.get("seller", {}).get("id") != award.seller_id:
+            raise ValueError("invalid_terms")
+        if offer.get("offer_id") != award.offer_id:
+            raise ValueError("invalid_terms")
+        if offer.get("offer_round") != award.offer_round:
+            raise ValueError("offer_mismatch")
+        if offer.get("offer_hash") != award.offer_hash:
+            raise ValueError("offer_mismatch")
     totals = terms.get("totals", {})
     if totals.get("currency") != "USD":
         raise ValueError("invalid_terms")
@@ -1478,7 +1612,9 @@ def validate_terms(terms: dict[str, Any], award: AwardRequest) -> None:
     remedies = terms.get("remedies", {})
     if not all(k in remedies for k in ("non_delivery", "late_delivery", "damaged_goods")):
         raise ValueError("invalid_terms")
-    if terms.get("totals", {}).get("total_cents", 0) != award.amount_cents:
+    if terms.get("totals", {}).get("total_cents", 0) != totals.get("subtotal_cents", 0) + totals.get("shipping_cents", 0) + totals.get("tax_cents", 0) + totals.get("fees_cents", 0):
+        raise ValueError("invalid_terms")
+    if award is not None and terms.get("totals", {}).get("total_cents", 0) != award.amount_cents:
         raise ValueError("invalid_terms")
 
 
@@ -1488,10 +1624,17 @@ def apply_change_set(base_terms: dict[str, Any], change_set) -> dict[str, Any]:
     items_by_sku = {i["sku"]: i for i in terms["items"]}
     for op in change_set.operations:
         kind = op.op.value if hasattr(op.op, "value") else str(op.op)
+
+        def _required(name: str):
+            value = getattr(op, name)
+            if value is None:
+                raise ValueError("invalid_change_set")
+            return value
+
         if kind == "set_unit_price":
             if op.sku not in items_by_sku:
                 raise ValueError("invalid_change_set")
-            items_by_sku[op.sku]["unit_price_cents"] = op.unit_price_cents
+            items_by_sku[op.sku]["unit_price_cents"] = _required("unit_price_cents")
             items_by_sku[op.sku]["line_total_cents"] = (
                 items_by_sku[op.sku]["unit_price_cents"]
                 + items_by_sku[op.sku]["warranty_addon_cents"]
@@ -1499,31 +1642,40 @@ def apply_change_set(base_terms: dict[str, Any], change_set) -> dict[str, Any]:
         elif kind == "set_quantity":
             if op.sku not in items_by_sku:
                 raise ValueError("invalid_change_set")
-            if op.quantity is None or op.quantity <= 0:
+            quantity = _required("quantity")
+            if quantity <= 0:
                 raise ValueError("invalid_change_set")
-            items_by_sku[op.sku]["quantity"] = op.quantity
+            items_by_sku[op.sku]["quantity"] = quantity
             items_by_sku[op.sku]["line_total_cents"] = (
                 items_by_sku[op.sku]["unit_price_cents"]
                 + items_by_sku[op.sku]["warranty_addon_cents"]
-            ) * items_by_sku[op.sku]["quantity"]
+            ) * quantity
         elif kind == "set_shipping":
-            terms["totals"]["shipping_cents"] = op.shipping_cents
+            terms["totals"]["shipping_cents"] = _required("shipping_cents")
         elif kind == "set_tax":
-            terms["totals"]["tax_cents"] = op.tax_cents
+            terms["totals"]["tax_cents"] = _required("tax_cents")
         elif kind == "set_fees":
-            terms["totals"]["fees_cents"] = op.fees_cents
+            terms["totals"]["fees_cents"] = _required("fees_cents")
         elif kind == "set_delivery_days":
-            terms["delivery"]["delivery_days"] = op.delivery_days
+            terms["delivery"]["delivery_days"] = _required("delivery_days")
         elif kind == "set_warranty_months":
-            terms["warranty_months"] = op.warranty_months
+            terms["warranty_months"] = _required("warranty_months")
         elif kind == "set_returns_days":
-            terms["returns_days"] = op.returns_days
+            terms["returns_days"] = _required("returns_days")
         elif kind == "set_inspection_period":
-            terms["inspection"]["period_hours"] = op.inspection_period_hours
+            terms["inspection"]["period_hours"] = _required("inspection_period_hours")
         elif kind == "set_evidence_required":
-            terms["evidence_required"] = [e.value if hasattr(e, "value") else str(e) for e in op.evidence_required]
+            evidence = _required("evidence_required")
+            if "delivery_confirmation" not in [
+                e.value if hasattr(e, "value") else str(e) for e in evidence
+            ]:
+                raise ValueError("invalid_change_set")
+            terms["evidence_required"] = [
+                e.value if hasattr(e, "value") else str(e) for e in evidence
+            ]
         elif kind == "set_remedies":
-            terms["remedies"] = op.remedies.model_dump(mode="json") if op.remedies else terms["remedies"]
+            remedies = _required("remedies")
+            terms["remedies"] = remedies.model_dump(mode="json")
             if op.dispute_window_hours is not None:
                 terms["dispute_window_hours"] = op.dispute_window_hours
         else:
@@ -1536,6 +1688,8 @@ def apply_change_set(base_terms: dict[str, Any], change_set) -> dict[str, Any]:
         )
     return terms
 ```
+
+`validate_terms` and `apply_change_set` live in `packages/verifund_contracts/verifund_contracts/terms.py`, not inside the control-plane `generator.py`. Move the implementations above there and re-export them from `generator.py` (`from verifund_contracts.terms import apply_change_set, validate_terms`). The seller agent imports the same module in Task 3.2, so a change to the chain algorithm has exactly one implementation.
 
 - [ ] **Step 4: Run tests and commit.**
 
@@ -1691,7 +1845,7 @@ def render_agreement(terms: dict[str, Any], agreement_id: str, version: int,
     return doc
 ```
 
-- [ ] **Step 4: Run tests and commit.**
+- [ ] **Step 3: Run tests and commit.**
 
 Run: `uv run pytest tests/unit/test_agreement_renderer.py -v`
 Expected: PASS
@@ -1815,6 +1969,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from verifund_control_plane.db import transaction
+from verifund_contracts.models import AgreementDecision
 from .models import (
     Agreement, AgreementDecisionRecord, AgreementEvent,
     AgreementVersion, ApprovalTokenRecord, ChangeRequest,
@@ -2143,10 +2298,11 @@ class AgreementRepository:
             self.agreements.c.agreement_id == agreement_id,
             self.agreements.c.status == (expected_status.value if hasattr(expected_status, "value") else expected_status),
             self.agreements.c.row_version == expected_row_version,
+            # Deadline guard: never advance an agreement that has already expired.
+            # Uses the stored value (the `values` clause may replace it below).
+            (self.agreements.c.expires_at.is_(None))
+            | (self.agreements.c.expires_at > _iso(now)),
         )
-        if expires_at is not None:
-            # deadline guard: only if not expired
-            pass
         result = await conn.execute(stmt.values(**values))
         return result.rowcount == 1
 
@@ -2324,13 +2480,105 @@ class AgreementRepository:
 
 Note: `AgreementRepository` must share the same `transaction()` helper. The control plane's `Repository` has `transaction()`. To keep a single DB, `AgreementRepository` takes the same engine. `VerifundService` will own both repos. `create_schema` must be called for both. In `app.py`, call `repo.create_schema()` (existing) and `agreement_repo.create_schema()`.
 
-Also modify the existing `Repository`:
-- Replace the JSON-blob `agreements` and `agreement_reviews` tables? The design says replace them. But existing code/tests may reference `repo.agreements`. To minimize breakage, keep the tables for now but unused; or remove and update tests. The plan says clean reset. We'll keep the old tables removed and update tests that reference them. Given complexity, in Task 2.1 we update `Repository.create_schema` to add new columns to `transactions` (`buyer_precheck` rename, `agreement_id` already present) and remove old agreement tables. The `AgreementRepository` owns agreement tables. Existing tests referencing `repo.agreements` will need updates; track in Task 7.
+- [ ] **Step 3: Add the missing repository methods.**
 
-Also add to `AgreementRepository`:
-- `async def create_version(self, conn, version: AgreementVersion) -> None` — inserts into `agreement_versions`.
-- `async def list_decisions(self, agreement_id: str) -> list[AgreementDecisionRecord]` — reads `agreement_decisions` ordered by `decided_at`.
-- `async def get_decision_by_idempotency(self, key: str)` for idempotency replay.
+```python
+    async def create_version(self, conn, version: AgreementVersion) -> None:
+        import json as _json
+        await conn.execute(self.agreement_versions.insert().values(
+            agreement_id=version.agreement_id,
+            version=version.version,
+            terms=_json.dumps(version.terms, sort_keys=True),
+            agreement_hash=version.agreement_hash,
+            rendered_html=version.rendered_html,
+            renderer_version=version.renderer_version,
+            created_at=_iso(version.created_at),
+            supersedes_version=version.supersedes_version,
+            change_request_id=version.change_request_id,
+            superseded_at=_iso(version.superseded_at),
+        ))
+
+    @staticmethod
+    def _row_to_decision(r) -> AgreementDecisionRecord:
+        import json as _json
+        return AgreementDecisionRecord(
+            decision_id=r["decision_id"], agreement_id=r["agreement_id"],
+            version=r["version"], party=r["party"],
+            decision=AgreementDecision(r["decision"]),
+            actor_type=r["actor_type"], actor_id=r["actor_id"],
+            authority_ref=r["authority_ref"],
+            authority_snapshot=_json.loads(r["authority_snapshot"] or "{}"),
+            agreement_hash=r["agreement_hash"],
+            verified_offer_hash=r["verified_offer_hash"],
+            verified_change_request_id=r["verified_change_request_id"],
+            reason_code=r["reason_code"], note=r["note"],
+            change_request_id=r["change_request_id"],
+            idempotency_key=r["idempotency_key"], decided_at=_dt(r["decided_at"]),
+        )
+
+    async def list_decisions(self, agreement_id: str) -> list[AgreementDecisionRecord]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(
+                self.agreement_decisions.select().where(
+                    self.agreement_decisions.c.agreement_id == agreement_id
+                ).order_by(self.agreement_decisions.c.decided_at)
+            )).mappings().all()
+        return [self._row_to_decision(r) for r in rows]
+
+    async def get_decision_by_idempotency(
+        self, key: str
+    ) -> AgreementDecisionRecord | None:
+        decisions = await self.list_decisions_by_key(key)
+        return decisions[0] if decisions else None
+
+    async def list_decisions_by_key(
+        self, key: str
+    ) -> list[AgreementDecisionRecord]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(
+                self.agreement_decisions.select().where(
+                    self.agreement_decisions.c.idempotency_key == key
+                ).order_by(self.agreement_decisions.c.decided_at)
+            )).mappings().all()
+        return [self._row_to_decision(r) for r in rows]
+
+    async def set_operator_required(
+        self, conn, agreement_id: str, expected_row_version: int, now: datetime
+    ) -> bool:
+        stmt = self.agreements.update().where(
+            self.agreements.c.agreement_id == agreement_id,
+            self.agreements.c.row_version == expected_row_version,
+            self.agreements.c.status == "PENDING_SELLER",
+        ).values(
+            seller_operator_required=1,
+            row_version=expected_row_version + 1,
+            updated_at=_iso(now),
+        )
+        result = await conn.execute(stmt)
+        return result.rowcount == 1
+```
+
+`_row_to_decision` is the single mapping used by `list_decisions`, `list_decisions_by_key`, and `get_decision_by_idempotency`; do not duplicate the column mapping in later methods.
+
+- [ ] **Step 4: Remove the legacy agreement tables now, not in Task 2.6.**
+
+In `apps/verifund_control_plane/verifund_control_plane/repository.py`, delete the `_define_tables` bodies for `self.agreements` (`agreements`) and `self.agreement_reviews` (`agreement_reviews`), plus every `create_schema` statement that references them. They collide with `AgreementRepository.agreements`; if both metadata objects are registered before `create_all`, SQLAlchemy sees the old table and silently skips the new one. Also rename `transactions.buyer_agent_review` to `buyer_precheck` in the same edit, and update `_row_to_transaction` / `_projection` references.
+
+Verify no code still references the removed tables:
+
+```bash
+grep -rn "repo\.agreements\|repo\.agreement_reviews\|buyer_agent_review" apps tests --include='*.py'
+```
+
+Update the small number of tests that construct or assert on those blobs (they are replaced by `agreement_versions` / `agreement_decisions`).
+
+- [ ] **Step 5: Run tests and commit.**
+
+```bash
+uv run pytest tests/unit/test_agreement_repository.py tests/unit/test_verifund_repository.py -v
+git add apps/verifund_control_plane tests
+git commit -m "feat(agreements): add agreement schema, CAS deadlines, and remove legacy blobs"
+```
 
 ### Task 1.5: Buyer approval tokens
 
@@ -2346,23 +2594,36 @@ Also add to `AgreementRepository`:
 
 ```python
 # tests/unit/test_agreement_tokens.py
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
-from verifund_control_plane.tokens import LinkSigner
+
+NOW = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
 
-def test_issue_verify_consume():
-    signer = LinkSigner("secret-32-chars-minimum-xxxxxxxx", clock=lambda: datetime.now(timezone.utc))
-    svc = ApprovalTokenService(signer, ttl_minutes=30)
-    now = datetime.now(timezone.utc)
-    raw, record = svc.issue("agr_1", 1, "a" * 64, "buyer-1", "demo", "demo-buyer", now)
+def test_issue_verify_and_hash():
+    svc = ApprovalTokenService(
+        "secret-32-chars-minimum-xxxxxxxx", ttl_minutes=30, clock=lambda: NOW,
+    )
+    raw, record = svc.issue(
+        "agr_1", 1, "a" * 64, "buyer-1", "buyer", "buyer-1", NOW,
+    )
     claims = svc.verify(raw)
     assert claims["aud"] == "agreement-approval"
     assert claims["sub"] == "buyer-1"
     assert claims["agreement_id"] == "agr_1"
     assert claims["version"] == 1
     assert claims["agreement_hash"] == "a" * 64
+    assert record.token_hash == ApprovalTokenService.token_hash(raw)
+
+
+def test_token_expires_with_agreement_window():
+    svc = ApprovalTokenService("secret-32-chars-minimum-xxxxxxxx", ttl_minutes=30)
+    raw, record = svc.issue(
+        "agr_1", 1, "a" * 64, "buyer-1", "buyer", "buyer-1", NOW,
+        agreement_expires_at=datetime(2026, 10, 30, 12, 5, tzinfo=timezone.utc),
+    )
+    assert record.expires_at == datetime(2026, 10, 30, 12, 5, tzinfo=timezone.utc)
 ```
 
 - [ ] **Step 2: Implement tokens**
@@ -2403,9 +2664,9 @@ class ApprovalTokenService:
 
     def issue(self, agreement_id: str, version: int, agreement_hash: str,
               subject_id: str, issued_by_actor_type: str,
-              issued_by_actor_id: str, agreement_expires_at: datetime | None,
-              now: datetime | None = None) -> tuple[str, ApprovalTokenRecord]:
-        now = now or self._now()
+              issued_by_actor_id: str, now: datetime,
+              *, agreement_expires_at: datetime | None = None
+              ) -> tuple[str, ApprovalTokenRecord]:
         jti = str(uuid.uuid4())
         ttl = timedelta(minutes=self.ttl_minutes)
         exp = now + ttl
@@ -2449,11 +2710,27 @@ class ApprovalTokenService:
             raise ValueError("invalid_audience")
         return claims
 
-    async def consume(self, repo, jti: str, decision_id: str, now: datetime) -> bool:
-        return await repo.consume_token(repo.engine and None, jti, now, decision_id) if False else await repo.consume_token_by_jti(jti, decision_id, now)
+    @staticmethod
+    def token_hash(raw: str) -> str:
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    async def consume(self, repo, conn, raw: str, jti: str,
+                      decision_id: str, now: datetime) -> bool:
+        """Consume only if the presented token matches the stored hash.
+
+        The caller has already verified the signature and claims. This second
+        check makes a stolen/forged database row useless and detects token
+        substitution between verification and consumption.
+        """
+        record = await repo.get_token(jti)
+        if record is None or record.token_hash != self.token_hash(raw):
+            return False
+        return await repo.consume_token(conn, jti, now, decision_id)
 ```
 
-The `consume` helper depends on the repository. To keep it simple, the service calls `repo.consume_token(conn, jti, now, decision_id)` directly. The token service only issues/verifies. Adjust `issue` signature to accept a signer-like secret string; `app.py` passes `settings.link_secret`.
+The token service only issues, verifies, and hashes. The repository owns atomic consumption (`consume_token`), and `record_buyer_decision` calls `token_service.consume(...)` with the raw token before appending a decision.
+
+`app.py` passes `settings.link_secret`; do not reuse `LinkSigner`, whose `verify()` is typed for checkout/return/cancel links and would reject the `agreement-approval` audience. Both signers use the same HMAC-SHA256 + canonical-JSON convention.
 
 - [ ] **Step 3: Run tests and commit.**
 
@@ -2470,7 +2747,7 @@ Commit: `git commit -m "feat(agreements): add single-use approval tokens"`
 
 **Interfaces:**
 - Consumes: `AgreementRepository`, `ApprovalTokenService`, settings, clock.
-- Produces: `AgreementService` with `create_from_award(conn, award, transaction_id, run_id, now)`, `record_seller_decision(conn, agreement_id, request, actor, now)`, `issue_buyer_token(conn, agreement_id, actor, now)`, `record_buyer_decision(conn, agreement_id, token_claims, request, actor, now)`, `create_change_request(conn, ...)`, `resolve_change_request(conn, ...)`, `expire_due(now)`, `terminate(conn, agreement_id, reason, now)`, `get`, `get_by_transaction`, `list_versions`, `document`, `verify_funding_binding`.
+- Produces: `AgreementService` with `create_from_award(conn, award, transaction_id, run_id, now)`, `record_seller_decision(conn, agreement_id, *, ..., idempotency_key, now, change_set=None)`, `record_seller_operator_required(conn, agreement_id, actor, note, now)`, `issue_buyer_token(conn, agreement_id, actor, now)`, `record_buyer_decision(conn, agreement_id, raw_token, request, actor, now)`, `create_change_request(conn, agreement_id, party, actor, change_set, note, idempotency_key, now)`, `resolve_change_request(conn, agreement_id, change_request_id, accept, actor, note, now, *, raw_token=None)`, `expire_due(now)`, `terminate(conn, agreement_id, reason, now)`, `cancel_pending(conn, agreement_id, reason, now)`, `sync_transaction_pointer(...)`, `get`, `get_by_transaction`, `list_versions`, `document`, `verify_funding_binding(...)` (async), `build_view(agreement)`, `build_projection(agreement)`.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -2574,17 +2851,28 @@ def _iso(v): ...  # reuse repository helper
 
 class AgreementService:
     def __init__(self, *, repo: AgreementRepository, token_service: ApprovalTokenService,
-                 settings: Settings, clock: Callable[[], datetime]):
+                 settings: Settings, clock: Callable[[], datetime],
+                 sync_transaction: Callable[..., Any] | None = None):
         self.repo = repo
         self.token_service = token_service
         self.settings = settings
         self.clock = clock
+        # Injected by app.py in Phase 2; a no-op in unit tests. Expiry does not
+        # cancel transactions from inside the agreement transaction (that would
+        # nest transactions); the reconciler cancels after `expire_due` returns.
+        self.sync_transaction = sync_transaction
 
     def _now(self): return self.clock()
 
     async def create_from_award(self, conn, award, transaction_id, run_id, now):
         validate_award(award, now)
-        # offer hash parity check left to caller; recompute binding here optionally
+        from commerce_core.binding import binding_from_award, offer_hash
+        computed_offer_hash = offer_hash(binding_from_award(award.model_dump(mode="json")))
+        if award.offer_hash != computed_offer_hash:
+            raise AgreementError(
+                "offer_mismatch",
+                "offer_hash does not bind the award terms",
+            )
         terms = build_terms(award, now)
         validate_terms(terms, award)
         agreement_id = f"agr_{uuid.uuid4().hex}"
@@ -2621,6 +2909,9 @@ class AgreementService:
                                      actor_id, authority_ref, authority_snapshot,
                                      agreement_version, agreement_hash, verified_offer_hash,
                                      note, idempotency_key, now, change_set=None):
+        replay = await self.repo.get_decision_by_idempotency(idempotency_key)
+        if replay is not None:
+            return await self.repo.get(agreement_id)
         agreement = await self.repo.get(agreement_id)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found", agreement_id=agreement_id)
@@ -2633,11 +2924,9 @@ class AgreementService:
         cur = agreement.current_version_record
         if cur is None or cur.agreement_hash != agreement_hash:
             raise AgreementError("hash_mismatch", "stale digest", agreement_id=agreement_id, version=agreement_version)
-        # deadline check
-        if agreement.expires_at is not None and now > agreement.expires_at:
-            # lazy expire
-            await self._expire_one(conn, agreement, now)
-            raise AgreementError("agreement_expired", "agreement expired", agreement_id=agreement_id)
+        await self._ensure_not_expired(conn, agreement, now)
+        if verified_offer_hash is not None and verified_offer_hash != agreement.offer_hash:
+            raise AgreementError("offer_mismatch", "seller did not verify the bound offer")
         if decision == AgreementDecision.ACCEPT:
             new_status = next_state(agreement.status, "SELLER_ACCEPT")
             seller_hours = getattr(self.settings, "agreement_buyer_approval_hours", 24)
@@ -2677,18 +2966,22 @@ class AgreementService:
                 reason_code=None, note=note, change_request_id=None,
                 idempotency_key=idempotency_key, decided_at=now,
             ))
-            await self.repo.update_status_cas(
+            ok = await self.repo.update_status_cas(
                 agreement_id, expected_status=agreement.status,
                 expected_row_version=agreement.row_version, new_status=AgreementState.REJECTED,
                 new_row_version=agreement.row_version + 1, expires_at=None, now=now,
                 extra={"rejected_at": _iso(now)},
             )
+            if not ok:
+                raise AgreementError("conflict", "concurrent update", agreement_id=agreement_id)
             await self.repo.append_event(conn, AgreementEvent(
                 event_id=None, agreement_id=agreement_id, version=agreement_version,
                 event_type="seller.rejected", payload={}, actor_type=actor_type,
                 actor_id=actor_id, created_at=now,
             ))
             agreement.status = AgreementState.REJECTED
+            agreement.row_version += 1
+            agreement.expires_at = None
             return agreement
         if decision == AgreementDecision.REQUEST_CHANGES:
             # create change request
@@ -2716,12 +3009,14 @@ class AgreementService:
             ))
             change_hours = getattr(self.settings, "agreement_change_response_hours", 24)
             new_expires = now + timedelta(hours=change_hours)
-            await self.repo.update_status_cas(
+            ok = await self.repo.update_status_cas(
                 agreement_id, expected_status=agreement.status,
                 expected_row_version=agreement.row_version,
                 new_status=AgreementState.CHANGES_REQUESTED,
                 new_row_version=agreement.row_version + 1, expires_at=new_expires, now=now,
             )
+            if not ok:
+                raise AgreementError("conflict", "concurrent update", agreement_id=agreement_id)
             await self.repo.append_event(conn, AgreementEvent(
                 event_id=None, agreement_id=agreement_id, version=agreement_version,
                 event_type="seller.requested_changes", payload={"change_request_id": cr_id},
@@ -2734,7 +3029,7 @@ class AgreementService:
         # OPERATOR_REQUIRED is reported by seller agent but handled as no-op flag by control plane
         raise AgreementError("invalid_request", "unsupported decision")
 
-    async def _expire_one(self, conn, agreement, now):
+    async def _expire_one(self, conn, agreement, now) -> bool:
         ok = await self.repo.expire(conn, agreement.agreement_id, agreement.row_version, now)
         if ok:
             await self.repo.revoke_tokens(conn, agreement.agreement_id, agreement.current_version, now)
@@ -2743,21 +3038,56 @@ class AgreementService:
                 version=agreement.current_version, event_type="agreement.expired",
                 payload={}, actor_type="system", actor_id="reconciler", created_at=now,
             ))
+            # Spec §6.5: the transaction is canceled by the caller after this
+            # transaction commits (see `expire_due` + Task 2.5). Never call
+            # `VerifundService.cancel` here; it opens its own transaction.
+        return ok
+
+    async def _ensure_not_expired(self, conn, agreement, now) -> None:
+        if agreement.expires_at is not None and now >= agreement.expires_at:
+            await self._expire_one(conn, agreement, now)
+            raise AgreementError(
+                "agreement_expired", "agreement expired",
+                agreement_id=agreement.agreement_id,
+            )
+
+    async def sync_transaction_pointer(self, agreement, conn, now, *,
+                                       version: int | None = None,
+                                       digest: str | None = None) -> None:
+        """Keep the transaction's denormalized version/digest in step with the agreement.
+
+        The transaction projection is what the buyer, seller, and funding routes read;
+        if it is stale, a correct agreement still looks un-fundable (or worse, funding
+        binds an old digest). Called after AGREE and after accepting a change.
+        """
+        if self.sync_transaction is None:
+            return
+        await self.sync_transaction(
+            conn,
+            agreement.transaction_id,
+            version if version is not None else agreement.current_version,
+            digest if digest is not None else agreement.current_version_record.agreement_hash,
+            now,
+        )
 
     async def issue_buyer_token(self, conn, agreement_id, actor, now):
         agreement = await self.repo.get(agreement_id)
         if agreement is None or agreement.status != AgreementState.PENDING_BUYER:
             raise AgreementError("invalid_state", "not pending buyer")
+        if actor.actor_type != "buyer" or actor.actor_id != agreement.buyer_id:
+            raise AgreementError("forbidden", "only the agreement buyer may issue an approval token")
         cur = agreement.current_version_record
+        if cur is None:
+            raise AgreementError("invalid_state", "agreement has no current version")
         raw, record = self.token_service.issue(
             agreement.agreement_id, agreement.current_version, cur.agreement_hash,
-            agreement.buyer_id, actor.actor_type, actor.actor_id,
-            agreement.expires_at, now,
+            agreement.buyer_id, actor.actor_type, actor.actor_id, now,
+            agreement_expires_at=agreement.expires_at,
         )
         await self.repo.issue_token(conn, record)
         return raw, record
 
-    async def record_buyer_decision(self, conn, agreement_id, token_claims, request, actor, now):
+    async def record_buyer_decision(self, conn, agreement_id, raw_token, request, actor, now):
         agreement = await self.repo.get(agreement_id)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
@@ -2765,31 +3095,44 @@ class AgreementService:
             raise AgreementError("invalid_state", "terminal")
         if agreement.status != AgreementState.PENDING_BUYER:
             raise AgreementError("invalid_state", "buyer decision only in PENDING_BUYER")
-        # token checks
+        await self._ensure_not_expired(conn, agreement, now)
+        if actor.actor_type != "buyer" or actor.actor_id != agreement.buyer_id:
+            raise AgreementError("forbidden", "only the agreement buyer may decide")
+        # Token signature, audience, and expiry are verified first; then the stored
+        # hash must match the presented token before the row is consumed.
+        try:
+            token_claims = self.token_service.verify(raw_token)
+        except ValueError as exc:
+            raise AgreementError("token_revoked", str(exc)) from exc
         jti = token_claims.get("jti")
         token = await self.repo.get_token(jti)
         if token is None:
             raise AgreementError("token_revoked", "unknown token")
+        if token.token_hash != self.token_service.token_hash(raw_token):
+            raise AgreementError("token_revoked", "token hash mismatch")
         if token.used_at is not None:
             raise AgreementError("token_used", "token already used")
         if token.revoked_at is not None:
             raise AgreementError("token_revoked", "token revoked")
         if token.expires_at < now:
             raise AgreementError("token_expired", "token expired")
-        if token.subject_id != agreement.buyer_id or token.subject_id != actor.actor_id:
+        if token.subject_id != agreement.buyer_id:
             raise AgreementError("forbidden", "token subject mismatch")
         if token.version != agreement.current_version or token.agreement_hash != agreement.current_version_record.agreement_hash:
             raise AgreementError("hash_mismatch", "token does not bind current version")
         if request.agreement_version != agreement.current_version or request.agreement_hash != agreement.current_version_record.agreement_hash:
             raise AgreementError("hash_mismatch", "stale version/digest")
         decision = request.decision  # BuyerApprovalDecision
-        # consume token atomically
-        ok = await self.repo.consume_token(conn, jti, now, None)
+        decision_id = f"dec_{uuid.uuid4().hex}"
+        # consume token atomically and bind it to the decision row
+        ok = await self.token_service.consume(
+            self.repo, conn, raw_token, jti, decision_id, now
+        )
         if not ok:
             raise AgreementError("token_used", "token already used")
         if decision == BuyerApprovalDecision.APPROVE:
             await self.repo.append_decision(conn, AgreementDecisionRecord(
-                decision_id=f"dec_{uuid.uuid4().hex}", agreement_id=agreement_id,
+                decision_id=decision_id, agreement_id=agreement_id,
                 version=agreement.current_version, party="buyer",
                 decision=AgreementDecision.ACCEPT, actor_type=actor.actor_type,
                 actor_id=actor.actor_id, authority_ref=None,
@@ -2798,11 +3141,18 @@ class AgreementService:
                 reason_code=None, note=request.note, change_request_id=None,
                 idempotency_key=request.idempotency_key, decided_at=now,
             ))
-            await self.repo.update_status_cas(
+            ok = await self.repo.update_status_cas(
                 agreement_id, expected_status=agreement.status,
                 expected_row_version=agreement.row_version, new_status=AgreementState.AGREED,
                 new_row_version=agreement.row_version + 1, expires_at=None, now=now,
                 extra={"agreed_at": _iso(now)},
+            )
+            if not ok:
+                raise AgreementError("conflict", "concurrent update")
+            await self.sync_transaction_pointer(
+                agreement, conn, now,
+                version=agreement.current_version,
+                digest=agreement.current_version_record.agreement_hash,
             )
             await self.repo.revoke_tokens(conn, agreement_id, agreement.current_version, now)
             await self.repo.append_event(conn, AgreementEvent(
@@ -2814,7 +3164,7 @@ class AgreementService:
             return agreement
         if decision == BuyerApprovalDecision.REJECT:
             await self.repo.append_decision(conn, AgreementDecisionRecord(
-                decision_id=f"dec_{uuid.uuid4().hex}", agreement_id=agreement_id,
+                decision_id=decision_id, agreement_id=agreement_id,
                 version=agreement.current_version, party="buyer",
                 decision=AgreementDecision.REJECT, actor_type=actor.actor_type,
                 actor_id=actor.actor_id, authority_ref=None,
@@ -2823,13 +3173,17 @@ class AgreementService:
                 reason_code=None, note=request.note, change_request_id=None,
                 idempotency_key=request.idempotency_key, decided_at=now,
             ))
-            await self.repo.update_status_cas(
+            ok = await self.repo.update_status_cas(
                 agreement_id, expected_status=agreement.status,
                 expected_row_version=agreement.row_version, new_status=AgreementState.REJECTED,
                 new_row_version=agreement.row_version + 1, expires_at=None, now=now,
                 extra={"rejected_at": _iso(now)},
             )
+            if not ok:
+                raise AgreementError("conflict", "concurrent update")
             agreement.status = AgreementState.REJECTED
+            agreement.row_version += 1
+            agreement.expires_at = None
             return agreement
         if decision == BuyerApprovalDecision.REQUEST_CHANGES:
             if request.change_set is None:
@@ -2845,7 +3199,7 @@ class AgreementService:
             )
             await self.repo.create_change_request(conn, cr)
             await self.repo.append_decision(conn, AgreementDecisionRecord(
-                decision_id=f"dec_{uuid.uuid4().hex}", agreement_id=agreement_id,
+                decision_id=decision_id, agreement_id=agreement_id,
                 version=agreement.current_version, party="buyer",
                 decision=AgreementDecision.REQUEST_CHANGES, actor_type=actor.actor_type,
                 actor_id=actor.actor_id, authority_ref=None,
@@ -2856,42 +3210,112 @@ class AgreementService:
             ))
             change_hours = getattr(self.settings, "agreement_change_response_hours", 24)
             new_expires = now + timedelta(hours=change_hours)
-            await self.repo.update_status_cas(
+            ok = await self.repo.update_status_cas(
                 agreement_id, expected_status=agreement.status,
                 expected_row_version=agreement.row_version,
                 new_status=AgreementState.CHANGES_REQUESTED,
                 new_row_version=agreement.row_version + 1, expires_at=new_expires, now=now,
             )
+            if not ok:
+                raise AgreementError("conflict", "concurrent update")
             agreement.status = AgreementState.CHANGES_REQUESTED
             agreement.expires_at = new_expires
             agreement.row_version += 1
             return agreement
         raise AgreementError("invalid_request", "unsupported decision")
 
-    async def create_change_request(self, conn, agreement_id, party, actor, change_set, now):
-        # used by the dedicated change-request endpoint; same as decision path
+    async def create_change_request(self, conn, agreement_id, party, actor, change_set,
+                                    note, idempotency_key, now):
+        """Dedicated endpoint entry point.
+
+        Seller-initiated changes are equivalent to a seller decision. Buyer-initiated
+        changes must arrive through `record_buyer_decision` with an approval token,
+        because the buyer's token is the authority for any buyer-side consent.
+        """
         agreement = await self.repo.get(agreement_id)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
         if is_terminal(agreement.status):
             raise AgreementError("invalid_state", "terminal")
-        if party == "buyer" and agreement.status != AgreementState.PENDING_BUYER:
-            raise AgreementError("invalid_state", "buyer change request only in PENDING_BUYER")
         if party == "seller" and agreement.status != AgreementState.PENDING_SELLER:
             raise AgreementError("invalid_state", "seller change request only in PENDING_SELLER")
-        # delegate to record_*_decision with REQUEST_CHANGES
-        ...
+        if party == "buyer":
+            raise AgreementError(
+                "forbidden",
+                "buyer change requests require an approval token; use record_buyer_decision",
+            )
+        if not change_set.operations:
+            raise AgreementError("invalid_request", "change_set.operations is required")
+        return await self.record_seller_decision(
+            conn, agreement_id, decision=AgreementDecision.REQUEST_CHANGES,
+            actor_type=actor.actor_type, actor_id=actor.actor_id,
+            authority_ref=None, authority_snapshot={},
+            agreement_version=agreement.current_version,
+            agreement_hash=agreement.current_version_record.agreement_hash,
+            verified_offer_hash=agreement.offer_hash, note=note,
+            idempotency_key=idempotency_key, now=now, change_set=change_set,
+        )
 
-    async def resolve_change_request(self, conn, agreement_id, change_request_id, accept, actor, note, now):
+    async def record_seller_operator_required(self, conn, agreement_id, actor, note, now):
+        """Record that the seller cannot decide without a human operator.
+
+        This is not a consent decision: no row is appended to `agreement_decisions`.
+        It sets the operator flag and keeps the agreement in PENDING_SELLER so a
+        later human decision can still bind the same version.
+        """
         agreement = await self.repo.get(agreement_id)
+        if agreement is None:
+            raise AgreementError("not_found", "agreement not found")
+        if agreement.status != AgreementState.PENDING_SELLER:
+            raise AgreementError("invalid_state", "operator flag only in PENDING_SELLER")
+        await self._ensure_not_expired(conn, agreement, now)
+        ok = await self.repo.set_operator_required(
+            conn, agreement_id, agreement.row_version, now
+        )
+        if not ok:
+            raise AgreementError("conflict", "concurrent update")
+        await self.repo.append_event(conn, AgreementEvent(
+            event_id=None, agreement_id=agreement_id,
+            version=agreement.current_version, event_type="seller.operator_required",
+            payload={"note": note}, actor_type=actor.actor_type,
+            actor_id=actor.actor_id, created_at=now,
+        ))
+        return await self.repo.get(agreement_id)
+
+    async def resolve_change_request(self, conn, agreement_id, change_request_id, accept,
+                                     actor, note, now, *, raw_token: str | None = None):
+        agreement = await self.repo.get(agreement_id)
+        if agreement is None:
+            raise AgreementError("not_found", "agreement not found")
         cr = await self.repo.get_open_change_request(agreement_id)
         if cr is None or cr.change_request_id != change_request_id:
             raise AgreementError("not_found", "change request not found")
-        # counterparty check
-        if cr.requested_by_party == "buyer" and actor.actor_type not in ("SELLER_AGENT", "SELLER_OPERATOR"):
-            raise AgreementError("forbidden", "only seller may resolve buyer request")
-        if cr.requested_by_party == "seller" and actor.actor_type != "buyer":
-            raise AgreementError("forbidden", "only buyer may resolve seller request")
+        # Counterparty check and authority proof.
+        if cr.requested_by_party == "buyer":
+            if actor.actor_type not in ("SELLER_AGENT", "SELLER_OPERATOR"):
+                raise AgreementError("forbidden", "only seller may resolve buyer request")
+        else:
+            if actor.actor_type != "buyer" or actor.actor_id != agreement.buyer_id:
+                raise AgreementError("forbidden", "only the agreement buyer may resolve seller request")
+            if not raw_token:
+                raise AgreementError("forbidden", "buyer change resolution requires an approval token")
+            if agreement.status != AgreementState.CHANGES_REQUESTED:
+                raise AgreementError("invalid_state", "no open change request")
+            if (cr.base_version != agreement.current_version
+                    or cr.base_hash != agreement.current_version_record.agreement_hash):
+                raise AgreementError("hash_mismatch", "change request base is stale")
+            claims = self.token_service.verify(raw_token)
+            if claims.get("sub") != agreement.buyer_id:
+                raise AgreementError("forbidden", "approval token subject mismatch")
+            if (claims.get("version") != agreement.current_version
+                    or claims.get("agreement_hash") != agreement.current_version_record.agreement_hash):
+                raise AgreementError("hash_mismatch", "approval token binds a different version")
+            await self._ensure_not_expired(conn, agreement, now)
+            consumed = await self.token_service.consume(
+                self.repo, conn, raw_token, claims["jti"], change_request_id, now
+            )
+            if not consumed:
+                raise AgreementError("token_used", "approval token already used")
         if not accept:
             # reject
             requester_pending = (
@@ -2905,12 +3329,14 @@ class AgreementService:
                 resolution_note=note, resulting_version=None, resolved_at=now,
             )
             change_hours = getattr(self.settings, "agreement_change_response_hours", 24)
-            await self.repo.update_status_cas(
+            ok = await self.repo.update_status_cas(
                 agreement_id, expected_status=AgreementState.CHANGES_REQUESTED,
                 expected_row_version=agreement.row_version, new_status=requester_pending,
                 new_row_version=agreement.row_version + 1,
                 expires_at=now + timedelta(hours=change_hours), now=now,
             )
+            if not ok:
+                raise AgreementError("conflict", "concurrent update")
             await self.repo.append_event(conn, AgreementEvent(
                 event_id=None, agreement_id=agreement_id, version=agreement.current_version,
                 event_type="changes_rejected", payload={"change_request_id": change_request_id},
@@ -2919,12 +3345,12 @@ class AgreementService:
             return await self.repo.get(agreement_id)
         # accept: apply change set
         base_version = await self.repo.get_version(agreement_id, cr.base_version)
-        from .generator import apply_change_set, validate_terms
-        new_terms = apply_change_set(base_version.terms, type("CS", (), {"operations": cr.operations, "reason": cr.reason})())
-        # validate against a synthetic award-less check: reuse validate_terms with None? 
-        # validate_terms requires award; for changes we skip award-specific checks
-        # (offer binding stays fixed). Just structural validation:
-        # (re-implement minimal: totals arithmetic already in apply_change_set)
+        if base_version is None:
+            raise AgreementError("not_found", "base version not found")
+        from verifund_contracts.models import ChangeSet
+        change_set = ChangeSet(operations=cr.operations, reason=cr.reason)
+        new_terms = apply_change_set(base_version.terms, change_set)
+        validate_terms(new_terms, None)  # no offer-specific checks; structural + financial checks still run
         new_version_number = agreement.current_version + 1
         new_hash = agreement_hash(agreement_id, new_version_number, new_terms)
         new_html = render_agreement(new_terms, agreement_id, new_version_number, new_hash)
@@ -2944,7 +3370,7 @@ class AgreementService:
             resolution_note=note, resulting_version=new_version_number, resolved_at=now,
         )
         seller_hours = getattr(self.settings, "agreement_seller_acceptance_hours", 24)
-        await self.repo.update_status_cas(
+        ok = await self.repo.update_status_cas(
             agreement_id, expected_status=AgreementState.CHANGES_REQUESTED,
             expected_row_version=agreement.row_version,
             new_status=AgreementState.PENDING_SELLER,
@@ -2952,7 +3378,10 @@ class AgreementService:
             expires_at=now + timedelta(hours=seller_hours), now=now,
             extra={"current_version": new_version_number},
         )
-        # update agreement.current_version in DB already via extra? need column update
+        if not ok:
+            raise AgreementError("conflict", "concurrent update")
+        await self.sync_transaction_pointer(agreement, conn, now,
+                                            version=new_version_number, digest=new_hash)
         await self.repo.append_event(conn, AgreementEvent(
             event_id=None, agreement_id=agreement_id, version=new_version_number,
             event_type="changes_accepted", payload={"change_request_id": change_request_id},
@@ -2968,14 +3397,7 @@ class AgreementService:
             if agreement is None:
                 continue
             async with self.repo.transaction() as conn:
-                ok = await self.repo.expire(conn, aid, agreement.row_version, now)
-                if ok:
-                    await self.repo.revoke_tokens(conn, aid, agreement.current_version, now)
-                    await self.repo.append_event(conn, AgreementEvent(
-                        event_id=None, agreement_id=aid, version=agreement.current_version,
-                        event_type="agreement.expired", payload={}, actor_type="system",
-                        actor_id="reconciler", created_at=now,
-                    ))
+                if await self._expire_one(conn, agreement, now):
                     expired.append(aid)
         return expired
 
@@ -2983,15 +3405,48 @@ class AgreementService:
         agreement = await self.repo.get(agreement_id)
         if agreement is None or agreement.status != AgreementState.AGREED:
             return agreement
-        await self.repo.update_status_cas(
+        ok = await self.repo.update_status_cas(
             agreement_id, expected_status=AgreementState.AGREED,
             expected_row_version=agreement.row_version, new_status=AgreementState.TERMINATED,
             new_row_version=agreement.row_version + 1, expires_at=None, now=now,
             extra={"terminated_at": _iso(now), "terminal_reason": reason},
         )
+        if not ok:
+            raise AgreementError("conflict", "concurrent update")
         await self.repo.append_event(conn, AgreementEvent(
             event_id=None, agreement_id=agreement_id, version=agreement.current_version,
             event_type="agreement.terminated", payload={"reason": reason},
+            actor_type="system", actor_id="control-plane", created_at=now,
+        ))
+        return await self.repo.get(agreement_id)
+
+    async def cancel_pending(self, conn, agreement_id, reason, now):
+        """Cancel an agreement that has not reached AGREED (buyer/seller cancellation).
+
+        Records an event, not a consent decision: neither party accepted this
+        version, so appending an ACCEPT/REJECT decision would misstate the record.
+        """
+        agreement = await self.repo.get(agreement_id)
+        if agreement is None:
+            return None
+        if agreement.status not in {
+            AgreementState.PENDING_SELLER,
+            AgreementState.PENDING_BUYER,
+            AgreementState.CHANGES_REQUESTED,
+        }:
+            return agreement
+        ok = await self.repo.update_status_cas(
+            agreement_id, expected_status=agreement.status,
+            expected_row_version=agreement.row_version, new_status=AgreementState.REJECTED,
+            new_row_version=agreement.row_version + 1, expires_at=None, now=now,
+            extra={"rejected_at": _iso(now), "terminal_reason": reason},
+        )
+        if not ok:
+            raise AgreementError("conflict", "concurrent update")
+        await self.repo.revoke_tokens(conn, agreement_id, agreement.current_version, now)
+        await self.repo.append_event(conn, AgreementEvent(
+            event_id=None, agreement_id=agreement_id, version=agreement.current_version,
+            event_type="agreement.canceled", payload={"reason": reason},
             actor_type="system", actor_id="control-plane", created_at=now,
         ))
         return await self.repo.get(agreement_id)
@@ -3013,18 +3468,89 @@ class AgreementService:
         ver = await self.repo.get_version(agreement_id, v)
         return ver.rendered_html if ver else None
 
-    def verify_funding_binding(self, agreement, transaction, version, digest):
+    async def build_view(self, agreement) -> dict[str, Any]:
+        """Build the `AgreementView` payload the console and agents consume."""
+        from verifund_contracts.models import (
+            AgreementDecisionView, AgreementVersionView, AgreementView,
+            ChangeRequestView,
+        )
+        versions = await self.repo.list_versions(agreement.agreement_id)
+        decisions = await self.repo.list_decisions(agreement.agreement_id)
+        current = next(
+            (v for v in versions if v.version == agreement.current_version), None
+        )
+        if current is None:
+            raise AgreementError("invalid_state", "agreement has no current version")
+        decision_views = [
+            AgreementDecisionView(
+                decision_id=d.decision_id, party=d.party, decision=d.decision,
+                actor_type=d.actor_type, actor_id=d.actor_id,
+                authority_ref=d.authority_ref, agreement_hash=d.agreement_hash,
+                version=d.version, note=d.note, decided_at=d.decided_at,
+            )
+            for d in decisions
+        ]
+        open_cr = await self.repo.get_open_change_request(agreement.agreement_id)
+        change_view = None
+        if open_cr is not None:
+            change_view = ChangeRequestView(
+                change_request_id=open_cr.change_request_id,
+                base_version=open_cr.base_version, base_hash=open_cr.base_hash,
+                requested_by_party=open_cr.requested_by_party,
+                requested_by_actor_type=open_cr.requested_by_actor_type,
+                requested_by_actor_id=open_cr.requested_by_actor_id,
+                operations=open_cr.operations, reason=open_cr.reason,
+                status=open_cr.status, resolved_by_party=open_cr.resolved_by_party,
+                resolution_note=open_cr.resolution_note,
+                resulting_version=open_cr.resulting_version,
+                created_at=open_cr.created_at, resolved_at=open_cr.resolved_at,
+            )
+        version_view = AgreementVersionView(
+            version=current.version, agreement_hash=current.agreement_hash,
+            created_at=current.created_at,
+            supersedes_version=current.supersedes_version,
+            change_request_id=current.change_request_id,
+            superseded_at=current.superseded_at,
+            decisions=[d for d in decision_views if d.version == current.version],
+            is_current=True,
+        )
+        return AgreementView(
+            agreement_id=agreement.agreement_id,
+            transaction_id=agreement.transaction_id,
+            run_id=agreement.run_id,
+            buyer_id=agreement.buyer_id,
+            seller_id=agreement.seller_id,
+            status=agreement.status,
+            current_version=agreement.current_version,
+            expires_at=agreement.expires_at,
+            agreed_at=agreement.agreed_at,
+            offer_id=agreement.offer_id,
+            offer_round=agreement.offer_round,
+            offer_hash=agreement.offer_hash,
+            offer_valid_until=agreement.offer_valid_until,
+            seller_operator_required=agreement.seller_operator_required,
+            version=version_view,
+            decisions=decision_views,
+            change_request=change_view,
+            review_url=f"/agreements/{agreement.agreement_id}",
+        ).model_dump(mode="json")
+
+    async def verify_funding_binding(self, agreement, transaction, version, digest):
         if agreement is None or agreement.status is not AgreementState.AGREED:
-            raise AgreementError("invalid_state", "agreement is not AGREED", agreement_id=agreement.agreement_id if agreement else None)
+            raise AgreementError("invalid_state", "agreement is not AGREED",
+                                 agreement_id=agreement.agreement_id if agreement else None)
         if agreement.current_version != version:
             raise AgreementError("hash_mismatch", "stale agreement version")
         cur = agreement.current_version_record
         if cur is None or cur.agreement_hash != digest:
             raise AgreementError("hash_mismatch", "stale agreement digest")
-        # decisions
-        decs = [d for d in (await self.repo.list_decisions(agreement.agreement_id)) if d.version == version]
-        buyer = next((d for d in decs if d.party == "buyer" and d.decision == AgreementDecision.ACCEPT), None)
-        seller = next((d for d in decs if d.party == "seller" and d.decision == AgreementDecision.ACCEPT), None)
+        decisions = await self.repo.list_decisions(agreement.agreement_id)
+        buyer = next((d for d in decisions
+                      if d.party == "buyer" and d.version == version
+                      and d.decision is AgreementDecision.ACCEPT), None)
+        seller = next((d for d in decisions
+                       if d.party == "seller" and d.version == version
+                       and d.decision is AgreementDecision.ACCEPT), None)
         if buyer is None or seller is None:
             raise AgreementError("invalid_state", "both acceptances are required")
         for d in (buyer, seller):
@@ -3069,16 +3595,49 @@ Commit: `git commit -m "feat(agreements): add agreement service orchestration"`
 # apps/verifund_control_plane/verifund_control_plane/agreements/routes.py
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from typing import Any
+from fastapi import APIRouter, Header, Request
+from fastapi.responses import HTMLResponse
 
+from verifund_contracts.models import (
+    BuyerAgreementApprovalDecision,
+    ChangeSet,
+    SellerAgreementDecisionRequest,
+)
 from verifund_control_plane.agreements.models import ActorContext, AgreementError
 from verifund_control_plane.agreements.service import AgreementService
-from verifund_contracts.models import (
-    BuyerApprovalDecision, ChangeSet, AgreementState,
-)
+from verifund_control_plane.errors import VerifundError
 
 router = APIRouter(prefix="/agreements", tags=["agreements"])
+
+_STATUS = {
+    "not_found": 404,
+    "forbidden": 403,
+    "unauthorized": 401,
+    "invalid_state": 409,
+    "hash_mismatch": 409,
+    "agreement_expired": 409,
+    "token_used": 409,
+    "token_revoked": 401,
+    "token_expired": 401,
+    "conflict": 409,
+    "offer_mismatch": 409,
+    "offer_expired": 409,
+    "invalid_request": 400,
+}
+
+
+def _raise(err: AgreementError):
+    """Translate domain errors into the control plane's VerifundError envelope.
+
+    The app only registers a handler for `VerifundError`; raising `HTTPException`
+    here would bypass the shared error body and request-id handling.
+    """
+    raise VerifundError(
+        err.code,
+        err.message,
+        status_code=_STATUS.get(err.code, 400),
+        details={"agreement_id": err.agreement_id, "version": err.version},
+    )
 
 
 def get_actor(request: Request) -> ActorContext:
@@ -3091,107 +3650,226 @@ def get_service(request: Request) -> AgreementService:
     return request.app.state.agreement_service
 
 
-def _handle(err: AgreementError):
-    status = {"not_found": 404, "forbidden": 403, "invalid_state": 409,
-              "hash_mismatch": 409, "agreement_expired": 409, "token_used": 409,
-              "token_revoked": 409, "token_expired": 409, "conflict": 409,
-              "offer_mismatch": 409, "offer_expired": 409}.get(err.code, 400)
-    raise HTTPException(status_code=status, detail={"code": err.code, "message": err.message,
-                                                   "agreement_id": err.agreement_id,
-                                                   "version": err.version})
+def _require_idempotency(value: str | None) -> str:
+    if not value:
+        raise VerifundError("invalid_request", "Idempotency-Key is required", status_code=400)
+    return value
+
+
+def _seller_claims(request: Request, token: str):
+    return request.app.state.tokens.verify(token, required_scope="txn:read")
+
+
+def _view(svc: AgreementService, agreement) -> dict:
+    return svc.build_view(agreement)
 
 
 @router.get("")
-async def list_agreements(transaction_id: str | None = None, request: Request = None):
+async def list_agreements(transaction_id: str, request: Request):
     svc = get_service(request)
-    if transaction_id:
-        agr = await svc.get_by_transaction(transaction_id)
-        return [agr] if agr else []
-    return []
+    agreement = await svc.get_by_transaction(transaction_id)
+    if agreement is None:
+        return []
+    return [_view(svc, agreement)]
 
 
 @router.get("/{agreement_id}")
 async def get_agreement(agreement_id: str, request: Request):
     svc = get_service(request)
-    agr = await svc.get(agreement_id)
-    if agr is None:
-        raise HTTPException(status_code=404, detail={"code": "not_found"})
-    # build AgreementView (simplified)
-    return {"agreement_id": agr.agreement_id, "status": agr.status.value,
-            "current_version": agr.current_version}
+    agreement = await svc.get(agreement_id)
+    if agreement is None:
+        _raise(AgreementError("not_found", "agreement not found", agreement_id=agreement_id))
+    return _view(svc, agreement)
 
 
 @router.get("/{agreement_id}/versions")
 async def versions(agreement_id: str, request: Request):
     svc = get_service(request)
-    vers = await svc.list_versions(agreement_id)
-    return [{"version": v.version, "agreement_hash": v.agreement_hash,
-             "created_at": v.created_at.isoformat().replace("+00:00", "Z")} for v in vers]
+    agreement = await svc.get(agreement_id)
+    if agreement is None:
+        _raise(AgreementError("not_found", "agreement not found"))
+    return [
+        {
+            "version": v.version,
+            "agreement_hash": v.agreement_hash,
+            "created_at": v.created_at.isoformat().replace("+00:00", "Z"),
+            "supersedes_version": v.supersedes_version,
+            "change_request_id": v.change_request_id,
+        }
+        for v in await svc.list_versions(agreement_id)
+    ]
 
 
 @router.get("/{agreement_id}/document")
-async def document(agreement_id: str, version: int | None = None, request: Request = None,
-                   authorization: str | None = Header(default=None)):
+async def document(agreement_id: str, request: Request, version: int | None = None):
     svc = get_service(request)
+    agreement = await svc.get(agreement_id)
+    actor = get_actor(request)
+    if agreement is None:
+        _raise(AgreementError("not_found", "agreement not found"))
+    if actor.actor_id not in {agreement.buyer_id, agreement.seller_id}:
+        _raise(AgreementError("forbidden", "actor is not a party to this agreement"))
     html_doc = await svc.document(agreement_id, version)
     if html_doc is None:
-        raise HTTPException(status_code=404, detail={"code": "not_found"})
-    from fastapi.responses import HTMLResponse
+        _raise(AgreementError("not_found", "agreement version not found"))
     return HTMLResponse(content=html_doc, media_type="text/html")
 
 
 @router.post("/{agreement_id}/approval-token")
-async def issue_token(agreement_id: str, request: Request, idempotency_key: str = Header(..., alias="Idempotency-Key")):
-    svc = get_service(request)
-    actor = get_actor(request)
-    now = request.app.state.clock()
-    async with svc.repo.transaction() as conn:
-        raw, record = await svc.issue_buyer_token(conn, agreement_id, actor, now)
-        await svc.repo.issue_token(conn, record)
-    return {"token": raw, "review_url": f"/agreements/{agreement_id}",
-            "expires_at": record.expires_at.isoformat().replace("+00:00", "Z"),
-            "agreement_version": record.version,
-            "agreement_hash": record.agreement_hash}
-
-
-@router.post("/{agreement_id}/buyer-decision")
-async def buyer_decision(agreement_id: str, body: dict, request: Request,
-                        idempotency_key: str = Header(..., alias="Idempotency-Key"),
-                        token: str = Header(..., alias="X-Approval-Token")):
+async def issue_token(
+    agreement_id: str,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    _require_idempotency(idempotency_key)
     svc = get_service(request)
     actor = get_actor(request)
     now = request.app.state.clock()
     try:
-        claims = svc.token_service.verify(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail={"code": "token_expired"})
-    from verifund_contracts.models import BuyerApprovalDecision
-    req = ...  # parse body into BuyerAgreementApprovalDecision
-    async with svc.repo.transaction() as conn:
-        agreement = await svc.record_buyer_decision(
-            conn, agreement_id, claims, req, actor, now)
+        async with svc.repo.transaction() as conn:
+            # issue_buyer_token persists the token exactly once.
+            raw, record = await svc.issue_buyer_token(conn, agreement_id, actor, now)
+    except AgreementError as err:
+        _raise(err)
+    return {
+        "token": raw,
+        "review_url": f"/agreements/{agreement_id}",
+        "expires_at": record.expires_at.isoformat().replace("+00:00", "Z"),
+        "agreement_version": record.version,
+        "agreement_hash": record.agreement_hash,
+    }
+
+
+@router.post("/{agreement_id}/buyer-decision")
+async def buyer_decision(
+    agreement_id: str,
+    body: BuyerAgreementApprovalDecision,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    token: str = Header(..., alias="X-Approval-Token"),
+):
+    _require_idempotency(idempotency_key)
+    svc = get_service(request)
+    actor = get_actor(request)
+    now = request.app.state.clock()
+    try:
+        async with svc.repo.transaction() as conn:
+            agreement = await svc.record_buyer_decision(
+                conn, agreement_id, token, body, actor, now
+            )
+    except AgreementError as err:
+        _raise(err)
     return {"status": agreement.status.value, "version": agreement.current_version}
 
 
 @router.post("/{agreement_id}/seller-decision")
-async def seller_decision(agreement_id: str, body: dict, request: Request,
-                         idempotency_key: str = Header(..., alias="Idempotency-Key")):
-    ...
+async def seller_decision(
+    agreement_id: str,
+    body: SellerAgreementDecisionRequest,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    seller_token: str = Header(..., alias="X-Seller-Token"),
+):
+    _require_idempotency(idempotency_key)
+    svc = get_service(request)
+    now = request.app.state.clock()
+    claims = _seller_claims(request, seller_token)
+    agreement = await svc.get(agreement_id)
+    if agreement is None:
+        _raise(AgreementError("not_found", "agreement not found"))
+    if claims.txn != agreement.transaction_id or claims.seller_id != agreement.seller_id:
+        _raise(AgreementError("forbidden", "seller token does not match this agreement"))
+    if body.agreement_hash != claims.agreement_hash:
+        _raise(AgreementError("hash_mismatch", "seller token binds a different digest"))
+    actor = ActorContext(
+        actor_id=body.actor_id or agreement.seller_id,
+        actor_type=body.actor_type,
+        display_name=body.actor_id or agreement.seller_id,
+    )
+    try:
+        async with svc.repo.transaction() as conn:
+            if body.decision.value == "OPERATOR_REQUIRED":
+                agreement = await svc.record_seller_operator_required(
+                    conn, agreement_id, actor, body.note, now
+                )
+            else:
+                agreement = await svc.record_seller_decision(
+                    conn, agreement_id,
+                    decision=body.decision,
+                    actor_type=actor.actor_type,
+                    actor_id=actor.actor_id,
+                    authority_ref=body.authority_ref,
+                    authority_snapshot=body.authority_snapshot,
+                    agreement_version=body.agreement_version,
+                    agreement_hash=body.agreement_hash,
+                    verified_offer_hash=body.offer_hash,
+                    verified_change_request_id=body.verified_change_request_id,
+                    note=body.note,
+                    idempotency_key=idempotency_key,
+                    now=now,
+                    change_set=body.change_set,
+                )
+    except AgreementError as err:
+        _raise(err)
+    return {"status": agreement.status.value, "version": agreement.current_version}
 
 
 @router.post("/{agreement_id}/change-requests")
-async def create_change_request(agreement_id: str, body: dict, request: Request,
-                               idempotency_key: str = Header(..., alias="Idempotency-Key")):
-    ...
+async def create_change_request(
+    agreement_id: str,
+    body: ChangeSet,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    seller_token: str = Header(..., alias="X-Seller-Token"),
+):
+    _require_idempotency(idempotency_key)
+    svc = get_service(request)
+    now = request.app.state.clock()
+    claims = _seller_claims(request, seller_token)
+    agreement = await svc.get(agreement_id)
+    if agreement is None:
+        _raise(AgreementError("not_found", "agreement not found"))
+    if claims.txn != agreement.transaction_id:
+        _raise(AgreementError("forbidden", "seller token does not match this agreement"))
+    actor = ActorContext(actor_id=claims.seller_id, actor_type="SELLER_AGENT")
+    try:
+        async with svc.repo.transaction() as conn:
+            agreement = await svc.create_change_request(
+                conn, agreement_id, "seller", actor, body,
+                note=body.reason, idempotency_key=idempotency_key, now=now,
+            )
+    except AgreementError as err:
+        _raise(err)
+    return {"status": agreement.status.value, "version": agreement.current_version}
 
 
 @router.post("/{agreement_id}/change-requests/{cr_id}/resolve")
-async def resolve_change_request(agreement_id: str, cr_id: str, body: dict, request: Request,
-                                idempotency_key: str = Header(..., alias="Idempotency-Key")):
-    ...
+async def resolve_change_request(
+    agreement_id: str,
+    cr_id: str,
+    body: dict,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    buyer_token: str | None = Header(default=None, alias="X-Approval-Token"),
+):
+    _require_idempotency(idempotency_key)
+    svc = get_service(request)
+    actor = get_actor(request)
+    now = request.app.state.clock()
+    try:
+        async with svc.repo.transaction() as conn:
+            agreement = await svc.resolve_change_request(
+                conn, agreement_id, cr_id,
+                accept=bool(body.get("accept")),
+                actor=actor,
+                note=str(body.get("note", "")),
+                now=now,
+                raw_token=buyer_token,
+            )
+    except AgreementError as err:
+        _raise(err)
+    return {"status": agreement.status.value, "version": agreement.current_version}
 ```
-
-The plan shows the route skeleton; implementers fill in body parsing using the contract models. The full view building (AgreementView) is deferred to a helper `build_agreement_view(agreement, repo)`.
 
 - [ ] **Step 3: Wire into `app.py`.**
 
@@ -3206,9 +3884,21 @@ agreement_repo = AgreementRepository(engine)
 agreement_tokens = ApprovalTokenService(
     settings.link_secret, ttl_minutes=settings.approval_token_ttl_minutes, clock=now,
 )
+
+async def _sync_transaction_pointer(
+    conn, transaction_id: str, version: int, digest: str, at: datetime
+) -> None:
+    # Runs inside the caller's agreement transaction so the two rows commit together.
+    record = await repo.get_transaction(transaction_id, conn)
+    await repo.update_transaction(
+        conn, transaction_id, expected_version=record.version,
+        changes={"agreement_version": version, "agreement_hash": digest},
+    )
+
 agreement_service = AgreementService(
     repo=agreement_repo, token_service=agreement_tokens,
     settings=settings, clock=now,
+    sync_transaction=_sync_transaction_pointer,
 )
 ...
 app.state.agreement_repo = agreement_repo
@@ -3216,7 +3906,9 @@ app.state.agreement_tokens = agreement_tokens
 app.state.agreement_service = agreement_service
 ...
 # in lifespan:
-await app.state.agreement_repo.create_schema()
+async with app.state.engine.begin() as conn:
+    await app.state.repo.create_schema()
+    await app.state.agreement_repo.create_schema(conn)
 ...
 app.include_router(agreement_routes.router)
 ```
@@ -3246,14 +3938,14 @@ Commit: `git commit -m "feat(agreements): add HTTP routes and wire into app"`
 
 **Files:**
 - Modify: `apps/verifund_control_plane/verifund_control_plane/service.py` (`award`)
-- Modify: `apps/verifund_control_plane/verifund_control_plane/repository.py` (remove old `agreements`/`agreement_reviews` JSON blobs from `create_schema` path; add `buyer_precheck` column alias; keep `agreement_id` already present)
-- Test: `tests/integration/test_verifund_service.py`, `tests/integration/test_verifund_lifecycle.py`
+- Modify: `apps/verifund_control_plane/verifund_control_plane/repository.py` (only if the transaction writer needs the `agreement_id`/`buyer_precheck` columns; legacy table removal happens in Task 1.4)
+- Test: `tests/unit/test_verifund_service.py`, `tests/unit/test_verifund_lifecycle.py` (create if absent; the repository currently has `tests/unit/test_verifund_service.py`, not `tests/integration/...`)
 
 **Interfaces:**
 - Consumes: `AgreementService.create_from_award`.
 - Produces: `award()` returns `AwardResponse` with `state=AWARDED`, `agreement.status=PENDING_SELLER`, `agreement_version=1`.
 
-- [ ] **Step 1: Update award test expectations** to `PENDING_SELLER` and the new agreement state. Run `uv run pytest tests/integration/test_verifund_service.py -v` to see failures.
+- [ ] **Step 1: Update award test expectations** to `PENDING_SELLER` and the new agreement state. Run `uv run pytest tests/unit/test_verifund_service.py -v` to see failures.
 
 - [ ] **Step 2: Refactor `award()`**
 
@@ -3261,40 +3953,52 @@ Inside `VerifundService.__init__`, accept `agreement_service: AgreementService`.
 
 ```python
 # service.py award() — replace agreement creation block
-async def award(self, request: AwardRequest, *, idempotency_key: str | None = None):
+async def award(self, request: AwardRequest, *, actor: str, idempotency_key: str | None = None):
     body = request.model_dump(mode="json")
-    cached = await self._mutate(...)  # existing idempotency wrapper
-    ...
+    cached = await self._replay("award", idempotency_key, body)
+    if cached is not None:
+        return AwardResponse.model_validate(cached)
+    now = self._now()
+    # Generate the transaction id BEFORE the agreement insert: agreements.transaction_id
+    # is NOT NULL and is part of the agreement's identity.
+    transaction_id = f"vf_{uuid.uuid4().hex}"
     async with self.repo.transaction() as conn:
-        # 1. generate agreement
         agreement = await self.agreement_service.create_from_award(
-            conn, request, None, request.run_id, self._now())
-        # 2. create transaction with agreement_id
+            conn, request, transaction_id, request.run_id, now)
         txn = await self.repo.create_transaction(
-            conn, run_id=request.run_id, buyer_id=request.buyer_id,
-            seller_id=request.seller_id, offer_id=request.offer_id,
-            amount_cents=request.amount_cents, currency=request.currency,
-            agreement_id=agreement.agreement_id,
-            agreement_version=1, agreement_hash=agreement.current_version_record.agreement_hash,
+            conn, transaction_id=transaction_id, run_id=request.run_id,
+            buyer_id=request.buyer_id, seller_id=request.seller_id,
+            offer_id=request.offer_id, amount_cents=request.amount_cents,
+            currency=request.currency, agreement_id=agreement.agreement_id,
+            agreement_version=1,
+            agreement_hash=agreement.current_version_record.agreement_hash,
             state=TransactionState.AWARDED, ...,
         )
-        # 3. issue seller token (existing)
-        seller_token = await self.tokens.issue(...)
-        # 4. idempotency store + commit
+        seller_token = await self.tokens.issue(
+            txn.transaction_id, request.seller_id,
+            agreement.current_version_record.agreement_hash,
+            scopes=("txn:read", "evidence:write", "agreement:decide"),
+        )
+        # idempotency store + commit
         ...
-    return AwardResponse(
+    response = AwardResponse(
         transaction_id=txn.transaction_id, state=TransactionState.AWARDED,
         agreement_hash=agreement.current_version_record.agreement_hash,
-        agreement=agreement.current_version_record to projection,
-        agreement_version=1, seller_token=seller_token, expires_at=...,
+        agreement=self.agreement_service.build_projection(agreement),
+        agreement_version=1, seller_token=seller_token,
+        expires_at=agreement.expires_at,
     )
+    if idempotency_key:
+        await self.repo.store_idempotent(
+            "award", idempotency_key, body, response.model_dump(mode="json"))
+    return response
 ```
 
-The projection is built from the agreement version's terms + summary fields. Build it in `AgreementService` and store on the agreement, or construct in `award()` using a helper `build_projection(agreement, version, request)`.
+`build_projection(agreement)` returns the `AgreementProjection` for the current version (add it beside `build_view`). The transaction row writes `agreement_id`, `agreement_version`, and `agreement_hash`; the agreement row writes the same `transaction_id`.
 
 - [ ] **Step 3: Run tests and commit.**
 
-Run: `uv run pytest tests/integration/test_verifund_service.py tests/integration/test_verifund_lifecycle.py -v`
+Run: `uv run pytest tests/unit/test_verifund_service.py tests/unit/test_verifund_lifecycle.py -v`
 Expected: PASS
 
 Commit: `git commit -m "feat(verifund): create agreement and transaction atomically on award"`
@@ -3303,7 +4007,7 @@ Commit: `git commit -m "feat(verifund): create agreement and transaction atomica
 
 **Files:**
 - Modify: `service.py` (`accept`, `record_buyer_review`)
-- Test: `tests/integration/test_verifund_service.py`
+- Test: `tests/unit/test_verifund_service.py`
 
 - [ ] **Step 1: Update tests** for seller accept not setting `AGREED`; precheck non-binding.
 
@@ -3312,22 +4016,35 @@ Commit: `git commit -m "feat(verifund): create agreement and transaction atomica
 ```python
 async def accept(self, request: AcceptRequest, *, idempotency_key):
     ...
+    if request.agreement_version is None or request.offer_hash is None:
+        raise VerifundError(
+            "invalid_request",
+            "accept requires agreement_version and offer_hash",
+            status_code=400,
+        )
     async with self.repo.transaction() as conn:
         agreement = await self.agreement_service.record_seller_decision(
             conn, transaction.agreement_id,
-            decision=... (map AcceptRequest to AgreementDecision.ACCEPT),
-            actor_type="SELLER_AGENT", actor_id=request.seller_id,
-            authority_ref=f"seller-token:{request.seller_task_id}",
-            authority_snapshot={}, agreement_version=request.agreement_version
-            if hasattr(request, "agreement_version") else transaction.agreement_version,
+            decision=AgreementDecision.ACCEPT,
+            actor_type=request.actor_type,
+            actor_id=request.actor_id or request.seller_id,
+            authority_ref=request.authority_ref or f"seller-token:{request.seller_task_id}",
+            authority_snapshot=request.authority_snapshot,
+            agreement_version=request.agreement_version,
             agreement_hash=request.agreement_hash,
-            verified_offer_hash=request.offer_hash if hasattr(request, "offer_hash") else None,
+            verified_offer_hash=request.offer_hash,
             note="", idempotency_key=idempotency_key, now=self._now(),
         )
-        if agreement.status == AgreementState.REJECTED:
-            await self.repo.cancel_transaction(conn, transaction.transaction_id, ...)
         # seller decision projection update
         ...
+    if agreement.status == AgreementState.REJECTED:
+        # The agreement transaction has committed; cancel() owns its own transaction.
+        await self.cancel(
+            transaction.transaction_id,
+            CancelRequest(reason_code=CancelReason.SELLER_REJECTED),
+            actor=f"seller:{request.seller_id}",
+            idempotency_key=f"reject:{agreement.agreement_id}",
+        )
 ```
 
 `AcceptRequest` is extended in Task 0.3 with `agreement_version`, `agreement_hash`, `offer_hash`, `actor_type`, `actor_id`, `authority_ref`, `authority_snapshot`. Make them optional with defaults for the compatibility wrapper.
@@ -3346,7 +4063,7 @@ async def record_buyer_review(self, request: BuyerAgreementReviewRequest, ...):
 
 - [ ] **Step 4: Run tests and commit.**
 
-Run: `uv run pytest tests/integration/test_verifund_service.py -v`
+Run: `uv run pytest tests/unit/test_verifund_service.py -v`
 Expected: PASS
 
 Commit: `git commit -m "feat(verifund): delegate seller decision; make buyer review a precheck"`
@@ -3363,25 +4080,64 @@ Already covered by Task 1.7 routes calling `AgreementService`. Ensure `VerifundS
 ```python
 async def issue_approval_token(self, agreement_id, actor, idempotency_key):
     now = self._now()
+    body = {"agreement_id": agreement_id, "actor": actor.actor_id}
+    cached = await self._replay("issue-approval-token", idempotency_key, body)
+    if cached is not None:
+        return cached
     async with self.repo.transaction() as conn:
-        raw, record = await self.agreement_service.issue_buyer_token(conn, agreement_id, actor, now)
-        await self.repo... # already issued in issue_buyer_token
-    return raw, record
+        # issue_buyer_token persists exactly once; do not insert the token again here.
+        raw, record = await self.agreement_service.issue_buyer_token(
+            conn, agreement_id, actor, now)
+    result = {"token": raw, "expires_at": record.expires_at,
+              "agreement_version": record.version,
+              "agreement_hash": record.agreement_hash}
+    if idempotency_key:
+        await self.repo.store_idempotent(
+            "issue-approval-token", idempotency_key, body,
+            {**result, "expires_at": result["expires_at"].isoformat()})
+    return result
+
+async def get_agreement(self, agreement_id: str):
+    return await self.agreement_service.get(agreement_id)
+
+async def get_by_transaction(self, transaction_id: str):
+    return await self.agreement_service.get_by_transaction(transaction_id)
+
+async def list_agreement_versions(self, agreement_id: str):
+    return await self.agreement_service.list_versions(agreement_id)
+
+async def get_agreement_document(self, agreement_id: str, version: int | None = None):
+    return await self.agreement_service.document(agreement_id, version)
+
+async def create_change_request(self, agreement_id, body, actor, idempotency_key):
+    ...
+
+async def resolve_change_request(self, agreement_id, change_request_id, accept, actor, note, idempotency_key):
+    ...
 ```
 
-Note: `issue_buyer_token` in `AgreementService` already calls `repo.issue_token`. Keep one call.
+- [ ] **Step 1: Add the thin `VerifundService` delegation wrappers** for `issue_approval_token`, `get_agreement`, `get_by_transaction`, `list_agreement_versions`, `get_agreement_document`, `create_change_request`, and `resolve_change_request`, all delegating to `AgreementService` and wrapping in idempotency.
 
-- [ ] Run tests and commit.
+- [ ] **Step 2: Run tests and commit.**
+
+Run: `uv run pytest tests/integration/test_agreement_routes.py tests/unit/test_verifund_service.py -v`
+Expected: PASS
+
+Commit: `git commit -m "feat(verifund): delegate buyer decision and token issuance to agreements"`
 
 ### Task 2.4: Funding authorization and funding binding
 
 **Files:**
 - Modify: `service.py` (`approve`, `fund`)
-- Test: `tests/integration/test_verifund_funding.py`, `tests/integration/test_verifund_service.py`
+- Test: `tests/integration/test_verifund_funding.py`, `tests/unit/test_verifund_service.py`
 
 - [ ] **Step 1: Update tests** for `agreement_version` on `ApproveRequest`/`FundRequest`.
 
-- [ ] **Step 2: Add binding checks in `approve()` and `fund()`**
+- [ ] **Step 2: Remove the legacy consent bypass in `approve()`.**
+
+`VerifundService.approve()` currently transitions `AWARDED → AGREED` when the seller accepted. That path bypasses the buyer agreement approval. Delete the transition (and any `AGREED` shortcut) from `approve()`; it may only record the funding approval. `AGREED` is reached exclusively through `AgreementService.record_buyer_decision(APPROVE)`. Update `tests/unit/test_verifund_service.py` expectations accordingly.
+
+- [ ] **Step 3: Add binding checks in `approve()` and `fund()`**
 
 ```python
 async def approve(self, request: ApproveRequest, ...):
@@ -3391,19 +4147,32 @@ async def approve(self, request: ApproveRequest, ...):
         agreement, transaction, request.agreement_version, request.agreement_hash)
     # existing funding approval logic, now also stores agreement_version/hash on the approval record
     ...
+    approval = {
+        ...,
+        "agreement_version": request.agreement_version,
+        "agreement_hash": request.agreement_hash,
+    }
 
 async def fund(self, request: FundRequest, ...):
     ...
     agreement = await self.agreement_service.get_by_transaction(transaction.transaction_id)
     await self.agreement_service.verify_funding_binding(
         agreement, transaction, request.agreement_version, request.agreement_hash)
+    approval = transaction.approval
+    if approval is None:
+        raise VerifundError("invalid_state", "funding approval is required", status_code=409)
+    if (approval.agreement_version != request.agreement_version
+            or approval.agreement_hash != request.agreement_hash):
+        raise VerifundError(
+            "hash_mismatch", "funding approval binds a different version",
+            status_code=409)
     # existing fund logic
     ...
 ```
 
-- [ ] **Step 3: Run tests and commit.**
+- [ ] **Step 4: Run tests and commit.**
 
-Run: `uv run pytest tests/integration/test_verifund_funding.py tests/integration/test_verifund_service.py -v`
+Run: `uv run pytest tests/integration/test_verifund_funding.py tests/unit/test_verifund_service.py -v`
 Expected: PASS
 
 Commit: `git commit -m "feat(verifund): bind funding approval and funding to agreed version"`
@@ -3412,51 +4181,60 @@ Commit: `git commit -m "feat(verifund): bind funding approval and funding to agr
 
 **Files:**
 - Modify: `reconciler.py`
-- Modify: `service.py` (`cancel`)
 - Test: `tests/integration/test_verifund_reconciler.py`, `tests/integration/test_agreement_expiry.py`
 
 - [ ] **Step 1: Write failing test** for stale agreement → `EXPIRED`, transaction canceled, token revoked.
 
-- [ ] **Step 2: Wire `AgreementService.expire_due`** into the reconciler's existing sweep cadence. Add a funding-expiry path that calls `AgreementService.terminate()`.
+- [ ] **Step 2: Wire `AgreementService.expire_due`** into the reconciler's existing sweep cadence. `expire_due` expires agreements in their own transactions and returns the expired ids; the reconciler then cancels each still-unfunded transaction through `VerifundService.cancel()` (do not nest that call inside the agreement transaction).
 
 ```python
 # reconciler.py — add to sweep
 expired = await self.service.agreement_service.expire_due(self.clock())
 for aid in expired:
     agr = await self.service.agreement_service.get(aid)
-    if agr and agr.transaction_id:
-        txn = await self.repo.get_transaction(agr.transaction_id)
-        if txn and txn.state not in (TransactionState.FUNDED, ...):
-            await self.service.cancel_transaction(agr.transaction_id, reason=CancelReason.AGREEMENT_EXPIRED)
+    if agr is None or not agr.transaction_id:
+        continue
+    txn = await self.repo.get_transaction(agr.transaction_id)
+    if txn.state in {
+        TransactionState.FUNDED, TransactionState.REVIEW_REQUIRED,
+        TransactionState.CANCELED,
+    }:
+        continue
+    await self.service.cancel(
+        agr.transaction_id,
+        CancelRequest(reason_code=CancelReason.AGREEMENT_EXPIRED),
+        actor="reconciler",
+        idempotency_key=f"expire:{agr.agreement_id}",
+    )
 ```
 
-Lazy expiry: in `AgreementService.record_seller_decision` and `record_buyer_decision`, call `expire_due` for the specific agreement if `expires_at <= now` before proceeding (or rely on `repo.expire` conditional update). Implement a helper `_ensure_not_expired(conn, agreement, now)` that calls `repo.expire` + event + revoke + cancel if expired, then raises `AgreementError("agreement_expired", ...)`.
+Also add the funding-expiry path that calls `AgreementService.terminate()`.
 
-- [ ] **Step 3: Update `cancel()`** to map: if agreement status is pre-agreement (`PENDING_*`/`CHANGES_REQUESTED`) → `REJECTED` + cancel transaction; if `AGREED` → `TERMINATED` + cancel transaction.
+Lazy expiry: `AgreementService.record_seller_decision`, `record_buyer_decision`, and `record_seller_operator_required` already call `_ensure_not_expired(conn, agreement, now)`. That helper calls `repo.expire` + revokes tokens + appends the event, then raises `AgreementError("agreement_expired", ...)`. It intentionally does not cancel the transaction (the reconciler does), so the agreement transaction stays short and non-nested. Do not duplicate the expiry logic in the route layer.
 
-- [ ] **Step 4: Run tests and commit.**
+- [ ] **Step 3: Run tests and commit.**
 
 Run: `uv run pytest tests/integration/test_verifund_reconciler.py tests/integration/test_agreement_expiry.py -v`
 Expected: PASS
 
 Commit: `git commit -m "feat(verifund): add agreement expiry and termination"`
 
-### Task 2.6: Cancellation mapping and legacy table cleanup
+### Task 2.6: Cancellation mapping
 
 **Files:**
-- Modify: `repository.py` (remove old `agreements`/`agreement_reviews` JSON tables; rename `buyer_agent_review` to `buyer_precheck`)
-- Modify: tests referencing removed tables/columns.
+- Modify: `service.py` (`cancel`)
+- Test: `tests/unit/test_verifund_service.py`
 
-- [ ] **Step 1: Update schema.** Remove the old `agreements` and `agreement_reviews` Table definitions; rename column `buyer_agent_review` → `buyer_precheck`. Add `agreement_id` index (already present).
+- [ ] **Step 1: Map cancellation to agreement state.** In `VerifundService.cancel()`, after the transaction transition succeeds, load the agreement by transaction and map it in the same `conn`: pre-agreement (`PENDING_SELLER`, `PENDING_BUYER`, `CHANGES_REQUESTED`) → `AgreementService.cancel_pending(conn, agreement_id, reason="canceled", now)`; `AGREED` → `AgreementService.terminate(conn, agreement_id, reason="canceled", now)`. Do not append a seller decision for a buyer cancellation; `cancel_pending` records an event instead. `EXPIRED`/`TERMINATED`/`REJECTED` are no-ops (return the agreement unchanged).
 
-- [ ] **Step 2: Update all code/tests** referencing `repo.agreements`, `repo.agreement_reviews`, `buyer_agent_review`. Use grep: `grep -rn "buyer_agent_review\|repo.agreements\|repo.agreement_reviews" --include=*.py`.
+- [ ] **Step 2: Run tests and commit.**
 
-- [ ] **Step 3: Run tests and commit.**
-
-Run: `uv run pytest tests/integration/test_verifund_service.py tests/unit/test_verifund_repository.py -v`
+Run: `uv run pytest tests/unit/test_verifund_service.py tests/unit/test_verifund_repository.py -v`
 Expected: PASS
 
-Commit: `git commit -m "feat(verifund): remove legacy agreement blobs and rename precheck column"`
+Commit: `git commit -m "feat(verifund): map cancellations onto agreement states"`
+
+> Legacy table removal and the `buyer_agent_review` → `buyer_precheck` rename moved to Task 1.4 so the schema is clean before any Phase 2 code runs.
 
 ---
 
@@ -3564,11 +4342,14 @@ def load_mandate(profile: dict[str, Any]) -> SellerMandate:
 # apps/seller_agent/seller_agent/agreement.py
 from __future__ import annotations
 
-import hashlib
-from datetime import datetime, timezone
+import json
+from datetime import datetime
 
 from commerce_core.binding import canonical_offer_binding, offer_hash
-from verifund_contracts.models import AgreementReviewDecision, AgreementReviewResult
+from verifund_contracts.models import (
+    AgreementReviewDecision, AgreementReviewResult, ChangeRequestEnvelope,
+)
+from verifund_contracts.terms import apply_change_set
 from seller_agent.mandate import SellerMandate
 from seller_agent.agreement_store import SellerAgreementReviewStore
 
@@ -3579,76 +4360,135 @@ def recompute_offer_hash(offer) -> str:
 
 def recompute_agreement_hash(projection) -> str:
     from verifund_contracts.models import canonical_json, sha256_hex
-    payload = projection.canonical_payload()
-    return sha256_hex(canonical_json(payload))
+    return sha256_hex(canonical_json(projection.canonical_payload()))
+
+
+def _terms_match_offer(terms: dict, offer) -> bool:
+    totals = terms.get("totals", {})
+    if totals.get("currency") != (offer.currency.value if hasattr(offer.currency, "value") else offer.currency):
+        return False
+    if totals.get("subtotal_cents") != offer.subtotal_cents:
+        return False
+    if totals.get("shipping_cents") != offer.shipping_cents:
+        return False
+    if totals.get("tax_cents") != offer.tax_cents:
+        return False
+    if totals.get("fees_cents") != offer.fees_cents:
+        return False
+    if totals.get("total_cents") != offer.total_cents:
+        return False
+    if terms.get("delivery", {}).get("delivery_days") != offer.delivery_days:
+        return False
+    if terms.get("warranty_months") != offer.warranty_months:
+        return False
+    if terms.get("returns_days") != offer.returns_days:
+        return False
+    projected_items = [
+        {"sku": i.get("sku"), "quantity": i.get("quantity"),
+         "unit_price_cents": i.get("unit_price_cents"),
+         "warranty_addon_cents": i.get("warranty_addon_cents", 0)}
+        for i in terms.get("line_items", [])
+    ]
+    offer_items = [
+        {"sku": i.sku, "quantity": i.quantity,
+         "unit_price_cents": i.unit_price_cents,
+         "warranty_addon_cents": i.warranty_addon_cents}
+        for i in offer.line_items
+    ]
+    return projected_items == offer_items
 
 
 def review_agreement(projection, offer, mandate: SellerMandate,
                      store: SellerAgreementReviewStore, seller_id: str,
-                     now: datetime) -> AgreementReviewResult:
+                     now: datetime, *, task_id: str, context_id: str,
+                     change_request: ChangeRequestEnvelope | None = None
+                     ) -> AgreementReviewResult:
     # 1. seller identity
     if projection.seller_id != seller_id:
-        return _result(projection, AgreementReviewDecision.REJECTED, "seller_mismatch", now)
+        return _result(projection, AgreementReviewDecision.REJECTED, "seller_mismatch",
+                       now, task_id, context_id)
     # 2. offer hash
     computed_offer_hash = recompute_offer_hash(offer)
     if computed_offer_hash != projection.offer_hash:
-        return _result(projection, AgreementReviewDecision.REJECTED, "offer_mismatch", now,
-                       offer_hash=computed_offer_hash)
+        return _result(projection, AgreementReviewDecision.REJECTED, "offer_mismatch",
+                       now, task_id, context_id, offer_hash=computed_offer_hash)
     # 3. agreement digest
     computed_agreement_hash = recompute_agreement_hash(projection)
     if computed_agreement_hash != projection.agreement_hash:
-        return _result(projection, AgreementReviewDecision.REJECTED, "hash_mismatch", now,
-                       offer_hash=computed_offer_hash)
+        return _result(projection, AgreementReviewDecision.REJECTED, "hash_mismatch",
+                       now, task_id, context_id, offer_hash=computed_offer_hash)
     # 4. version provenance
-    previous = store.get(projection.agreement_id, projection.agreement_version - 1) if projection.agreement_version > 1 else None
     if projection.agreement_version == 1:
-        # terms must match offer-derived terms (checked by control plane; here trust but record)
-        pass
-    else:
-        # apply accepted change request operations to previous terms and compare
-        # (implementation: store previous terms + change request; verify digest chain)
-        if previous is None:
-            return _result(projection, AgreementReviewDecision.REJECTED, "version_provenance_failed", now,
+        if not _terms_match_offer(projection.terms, offer):
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "terms_mismatch", now, task_id, context_id,
                            offer_hash=computed_offer_hash)
-    # 5. mandate
+    else:
+        previous = store.get(projection.agreement_id, projection.agreement_version - 1)
+        if previous is None:
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+        if change_request is None:
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+        if (change_request.base_version != projection.agreement_version - 1
+                or change_request.base_hash != previous["agreement_hash"]
+                or change_request.change_request_id != projection.change_request_id):
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+        expected_terms = apply_change_set(
+            json.loads(previous["terms"]), change_request.operations
+        )
+        if expected_terms != projection.terms:
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+    # 5. mandate: auto_accept is an opt-in, not just an out-of-limits fallback
     terms = projection.terms
     totals = terms.get("totals", {})
-    if not mandate.allows(
+    within_mandate = mandate.allows(
         currency=totals.get("currency", "USD"),
         total_cents=totals.get("total_cents", 0),
         warranty_months=terms.get("warranty_months", 0),
         returns_days=terms.get("returns_days", 0),
         inspection_period_hours=terms.get("inspection", {}).get("period_hours", 0),
         dispute_window_hours=terms.get("dispute_window_hours", 0),
-    ):
-        if not mandate.auto_accept:
-            return _result(projection, AgreementReviewDecision.OPERATOR_REQUIRED, "outside_mandate", now,
-                           offer_hash=computed_offer_hash)
-        # auto-accept disabled for out-of-mandate even if auto_accept True? spec: auto-accept only inside limits
-        return _result(projection, AgreementReviewDecision.OPERATOR_REQUIRED, "outside_mandate", now,
-                       offer_hash=computed_offer_hash)
+    )
+    if not mandate.auto_accept or not within_mandate:
+        decision = "OPERATOR_REQUIRED"
+        store.record(projection, computed_offer_hash, decision=decision,
+                     now=now, task_id=task_id, context_id=context_id)
+        return _result(projection, AgreementReviewDecision.OPERATOR_REQUIRED,
+                       "outside_mandate" if mandate.auto_accept else "auto_accept_disabled",
+                       now, task_id, context_id, offer_hash=computed_offer_hash)
     # 6. accept
-    store.record(projection, computed_offer_hash, decision="ACCEPTED", now=now)
-    return _result(projection, AgreementReviewDecision.ACCEPTED, None, now,
-                   offer_hash=computed_offer_hash, accepted=True)
+    store.record(projection, computed_offer_hash, decision="ACCEPTED",
+                 now=now, task_id=task_id, context_id=context_id)
+    return _result(projection, AgreementReviewDecision.ACCEPTED, None,
+                   now, task_id, context_id, offer_hash=computed_offer_hash)
 
 
-def _result(projection, status, reason_code, now, *, offer_hash=None, accepted=False,
-            verified_change_request_id=None):
+def _result(projection, status, reason_code, now, task_id, context_id, *,
+            offer_hash=None, verified_change_request_id=None):
+    if not offer_hash:
+        raise ValueError("offer_hash is required on every review result")
     return AgreementReviewResult(
         party="seller", status=status, run_id=projection.run_id,
         transaction_id=projection.transaction_id,
         agreement_version=projection.agreement_version,
-        agreement_hash=projection.agreement_hash, offer_hash=offer_hash or "",
+        agreement_hash=projection.agreement_hash, offer_hash=offer_hash,
         actor_type="SELLER_AGENT", actor_id=projection.seller_id,
         authority_ref=f"seller-mandate:{projection.seller_id}:1",
         authority_snapshot={}, verified_change_request_id=verified_change_request_id,
-        task_id="", context_id="", reviewed_at=now,
+        task_id=task_id, context_id=context_id, reviewed_at=now,
         reason_code=reason_code, note="",
     )
 ```
 
-Replace `_result` placeholders with the actual extended fields. Keep `task_id`/`context_id` filled by the caller.
+`task_id`/`context_id` are required by `AgreementReviewResult`; the seller graph must pass them from the A2A request (Task 3.4). `apply_change_set` lives in `verifund_contracts.terms` so the seller and control plane cannot drift.
 
 - [ ] **Step 3: Run tests and commit.**
 
@@ -3692,16 +4532,21 @@ class SellerAgreementReviewStore:
                 change_request_id TEXT,
                 decision TEXT NOT NULL,
                 reviewed_at TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                context_id TEXT NOT NULL,
                 PRIMARY KEY (agreement_id, version)
             )""")
 
-    def record(self, agreement_id, version, agreement_hash, offer_hash, terms, change_request_id, decision, reviewed_at):
+    def record(self, projection, offer_hash, *, decision, now, task_id, context_id):
         with self._conn() as c:
             c.execute(
-                "INSERT OR REPLACE INTO seller_agreement_reviews VALUES (?,?,?,?,?,?,?,?)",
-                (agreement_id, version, agreement_hash, offer_hash,
-                 json.dumps(terms, sort_keys=True), change_request_id, decision,
-                 reviewed_at.isoformat().replace("+00:00", "Z")),
+                "INSERT OR REPLACE INTO seller_agreement_reviews VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (projection.agreement_id, projection.agreement_version,
+                 projection.agreement_hash, offer_hash,
+                 json.dumps(projection.terms, sort_keys=True),
+                 projection.change_request_id, decision,
+                 now.isoformat().replace("+00:00", "Z"),
+                 task_id, context_id),
             )
 
     def get(self, agreement_id, version):
@@ -3732,11 +4577,13 @@ class SellerAgreementReviewStore:
 - Modify: `apps/seller_agent/seller_agent/service.py`
 - Test: `tests/unit/test_seller_agreement_review.py`, `tests/protocol/test_seller_negotiation.py`
 
-- [ ] **Step 1: Update the seller review node** to pass the full projection to `review_agreement`, fill `task_id`/`context_id` from the A2A request, and return the extended `AgreementReviewResult` via `wrap_agreement_review_result`.
+- [ ] **Step 1: Update the seller review node** to pass the full projection to `review_agreement`, including `task_id=request.seller_task_id`, `context_id=request.seller_context_id`, and `change_request=request.change_request`. Return the extended `AgreementReviewResult` via `wrap_agreement_review_result`. Never construct a result with empty `task_id`/`context_id`.
 
-- [ ] **Step 2: Handle `OPERATOR_REQUIRED`** by returning a result with status `OPERATOR_REQUIRED` (no decision row; control plane keeps `PENDING_SELLER`).
+- [ ] **Step 2: Handle `OPERATOR_REQUIRED`** by returning a result with status `OPERATOR_REQUIRED` (the store records the flag; the control plane records it via `record_seller_operator_required` and keeps `PENDING_SELLER`).
 
-- [ ] **Step 3: Run tests and commit.**
+- [ ] **Step 3: Persist the seller's verification evidence** on the transaction (`verified_offer_hash`, `authority_ref`, `authority_snapshot`) when the buyer agent reports the result, so a later funding check can prove the seller verified the same offer.
+
+- [ ] **Step 4: Run tests and commit.**
 
 ---
 
@@ -3788,10 +4635,16 @@ class BuyerAgreementService:
         return await self.client.get_agreement(agreement_id)
 
     async def record_seller_decision(self, agreement_id: str, result):
+        status_map = {
+            "ACCEPTED": "ACCEPT",
+            "REJECTED": "REJECT",
+            "OPERATOR_REQUIRED": "OPERATOR_REQUIRED",
+            "CHANGES_REQUESTED": "REQUEST_CHANGES",
+        }
         payload = {
             "agreement_version": result.agreement_version,
             "agreement_hash": result.agreement_hash,
-            "decision": result.status.value.upper() if hasattr(result.status, "value") else str(result.status),
+            "decision": status_map.get(result.status.value, result.status.value),
             "actor_type": result.actor_type,
             "actor_id": result.actor_id,
             "authority_ref": result.authority_ref,
@@ -3799,6 +4652,8 @@ class BuyerAgreementService:
             "verified_offer_hash": result.offer_hash,
             "verified_change_request_id": result.verified_change_request_id,
             "note": result.note,
+            "task_id": result.task_id,
+            "context_id": result.context_id,
             "idempotency_key": f"seller-decision:{agreement_id}:{result.agreement_version}",
         }
         return await self.client.record_seller_decision(agreement_id, payload)
@@ -3835,7 +4690,7 @@ class BuyerAgreementService:
 
 - [ ] **Step 2: Reorder nodes**
 
-Remove the node that calls `record_buyer_review` as an acceptance step before seller review. After `await_seller_review` (which receives the seller result and calls `record_seller_decision`), add:
+Remove the node that calls `record_buyer_review` as an acceptance step before seller review. After `await_seller_review` (which receives the seller result and calls `record_seller_decision`), add a **non-blocking precheck** node. The buyer graph must not interrupt for agreement approval:
 
 ```python
 async def precheck_node(state):
@@ -3843,30 +4698,9 @@ async def precheck_node(state):
     result = await agreement_service.precheck(state["transaction_id"], agreement)
     state["buyer_precheck"] = result
     return state
-
-async def await_buyer_approval(state):
-    # interrupt with agreement + review URL + precheck recommendation
-    agreement = await agreement_service.get_agreement(state["agreement_id"])
-    token_resp = await agreement_service.issue_approval_token(state["agreement_id"])
-    interrupt_payload = {
-        "checkpoint": "buyer_approval_required",
-        "agreement": agreement,
-        "review_url": token_resp["review_url"],
-        "version": agreement["current_version"],
-        "digest": agreement["agreement_hash"][:12],
-        "seller_decision": state.get("seller_review_result"),
-        "precheck": state.get("buyer_precheck"),
-    }
-    decision = interrupt(interrupt_payload)  # LangGraph interrupt
-    # on resume, verify AGREED via control plane before proceeding
-    refreshed = await agreement_service.get_agreement(state["agreement_id"])
-    if refreshed["status"] != "AGREED":
-        raise ValueError("agreement not agreed")
-    state["agreement_status"] = refreshed["status"]
-    return state
 ```
 
-Route `await_buyer_approval` only after seller accept; on seller reject → finalize (canceled).
+**Ownership rule:** `buyer_approval_required`, `agreement_changes_requested`, and `seller_operator_required` are interrupts owned by the **Verifund agent graph** (Task 5.1), because the orchestrator resumes that graph. The buyer agent graph only produces the precheck recommendation and never interrupts for approval; otherwise both graphs would emit an interrupt and resume would be ambiguous. On seller reject, finalize (canceled) as today.
 
 - [ ] **Step 3: Run tests and commit.**
 
@@ -3902,12 +4736,15 @@ Route `await_buyer_approval` only after seller accept; on seller reject → fina
 def sync_agreement(state):
     agreement = client.get_agreement(state["agreement_id"])  # buyer internal
     status = agreement["status"]
-    route = {
-        "PENDING_SELLER": "await_seller_review",
-        "PENDING_BUYER": "await_buyer_approval",
-        "CHANGES_REQUESTED": "await_change_resolution",
-        "AGREED": "await_funding_approval",
-    }.get(status, "finalize")
+    if status == "PENDING_SELLER" and agreement.get("seller_operator_required"):
+        route = "await_seller_operator"
+    else:
+        route = {
+            "PENDING_SELLER": "await_seller_review",
+            "PENDING_BUYER": "await_buyer_approval",
+            "CHANGES_REQUESTED": "await_change_resolution",
+            "AGREED": "await_funding_approval",
+        }.get(status, "finalize")
     state["_next"] = route
     return state
 ```
@@ -3917,9 +4754,15 @@ def sync_agreement(state):
 - interrupt payload includes agreement, review_url, version, digest prefix, seller decision, precheck recommendation;
 - on resume, re-read control plane and require `AGREED`.
 
+`await_seller_operator` node:
+- interrupt with `SELLER_OPERATOR_REQUIRED` and the agreement review URL;
+- this node owns the human seller decision. On resume, the orchestrator calls the seller-decision route with the operator's decision, then `sync_agreement` routes to `await_buyer_approval` (accept) or `finalize` (reject).
+
 `await_change_resolution` node:
 - interrupt with `AGREEMENT_CHANGES_REQUESTED`;
-- on resume, re-read agreement; if new version → `await_seller_review`; if rejected change → pending stage.
+- on resume, re-read agreement; if `PENDING_SELLER` with a new version → `await_seller_review`; if `PENDING_BUYER` → `await_buyer_approval`; if `REJECTED`/`EXPIRED` → `finalize`.
+
+Resume contract: `resume(handle, checkpoint=..., value=...)` accepts exactly `buyer_approval_required`, `seller_operator_required`, and `agreement_changes_requested`. Each resume re-reads the control plane before advancing; it never trusts the resume payload's status or digest.
 
 - [ ] **Step 3: Run tests and commit.**
 
@@ -3948,6 +4791,9 @@ def sync_agreement(state):
 async def start(self, handle, award_payload):
     # expects SELLER_REVIEW_REQUIRED
     seller_result = await self._seller_review(handle, award_payload)
+    if seller_result.status == AgreementReviewDecision.OPERATOR_REQUIRED:
+        await self.verifund.record_seller_operator_required(handle, seller_result)
+        return self._view(handle)  # checkpoint seller_operator_required
     await self.verifund.record_seller_decision(handle, seller_result)
     # now expects BUYER_APPROVAL_REQUIRED
     view = self._view(handle)
@@ -3961,13 +4807,28 @@ async def start(self, handle, award_payload):
     return view
 
 async def resume_agreement(self, handle, decision: BuyerAgreementApprovalDecision):
-    await self.verifund.resume(handle, checkpoint="buyer_approval_required", value=decision.model_dump(mode="json"))
+    await self.verifund.resume(handle, checkpoint="buyer_approval_required",
+                               value=decision.model_dump(mode="json"))
     # require AGREED from control plane before proceeding
     agreement = await self.verifund.get_agreement(handle)
     if agreement["status"] != "AGREED":
         raise ValueError("agreement not agreed")
     return self._view(handle)
+
+async def resume_seller_operator(self, handle, decision):
+    await self.verifund.resume(handle, checkpoint="seller_operator_required",
+                               value=decision.model_dump(mode="json"))
+    return self._view(handle)
+
+async def resume_change_resolution(self, handle, change_request_id, accept, note):
+    await self.verifund.resume(
+        handle, checkpoint="agreement_changes_requested",
+        value={"change_request_id": change_request_id, "accept": accept, "note": note},
+    )
+    return self._view(handle)
 ```
+
+Every resume re-reads the agreement from the control plane; the resumed value is a request, not proof of state.
 
 `_view()` exposes `agreement_review` with review_url, version, digest, seller decision, precheck.
 
@@ -4071,7 +4932,7 @@ Run: `cd apps/console && pnpm test`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/repository.py` (create_schema)
 - Docs: `docs/workflow.md`
 
-- [ ] **Step 1: Ensure `create_schema`** creates all new tables (existing `Repository` for transactions/events + `AgreementRepository` for agreement tables). Delete `data/verifund.db*` and re-seed.
+- [ ] **Step 1: Ensure `create_schema`** creates all new tables (existing `Repository` for transactions/events + `AgreementRepository` for agreement tables). Legacy agreement tables were already removed in Task 1.4. Delete `data/verifund.db*` and re-seed.
 
 ```bash
 rm -f data/verifund.db data/verifund.db-wal data/verifund.db-shm

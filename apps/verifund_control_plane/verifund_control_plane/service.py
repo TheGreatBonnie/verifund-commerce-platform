@@ -108,9 +108,6 @@ class VerifundService:
         operation: Mutation,
     ) -> dict[str, Any]:
         request_hash = sha256_hex(canonical_json(body))
-        cached = await self._replay(scope, key, body)
-        if cached is not None:
-            return cached
         async with self.repo.transaction() as conn:
             if key:
                 cached = await self.repo.get_idempotency_on(
@@ -159,6 +156,7 @@ class VerifundService:
         )
         return TransactionProjection(
             transaction_id=record.transaction_id,
+            agreement_id=record.agreement_id,
             run_id=record.run_id,
             state=record.state,
             last_seq=record.last_seq,
@@ -229,7 +227,8 @@ class VerifundService:
     async def award(
         self, request: AwardRequest, *, actor: str, idempotency_key: str | None
     ) -> dict[str, Any]:
-        validate_award(request)
+        from verifund_control_plane.domain import validate_award as _validate_award
+        _validate_award(request)
         if self.settings.is_sandbox and not self.settings.payout_email_for(
             request.seller_id
         ):
@@ -240,59 +239,58 @@ class VerifundService:
             )
         now = self._now()
         transaction_id = f"vf_{uuid.uuid4().hex}"
-        agreement = build_agreement(transaction_id, request, now)
-        digest = agreement_hash(agreement)
-        record = TransactionRecord(
-            transaction_id=transaction_id,
-            run_id=request.run_id,
-            buyer_id=request.buyer_id,
-            seller_id=request.seller_id,
-            offer_id=request.offer_id,
-            state=TransactionState.AWARDED,
-            version=1,
-            last_seq=0,
-            amount_cents=request.amount_cents,
-            currency=request.currency,
-            agreement_id=f"agr_{uuid.uuid4().hex}",
-            agreement_hash=digest,
-            agreement_version=1,
-            buyer_agent_review=None,
-            seller_decision=None,
-            approval=None,
-            cancellation=None,
-            funding=None,
-            purchase_order=None,
-            evidence_summary=None,
-            verification=None,
-            payout=None,
-            receipt=None,
-            deadlines={"funding": None, "evidence": None, "inspection": None},
-            last_error=None,
-            created_at=now,
-            updated_at=now,
-        )
-        issued = self.tokens.issue(
-            transaction_id, request.seller_id, digest
-        )
-        projection = AgreementProjection(
-            **agreement,
-            agreement_hash=digest,
-        )
-        response = {
-            "transaction_id": transaction_id,
-            "state": TransactionState.AWARDED.value,
-            "agreement_hash": digest,
-            "agreement_version": projection.agreement_version,
-            "agreement": projection.model_dump(mode="json"),
-            "seller_token": issued.token,
-            "expires_at": self._iso(issued.expires_at),
-        }
 
         async def operation(conn):
+            agreement = await self.agreement_service.create_from_award(
+                conn, request, transaction_id, request.run_id, now
+            )
+            digest = agreement.current_version_record.agreement_hash
+            record = TransactionRecord(
+                transaction_id=transaction_id,
+                run_id=request.run_id,
+                buyer_id=request.buyer_id,
+                seller_id=request.seller_id,
+                offer_id=request.offer_id,
+                state=TransactionState.AWARDED,
+                version=1,
+                last_seq=0,
+                amount_cents=request.amount_cents,
+                currency=request.currency,
+                agreement_id=agreement.agreement_id,
+                agreement_hash=digest,
+                agreement_version=1,
+                buyer_agent_review=None,
+                seller_decision=None,
+                approval=None,
+                cancellation=None,
+                funding=None,
+                purchase_order=None,
+                evidence_summary=None,
+                verification=None,
+                payout=None,
+                receipt=None,
+                deadlines={"funding": None, "evidence": None, "inspection": None},
+                last_error=None,
+                created_at=now,
+                updated_at=now,
+            )
+            issued = self.tokens.issue(
+                transaction_id, request.seller_id, digest
+            )
+            projection = await self.agreement_service.build_projection(agreement)
+            response = {
+                "transaction_id": transaction_id,
+                "state": TransactionState.AWARDED.value,
+                "agreement_hash": digest,
+                "agreement_version": projection.agreement_version,
+                "agreement": projection.model_dump(mode="json"),
+                "seller_token": issued.token,
+                "expires_at": self._iso(issued.expires_at),
+            }
             await self.repo.insert_transaction(
                 conn,
                 record,
-                agreement=agreement,
+                agreement=projection.model_dump(mode="json"),
                 events=[
                     EventInput(
                         "award_created",
@@ -312,7 +310,7 @@ class VerifundService:
                 transaction_id,
                 request.seller_id,
                 digest,
-                ["txn:read", "evidence:write"],
+                ["txn:read", "evidence:write", "agreement:decide"],
                 issued.expires_at,
             )
             return response
@@ -420,38 +418,21 @@ class VerifundService:
                 changes = {"buyer_agent_review": review}
                 events = [
                     EventInput(
-                        "buyer_accepted",
+                        "buyer_precheck",
                         {"buyer_task_id": request.buyer_task_id},
                         actor,
                     )
                 ]
-                if (
-                    record.state == TransactionState.AWARDED
-                    and (record.seller_decision or {}).get("status") == "accepted"
-                ):
-                    updated = await self.repo.transition(
-                        conn,
-                        transaction_id,
-                        expected_version=record.version,
-                        expected_state=TransactionState.AWARDED,
-                        new_state=TransactionState.AGREED,
-                        changes=changes,
-                        events=events,
-                        audit=AuditInput(
-                            actor, "buyer_accepted"
-                        ),
-                    )
-                else:
-                    updated = await self.repo.update_transaction(
-                        conn,
-                        transaction_id,
-                        expected_version=record.version,
-                        changes=changes,
-                        events=events,
-                        audit=AuditInput(
-                            actor, "buyer_accepted"
-                        ),
-                    )
+                updated = await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=record.version,
+                    changes=changes,
+                    events=events,
+                    audit=AuditInput(
+                        actor, "buyer_precheck"
+                    ),
+                )
             else:
                 cancellation = {
                     "reason_code": "buyer_rejected",
@@ -485,21 +466,6 @@ class VerifundService:
                     ),
                 )
                 await self.repo.revoke_seller_tokens(conn, transaction_id, self._now())
-            await self.repo.record_agreement_review(
-                conn,
-                AgreementReviewInput(
-                    transaction_id=transaction_id,
-                    agreement_version=request.agreement_version,
-                    agreement_hash=request.agreement_hash,
-                    party="buyer",
-                    decision=request.decision.value,
-                    task_id=request.buyer_task_id,
-                    note=request.note,
-                    reason_code=request.reason_code,
-                    idempotency_key=idempotency_key or f"buyer:{transaction_id}:{request.buyer_task_id}:{request.decision.value}",
-                    reviewed_at=request.reviewed_at,
-                ),
-            )
             return (
                 await self._projection(updated, "buyer", items=items)
             ).model_dump(mode="json")
@@ -519,8 +485,8 @@ class VerifundService:
         actor: str,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
-        items = await self.repo.list_evidence(transaction_id)
         async def operation(conn):
+            items = await self.repo.list_evidence(transaction_id)
             record = await self.repo.get_transaction(transaction_id, conn)
             if record.seller_id != request.seller_id:
                 raise VerifundError(
@@ -531,20 +497,43 @@ class VerifundService:
                 raise VerifundError(
                     "invalid_request", "accepted total does not match", status_code=400
                 )
-            if record.state == TransactionState.AGREED:
-                return (
-                    await self._projection(record, "buyer", items=items)
-                ).model_dump(mode="json")
             if record.state != TransactionState.AWARDED:
                 raise VerifundError(
                     "invalid_state", "transaction is not awaiting acceptance", status_code=409
                 )
+            agreement = await self.agreement_service.get_by_transaction(
+                transaction_id
+            )
+            agreement_version = request.agreement_version or record.agreement_version
+            offer_hash = request.offer_hash or getattr(agreement, "offer_hash", None) or record.agreement_hash
+            if agreement is None:
+                raise VerifundError("not_found", "agreement not found", status_code=404)
+            if agreement.status.value == "PENDING_BUYER" and (record.seller_decision or {}).get("status") == "accepted":
+                return (await self._projection(record, "buyer", items=items)).model_dump(mode="json")
+            if agreement.status.value != "PENDING_SELLER":
+                raise VerifundError("invalid_state", "agreement is not pending seller", status_code=409)
+            await self.agreement_service.record_seller_decision(
+                conn,
+                agreement.agreement_id,
+                decision=__import__("verifund_contracts.models", fromlist=["AgreementDecision"]).AgreementDecision.ACCEPT,
+                actor_type=request.actor_type,
+                actor_id=request.actor_id or request.seller_id,
+                authority_ref=request.authority_ref or f"seller-token:{request.seller_task_id}",
+                authority_snapshot=request.authority_snapshot or {},
+                agreement_version=agreement_version,
+                agreement_hash=request.agreement_hash,
+                verified_offer_hash=offer_hash,
+                note="",
+                idempotency_key=idempotency_key or f"accept:{transaction_id}:{request.seller_task_id}",
+                now=self._now(),
+            )
             changes = {
                 "seller_decision": {
                     "status": "accepted",
                     "reported_at": self._iso(request.accepted_at),
                     "seller_task_id": request.seller_task_id,
                     "agreement_hash": request.agreement_hash,
+                    "agreement_version": agreement_version,
                 }
             }
             events = [
@@ -554,26 +543,14 @@ class VerifundService:
                     actor,
                 )
             ]
-            if (record.buyer_agent_review or {}).get("status") == "accepted":
-                updated = await self.repo.transition(
-                    conn,
-                    transaction_id,
-                    expected_version=record.version,
-                    expected_state=TransactionState.AWARDED,
-                    new_state=TransactionState.AGREED,
-                    changes=changes,
-                    events=events,
-                    audit=AuditInput(actor, "seller_accepted"),
-                )
-            else:
-                updated = await self.repo.update_transaction(
-                    conn,
-                    transaction_id,
-                    expected_version=record.version,
-                    changes=changes,
-                    events=events,
-                    audit=AuditInput(actor, "seller_accepted_waiting_for_buyer_review"),
-                )
+            updated = await self.repo.update_transaction(
+                conn,
+                transaction_id,
+                expected_version=record.version,
+                changes=changes,
+                events=events,
+                audit=AuditInput(actor, "seller_accepted_waiting_for_buyer_review"),
+            )
             return (
                 await self._projection(updated, "buyer", items=items)
             ).model_dump(mode="json")
@@ -593,8 +570,8 @@ class VerifundService:
         actor: str,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
-        items = await self.repo.list_evidence(transaction_id)
         async def operation(conn):
+            items = await self.repo.list_evidence(transaction_id)
             record = await self.repo.get_transaction(transaction_id, conn)
             if record.seller_id != request.seller_id:
                 raise VerifundError(
@@ -653,13 +630,23 @@ class VerifundService:
             return (
                 await self._projection(updated, "buyer", items=items)
             ).model_dump(mode="json")
-
-        return await self._mutate(
+ 
+        result = await self._mutate(
             scope=f"reject:{transaction_id}",
             key=idempotency_key,
             body=request.model_dump(mode="json"),
             operation=operation,
         )
+        try:
+            agreement = await self.agreement_service.get_by_transaction(transaction_id)
+            if agreement is not None:
+                async with self.agreement_service.repo.transaction() as conn:
+                    await self.agreement_service.cancel_pending(
+                        conn, agreement.agreement_id, reason="seller_rejected", now=self._now()
+                    )
+        except Exception:  # noqa: BLE001
+            pass
+        return result
 
     async def approve(
         self,
@@ -673,53 +660,26 @@ class VerifundService:
         async def operation(conn):
             record = await self.repo.get_transaction(transaction_id, conn)
             self._check_hash(record, request.agreement_hash)
+            # Funding binding: agreement must be AGREED and bind this version/digest.
+            agreement = await self.agreement_service.get_by_transaction(transaction_id, conn=conn)
+            if agreement is None:
+                raise VerifundError("not_found", "agreement not found", status_code=404)
+            from verifund_contracts.models import TransactionProjection as _TP
+            txn_proj = await self._projection(record, "buyer", items=items)
+            try:
+                await self.agreement_service.verify_funding_binding(
+                    agreement, txn_proj, request.agreement_version, request.agreement_hash
+                )
+            except Exception as exc:  # noqa: BLE001
+                from verifund_control_plane.agreements.models import AgreementError
+                if isinstance(exc, AgreementError):
+                    code = exc.code
+                    status = 409
+                    raise VerifundError(code, exc.message, status_code=status)
+                raise
             if (record.approval or {}).get("approval_id") == request.approval_id:
                 return (
                     await self._projection(record, "buyer", items=items)
-                ).model_dump(mode="json")
-            if record.state == TransactionState.AWARDED and (
-                record.seller_decision or {}
-            ).get("status") == "accepted":
-                deadline = self._now() + timedelta(
-                    hours=self.settings.funding_timeout_hours
-                )
-                updated = await self.repo.transition(
-                    conn,
-                    transaction_id,
-                    expected_version=record.version,
-                    expected_state=TransactionState.AWARDED,
-                    new_state=TransactionState.AGREED,
-                    changes={
-                        "approval": {
-                            "approval_id": request.approval_id,
-                            "approved_by": request.approved_by,
-                            "approved_at": self._iso(request.approved_at),
-                            "note": request.note,
-                        },
-                        "deadlines": {
-                            **(record.deadlines or {}),
-                            "funding": self._iso(deadline),
-                        },
-                    },
-                    events=[
-                        EventInput(
-                            "buyer_approved",
-                            {
-                                "approval_id": request.approval_id,
-                                "approved_by": request.approved_by,
-                            },
-                            actor,
-                        )
-                    ],
-                    audit=AuditInput(
-                        actor,
-                        "buyer_approved",
-                        note=request.note,
-                        payload={"approval_id": request.approval_id},
-                    ),
-                )
-                return (
-                    await self._projection(updated, "buyer", items=items)
                 ).model_dump(mode="json")
             if record.state != TransactionState.AGREED:
                 raise VerifundError(
@@ -728,17 +688,20 @@ class VerifundService:
             deadline = self._now() + timedelta(
                 hours=self.settings.funding_timeout_hours
             )
+            approval = {
+                "approval_id": request.approval_id,
+                "approved_by": request.approved_by,
+                "approved_at": self._iso(request.approved_at),
+                "note": request.note,
+                "agreement_version": request.agreement_version,
+                "agreement_hash": request.agreement_hash,
+            }
             updated = await self.repo.update_transaction(
                 conn,
                 transaction_id,
                 expected_version=record.version,
                 changes={
-                    "approval": {
-                        "approval_id": request.approval_id,
-                        "approved_by": request.approved_by,
-                        "approved_at": self._iso(request.approved_at),
-                        "note": request.note,
-                    },
+                    "approval": approval,
                     "deadlines": {
                         **(record.deadlines or {}),
                         "funding": self._iso(deadline),
@@ -780,7 +743,6 @@ class VerifundService:
         actor: str,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
-        items = await self.repo.list_evidence(transaction_id)
         allowed_states = {
             TransactionState.AWARDED,
             TransactionState.AGREED,
@@ -788,6 +750,7 @@ class VerifundService:
             TransactionState.REVIEW_REQUIRED,
         }
         async def operation(conn):
+            items = await self.repo.list_evidence(transaction_id)
             record = await self.repo.get_transaction(transaction_id, conn)
             if record.state == TransactionState.CANCELED:
                 return (
@@ -831,13 +794,30 @@ class VerifundService:
             return (
                 await self._projection(updated, "buyer", items=items)
             ).model_dump(mode="json")
-
-        return await self._mutate(
+ 
+        result = await self._mutate(
             scope=f"cancel:{transaction_id}",
             key=idempotency_key,
             body=request.model_dump(mode="json"),
             operation=operation,
         )
+        # Map cancellation onto the agreement state outside the transaction.
+        try:
+            agreement = await self.agreement_service.get_by_transaction(transaction_id)
+            if agreement is not None:
+                if agreement.status.value in {"PENDING_SELLER", "PENDING_BUYER", "CHANGES_REQUESTED"}:
+                    async with self.agreement_service.repo.transaction() as conn:
+                        await self.agreement_service.cancel_pending(
+                            conn, agreement.agreement_id, reason=request.reason_code.value, now=self._now()
+                        )
+                elif agreement.status.value == "AGREED":
+                    async with self.agreement_service.repo.transaction() as conn:
+                        await self.agreement_service.terminate(
+                            conn, agreement.agreement_id, reason=request.reason_code.value, now=self._now()
+                        )
+        except Exception:  # noqa: BLE001
+            pass
+        return result
 
     async def add_evidence(
         self,
@@ -938,7 +918,8 @@ class VerifundService:
             raise VerifundError(
                 "forbidden", "seller does not own this transaction", status_code=403
             )
-        agreement = await self.repo.get_agreement(transaction_id)
+        agreement_record = await self.agreement_service.get_by_transaction(transaction_id)
+        agreement = await self.agreement_service.build_projection(agreement_record) if agreement_record is not None else None
         items = await self.repo.list_evidence(transaction_id)
         received = sorted({item.kind for item in items})
         deadlines = {
@@ -958,14 +939,11 @@ class VerifundService:
             currency=record.currency,
             agreement_hash=record.agreement_hash,
             agreement_version=record.agreement_version,
-            quantity=agreement["quantity"],
-            line_items=[
-                AwardLineItem.model_validate(item)
-                for item in agreement["line_items"]
-            ],
-            delivery_days=agreement["delivery_days"],
-            warranty_months=agreement["warranty_months"],
-            returns_days=agreement["returns_days"],
+            quantity=agreement.quantity,
+            line_items=agreement.line_items,
+            delivery_days=agreement.delivery_days,
+            warranty_months=agreement.warranty_months,
+            returns_days=agreement.returns_days,
             purchase_order=self._pick(
                 record.purchase_order,
                 ("seller_order_id", "tracking_number", "carrier", "eta"),
@@ -1182,6 +1160,28 @@ class VerifundService:
             return FundResponse.model_validate(cached)
         record = await self.repo.get_transaction(transaction_id)
         self._check_hash(record, request.agreement_hash)
+        # Funding binding: prove the transaction still points at the agreed version.
+        agreement = await self.agreement_service.get_by_transaction(transaction_id)
+        if agreement is None:
+            raise VerifundError("not_found", "agreement not found", status_code=404)
+        txn_proj = await self._projection(record, "buyer")
+        try:
+            await self.agreement_service.verify_funding_binding(
+                agreement, txn_proj, request.agreement_version, request.agreement_hash
+            )
+        except Exception as exc:  # noqa: BLE001
+            from verifund_control_plane.agreements.models import AgreementError
+            if isinstance(exc, AgreementError):
+                raise VerifundError(exc.code, exc.message, status_code=409)
+            raise
+        approval = record.approval or {}
+        if approval.get("agreement_version") not in (None, request.agreement_version) or (
+            approval.get("agreement_hash") is not None
+            and approval.get("agreement_hash") != request.agreement_hash
+        ):
+            raise VerifundError(
+                "hash_mismatch", "funding approval binds a different version", status_code=409
+            )
         self._validate_console_url(request.return_url)
         self._validate_console_url(request.cancel_url)
         funding = record.funding or {}
@@ -1667,7 +1667,8 @@ class VerifundService:
                     "transaction is not ready for a purchase order",
                     status_code=409,
                 )
-            agreement = await self.repo.get_agreement(transaction_id)
+            agreement_record = await self.agreement_service.get_by_transaction(transaction_id)
+            agreement = (await self.agreement_service.build_projection(agreement_record)).model_dump(mode="json") if agreement_record is not None else {}
             self._validate_purchase_order(record, agreement, request)
             deadline = self._now() + timedelta(
                 hours=self.settings.evidence_deadline_hours

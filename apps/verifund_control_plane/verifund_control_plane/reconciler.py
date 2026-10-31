@@ -98,6 +98,7 @@ class Reconciler:
             await self._safe(stats, self._sweep_receipts(stats))
             await self._safe(stats, self._sweep_ledger(stats))
             await self._safe(stats, self._sweep_provider_intents(stats))
+            await self._safe(stats, self._sweep_agreements(stats))
         except Exception as exc:  # noqa: BLE001
             error = type(exc).__name__
             raise
@@ -189,6 +190,63 @@ class Reconciler:
                 or balances.get("seller_paid", 0) != record.amount_cents
             ):
                 stats["ledger_mismatches"] += 1
+
+    async def _sweep_agreements(self, stats: dict[str, int]) -> None:
+        from verifund_contracts import CancelReason, CancelRequest, TransactionState
+        svc = self.service
+        agreement_service = getattr(svc, "agreement_service", None)
+        if agreement_service is None:
+            return
+        now = self._now()
+        expired = await agreement_service.expire_due(now)
+        for aid in expired:
+            agr = await agreement_service.get(aid)
+            if agr is None:
+                continue
+            txn_id = getattr(agr, "transaction_id", None)
+            if not txn_id:
+                continue
+            try:
+                record = await self.repo.get_transaction(txn_id)
+            except Exception:  # noqa: BLE001
+                continue
+            if record.state in {
+                TransactionState.FUNDED, TransactionState.REVIEW_REQUIRED,
+                TransactionState.CANCELED,
+            }:
+                continue
+            try:
+                await svc.cancel(
+                    txn_id,
+                    CancelRequest(reason_code=CancelReason.AGREEMENT_EXPIRED),
+                    actor="reconciler",
+                    idempotency_key=f"expire:{aid}",
+                )
+            except Exception:  # noqa: BLE001
+                stats["errors"] = stats.get("errors", 0) + 1
+                continue
+            stats["deadlines_checked"] = stats.get("deadlines_checked", 0) + 1
+        # Funding-expiry termination: agreements AGREED whose funding deadline passed.
+        for record in await self.repo.list_transactions(state="AGREED"):
+            deadline_raw = (record.deadlines or {}).get("funding")
+            if not deadline_raw:
+                continue
+            try:
+                deadline = datetime.fromisoformat(str(deadline_raw).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if now <= deadline:
+                continue
+            agreement = await agreement_service.get_by_transaction(record.transaction_id)
+            if agreement is None or agreement.status.value != "AGREED":
+                continue
+            try:
+                async with self.repo.transaction() as conn:
+                    await agreement_service.terminate(
+                        conn, agreement.agreement_id, reason="funding_expired", now=now
+                    )
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _sweep_provider_intents(self, stats: dict[str, int]) -> None:
         cutoff = self._now() - timedelta(

@@ -212,9 +212,9 @@ def validate_award(award: AwardRequest) -> None:
     )
     if line_quantity != award.quantity:
         raise VerifundError("invalid_request", "quantity does not match line items")
-    if line_total + award.shipping_cents != award.amount_cents:
+    if line_total + award.shipping_cents + award.tax_cents + award.fees_cents != award.amount_cents:
         raise VerifundError(
-            "invalid_request", "amount does not match line items plus shipping"
+            "invalid_request", "amount does not match line items plus shipping, tax, fees"
         )
     if award.currency != "USD":
         raise VerifundError("invalid_request", "only USD is supported")
