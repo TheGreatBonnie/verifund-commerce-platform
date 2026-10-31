@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Any
 from a2a.types.a2a_pb2 import Artifact, Message, TaskState
 from commerce_core.a2a_parts import first_envelope, make_artifact
 from verifund_contracts import parse_agreement_review_request, wrap_agreement_review_result
+from datetime import UTC, datetime
+
 from seller_agent.agreement import review_agreement
+from seller_agent.agreement_store import SellerAgreementReviewStore
+from seller_agent.mandate import SellerMandate, load_mandate
 from commerce_core.contracts import (
     AcceptOffer,
     CommerceErrorCode,
@@ -81,11 +85,18 @@ class SellerService:
         settlement_enabled: bool = False,
         evidence_outbox: "EvidenceOutbox | None" = None,
         auto_evidence: bool = True,
+        mandate: SellerMandate | None = None,
+        review_store: SellerAgreementReviewStore | None = None,
     ) -> None:
         self.store = store
         self.policy = policy
         self.planner = planner
         self.settlement = settlement
+        self.mandate = mandate or SellerMandate()
+        from pathlib import Path
+        self.review_store = review_store or SellerAgreementReviewStore(
+            Path("data/seller_agreement_reviews.db")
+        )
         self.settlement_enabled = settlement_enabled
         self.evidence_outbox = evidence_outbox
         self.auto_evidence = auto_evidence
@@ -293,7 +304,18 @@ class SellerService:
             "/agreement-review-request.json"
         ):
             review = parse_agreement_review_request(envelope)
-            result = await review_agreement(self.policy, self.store, review)
+            offer = await self.store.get_offer(review.agreement.offer_id)
+            result = review_agreement(
+                review.agreement,
+                offer,
+                self.mandate,
+                self.review_store,
+                self.policy.seller_id,
+                datetime.now(UTC),
+                task_id=review.seller_task_id or task_id,
+                context_id=review.seller_context_id or context_id,
+                change_request=review.change_request,
+            )
             return SellerTurn(
                 task_state=TaskState.TASK_STATE_COMPLETED,
                 artifacts=[

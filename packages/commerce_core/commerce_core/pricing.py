@@ -65,7 +65,7 @@ class SellerPolicy(BaseModel):
     sku: str = "NC-700-BLK"
     product_name: str = "Nimbus NC-700 ANC Headset"
     products: list[SellerCatalogProduct] = Field(default_factory=list)
-
+    mandate: dict | None = None
     def catalog(self) -> list[SellerCatalogProduct]:
         if self.products:
             return [

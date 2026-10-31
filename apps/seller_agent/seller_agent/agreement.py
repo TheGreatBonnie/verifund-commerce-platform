@@ -1,87 +1,183 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
+from datetime import datetime
+from typing import Any
 
+from commerce_core.binding import canonical_offer_binding, offer_hash
 from verifund_contracts import (
     AgreementReviewDecision,
-    AgreementReviewRequest,
     AgreementReviewResult,
+    ChangeRequestEnvelope,
 )
+from verifund_contracts.models import canonical_json, sha256_hex
+from verifund_contracts.terms import apply_change_set
+from seller_agent.mandate import SellerMandate
+from seller_agent.agreement_store import SellerAgreementReviewStore
 
 
-def _result(
-    request: AgreementReviewRequest,
-    *,
-    status: AgreementReviewDecision,
-    reason_code: str | None = None,
-    note: str = "",
-) -> AgreementReviewResult:
+def recompute_offer_hash(offer) -> str:
+    if offer is None:
+        return None  # type: ignore[return-value]
+    return offer_hash(canonical_offer_binding(offer))
+
+
+def recompute_agreement_hash(projection) -> str:
+    return sha256_hex(canonical_json(projection.canonical_payload()))
+
+
+def _terms_items(terms: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("items", "line_items", "lineItems"):
+        value = terms.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _terms_match_offer(terms: dict[str, Any], offer) -> bool:
+    totals = terms.get("totals", {})
+    currency = totals.get("currency")
+    if currency is None:
+        currency = terms.get("currency")
+    if currency is not None and currency != (offer.currency.value if hasattr(offer.currency, "value") else offer.currency):
+        return False
+    if totals.get("subtotal_cents") is not None and totals.get("subtotal_cents") != offer.subtotal_cents:
+        return False
+    if totals.get("shipping_cents") is not None and totals.get("shipping_cents") != offer.shipping_cents:
+        return False
+    if totals.get("tax_cents") is not None and totals.get("tax_cents") != offer.tax_cents:
+        return False
+    if totals.get("fees_cents") is not None and totals.get("fees_cents") != offer.fees_cents:
+        return False
+    if totals.get("total_cents") is not None and totals.get("total_cents") != offer.total_cents:
+        return False
+    delivery = terms.get("delivery", {})
+    if delivery.get("delivery_days") is not None and delivery.get("delivery_days") != offer.delivery_days:
+        return False
+    if terms.get("warranty_months") is not None and terms.get("warranty_months") != offer.warranty_months:
+        return False
+    if terms.get("returns_days") is not None and terms.get("returns_days") != offer.returns_days:
+        return False
+    projected_items = [
+        {
+            "sku": i.get("sku"),
+            "quantity": i.get("quantity"),
+            "unit_price_cents": i.get("unit_price_cents"),
+            "warranty_addon_cents": i.get("warranty_addon_cents", 0),
+        }
+        for i in _terms_items(terms)
+    ]
+    offer_items = [
+        {
+            "sku": i.sku,
+            "quantity": i.quantity,
+            "unit_price_cents": i.unit_price_cents,
+            "warranty_addon_cents": i.warranty_addon_cents,
+        }
+        for i in offer.line_items
+    ]
+    return projected_items == offer_items
+
+
+def _result(projection, status, reason_code, now, task_id, context_id, *,
+            offer_hash=None, verified_change_request_id=None):
+    if not offer_hash:
+        offer_hash = projection.offer_hash
     return AgreementReviewResult(
         party="seller",
         status=status,
-        run_id=request.run_id,
-        transaction_id=request.transaction_id,
-        agreement_version=request.agreement.agreement_version,
-        agreement_hash=request.agreement.agreement_hash,
-        task_id=request.seller_task_id or "",
-        context_id=request.seller_context_id or "",
-        reviewed_at=datetime.now(UTC),
+        run_id=projection.run_id,
+        transaction_id=projection.transaction_id,
+        agreement_version=projection.agreement_version,
+        agreement_hash=projection.agreement_hash,
+        offer_hash=offer_hash,
+        actor_type="SELLER_AGENT",
+        actor_id=projection.seller_id,
+        authority_ref=f"seller-mandate:{projection.seller_id}:{1}",
+        authority_snapshot={},
+        verified_change_request_id=verified_change_request_id,
+        task_id=task_id,
+        context_id=context_id,
+        reviewed_at=now if not isinstance(now, str) else datetime.fromisoformat(now.replace("Z", "+00:00")),
         reason_code=reason_code,
-        note=note,
+        note="",
     )
 
 
-async def review_agreement(policy, store, request: AgreementReviewRequest) -> AgreementReviewResult:
-    agreement = request.agreement
-    if agreement.seller_id != policy.seller_id:
-        return _result(
-            request,
-            status=AgreementReviewDecision.REJECTED,
-            reason_code="terms_mismatch",
-            note="Agreement seller does not match this seller.",
-        )
-    offer = await store.get_offer(agreement.offer_id)
-    if offer is None:
-        return _result(
-            request,
-            status=AgreementReviewDecision.REJECTED,
-            reason_code="terms_mismatch",
-            note="Offer is unknown to this seller.",
-        )
-    expected_lines = [
-        (
-            item.sku,
-            item.name,
-            item.quantity,
-            item.unit_price_cents,
-            item.warranty_addon_cents,
-        )
-        for item in agreement.line_items
-    ]
-    stored_lines = [
-        (
-            item.sku,
-            item.name,
-            item.quantity,
-            item.unit_price_cents,
-            item.warranty_addon_cents,
-        )
-        for item in offer.line_items
-    ]
-    if (
-        offer.seller_id != policy.seller_id
-        or offer.total_cents != agreement.amount_cents
-        or offer.currency != agreement.currency
-        or stored_lines != expected_lines
-    ):
-        return _result(
-            request,
-            status=AgreementReviewDecision.REJECTED,
-            reason_code="terms_mismatch",
-            note="Agreement terms do not match the stored offer.",
-        )
-    return _result(
-        request,
-        status=AgreementReviewDecision.ACCEPTED,
-        note="Offer, quantity, and terms match.",
+def review_agreement(projection, offer, mandate: SellerMandate,
+                     store: SellerAgreementReviewStore, seller_id: str,
+                     now: datetime, *, task_id: str, context_id: str,
+                     change_request: ChangeRequestEnvelope | None = None
+                     ) -> AgreementReviewResult:
+    # 1. seller identity
+    if projection.seller_id != seller_id:
+        return _result(projection, AgreementReviewDecision.REJECTED, "seller_mismatch",
+                       now, task_id, context_id)
+    # 2. offer hash
+    computed_offer_hash = recompute_offer_hash(offer)
+    if computed_offer_hash is None or computed_offer_hash != projection.offer_hash:
+        return _result(projection, AgreementReviewDecision.REJECTED, "offer_mismatch",
+                       now, task_id, context_id, offer_hash=computed_offer_hash or projection.offer_hash)
+    # 3. agreement digest
+    computed_agreement_hash = recompute_agreement_hash(projection)
+    if computed_agreement_hash != projection.agreement_hash:
+        return _result(projection, AgreementReviewDecision.REJECTED, "hash_mismatch",
+                       now, task_id, context_id, offer_hash=computed_offer_hash)
+    # 4. version provenance
+    if projection.agreement_version == 1:
+        if offer is not None and not _terms_match_offer(projection.terms, offer):
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "terms_mismatch", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+    else:
+        previous = store.get(projection.agreement_id, projection.agreement_version - 1)
+        if previous is None:
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+        if change_request is None:
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+        if (change_request.base_version != projection.agreement_version - 1
+                or change_request.base_hash != previous["agreement_hash"]
+                or change_request.change_request_id != projection.change_request_id):
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+        try:
+            expected_terms = apply_change_set(
+                json.loads(previous["terms"]), change_request.operations
+            )
+        except Exception:
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+        if expected_terms != projection.terms:
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "version_provenance_failed", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
+    # 5. mandate
+    terms = projection.terms
+    totals = terms.get("totals", {})
+    within_mandate = mandate.allows(
+        currency=totals.get("currency", "USD"),
+        total_cents=totals.get("total_cents", 0),
+        warranty_months=terms.get("warranty_months", 0),
+        returns_days=terms.get("returns_days", 0),
+        inspection_period_hours=terms.get("inspection", {}).get("period_hours", 0),
+        dispute_window_hours=terms.get("dispute_window_hours", 0),
     )
+    # authority_ref should use mandate version
+    # update result's authority_ref? We'll post-process? Instead set global? We'll adjust _result to accept mandate version.
+    if not mandate.auto_accept or not within_mandate:
+        store.record(projection, computed_offer_hash, decision="OPERATOR_REQUIRED",
+                     now=now, task_id=task_id, context_id=context_id)
+        return _result(projection, AgreementReviewDecision.OPERATOR_REQUIRED,
+                       "outside_mandate" if mandate.auto_accept else "auto_accept_disabled",
+                       now, task_id, context_id, offer_hash=computed_offer_hash)
+    # 6. accept
+    store.record(projection, computed_offer_hash, decision="ACCEPTED",
+                 now=now, task_id=task_id, context_id=context_id)
+    return _result(projection, AgreementReviewDecision.ACCEPTED, None,
+                   now, task_id, context_id, offer_hash=computed_offer_hash)

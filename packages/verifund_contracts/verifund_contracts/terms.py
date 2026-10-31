@@ -73,7 +73,13 @@ def validate_terms(terms: dict[str, Any], award: AwardRequest | None = None) -> 
 def apply_change_set(base_terms: dict[str, Any], change_set: Any) -> dict[str, Any]:
     terms = copy.deepcopy(base_terms)
     items_by_sku = {i["sku"]: i for i in terms["items"]}
-    for op in change_set.operations:
+    if isinstance(change_set, (list, tuple)):
+        operations = change_set
+    elif hasattr(change_set, "operations"):
+        operations = change_set.operations
+    else:
+        operations = [change_set]
+    for op in operations:
         kind = op.op.value if hasattr(op.op, "value") else str(op.op)
 
         def _required(name: str):

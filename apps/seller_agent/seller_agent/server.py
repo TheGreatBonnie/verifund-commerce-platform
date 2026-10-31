@@ -10,6 +10,7 @@ from a2a.server.routes import (
 )
 from a2a.server.tasks.database_task_store import DatabaseTaskStore
 from commerce_core.pricing import load_policy
+from seller_agent.mandate import load_mandate
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -28,6 +29,10 @@ from seller_agent.store import SellerStore
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     policy = load_policy(settings.profile_path)
+    with settings.profile_path.open("r", encoding="utf-8") as _handle:
+        import yaml as _yaml
+        _profile = _yaml.safe_load(_handle)
+    mandate = load_mandate(_profile or {})
     engine = create_async_engine(settings.database_url)
     store = SellerStore(engine)
     card = build_agent_card(policy, settings.public_base_url)
@@ -53,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     service = SellerService(
         store=store,
         policy=policy,
+        mandate=mandate,
         planner=planner,
         settlement=settlement_client,
         settlement_enabled=settings.verifund_mode != "off",

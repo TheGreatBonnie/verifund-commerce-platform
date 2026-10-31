@@ -174,3 +174,15 @@ products:
     rating: 4.5
     reviews: "793"
     tag: Value pick
+
+mandate:
+  version: 1
+  auto_accept: true
+  allowed_currencies: ["USD"]
+  max_total_cents: 500000
+  min_warranty_months: 0
+  max_warranty_months: 24
+  min_returns_days: 0
+  max_returns_days: 60
+  max_inspection_period_hours: 72
+  max_dispute_window_hours: 168

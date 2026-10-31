@@ -138,6 +138,22 @@ class SellerStore:
             Column("created_at", String, nullable=False),
         )
 
+        self.seller_agreement_reviews = Table(
+            "seller_agreement_reviews",
+            self.metadata,
+            Column("agreement_id", String, nullable=False),
+            Column("version", Integer, nullable=False),
+            Column("agreement_hash", String, nullable=False),
+            Column("offer_hash", String, nullable=False),
+            Column("terms", String, nullable=False),
+            Column("change_request_id", String, nullable=True),
+            Column("decision", String, nullable=False),
+            Column("reviewed_at", String, nullable=False),
+            Column("task_id", String, nullable=False),
+            Column("context_id", String, nullable=False),
+            UniqueConstraint("agreement_id", "version", name="pk_seller_agreement_reviews"),
+        )
+
         self.settlement_tokens = Table(
             "settlement_tokens",
             self.metadata,
