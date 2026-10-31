@@ -27,9 +27,14 @@ def award(**overrides):
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "buyer_display_name": "Buyer",
+        "seller_display_name": "Seller",
         "currency": "USD",
         "amount_cents": 123400,
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "quantity": 12,
         "line_items": [
             {
@@ -43,6 +48,22 @@ def award(**overrides):
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "offer_round": 1,
+        "offer_hash": "a" * 64,
+        "offer_valid_until": NOW,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": [
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
     }
     payload.update(overrides)
     return payload
@@ -229,6 +250,20 @@ class Buyer:
             "expires_at": "2026-10-27T12:30:00Z",
         }
 
+    async def get_settlement(self, run_id):
+        self.calls.append(("get_settlement", run_id))
+        agreement = AGREEMENT.model_dump(mode="json")
+        return {
+            "agreement": agreement,
+            "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
+        }
+
+    async def get_agreement(self, run_id):
+        self.calls.append(("get_agreement", run_id))
+        agreement = AGREEMENT.model_dump(mode="json")
+        agreement["status"] = "AGREED"
+        return agreement
+
 
 def service() -> tuple[VerifundAgentService, Buyer]:
     buyer = Buyer()
@@ -268,7 +303,7 @@ async def test_resume_advances_the_same_task_to_the_seller_review() -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     resumed = await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             review("buyer").model_dump(mode="json"),
         ),
         task_id="task-1",
@@ -286,7 +321,7 @@ async def test_seller_acceptance_opens_the_funding_approval() -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             review("buyer").model_dump(mode="json"),
         ),
         task_id="task-1",
@@ -312,7 +347,7 @@ async def test_a_stale_resume_returns_the_current_checkpoint() -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             review("buyer").model_dump(mode="json"),
         ),
         task_id="task-1",
@@ -320,7 +355,7 @@ async def test_a_stale_resume_returns_the_current_checkpoint() -> None:
     )
     repeated = await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             review("buyer").model_dump(mode="json"),
         ),
         task_id="task-1",
@@ -350,7 +385,7 @@ async def test_resume_requires_the_original_task() -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     refused = await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             review("buyer").model_dump(mode="json"),
             task_id="task-2",
         ),
@@ -390,7 +425,7 @@ async def test_buyer_rejection_finishes_the_task() -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     rejected = await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             review("buyer", status="rejected").model_dump(mode="json"),
         ),
         task_id="task-1",
@@ -406,7 +441,7 @@ async def test_status_reports_the_funding_approval() -> None:
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     await value.resume(
         resume_request(
-            VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             review("buyer").model_dump(mode="json"),
         ),
         task_id="task-1",

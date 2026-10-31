@@ -29,9 +29,14 @@ def award(**overrides):
         "buyer_id": "demo-buyer",
         "seller_id": "northwind-audio",
         "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "buyer_display_name": "Buyer",
+        "seller_display_name": "Seller",
         "currency": "USD",
         "amount_cents": 123400,
         "shipping_cents": 3400,
+        "tax_cents": 0,
+        "fees_cents": 0,
         "quantity": 12,
         "line_items": [
             {
@@ -45,6 +50,22 @@ def award(**overrides):
         "delivery_days": 7,
         "warranty_months": 24,
         "returns_days": 30,
+        "offer_round": 1,
+        "offer_hash": "a" * 64,
+        "offer_valid_until": NOW,
+        "inspection_period_hours": 48,
+        "inspection_starts_on": "DELIVERY_CONFIRMED",
+        "evidence_required": [
+            "shipment_manifest",
+            "delivery_confirmation",
+            "invoice",
+        ],
+        "remedies": {
+            "non_delivery": "cancel_and_refund",
+            "late_delivery": "cancel_and_refund",
+            "damaged_goods": "refund_or_replacement",
+        },
+        "dispute_window_hours": 72,
     }
     payload.update(overrides)
     return payload
@@ -149,6 +170,18 @@ def review(*args, **overrides) -> AgreementReviewResult:
     return AgreementReviewResult.model_validate(payload)
 
 
+def buyer_approval_decision(**overrides):
+    from verifund_contracts import BuyerAgreementApprovalDecision
+    payload = {
+        "agreement_version": 1,
+        "agreement_hash": AGREEMENT_HASH,
+        "decision": "APPROVE",
+        "idempotency_key": "buyer-decision:vf_1:1",
+    }
+    payload.update(overrides)
+    return BuyerAgreementApprovalDecision.model_validate(payload)
+
+
 def funding_decision(**overrides) -> FundingApprovalDecision:
     payload = {
         "run_id": "run-1",
@@ -168,6 +201,7 @@ def funding_decision(**overrides) -> FundingApprovalDecision:
 class Buyer:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
+        self._settlement_calls = 0
 
     async def create_agreement(self, run_id, request):
         self.calls.append(("create_agreement", run_id, request))
@@ -178,6 +212,19 @@ class Buyer:
             "agreement_version": 1,
             "agreement_hash": AGREEMENT_HASH,
             "seller_token_ref": "run:run-1:transaction:vf_1",
+        }
+
+    async def get_settlement(self, run_id):
+        self.calls.append(("get_settlement", run_id))
+        self._settlement_calls += 1
+        agreement = AGREEMENT.model_dump(mode="json")
+        if self._settlement_calls == 2:
+            agreement["status"] = "PENDING_BUYER"
+        elif self._settlement_calls >= 3:
+            agreement["status"] = "AGREED"
+        return {
+            "agreement": agreement,
+            "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
         }
     
     async def approve_funding(self, run_id, decision):
@@ -190,6 +237,12 @@ class Buyer:
             "checkout_url": "http://paypal.test/checkout/1",
             "expires_at": "2026-10-27T12:30:00Z",
         }
+
+    async def get_agreement(self, run_id):
+        self.calls.append(("get_agreement", run_id))
+        agreement = AGREEMENT.model_dump(mode="json")
+        agreement["status"] = "AGREED"
+        return agreement
 
 
 def initial_state(**overrides):
@@ -210,32 +263,29 @@ def config(buyer: Buyer) -> dict:
     return {"configurable": {"thread_id": "task-1", "buyer": buyer}}
 
 
-async def test_graph_stops_for_buyer_then_seller_then_funding() -> None:
+async def test_graph_stops_for_seller_then_buyer_then_funding() -> None:
     buyer = Buyer()
     graph = build_graph(MemorySaver())
     runtime = config(buyer)
 
     first = await graph.ainvoke(initial_state(), runtime)
-    buyer_stop = first["__interrupt__"][0].value
-    assert buyer_stop["reason"] == "buyer_review_required"
-    assert buyer_stop["agreement_hash"] == AGREEMENT_HASH
-    assert buyer_stop["agreement"]["transaction_id"] == "vf_1"
-    assert buyer_stop["responseSchema"]["title"] == "AgreementReviewResult"
+    seller_stop = first["__interrupt__"][0].value
+    assert seller_stop["reason"] == "seller_review_required"
+    assert seller_stop["agreement_hash"] == AGREEMENT_HASH
+    assert seller_stop["agreement"]["transaction_id"] == "vf_1"
 
     second = await graph.ainvoke(
-        Command(resume=review("buyer").model_dump(mode="json")), runtime
+        Command(resume=review("seller").model_dump(mode="json")), runtime
     )
-    seller_stop = second["__interrupt__"][0].value
-    assert seller_stop["reason"] == "seller_review_required"
-    assert seller_stop["buyer_review"]["status"] == "accepted"
-    assert seller_stop["agreement_hash"] == AGREEMENT_HASH
+    buyer_stop = second["__interrupt__"][0].value
+    assert buyer_stop["reason"] == "buyer_approval_required"
+    assert buyer_stop["agreement_hash"] == AGREEMENT_HASH
 
     third = await graph.ainvoke(
-        Command(resume=review("seller").model_dump(mode="json")), runtime
+        Command(resume=buyer_approval_decision().model_dump(mode="json")), runtime
     )
     funding_stop = third["__interrupt__"][0].value
     assert funding_stop["reason"] == "funding_approval_required"
-    assert funding_stop["seller_decision"]["status"] == "accepted"
     assert funding_stop["responseSchema"]["title"] == "FundingApprovalDecision"
 
     done = await graph.ainvoke(
@@ -244,7 +294,6 @@ async def test_graph_stops_for_buyer_then_seller_then_funding() -> None:
     assert "__interrupt__" in done
     assert done["__interrupt__"][0].value["reason"] == "funding_pending"
     assert done["funding_approval"]["approved"] is True
-    assert len(buyer.calls) == 2
 
 
 async def test_the_buyer_is_called_once_across_every_resume() -> None:

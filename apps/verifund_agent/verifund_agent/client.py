@@ -69,6 +69,17 @@ class BuyerInternalClient:
             "GET", f"/internal/runs/{run_id}/settlement"
         )
 
+    async def get_agreement(self, run_id: str) -> dict[str, Any]:
+        view = await self.get_settlement(run_id)
+        agreement = view.get("agreement")
+        if not isinstance(agreement, dict):
+            raise BuyerAPIError(
+                "buyer returned no agreement",
+                status_code=404,
+                retryable=False,
+            )
+        return agreement
+
     async def approve_funding(
         self, run_id: str, decision: FundingApprovalDecision
     ) -> dict[str, Any]:

@@ -132,10 +132,13 @@ protocol instead of the legacy order flow.
   agreement review, the Seller agreement review, and the
   Buyer's recorded Seller decision. Never call the Seller
   directly and never invent a review.
-- Never render the funding HITL unless the returned buyer_review
-  and seller_decision both have status "accepted" and the same
+- Never render the funding HITL unless the returned seller_decision
+  has status "accepted" and the agreement is AGREED, with the same
   agreement version and agreement hash. Pass those exact values
   to the frontend; do not reconstruct them from chat text.
+- Present the agreement review card with the review link; never
+  ask for agreement approval in chat. Keep funding as a blocking
+  HITL tool.
 - When the result status is approval_required and hitl.tool is
   request_verifund_funding_approval, call that frontend tool with
   hitl.args unchanged. When the human decision returns, call

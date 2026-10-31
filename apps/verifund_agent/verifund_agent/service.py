@@ -8,12 +8,14 @@ from verifund_agent.graph import (
     PENDING_CHECKPOINTS,
     VerifundProtocolError,
     VerifundState,
-    buyer_review_payload,
+    buyer_approval_payload,
+    change_resolution_payload,
     evidence_pending_payload,
     funding_approval_payload,
     funding_pending_payload,
     purchase_order_payload,
     release_approval_payload,
+    seller_operator_payload,
     seller_review_payload,
 )
 from verifund_contracts import (
@@ -27,18 +29,22 @@ from verifund_contracts import (
 
 
 CHECKPOINT_ORDER = {
-    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: 1,
-    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: 2,
-    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: 3,
-    VerifundCheckpoint.FUNDING_PENDING: 4,
-    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: 5,
-    VerifundCheckpoint.EVIDENCE_PENDING: 6,
-    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: 7,
+    VerifundCheckpoint.SELLER_REVIEW_REQUIRED: 1,
+    VerifundCheckpoint.SELLER_OPERATOR_REQUIRED: 2,
+    VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: 3,
+    VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: 4,
+    VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: 5,
+    VerifundCheckpoint.FUNDING_PENDING: 6,
+    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: 7,
+    VerifundCheckpoint.EVIDENCE_PENDING: 8,
+    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: 9,
 }
 
 CHECKPOINT_SKILLS = {
-    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
     VerifundCheckpoint.SELLER_REVIEW_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
+    VerifundCheckpoint.SELLER_OPERATOR_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
+    VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
+    VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: VerifundSkill.AGREEMENT_CREATE,
     VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: VerifundSkill.TRANSACTION_FUND,
     VerifundCheckpoint.FUNDING_PENDING: VerifundSkill.TRANSACTION_FUND,
     VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: VerifundSkill.TRANSACTION_FUND,
@@ -47,8 +53,10 @@ CHECKPOINT_SKILLS = {
 }
 
 PAYLOAD_BUILDERS = {
-    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: buyer_review_payload,
     VerifundCheckpoint.SELLER_REVIEW_REQUIRED: seller_review_payload,
+    VerifundCheckpoint.SELLER_OPERATOR_REQUIRED: seller_operator_payload,
+    VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: buyer_approval_payload,
+    VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: change_resolution_payload,
     VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: funding_approval_payload,
     VerifundCheckpoint.FUNDING_PENDING: funding_pending_payload,
     VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: purchase_order_payload,
@@ -57,8 +65,10 @@ PAYLOAD_BUILDERS = {
 }
 
 CHECKPOINT_STATES = {
-    VerifundCheckpoint.BUYER_REVIEW_REQUIRED: TransactionState.AWARDED,
     VerifundCheckpoint.SELLER_REVIEW_REQUIRED: TransactionState.AWARDED,
+    VerifundCheckpoint.SELLER_OPERATOR_REQUIRED: TransactionState.AWARDED,
+    VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: TransactionState.AWARDED,
+    VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: TransactionState.AWARDED,
     VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: TransactionState.AGREED,
     VerifundCheckpoint.FUNDING_PENDING: TransactionState.FUNDING_PENDING,
     VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: TransactionState.FUNDED,
@@ -202,6 +212,16 @@ class VerifundAgentService:
         return self._output_result(
             output, skill=skill, task_id=task_id, run_id=resume.run_id
         )
+
+    async def get_agreement(self, task_id: str) -> dict[str, Any]:
+        snapshot = await self.graph.aget_state(self._config(task_id))
+        if not snapshot.values:
+            return {}
+        agreement = snapshot.values.get("agreement")
+        return agreement if isinstance(agreement, dict) else {}
+
+    async def resume_agreement(self, resume, *, task_id, context_id):
+        return await self.resume(resume, task_id=task_id, context_id=context_id)
 
     def _pending(self, snapshot: Any) -> VerifundCheckpoint | None:
         for node in snapshot.next:

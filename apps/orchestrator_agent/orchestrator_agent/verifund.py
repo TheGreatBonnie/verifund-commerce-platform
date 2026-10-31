@@ -267,6 +267,32 @@ class VerifundA2AClient:
         )
         return self._same_task(handle, task_id, context_id, result)
 
+    async def get_agreement(self, handle: VerifundTaskHandle) -> dict[str, Any]:
+        result = await self.status(handle)
+        data = result.data or {}
+        agreement = data.get("agreement")
+        if not isinstance(agreement, dict):
+            # fall back to transaction status data
+            agreement = data.get("projection", {}).get("agreement")
+        return agreement if isinstance(agreement, dict) else {}
+
+    async def record_seller_operator_required(
+        self, handle: VerifundTaskHandle, seller_result: Any
+    ) -> VerifundTaskResult:
+        value = (
+            seller_result.model_dump(mode="json")
+            if hasattr(seller_result, "model_dump")
+            else dict(seller_result)
+        )
+        return await self.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            value=value,
+            idempotency_key=(
+                f"operator:{handle.task_id}:{uuid.uuid4().hex}"
+            ),
+        )
+
     @staticmethod
     def _same_task(
         handle: VerifundTaskHandle,
@@ -553,7 +579,7 @@ class VerifundLifecycle:
         self._require(
             result,
             status="input_required",
-            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
         )
         agreement = self._agreement(result)
         seller_token_ref = str(result.data.get("seller_token_ref") or "")
@@ -561,52 +587,6 @@ class VerifundLifecycle:
             raise VerifundProtocolError(
                 "Verifund returned no seller token reference"
             )
-        buyer_response = await self.buyer.resume_buyer(
-            task_id=buyer_task_id,
-            context_id=buyer_context_id,
-            agreement=agreement,
-            idempotency_key=(
-                f"review:buyer:{agreement.transaction_id}:"
-                f"{agreement.agreement_version}"
-            ),
-        )
-        buyer_status = buyer_response.get("status")
-        if buyer_status not in {"seller_review_required", "rejected"}:
-            raise VerifundProtocolError(
-                "Buyer did not review the canonical agreement"
-            )
-        buyer_review = self._buyer_review(
-            agreement,
-            buyer_response,
-            buyer_task_id=buyer_task_id,
-            buyer_context_id=buyer_context_id,
-        )
-        result = await self.verifund.resume(
-            handle,
-            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
-            value=buyer_review.model_dump(mode="json"),
-            idempotency_key=(
-                f"review:buyer-resume:{handle.task_id}:"
-                f"{agreement.agreement_hash}"
-            ),
-        )
-        if buyer_status == "rejected":
-            if (
-                result.status != "completed"
-                or result.state is not TransactionState.CANCELED
-            ):
-                raise VerifundProtocolError(
-                    "Verifund did not cancel after the Buyer rejection"
-                )
-            view = self._view(handle, result)
-            view["buyer_review"] = _review_summary(buyer_review)
-            view["seller_decision"] = None
-            return view
-        self._require(
-            result,
-            status="input_required",
-            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
-        )
         seller_task_id = (
             f"agreement-review:{agreement.transaction_id}:"
             f"{agreement.agreement_version}"
@@ -636,12 +616,33 @@ class VerifundLifecycle:
             context_id=buyer_context_id,
             decision=seller_decision,
         )
+        if seller_decision.status == AgreementReviewDecision.OPERATOR_REQUIRED:
+            await self.verifund.record_seller_operator_required(
+                handle, seller_decision
+            )
+            view = self._view(handle, await self.verifund.status(handle))
+            view["buyer_review"] = None
+            view["seller_decision"] = _review_summary(seller_decision)
+            view["agreement_review"] = {
+                "review_url": f"/agreements/{agreement.agreement_id}",
+                "version": agreement.agreement_version,
+                "digest": agreement.agreement_hash,
+                "seller_decision": _review_summary(seller_decision),
+                "precheck": None,
+            }
+            return view
         expected = (
             "agreed"
             if seller_decision.status == AgreementReviewDecision.ACCEPTED
             else "rejected"
         )
-        if buyer_response.get("status") != expected:
+        if seller_decision.status not in {
+            AgreementReviewDecision.ACCEPTED,
+            AgreementReviewDecision.REJECTED,
+            AgreementReviewDecision.CHANGES_REQUESTED,
+        }:
+            raise VerifundProtocolError("unsupported seller decision")
+        if buyer_response.get("status") not in {expected, "rejected", "agreed"}:
             raise VerifundProtocolError(
                 "Buyer did not record the Seller agreement decision"
             )
@@ -655,8 +656,17 @@ class VerifundLifecycle:
             ),
         )
         view = self._view(handle, result)
-        view["buyer_review"] = _review_summary(buyer_review)
+        view["buyer_review"] = None
         view["seller_decision"] = _review_summary(seller_decision)
+        view["agreement_review"] = {
+            "review_url": f"/agreements/{agreement.agreement_id}",
+            "version": agreement.agreement_version,
+            "digest": agreement.agreement_hash,
+            "seller_decision": _review_summary(seller_decision),
+            "precheck": result.data.get("buyer_precheck")
+            if isinstance(result.data, dict)
+            else None,
+        }
         return view
 
     async def advance(
@@ -678,6 +688,69 @@ class VerifundLifecycle:
                     f"order:{handle.run_id}:{order['order_id']}"
                 ),
             )
+        return self._view(handle, result)
+
+    async def resume_agreement(
+        self,
+        handle: VerifundTaskHandle,
+        decision: Any,
+    ) -> dict[str, Any]:
+        value = (
+            decision.model_dump(mode="json")
+            if hasattr(decision, "model_dump")
+            else dict(decision)
+        )
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+            value=value,
+            idempotency_key=(
+                value.get("idempotency_key")
+                if isinstance(value, dict)
+                else getattr(decision, "idempotency_key", None)
+            )
+            or f"buyer-approval:{handle.task_id}",
+        )
+        agreement = await self.verifund.get_agreement(handle)
+        if agreement.get("status") != "AGREED":
+            raise VerifundProtocolError("agreement is not agreed")
+        return self._view(handle, result)
+
+    async def resume_seller_operator(
+        self,
+        handle: VerifundTaskHandle,
+        decision: Any,
+    ) -> dict[str, Any]:
+        value = (
+            decision.model_dump(mode="json")
+            if hasattr(decision, "model_dump")
+            else dict(decision)
+        )
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.SELLER_OPERATOR_REQUIRED,
+            value=value,
+            idempotency_key=f"seller-operator:{handle.task_id}",
+        )
+        return self._view(handle, result)
+
+    async def resume_change_resolution(
+        self,
+        handle: VerifundTaskHandle,
+        change_request_id: str,
+        accept: bool,
+        note: str = "",
+    ) -> dict[str, Any]:
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED,
+            value={
+                "change_request_id": change_request_id,
+                "accept": accept,
+                "note": note,
+            },
+            idempotency_key=f"change-resolution:{handle.task_id}",
+        )
         return self._view(handle, result)
 
     async def resume_funding(

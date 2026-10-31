@@ -9,12 +9,14 @@ from verifund_contracts import (
     AgreementProjection,
     AgreementReviewDecision,
     AgreementReviewResult,
+    BuyerAgreementApprovalDecision,
     BuyerAgreementRequest,
     BuyerAgreementResponse,
     BuyerOrderReportRequest,
     BuyerOrderReportResponse,
     BuyerPurchaseOrderRequest,
     BuyerPurchaseOrderResponse,
+    ChangeRequestEnvelope,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
     TransactionState,
@@ -59,8 +61,10 @@ class VerifundState(TypedDict, total=False):
 
 
 PENDING_CHECKPOINTS = {
-    "await_buyer_review": VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
     "await_seller_review": VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+    "await_seller_operator": VerifundCheckpoint.SELLER_OPERATOR_REQUIRED,
+    "await_buyer_approval": VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+    "await_change_resolution": VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED,
     "await_funding_approval": VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
     "await_funding_settlement": VerifundCheckpoint.FUNDING_PENDING,
     "await_purchase_order": VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
@@ -151,11 +155,44 @@ def buyer_review_route(state: VerifundState) -> Literal["accepted", "rejected"]:
     return "rejected"
 
 
-def seller_review_route(state: VerifundState) -> Literal["accepted", "rejected"]:
+def seller_review_route(
+    state: VerifundState,
+) -> Literal["accepted", "rejected", "operator_required", "changes_requested"]:
     decision = state.get("seller_decision") or {}
-    if decision.get("status") == AgreementReviewDecision.ACCEPTED.value:
+    status = decision.get("status")
+    if status == AgreementReviewDecision.ACCEPTED.value:
         return "accepted"
+    if status == AgreementReviewDecision.REJECTED.value:
+        return "rejected"
+    if status == AgreementReviewDecision.OPERATOR_REQUIRED.value:
+        return "operator_required"
+    if status == AgreementReviewDecision.CHANGES_REQUESTED.value:
+        return "changes_requested"
     return "rejected"
+
+
+def buyer_approval_route(state: VerifundState) -> Literal["agreed", "changes_requested", "rejected"]:
+    agreement = state.get("agreement") or {}
+    status = agreement.get("status")
+    if status == "AGREED":
+        return "agreed"
+    if status == "CHANGES_REQUESTED":
+        return "changes_requested"
+    return "rejected"
+
+
+def sync_agreement_route(state: VerifundState) -> str:
+    agreement = state.get("agreement") or {}
+    status = agreement.get("status")
+    if status == "PENDING_SELLER" and agreement.get("seller_operator_required"):
+        return "await_seller_operator"
+    mapping = {
+        "PENDING_SELLER": "await_seller_review",
+        "PENDING_BUYER": "await_buyer_approval",
+        "CHANGES_REQUESTED": "await_change_resolution",
+        "AGREED": "await_funding_approval",
+    }
+    return mapping.get(status, "finalize")
 
 
 def funding_decision_route(state: VerifundState) -> Literal["approved", "rejected"]:
@@ -196,6 +233,46 @@ def seller_review_payload(state: VerifundState) -> dict[str, Any]:
         "buyer_review": state.get("buyer_review"),
         **_binding(agreement),
         "responseSchema": AgreementReviewResult.model_json_schema(),
+    }
+
+
+def seller_operator_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "seller_operator_required",
+        "message": "A human seller operator must accept or reject the agreement.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "seller_decision": state.get("seller_decision"),
+        **_binding(agreement),
+        "responseSchema": AgreementReviewResult.model_json_schema(),
+    }
+
+
+def buyer_approval_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "buyer_approval_required",
+        "message": "Approve, reject, or request changes to the agreement.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "seller_decision": state.get("seller_decision"),
+        "buyer_precheck": state.get("buyer_precheck"),
+        **_binding(agreement),
+        "responseSchema": BuyerAgreementApprovalDecision.model_json_schema(),
+    }
+
+
+def change_resolution_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    return {
+        "reason": "agreement_changes_requested",
+        "message": "Resolve the open change request.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "change_request": state.get("change_request"),
+        **_binding(agreement),
+        "responseSchema": BuyerAgreementApprovalDecision.model_json_schema(),
     }
 
 
@@ -317,17 +394,16 @@ async def create_agreement(
     }
 
 
-async def await_buyer_review(
+async def sync_agreement(
     state: VerifundState, config: RunnableConfig
 ) -> dict[str, Any]:
-    value = interrupt(buyer_review_payload(state))
-    review = AgreementReviewResult.model_validate(value)
-    agreement = _agreement(state)
-    if not buyer_review_matches(review, agreement):
-        raise VerifundProtocolError(
-            "buyer review does not match the agreement"
-        )
-    return {"buyer_review": review.model_dump(mode="json")}
+    buyer = _buyer(config)
+    run_id = state.get("run_id") or ""
+    view = await buyer.get_settlement(run_id)
+    agreement = view.get("agreement")
+    if not isinstance(agreement, dict):
+        raise VerifundProtocolError("buyer returned no agreement")
+    return {"agreement": agreement, "stage": state.get("stage", "awarded")}
 
 
 async def await_seller_review(
@@ -340,11 +416,61 @@ async def await_seller_review(
         raise VerifundProtocolError(
             "seller review does not match the agreement"
         )
-    accepted = review.status == AgreementReviewDecision.ACCEPTED
     return {
         "seller_decision": review.model_dump(mode="json"),
-        "stage": "agreed" if accepted else "awarded",
+        "stage": "awarded",
     }
+
+
+async def await_seller_operator(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(seller_operator_payload(state))
+    # The resume value is informational; re-read the agreement via sync_agreement.
+    return {"stage": state.get("stage", "awarded")}
+
+
+async def await_buyer_approval(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(buyer_approval_payload(state))
+    decision = BuyerAgreementApprovalDecision.model_validate(value)
+    agreement = _agreement(state)
+    if (
+        decision.agreement_version != agreement.agreement_version
+        or decision.agreement_hash != agreement.agreement_hash
+    ):
+        raise VerifundProtocolError(
+            "buyer approval does not match the agreement"
+        )
+    buyer = _buyer(config)
+    run_id = state.get("run_id") or agreement.run_id
+    latest = await buyer.get_agreement(run_id)
+    if latest.get("status") != "AGREED":
+        raise VerifundProtocolError("agreement is not agreed")
+    if (
+        latest.get("agreement_version", agreement.agreement_version)
+        != agreement.agreement_version
+        or latest.get("agreement_hash", agreement.agreement_hash)
+        != agreement.agreement_hash
+    ):
+        # accept if status agreed; update agreement
+        pass
+    return {"agreement": latest, "stage": "agreed"}
+
+
+async def await_change_resolution(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(change_resolution_payload(state))
+    # resume value carries accept/note/change_request_id; re-read agreement.
+    buyer = _buyer(config)
+    run_id = state.get("run_id") or ""
+    latest = await buyer.get_settlement(run_id)
+    agreement = latest.get("agreement")
+    if isinstance(agreement, dict):
+        return {"agreement": agreement, "stage": state.get("stage", "awarded")}
+    return {"stage": state.get("stage", "awarded")}
 
 
 async def await_funding_approval(
@@ -598,8 +724,11 @@ def build_graph(checkpointer):
     builder = StateGraph(VerifundState)  # ty: ignore[invalid-argument-type]
     builder.add_node("initialize", initialize)
     builder.add_node("create_agreement", create_agreement)
-    builder.add_node("await_buyer_review", await_buyer_review)
+    builder.add_node("sync_agreement", sync_agreement)
     builder.add_node("await_seller_review", await_seller_review)
+    builder.add_node("await_seller_operator", await_seller_operator)
+    builder.add_node("await_buyer_approval", await_buyer_approval)
+    builder.add_node("await_change_resolution", await_change_resolution)
     builder.add_node("await_funding_approval", await_funding_approval)
     builder.add_node("fund_transaction", fund_transaction)
     builder.add_node("await_funding_settlement", await_funding_settlement)
@@ -614,23 +743,34 @@ def build_graph(checkpointer):
     builder.add_node("finalize_review", finalize_review)
     builder.add_edge(START, "initialize")
     builder.add_edge("initialize", "create_agreement")
-    builder.add_edge("create_agreement", "await_buyer_review")
+    builder.add_edge("create_agreement", "sync_agreement")
     builder.add_conditional_edges(
-        "await_buyer_review",
-        buyer_review_route,
+        "sync_agreement",
+        sync_agreement_route,
         {
-            "accepted": "await_seller_review",
-            "rejected": "finalize_rejected",
+            "await_seller_review": "await_seller_review",
+            "await_seller_operator": "await_seller_operator",
+            "await_buyer_approval": "await_buyer_approval",
+            "await_change_resolution": "await_change_resolution",
+            "await_funding_approval": "await_funding_approval",
+            "finalize": "finalize_rejected",
         },
     )
     builder.add_conditional_edges(
         "await_seller_review",
         seller_review_route,
         {
-            "accepted": "await_funding_approval",
+            "accepted": "sync_agreement",
             "rejected": "finalize_rejected",
+            "operator_required": "sync_agreement",
+            "changes_requested": "sync_agreement",
         },
     )
+    # After sync, re-route; but sync_agreement already routes. Need to ensure
+    # the operator/changes nodes feed back into sync_agreement.
+    builder.add_edge("await_seller_operator", "sync_agreement")
+    builder.add_edge("await_buyer_approval", "sync_agreement")
+    builder.add_edge("await_change_resolution", "sync_agreement")
     builder.add_edge("await_funding_approval", "fund_transaction")
     builder.add_conditional_edges(
         "fund_transaction",

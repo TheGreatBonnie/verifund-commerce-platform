@@ -383,12 +383,12 @@ def lifecycle(
 async def test_lifecycle_reviews_buyer_then_seller_and_exposes_funding_hitl() -> None:
     verifund = FakeVerifund(
         start_result=task_result(
-            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
         ),
         resume_results=[
             task_result(
-                checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+                checkpoint=VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
                 data=binding(),
             ),
             funding_result(),
@@ -406,29 +406,24 @@ async def test_lifecycle_reviews_buyer_then_seller_and_exposes_funding_hitl() ->
         seller_id=AGREEMENT.seller_id,
         idempotency_key="agreement:run-1:offer-1",
     )
-    assert result["status"] == "approval_required"
-    assert result["hitl"]["tool"] == "request_verifund_funding_approval"
-    args = result["hitl"]["args"]
-    assert args["agreement_hash"] == HASH
-    assert args["buyer_review"]["status"] == "accepted"
-    assert args["seller_decision"]["status"] == "accepted"
+    assert result["status"] == "input_required"
+    assert result["checkpoint"] == "buyer_approval_required"
+    assert result["seller_decision"]["status"] == "accepted"
     assert result["handle"] == {
         "task_id": "vf-task-1",
         "context_id": "vf-context-1",
         "run_id": "run-1",
     }
-    assert [call[0] for call in buyer.calls] == ["buyer", "buyer_seller"]
+    assert [call[0] for call in buyer.calls] == ["buyer_seller"]
     resume_calls = [call for call in verifund.calls if call[0] == "resume"]
-    assert resume_calls[0][2] is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
-    assert resume_calls[0][3]["party"] == "buyer"
-    assert resume_calls[1][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
-    assert resume_calls[1][3]["party"] == "seller"
+    assert resume_calls[0][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
+    assert resume_calls[0][3]["party"] == "seller"
 
 
 async def test_lifecycle_stops_after_a_buyer_rejection() -> None:
     verifund = FakeVerifund(
         start_result=task_result(
-            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
         ),
         resume_results=[
@@ -460,13 +455,13 @@ async def test_lifecycle_stops_after_a_buyer_rejection() -> None:
     assert seller.calls == []
     resume_calls = [call for call in verifund.calls if call[0] == "resume"]
     assert len(resume_calls) == 1
-    assert resume_calls[0][2] is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+    assert resume_calls[0][2] is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
 
 
 async def test_lifecycle_never_funds_after_seller_rejection() -> None:
     verifund = FakeVerifund(
         start_result=task_result(
-            checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+            checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
             data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
         ),
         resume_results=[
@@ -504,7 +499,7 @@ async def test_lifecycle_never_funds_after_seller_rejection() -> None:
 
 async def test_advance_places_the_purchase_order_and_reports_evidence() -> None:
     verifund = FakeVerifund(
-        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        start_result=task_result(checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED),
         resume_results=[
             task_result(
                 status="completed",
@@ -556,7 +551,7 @@ async def test_advance_places_the_purchase_order_and_reports_evidence() -> None:
 
 async def test_advance_exposes_the_release_hitl_with_the_exact_args() -> None:
     verifund = FakeVerifund(
-        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        start_result=task_result(checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED),
         resume_results=[],
         status_results=[release_result()],
     )
@@ -594,7 +589,7 @@ async def test_release_decision_resumes_the_same_task_and_returns_the_receipt() 
         "verified": True,
     }
     verifund = FakeVerifund(
-        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        start_result=task_result(checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED),
         resume_results=[
             task_result(
                 status="completed",
@@ -629,7 +624,7 @@ async def test_release_decision_resumes_the_same_task_and_returns_the_receipt() 
 
 async def test_funding_decision_requires_a_structured_decision() -> None:
     verifund = FakeVerifund(
-        start_result=task_result(checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED),
+        start_result=task_result(checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED),
         resume_results=[
             task_result(
                 status="completed",
@@ -679,7 +674,7 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
             )
         else:
             result = task_result(
-                checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+                checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
                 data={**binding(), "seller_token_ref": "run:run-1:transaction:vf_1"},
             )
         return [
@@ -707,7 +702,7 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
     await client.status(handle)
     await client.resume(
         handle,
-        checkpoint=VerifundCheckpoint.BUYER_REVIEW_REQUIRED,
+        checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
         value=review("buyer").model_dump(mode="json"),
         idempotency_key="resume:buyer",
     )
@@ -719,7 +714,7 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
     assert resume_envelope is not None
     resume = parse_verifund_resume_request(resume_envelope)
     assert resume.task_id == "vf-task-1"
-    assert resume.checkpoint is VerifundCheckpoint.BUYER_REVIEW_REQUIRED
+    assert resume.checkpoint is VerifundCheckpoint.SELLER_REVIEW_REQUIRED
 
 
 async def test_seller_purchase_order_injects_the_token_and_never_returns_it() -> None:
