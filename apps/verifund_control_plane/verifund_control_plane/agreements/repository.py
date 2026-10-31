@@ -223,34 +223,39 @@ class AgreementRepository:
             superseded_at=_iso(version.superseded_at),
         ))
 
-    async def get(self, agreement_id: str) -> Agreement | None:
-        async with self.engine.connect() as conn:
-            row = (await conn.execute(
-                self.agreements.select().where(self.agreements.c.agreement_id == agreement_id)
-            )).mappings().first()
-            if row is None:
-                return None
-            agr = self._row_to_agreement(row)
-            ver_row = (await conn.execute(
-                self.agreement_versions.select().where(
-                    self.agreement_versions.c.agreement_id == agreement_id,
-                    self.agreement_versions.c.version == agr.current_version,
-                )
-            )).mappings().first()
-            if ver_row is not None:
-                agr.current_version_record = AgreementVersion(
-                    agreement_id=ver_row["agreement_id"],
-                    version=ver_row["version"],
-                    terms=_json_mod.loads(ver_row["terms"]),
-                    agreement_hash=ver_row["agreement_hash"],
-                    rendered_html=ver_row["rendered_html"],
-                    renderer_version=ver_row["renderer_version"],
-                    created_at=_dt(ver_row["created_at"]),
-                    supersedes_version=ver_row["supersedes_version"],
-                    change_request_id=ver_row["change_request_id"],
-                    superseded_at=_dt(ver_row["superseded_at"]),
-                )
-            return agr
+    async def get(self, agreement_id: str, conn=None) -> Agreement | None:
+        if conn is None:
+            async with self.engine.connect() as c:
+                return await self._get_with_conn(c, agreement_id)
+        return await self._get_with_conn(conn, agreement_id)
+
+    async def _get_with_conn(self, conn, agreement_id: str) -> Agreement | None:
+        row = (await conn.execute(
+            self.agreements.select().where(self.agreements.c.agreement_id == agreement_id)
+        )).mappings().first()
+        if row is None:
+            return None
+        agr = self._row_to_agreement(row)
+        ver_row = (await conn.execute(
+            self.agreement_versions.select().where(
+                self.agreement_versions.c.agreement_id == agreement_id,
+                self.agreement_versions.c.version == agr.current_version,
+            )
+        )).mappings().first()
+        if ver_row is not None:
+            agr.current_version_record = AgreementVersion(
+                agreement_id=ver_row["agreement_id"],
+                version=ver_row["version"],
+                terms=_json_mod.loads(ver_row["terms"]),
+                agreement_hash=ver_row["agreement_hash"],
+                rendered_html=ver_row["rendered_html"],
+                renderer_version=ver_row["renderer_version"],
+                created_at=_dt(ver_row["created_at"]),
+                supersedes_version=ver_row["supersedes_version"],
+                change_request_id=ver_row["change_request_id"],
+                superseded_at=_dt(ver_row["superseded_at"]),
+            )
+        return agr
 
     async def get_by_transaction(self, transaction_id: str) -> Agreement | None:
         async with self.engine.connect() as conn:
@@ -317,9 +322,17 @@ class AgreementRepository:
             decided_at=_iso(decision.decided_at),
         ))
 
-    async def update_status_cas(self, agreement_id, *, expected_status, expected_row_version,
+    async def update_status_cas(self, *args, expected_status, expected_row_version,
                                 new_status, new_row_version, expires_at, now,
-                                extra: dict[str, Any] | None = None) -> bool:
+                                extra: dict[str, Any] | None = None,
+                                conn=None) -> bool:
+        if len(args) == 2:
+            conn = args[0]
+            agreement_id = args[1]
+        elif len(args) == 1:
+            agreement_id = args[0]
+        else:
+            raise TypeError("update_status_cas requires agreement_id")
         values = {
             "status": new_status.value if hasattr(new_status, "value") else new_status,
             "row_version": new_row_version,
@@ -335,9 +348,12 @@ class AgreementRepository:
             (self.agreements.c.expires_at.is_(None))
             | (self.agreements.c.expires_at >= _iso(now)),
         )
-        async with self.engine.begin() as conn:
-            result = await conn.execute(stmt.values(**values))
-            return result.rowcount == 1
+        if conn is None:
+            async with self.engine.begin() as c:
+                result = await c.execute(stmt.values(**values))
+                return result.rowcount == 1
+        result = await conn.execute(stmt.values(**values))
+        return result.rowcount == 1
 
     async def create_change_request(self, conn, cr: ChangeRequest) -> None:
         await conn.execute(self.agreement_change_requests.insert().values(
@@ -354,8 +370,16 @@ class AgreementRepository:
             created_at=_iso(cr.created_at),
         ))
 
-    async def get_open_change_request(self, agreement_id: str) -> ChangeRequest | None:
-        async with self.engine.connect() as conn:
+    async def get_open_change_request(self, agreement_id: str, conn=None) -> ChangeRequest | None:
+        if conn is None:
+            async with self.engine.connect() as c:
+                row = (await c.execute(
+                    self.agreement_change_requests.select().where(
+                        self.agreement_change_requests.c.agreement_id == agreement_id,
+                        self.agreement_change_requests.c.status == "PENDING",
+                    )
+                )).mappings().first()
+        else:
             row = (await conn.execute(
                 self.agreement_change_requests.select().where(
                     self.agreement_change_requests.c.agreement_id == agreement_id,
@@ -438,8 +462,15 @@ class AgreementRepository:
             self.agreement_approval_tokens.c.revoked_at.is_(None),
         ).values(revoked_at=_iso(now)))
 
-    async def get_token(self, jti: str) -> ApprovalTokenRecord | None:
-        async with self.engine.connect() as conn:
+    async def get_token(self, jti: str, conn=None) -> ApprovalTokenRecord | None:
+        if conn is None:
+            async with self.engine.connect() as c:
+                row = (await c.execute(
+                    self.agreement_approval_tokens.select().where(
+                        self.agreement_approval_tokens.c.jti == jti
+                    )
+                )).mappings().first()
+        else:
             row = (await conn.execute(
                 self.agreement_approval_tokens.select().where(
                     self.agreement_approval_tokens.c.jti == jti
@@ -538,30 +569,44 @@ class AgreementRepository:
             idempotency_key=r["idempotency_key"], decided_at=_dt(r["decided_at"]),
         )
 
-    async def list_decisions(self, agreement_id: str) -> list[AgreementDecisionRecord]:
-        async with self.engine.connect() as conn:
-            rows = (await conn.execute(
-                self.agreement_decisions.select().where(
-                    self.agreement_decisions.c.agreement_id == agreement_id
-                ).order_by(self.agreement_decisions.c.decided_at)
-            )).mappings().all()
+    async def list_decisions(self, agreement_id: str, conn=None) -> list[AgreementDecisionRecord]:
+        if conn is None:
+            async with self.engine.connect() as c:
+                rows = (await c.execute(
+                    self.agreement_decisions.select().where(
+                        self.agreement_decisions.c.agreement_id == agreement_id
+                    ).order_by(self.agreement_decisions.c.decided_at)
+                )).mappings().all()
+                return [self._row_to_decision(r) for r in rows]
+        rows = (await conn.execute(
+            self.agreement_decisions.select().where(
+                self.agreement_decisions.c.agreement_id == agreement_id
+            ).order_by(self.agreement_decisions.c.decided_at)
+        )).mappings().all()
         return [self._row_to_decision(r) for r in rows]
 
     async def get_decision_by_idempotency(
-        self, key: str
+        self, key: str, conn=None
     ) -> AgreementDecisionRecord | None:
-        decisions = await self.list_decisions_by_key(key)
+        decisions = await self.list_decisions_by_key(key, conn=conn)
         return decisions[0] if decisions else None
 
     async def list_decisions_by_key(
-        self, key: str
+        self, key: str, conn=None
     ) -> list[AgreementDecisionRecord]:
-        async with self.engine.connect() as conn:
-            rows = (await conn.execute(
-                self.agreement_decisions.select().where(
-                    self.agreement_decisions.c.idempotency_key == key
-                ).order_by(self.agreement_decisions.c.decided_at)
-            )).mappings().all()
+        if conn is None:
+            async with self.engine.connect() as c:
+                rows = (await c.execute(
+                    self.agreement_decisions.select().where(
+                        self.agreement_decisions.c.idempotency_key == key
+                    ).order_by(self.agreement_decisions.c.decided_at)
+                )).mappings().all()
+                return [self._row_to_decision(r) for r in rows]
+        rows = (await conn.execute(
+            self.agreement_decisions.select().where(
+                self.agreement_decisions.c.idempotency_key == key
+            ).order_by(self.agreement_decisions.c.decided_at)
+        )).mappings().all()
         return [self._row_to_decision(r) for r in rows]
 
     async def set_operator_required(
