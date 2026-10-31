@@ -11,6 +11,7 @@ import {
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import { ApprovalCard } from "@/features/deal-room/components/approval-card";
+import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import {
   AgreementReviewCard,
   CheckoutCard,
@@ -297,6 +298,44 @@ export function Chat({
             agreement={agreement as any}
             buyerReview={(parsed?.data?.buyer_review as any) ?? null}
             sellerDecision={(parsed?.data?.seller_decision as any) ?? null}
+          />
+        </div>
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "show_agreement_review",
+    parameters: z.object({
+      agreement: z.record(z.unknown()).optional(),
+      review_url: z.string().optional(),
+      version: z.number().optional(),
+      digest: z.string().optional(),
+      seller_decision: z.record(z.unknown()).optional(),
+      precheck: z.record(z.unknown()).optional(),
+    }),
+    render: ({ status, result }) => {
+      const parsed = (parseVerifundToolResult(result) ?? result) as any;
+      const agreement = (parsed?.agreement ?? parsed?.data?.agreement ?? parsed) as any;
+      if (status === "inProgress") {
+        return (
+          <div className="mm-chat-approval">
+            <p>Preparing agreement review…</p>
+          </div>
+        );
+      }
+      if (!agreement || (typeof agreement === "object" && Object.keys(agreement).length === 0 && !parsed?.review_url)) {
+        return null;
+      }
+      return (
+        <div className="mm-chat-approval">
+          <AgreementApprovalCard
+            agreement={agreement}
+            reviewUrl={parsed?.review_url ?? parsed?.data?.review_url}
+            version={parsed?.version ?? parsed?.data?.version}
+            digest={parsed?.digest ?? parsed?.data?.digest}
+            sellerDecision={parsed?.seller_decision ?? parsed?.data?.seller_decision}
+            precheck={parsed?.precheck ?? parsed?.data?.precheck}
           />
         </div>
       );

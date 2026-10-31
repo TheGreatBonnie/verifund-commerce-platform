@@ -403,3 +403,103 @@ export type SettlementResponse = {
   settlement: SettlementProjection;
   interrupt?: Record<string, unknown> | null;
 };
+
+export type AgreementState =
+  | "PENDING_SELLER"
+  | "PENDING_BUYER"
+  | "CHANGES_REQUESTED"
+  | "AGREED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "TERMINATED";
+
+export type AgreementDecisionKind =
+  | "ACCEPT"
+  | "REJECT"
+  | "REQUEST_CHANGES"
+  | "OPERATOR_REQUIRED";
+
+export type RemedyTerms = {
+  non_delivery: string;
+  late_delivery: string;
+  damaged_goods: string;
+};
+
+export type ChangeOperation = {
+  op: string;
+  sku?: string | null;
+  unit_price_cents?: number | null;
+  quantity?: number | null;
+  shipping_cents?: number | null;
+  tax_cents?: number | null;
+  fees_cents?: number | null;
+  delivery_days?: number | null;
+  warranty_months?: number | null;
+  returns_days?: number | null;
+  inspection_period_hours?: number | null;
+  evidence_required?: string[] | null;
+  remedies?: RemedyTerms | null;
+  dispute_window_hours?: number | null;
+};
+
+export type ChangeRequestView = {
+  change_request_id: string;
+  base_version: number;
+  base_hash: string;
+  requested_by_party: "buyer" | "seller";
+  requested_by_actor_type: string;
+  requested_by_actor_id: string;
+  operations: ChangeOperation[];
+  reason: string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "EXPIRED";
+  resolved_by_party?: "buyer" | "seller" | null;
+  resolution_note: string;
+  resulting_version?: number | null;
+  created_at: string;
+  resolved_at?: string | null;
+};
+
+export type AgreementDecisionView = {
+  decision_id: string;
+  party: "buyer" | "seller";
+  decision: AgreementDecisionKind;
+  actor_type: string;
+  actor_id: string;
+  authority_ref?: string | null;
+  agreement_hash: string;
+  version: number;
+  note: string;
+  decided_at: string;
+};
+
+export type AgreementVersionView = {
+  version: number;
+  agreement_hash: string;
+  created_at: string;
+  supersedes_version?: number | null;
+  change_request_id?: string | null;
+  superseded_at?: string | null;
+  decisions: AgreementDecisionView[];
+  is_current: boolean;
+};
+
+export type AgreementView = {
+  agreement_id: string;
+  transaction_id: string;
+  run_id: string;
+  buyer_id: string;
+  seller_id: string;
+  status: AgreementState;
+  current_version: number;
+  expires_at?: string | null;
+  agreed_at?: string | null;
+  offer_id: string;
+  offer_round: number;
+  offer_hash: string;
+  offer_valid_until: string;
+  seller_operator_required: boolean;
+  version: AgreementVersionView;
+  decisions: AgreementDecisionView[];
+  change_request?: ChangeRequestView | null;
+  review_url?: string | null;
+};

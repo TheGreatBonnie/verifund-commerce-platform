@@ -11,6 +11,8 @@ import type {
   SettlementReceipt,
   SettlementResponse,
   SettlementReviewReason,
+  AgreementView,
+  AgreementVersionView,
 } from "./types";
 
 export async function fetchTrace(
@@ -161,4 +163,75 @@ export function settlementEvidenceUrl(
   evidenceId: string,
 ): string {
   return `/api/runs/${encodeURIComponent(runId)}/settlement/evidence/${encodeURIComponent(evidenceId)}`;
+}
+
+
+export async function fetchAgreement(id: string): Promise<AgreementView> {
+  const response = await fetch(`/api/agreements/${encodeURIComponent(id)}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Agreement request failed (${response.status})`);
+  }
+  return (await response.json()) as AgreementView;
+}
+
+export async function fetchAgreementVersions(id: string): Promise<AgreementVersionView[]> {
+  const response = await fetch(`/api/agreements/${encodeURIComponent(id)}/versions`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Agreement versions request failed (${response.status})`);
+  }
+  return (await response.json()) as AgreementVersionView[];
+}
+
+export async function fetchAgreementDocument(id: string, version?: number): Promise<string> {
+  const url =
+    version != null
+      ? `/api/agreements/${encodeURIComponent(id)}/document?version=${version}`
+      : `/api/agreements/${encodeURIComponent(id)}/document`;
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Agreement document request failed (${response.status})`);
+  }
+  return await response.text();
+}
+
+export async function issueApprovalToken(id: string): Promise<{
+  token: string;
+  review_url: string;
+  expires_at: string;
+  agreement_version: number;
+  agreement_hash: string;
+}> {
+  const response = await fetch(`/api/agreements/${encodeURIComponent(id)}/approval-token`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "content-type": "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`Approval token request failed (${response.status})`);
+  }
+  return (await response.json()) as any;
+}
+
+export async function submitBuyerDecision(
+  id: string,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<{ status: string; version: number }> {
+  const response = await fetch(`/api/agreements/${encodeURIComponent(id)}/buyer-decision`, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "content-type": "application/json",
+      "x-approval-token": token,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`Buyer decision request failed (${response.status})`);
+  }
+  return (await response.json()) as any;
 }

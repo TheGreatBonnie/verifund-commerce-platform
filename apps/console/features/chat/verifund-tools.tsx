@@ -94,6 +94,9 @@ export function verifundToolsEnabled(mode: string | undefined): boolean {
 const CHECKPOINT_COPY: Record<string, string> = {
   buyer_review_required: "Waiting for Buyer review.",
   seller_review_required: "Waiting for Seller review.",
+  buyer_approval_required: "Waiting for Buyer approval.",
+  seller_operator_required: "Waiting for Seller operator review.",
+  agreement_changes_requested: "Agreement changes requested.",
   funding_approval_required: "Waiting for human funding approval.",
   funding_pending: "Waiting for the funding settlement.",
   purchase_order_required: "Placing the purchase order.",
