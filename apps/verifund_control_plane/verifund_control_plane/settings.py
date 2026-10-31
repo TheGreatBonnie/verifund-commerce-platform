@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     link_secret: str = Field(
         default="dev-verifund-link-secret", validation_alias="VERIFUND_LINK_SECRET"
     )
+    agreement_seller_acceptance_hours: int = Field(
+        default=24, validation_alias="VERIFUND_AGREEMENT_SELLER_ACCEPTANCE_HOURS"
+    )
+    agreement_buyer_approval_hours: int = Field(
+        default=24, validation_alias="VERIFUND_AGREEMENT_BUYER_APPROVAL_HOURS"
+    )
+    agreement_change_response_hours: int = Field(
+        default=24, validation_alias="VERIFUND_AGREEMENT_CHANGE_RESPONSE_HOURS"
+    )
+    approval_token_ttl_minutes: int = Field(
+        default=30, validation_alias="VERIFUND_APPROVAL_TOKEN_TTL_MINUTES"
+    )
     receipt_keys: dict[str, str] = Field(
         default_factory=lambda: {"dev-1": "dev-verifund-receipt-key"},
         validation_alias="VERIFUND_RECEIPT_KEYS",

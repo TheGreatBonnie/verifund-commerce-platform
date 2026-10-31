@@ -72,6 +72,7 @@ class VerifundService:
         payments: PaymentPort,
         links: LinkSigner,
         receipts: ReceiptSigner,
+        agreement_service: Any = None,
     ) -> None:
         self.repo = repo
         self.settings = settings
@@ -81,6 +82,7 @@ class VerifundService:
         self.payments = payments
         self.links = links
         self.receipts = receipts
+        self.agreement_service = agreement_service
 
     def _now(self) -> datetime:
         return self.clock()

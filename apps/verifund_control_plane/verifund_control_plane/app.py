@@ -6,6 +6,10 @@ from typing import Callable
 
 from fastapi import FastAPI
 
+from verifund_control_plane.agreements import routes as agreement_routes
+from verifund_control_plane.agreements.repository import AgreementRepository
+from verifund_control_plane.agreements.service import AgreementService
+from verifund_control_plane.agreements.tokens import ApprovalTokenService
 from verifund_control_plane.api import checkout, health, ops, seller, webhooks
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.evidence import EvidenceStore
@@ -30,6 +34,10 @@ def create_app(
     now = clock or (lambda: datetime.now(UTC))
     engine = create_engine(settings.database_url)
     repo = Repository(engine)
+    agreement_repo = AgreementRepository(engine)
+    agreement_tokens = ApprovalTokenService(
+        settings.link_secret, ttl_minutes=settings.approval_token_ttl_minutes, clock=now,
+    )
     settings.evidence_dir.mkdir(parents=True, exist_ok=True)
     evidence_store = EvidenceStore(
         settings.evidence_dir, max_bytes=settings.max_evidence_bytes
@@ -62,6 +70,20 @@ def create_app(
             scenario=settings.fake_payment_scenario,
             clock=now,
         )
+    async def _sync_transaction_pointer(
+        conn, transaction_id: str, version: int, digest: str, at: datetime
+    ) -> None:
+        record = await repo.get_transaction(transaction_id, conn)
+        await repo.update_transaction(
+            conn, transaction_id, expected_version=record.version,
+            changes={"agreement_version": version, "agreement_hash": digest},
+        )
+
+    agreement_service = AgreementService(
+        repo=agreement_repo, token_service=agreement_tokens,
+        settings=settings, clock=now,
+        sync_transaction=_sync_transaction_pointer,
+    )
     service = VerifundService(
         repo=repo,
         settings=settings,
@@ -71,6 +93,7 @@ def create_app(
         payments=payments,
         links=links,
         receipts=receipts,
+        agreement_service=agreement_service,
     )
     reconciler = Reconciler(
         repo=repo,
@@ -84,6 +107,9 @@ def create_app(
         await configure_sqlite(engine)
         if hasattr(app.state, "repo"):
             await app.state.repo.create_schema()
+        if hasattr(app.state, "agreement_repo"):
+            async with engine.begin() as _c:
+                await app.state.agreement_repo.create_schema(_c)
         if (
             hasattr(app.state, "reconciler")
             and settings.mode != "off"
@@ -102,6 +128,9 @@ def create_app(
     app.state.engine = engine
     app.state.clock = now
     app.state.repo = repo
+    app.state.agreement_repo = agreement_repo
+    app.state.agreement_tokens = agreement_tokens
+    app.state.agreement_service = agreement_service
     app.state.tokens = tokens
     app.state.service = service
     app.state.evidence_store = evidence_store
@@ -116,4 +145,5 @@ def create_app(
     app.include_router(seller.router)
     app.include_router(checkout.router)
     app.include_router(webhooks.router)
+    app.include_router(agreement_routes.router)
     return app
