@@ -210,7 +210,8 @@ class VerifundA2AClient:
             idempotency_key=idempotency_key,
         )
         task_id, context_id, result = await self._exchange(
-            wrap_verifund_task_request(request)
+            wrap_verifund_task_request(request),
+            context_id=buyer_context_id,
         )
         return VerifundTaskHandle(task_id, context_id, run_id), result
 

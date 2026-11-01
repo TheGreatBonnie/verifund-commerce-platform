@@ -3,7 +3,7 @@ from __future__ import annotations
 from ag_ui_adk import AGUIToolset
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools import FunctionTool
+from google.adk.tools import FunctionTool, ToolContext
 from verifund_contracts import (
     FundingApprovalDecision,
     ReleaseApprovalDecision,
@@ -218,8 +218,13 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
         seller_task_id: str | None = None,
         seller_context_id: str | None = None,
         settlement_secret_ref: dict | None = None,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Call a seller and resume the buyer's checkpoint with its response."""
+        thread_id = (
+            getattr(getattr(tool_context, "session", None), "id", None)
+            or buyer_task_id
+        )
         return await _mediate_seller_call(
             buyer_task_id=buyer_task_id,
             seller_card_url=seller_card_url,
@@ -227,7 +232,8 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             seller_request=seller_request,
             seller_id=seller_id,
             seller_task_id=seller_task_id,
-            seller_context_id=seller_context_id,
+            seller_context_id=seller_context_id or thread_id,
+            buyer_context_id=thread_id,
             settlement_secret_ref=settlement_secret_ref,
             buyer_internal_url=settings.buyer_internal_url,
             buyer_internal_token=settings.buyer_internal_token,

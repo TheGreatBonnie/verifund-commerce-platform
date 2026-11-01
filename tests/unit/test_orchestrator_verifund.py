@@ -718,7 +718,8 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
         idempotency_key="agreement:run-1:offer-1",
     )
     assert handle.task_id == "vf-task-1"
-    assert handle.context_id == "vf-context-1"
+    assert handle.context_id == "run-1"
+    assert sent[0].context_id == "run-1"
     await client.status(handle)
     await client.resume(
         handle,
@@ -727,9 +728,9 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
         idempotency_key="resume:buyer",
     )
     assert sent[1].task_id == "vf-task-1"
-    assert sent[1].context_id == "vf-context-1"
+    assert sent[1].context_id == "run-1"
     assert sent[2].task_id == "vf-task-1"
-    assert sent[2].context_id == "vf-context-1"
+    assert sent[2].context_id == "run-1"
     resume_envelope = first_envelope(sent[2])
     assert resume_envelope is not None
     resume = parse_verifund_resume_request(resume_envelope)

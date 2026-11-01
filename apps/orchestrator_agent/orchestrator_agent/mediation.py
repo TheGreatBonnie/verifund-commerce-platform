@@ -153,6 +153,7 @@ async def mediate_seller_call(
     seller_id: str | None = None,
     seller_task_id: str | None = None,
     seller_context_id: str | None = None,
+    buyer_context_id: str | None = None,
     settlement_secret_ref: dict[str, Any] | None = None,
     buyer_internal_url: str | None = None,
     buyer_internal_token: str | None = None,
@@ -229,7 +230,7 @@ async def mediate_seller_call(
         resume_msg = make_message(
             role=Role.ROLE_USER,
             text=json.dumps({"seller_result": seller_result, "task_id": buyer_task_id}),
-            context_id=buyer_task_id,
+            context_id=buyer_context_id or buyer_task_id,
         )
         buyer_frames = await _a2a_send(buyer_a2a_url, resume_msg)
         buyer_response = _buyer_response(buyer_frames)
