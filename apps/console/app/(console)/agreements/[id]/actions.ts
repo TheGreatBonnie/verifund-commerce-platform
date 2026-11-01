@@ -22,11 +22,27 @@ export type AgreementDecisionResult = {
   resumeError?: string;
 };
 
-function actorHeaders() {
+function actorHeaders(actorId = "demo-buyer") {
   return {
-    "X-Actor-Id": "demo-buyer",
+    "X-Actor-Id": actorId,
     "X-Actor-Type": "buyer",
   };
+}
+
+async function resolveBuyerId(id: string): Promise<string> {
+  try {
+    const response = await fetch(
+      `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}`,
+      { cache: "no-store", headers: actorHeaders() },
+    );
+    if (!response.ok) return "demo-buyer";
+    const body = (await response.json()) as { buyer_id?: unknown };
+    return typeof body.buyer_id === "string" && body.buyer_id
+      ? body.buyer_id
+      : "demo-buyer";
+  } catch {
+    return "demo-buyer";
+  }
 }
 
 async function recordDecision(
@@ -37,11 +53,12 @@ async function recordDecision(
   note: string,
   idempotencyKey: string,
 ): Promise<AgreementDecisionResult> {
+  const buyerId = await resolveBuyerId(id);
   const tokenRes = await fetch(
     `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}/approval-token`,
     {
       method: "POST",
-      headers: { ...actorHeaders(), "Idempotency-Key": idempotencyKey },
+      headers: { ...actorHeaders(buyerId), "Idempotency-Key": idempotencyKey },
       cache: "no-store",
     },
   );
@@ -54,7 +71,7 @@ async function recordDecision(
     {
       method: "POST",
       headers: {
-        ...actorHeaders(),
+        ...actorHeaders(buyerId),
         "content-type": "application/json",
         "Idempotency-Key": idempotencyKey,
         "X-Approval-Token": tokenBody.token,
