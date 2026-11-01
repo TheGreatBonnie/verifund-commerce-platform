@@ -186,8 +186,7 @@ def funding_decision(**overrides) -> FundingApprovalDecision:
     return FundingApprovalDecision.model_validate(payload)
 
 
-def buyer_approval_decision(**overrides) -> "BuyerAgreementApprovalDecision":
-    from verifund_contracts import BuyerAgreementApprovalDecision
+def buyer_approval_decision(**overrides) -> BuyerAgreementApprovalDecision:
     payload = {
         "agreement_version": 1,
         "agreement_hash": AGREEMENT_HASH,
@@ -290,7 +289,7 @@ def service() -> tuple[VerifundAgentService, Buyer]:
 
 
 async def test_agreement_create_stops_at_the_seller_review() -> None:
-    value, buyer = service()
+    value, _buyer = service()
     result = await value.handle(
         task_request(), task_id="task-1", context_id="run-1"
     )
@@ -305,7 +304,7 @@ async def test_agreement_create_stops_at_the_seller_review() -> None:
 
 
 async def test_status_returns_the_pending_checkpoint_without_a_second_buyer_call() -> None:
-    value, buyer = service()
+    value, _buyer = service()
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     status = await value.handle(
         status_request(), task_id="task-1", context_id="run-1"
@@ -315,7 +314,7 @@ async def test_status_returns_the_pending_checkpoint_without_a_second_buyer_call
 
 
 async def test_resume_advances_the_same_task_to_the_buyer_approval() -> None:
-    value, buyer = service()
+    value, _buyer = service()
     await value.handle(task_request(), task_id="task-1", context_id="run-1")
     resumed = await value.resume(
         resume_request(
@@ -424,7 +423,7 @@ async def test_agreement_create_rejects_a_run_mismatch() -> None:
 
 
 async def test_agreement_create_is_idempotent_for_the_same_task() -> None:
-    value, buyer = service()
+    value, _buyer = service()
     first = await value.handle(
         task_request(), task_id="task-1", context_id="run-1"
     )

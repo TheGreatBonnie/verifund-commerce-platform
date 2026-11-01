@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { z } from "zod";
+import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import type { SettlementProjection, SettlementReceipt } from "@/lib/types";
 
 export const reviewDecisionSchema = z.object({
@@ -149,6 +150,59 @@ export function parseVerifundToolResult(
   } catch {
     return null;
   }
+}
+
+export type AgreementReviewLink = {
+  agreement?: Record<string, any>;
+  reviewUrl?: string;
+  version?: number;
+  digest?: string;
+  sellerDecision?: Record<string, any> | null;
+  precheck?: Record<string, any> | null;
+};
+
+/**
+ * Extract the non-blocking agreement review card from a tool result.
+ *
+ * `verifund_create_agreement` returns `agreement_review` while the lifecycle
+ * waits for the buyer. A funding checkpoint never renders this card, even
+ * though it also carries the canonical agreement.
+ */
+export function agreementReviewLink(
+  parsed: Record<string, any> | null,
+): AgreementReviewLink | null {
+  if (!parsed || parsed.hitl) return null;
+  const review = parsed.agreement_review ?? parsed.data?.agreement_review;
+  const agreement = parsed.agreement ?? parsed.data?.agreement;
+  if (review) {
+    return {
+      agreement,
+      reviewUrl: review.review_url,
+      version: review.version,
+      digest: review.digest,
+      sellerDecision: review.seller_decision,
+      precheck: review.precheck,
+    };
+  }
+  const checkpoint = parsed.checkpoint ?? parsed.data?.checkpoint;
+  if (checkpoint && checkpoint !== "buyer_approval_required") return null;
+  const reviewUrl = parsed.review_url ?? parsed.data?.review_url;
+  if (!reviewUrl && !agreement) return null;
+  return {
+    agreement,
+    reviewUrl,
+    version: parsed.version ?? parsed.data?.version,
+    digest: parsed.digest ?? parsed.data?.digest,
+    sellerDecision:
+      parsed.seller_decision ?? parsed.data?.seller_decision,
+    precheck: parsed.precheck ?? parsed.data?.precheck,
+  };
+}
+
+export function AgreementReviewLinkFromResult({ result }: { result: unknown }) {
+  const link = agreementReviewLink(parseVerifundToolResult(result));
+  if (!link) return null;
+  return <AgreementApprovalCard {...link} />;
 }
 
 export function bilateralReviewStatus(

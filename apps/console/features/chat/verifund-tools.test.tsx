@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AgreementReviewCard,
+  AgreementReviewLinkFromResult,
   FundingApprovalCard,
   ReceiptCard,
   bilateralReviewStatus,
@@ -226,6 +227,50 @@ describe("verifund chat tools", () => {
     expect(screen.getByText("Buyer accepted")).toBeInTheDocument();
     expect(screen.getByText("Seller accepted")).toBeInTheDocument();
     expect(screen.getByText("$1,234.00")).toBeInTheDocument();
+  });
+
+  it("renders the review link from a buyer-approval tool result", () => {
+    const reviewUrl =
+      "/agreements/agr_1?task_id=vf-task-1&context_id=vf-context-1&run_id=run-1";
+    render(
+      <AgreementReviewLinkFromResult
+        result={{
+          status: "input_required",
+          checkpoint: "buyer_approval_required",
+          agreement_review: {
+            review_url: reviewUrl,
+            version: 1,
+            digest: HASH,
+            seller_decision: accepted,
+            precheck: { recommendation: "accept" },
+          },
+          data: { agreement },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("agreement-approval-card")).toBeInTheDocument();
+    expect(screen.getByTestId("review-link")).toHaveAttribute(
+      "href",
+      reviewUrl,
+    );
+    expect(screen.getByText("Version 1")).toBeInTheDocument();
+    expect(screen.getByText("Precheck: accept")).toBeInTheDocument();
+  });
+
+  it("does not turn a funding checkpoint into an agreement review link", () => {
+    render(
+      <AgreementReviewLinkFromResult
+        result={{
+          status: "approval_required",
+          checkpoint: "funding_approval_required",
+          hitl: { tool: "request_verifund_funding_approval", args: {} },
+          data: { agreement },
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId("agreement-approval-card")).toBeNull();
   });
 
   it("blocks funding until both reviews are accepted", () => {

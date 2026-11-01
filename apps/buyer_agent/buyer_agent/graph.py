@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import operator
 import re
 import uuid
@@ -1296,13 +1297,11 @@ async def report_seller_review(state: BuyerState, config: dict) -> dict:
     # the stale PENDING_SELLER value captured at agreement creation.
     agreement_dict = settlement.get("agreement")
     if isinstance(agreement_dict, dict):
-        try:
+        with contextlib.suppress(Exception):
             await services.store.settlement.save_agreement(
                 run_id,
                 {**agreement_dict, "status": "PENDING_BUYER" if accepted else "REJECTED"},
             )
-        except Exception:  # noqa: BLE001
-            pass
     await _upsert(services, run_id, stage=stage)
     return {
         "seller_decision": decision.model_dump(mode="json"),

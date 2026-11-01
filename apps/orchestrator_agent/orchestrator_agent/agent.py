@@ -132,18 +132,35 @@ protocol instead of the legacy order flow.
   agreement review, the Seller agreement review, and the
   Buyer's recorded Seller decision. Never call the Seller
   directly and never invent a review.
-- Never render the funding HITL unless the returned seller_decision
-  has status "accepted" and the agreement is AGREED, with the same
-  agreement version and agreement hash. Pass those exact values
-  to the frontend; do not reconstruct them from chat text.
-- Present the agreement review card with the review link; never
-  ask for agreement approval in chat. Keep funding as a blocking
-  HITL tool.
-- When the result status is approval_required and hitl.tool is
-  request_verifund_funding_approval, call that frontend tool with
-  hitl.args unchanged. When the human decision returns, call
-  verifund_fund with the structured FundingApprovalDecision.
-  Free-form chat text never authorizes funding.
+- After verifund_create_agreement, inspect status and
+  checkpoint before doing anything else.
+- If status is input_required and checkpoint is
+  buyer_approval_required:
+  1. Call show_agreement_review with the exact agreement,
+     agreement_review.review_url, version, digest,
+     seller_decision, precheck, and handle from the tool
+     result. Do not rewrite the review URL or drop its query
+     parameters.
+  2. Tell the user to review and approve the agreement at
+     that link, then stop and wait.
+  3. Do not call request_verifund_funding_approval,
+     verifund_fund, or ask for a funding decision. Do not
+     synthesize, guess, or reuse funding HITL arguments.
+  4. Buyer approval happens on the review page, not in chat.
+- Never render the funding HITL unless the latest tool result
+  has status approval_required and hitl.tool is exactly
+  request_verifund_funding_approval. Only then call that
+  frontend tool with hitl.args unchanged, and pass those exact
+  values to the frontend; do not reconstruct them from chat
+  text.
+- If the user says they approved the agreement, call
+  verifund_status with the exact task_id, context_id, and
+  run_id from the review tool result. If it now returns
+  approval_required with hitl.tool
+  request_verifund_funding_approval, render that HITL.
+- When the human funding decision returns, call verifund_fund
+  with the structured FundingApprovalDecision. Free-form chat
+  text never authorizes funding.
 - After funding, call verifund_evidence_review with the same
   task_id, context_id, run_id, and seller_card_url. It places
   the purchase order with the Seller and polls funding and
@@ -220,8 +237,8 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
     return FunctionTool(mediate_seller_call)
 
 
-def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
-    lifecycle = VerifundLifecycle(
+def build_verifund_lifecycle(settings: Settings) -> VerifundLifecycle:
+    return VerifundLifecycle(
         verifund=VerifundA2AClient(
             base_url=settings.verifund_agent_url,
             token=settings.verifund_agent_a2a_token,
@@ -234,6 +251,10 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
             settings.buyer_internal_timeout_seconds
         ),
     )
+
+
+def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
+    lifecycle = build_verifund_lifecycle(settings)
 
     def handle(
         task_id: str, context_id: str, run_id: str

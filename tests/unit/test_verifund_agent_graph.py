@@ -226,12 +226,6 @@ class Buyer:
             "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
         }
 
-    async def get_agreement(self, run_id):
-        self.calls.append(("get_agreement", run_id))
-        agreement = AGREEMENT.model_dump(mode="json")
-        agreement["status"] = "AGREED"
-        return agreement
-    
     async def approve_funding(self, run_id, decision):
         self.calls.append(("approve_funding", run_id, decision))
         return {
@@ -248,6 +242,27 @@ class Buyer:
         agreement = AGREEMENT.model_dump(mode="json")
         agreement["status"] = "AGREED"
         return agreement
+
+
+class StaleBuyer(Buyer):
+    """The buyer store never learns that the console recorded the decision."""
+
+    async def get_settlement(self, run_id):
+        self.calls.append(("get_settlement", run_id))
+        return {
+            "agreement": {
+                **AGREEMENT.model_dump(mode="json"),
+                "status": "PENDING_SELLER",
+            },
+            "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
+        }
+
+    async def get_agreement(self, run_id):
+        self.calls.append(("get_agreement", run_id))
+        return {
+            **AGREEMENT.model_dump(mode="json"),
+            "status": "PENDING_BUYER",
+        }
 
 
 def initial_state(**overrides):
@@ -299,6 +314,48 @@ async def test_graph_stops_for_seller_then_buyer_then_funding() -> None:
     assert "__interrupt__" in done
     assert done["__interrupt__"][0].value["reason"] == "funding_pending"
     assert done["funding_approval"]["approved"] is True
+
+
+async def test_buyer_approval_reaches_funding_when_the_buyer_cache_lags() -> None:
+    buyer = StaleBuyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+
+    await graph.ainvoke(initial_state(), runtime)
+    await graph.ainvoke(
+        Command(resume=review("seller").model_dump(mode="json")), runtime
+    )
+    third = await graph.ainvoke(
+        Command(resume=buyer_approval_decision().model_dump(mode="json")),
+        runtime,
+    )
+
+    funding_stop = third["__interrupt__"][0].value
+    assert funding_stop["reason"] == "funding_approval_required"
+    assert funding_stop["buyer_review"]["status"] == "accepted"
+    assert funding_stop["seller_decision"]["status"] == "accepted"
+
+
+async def test_buyer_rejection_ends_even_when_the_buyer_cache_lags() -> None:
+    buyer = StaleBuyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+
+    await graph.ainvoke(initial_state(), runtime)
+    await graph.ainvoke(
+        Command(resume=review("seller").model_dump(mode="json")), runtime
+    )
+    done = await graph.ainvoke(
+        Command(
+            resume=buyer_approval_decision(decision="REJECT").model_dump(
+                mode="json"
+            )
+        ),
+        runtime,
+    )
+
+    assert "__interrupt__" not in done
+    assert done["agreement"]["status"] == "REJECTED"
 
 
 async def test_the_buyer_is_called_once_across_every_resume() -> None:

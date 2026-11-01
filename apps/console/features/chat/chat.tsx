@@ -14,12 +14,14 @@ import { ApprovalCard } from "@/features/deal-room/components/approval-card";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import {
   AgreementReviewCard,
+  AgreementReviewLinkFromResult,
   CheckoutCard,
   EvidenceSummaryCard,
   FundingApprovalCard,
   ReceiptCard,
   ReleaseApprovalCard,
   VerifundStatusCard,
+  agreementReviewLink,
   bilateralReviewStatus,
   fundingApprovalArgsSchema,
   fundingDecision,
@@ -290,57 +292,81 @@ export function Chat({
     }),
     render: ({ status, result }) => {
       const parsed = parseVerifundToolResult(result);
-      const agreement = parsed?.data?.agreement;
-      if (status !== "complete" || !agreement) return null;
+      if (status !== "complete" || !parsed) return null;
+      if (
+        parsed.checkpoint === "buyer_approval_required" &&
+        parsed.agreement_review
+      ) {
+        return (
+          <div className="mm-chat-approval">
+            <AgreementReviewLinkFromResult result={parsed} />
+          </div>
+        );
+      }
+      const agreement = parsed.data?.agreement;
+      if (!agreement) return null;
       return (
         <div className="mm-chat-approval">
           <AgreementReviewCard
             agreement={agreement as any}
-            buyerReview={(parsed?.data?.buyer_review as any) ?? null}
-            sellerDecision={(parsed?.data?.seller_decision as any) ?? null}
+            buyerReview={(parsed.data?.buyer_review as any) ?? null}
+            sellerDecision={(parsed.data?.seller_decision as any) ?? null}
           />
         </div>
       );
     },
   });
 
-  useRenderTool({
-    name: "show_agreement_review",
-    parameters: z.object({
-      agreement: z.record(z.unknown()).optional(),
-      review_url: z.string().optional(),
-      version: z.number().optional(),
-      digest: z.string().optional(),
-      seller_decision: z.record(z.unknown()).optional(),
-      precheck: z.record(z.unknown()).optional(),
-    }),
-    render: ({ status, result }) => {
-      const parsed = (parseVerifundToolResult(result) ?? result) as any;
-      const agreement = (parsed?.agreement ?? parsed?.data?.agreement ?? parsed) as any;
-      if (status === "inProgress") {
+  useFrontendTool(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "show_agreement_review",
+      description:
+        "Display the canonical agreement review card and its review link. This tool is non-blocking; it never records a decision and never requests funding approval.",
+      available: verifundEnabled,
+      parameters: z.object({
+        agreement: z.record(z.unknown()).optional(),
+        review_url: z.string().optional(),
+        version: z.number().optional(),
+        digest: z.string().optional(),
+        seller_decision: z.record(z.unknown()).optional(),
+        precheck: z.record(z.unknown()).optional(),
+        handle: z
+          .object({
+            task_id: z.string(),
+            context_id: z.string(),
+            run_id: z.string(),
+          })
+          .optional(),
+      }),
+      handler: async (args) => ({
+        status: "displayed",
+        review_url: args.review_url ?? null,
+        next_action: "wait_for_buyer_approval",
+      }),
+      render: ({ args, status, result }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval">
+              <p>Preparing agreement review…</p>
+            </div>
+          );
+        }
+        const parsed = {
+          ...(parseVerifundToolResult(result) ?? {}),
+          ...(args as Record<string, unknown>),
+        };
+        const link = agreementReviewLink(parsed);
+        if (!link) return null;
         return (
           <div className="mm-chat-approval">
-            <p>Preparing agreement review…</p>
+            <AgreementApprovalCard {...link} />
           </div>
         );
-      }
-      if (!agreement || (typeof agreement === "object" && Object.keys(agreement).length === 0 && !parsed?.review_url)) {
-        return null;
-      }
-      return (
-        <div className="mm-chat-approval">
-          <AgreementApprovalCard
-            agreement={agreement}
-            reviewUrl={parsed?.review_url ?? parsed?.data?.review_url}
-            version={parsed?.version ?? parsed?.data?.version}
-            digest={parsed?.digest ?? parsed?.data?.digest}
-            sellerDecision={parsed?.seller_decision ?? parsed?.data?.seller_decision}
-            precheck={parsed?.precheck ?? parsed?.data?.precheck}
-          />
-        </div>
-      );
+      },
     },
-  });
+    [verifundEnabled],
+  );
 
   useRenderTool({
     name: "verifund_status",

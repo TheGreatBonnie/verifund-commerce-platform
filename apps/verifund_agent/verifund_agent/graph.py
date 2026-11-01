@@ -73,6 +73,18 @@ PENDING_CHECKPOINTS = {
     "await_release": VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED,
 }
 
+BUYER_REVIEW_STATUS = {
+    BuyerApprovalDecision.APPROVE: AgreementReviewDecision.ACCEPTED.value,
+    BuyerApprovalDecision.REJECT: AgreementReviewDecision.REJECTED.value,
+    BuyerApprovalDecision.REQUEST_CHANGES: "changes_requested",
+}
+
+BUYER_REVIEW_AGREEMENT_STATUS = {
+    AgreementReviewDecision.ACCEPTED.value: "AGREED",
+    AgreementReviewDecision.REJECTED.value: "REJECTED",
+    "changes_requested": "CHANGES_REQUESTED",
+}
+
 
 async def initialize(state: VerifundState, config: RunnableConfig) -> dict:
     return {"stage": "initialized"}
@@ -410,6 +422,15 @@ async def sync_agreement(
     # PENDING_SELLER value should be treated as PENDING_BUYER.
     if agreement.get("status") == "PENDING_SELLER" and state.get("seller_decision"):
         agreement = {**agreement, "status": "PENDING_BUYER"}
+    # The buyer may approve on the console review page, which updates the
+    # control plane directly. The buyer cache never sees that decision, so
+    # route from the decision already recorded in this lifecycle.
+    buyer_review = state.get("buyer_review") or {}
+    reviewed_status = BUYER_REVIEW_AGREEMENT_STATUS.get(
+        str(buyer_review.get("status") or "")
+    )
+    if agreement.get("status") == "PENDING_BUYER" and reviewed_status:
+        agreement = {**agreement, "status": reviewed_status}
     return {"agreement": agreement, "stage": state.get("stage", "awarded")}
 
 
@@ -464,11 +485,7 @@ async def await_buyer_approval(
     }:
         raise VerifundProtocolError("agreement is not agreed")
     buyer_review = {
-        "status": (
-            "accepted"
-            if decision.decision == BuyerApprovalDecision.APPROVE
-            else "rejected"
-        ),
+        "status": BUYER_REVIEW_STATUS[decision.decision],
         "agreement_version": decision.agreement_version,
         "agreement_hash": decision.agreement_hash,
         "reviewed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -478,10 +495,13 @@ async def await_buyer_approval(
     agreement_payload = (
         latest if isinstance(latest, dict) else agreement.model_dump(mode="json")
     )
-    agreement_payload = {**agreement_payload, "status": "AGREED"}
+    agreement_payload = {
+        **agreement_payload,
+        "status": BUYER_REVIEW_AGREEMENT_STATUS[buyer_review["status"]],
+    }
     return {
         "agreement": agreement_payload,
-        "stage": "agreed",
+        "stage": "agreed" if buyer_review["status"] == "accepted" else "reviewed",
         "buyer_review": buyer_review,
     }
 

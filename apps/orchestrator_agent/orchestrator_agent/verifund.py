@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlencode
 
 from a2a.types.a2a_pb2 import Role
 from commerce_core.a2a_parts import make_message, part_value
@@ -638,11 +639,12 @@ class VerifundLifecycle:
             view["buyer_review"] = None
             view["seller_decision"] = _review_summary(seller_decision)
             view["agreement_review"] = {
-                "review_url": f"/agreements/{agreement.agreement_id}",
+                "review_url": self._review_url(agreement, handle),
                 "version": agreement.agreement_version,
                 "digest": agreement.agreement_hash,
                 "seller_decision": _review_summary(seller_decision),
                 "precheck": None,
+                "handle": handle.as_dict(),
             }
             return view
         expected = (
@@ -673,13 +675,14 @@ class VerifundLifecycle:
         view["buyer_review"] = None
         view["seller_decision"] = _review_summary(seller_decision)
         view["agreement_review"] = {
-            "review_url": f"/agreements/{agreement.agreement_id}",
+            "review_url": self._review_url(agreement, handle),
             "version": agreement.agreement_version,
             "digest": agreement.agreement_hash,
             "seller_decision": _review_summary(seller_decision),
             "precheck": result.data.get("buyer_precheck")
             if isinstance(result.data, dict)
             else None,
+            "handle": handle.as_dict(),
         }
         return view
 
@@ -847,6 +850,22 @@ class VerifundLifecycle:
             timeout_seconds=self.buyer_internal_timeout_seconds,
         )
 
+    @staticmethod
+    def _review_url(agreement: Any, handle: VerifundTaskHandle) -> str:
+        agreement_id = (
+            agreement.agreement_id
+            if isinstance(agreement, AgreementProjection)
+            else agreement.get("agreement_id")
+        )
+        query = urlencode(
+            {
+                "task_id": handle.task_id,
+                "context_id": handle.context_id,
+                "run_id": handle.run_id,
+            }
+        )
+        return f"/agreements/{agreement_id}?{query}"
+
     def _view(
         self, handle: VerifundTaskHandle, result: VerifundTaskResult
     ) -> dict[str, Any]:
@@ -872,6 +891,25 @@ class VerifundLifecycle:
                 view["hitl"] = {
                     "tool": "request_verifund_release_approval",
                     "args": self._release_args(handle, result),
+                }
+        elif result.checkpoint is VerifundCheckpoint.BUYER_APPROVAL_REQUIRED:
+            agreement = data.get("agreement")
+            if isinstance(agreement, dict):
+                view["agreement_review"] = {
+                    "review_url": self._review_url(agreement, handle),
+                    "version": (
+                        agreement.get("agreement_version")
+                        or result.agreement_version
+                    ),
+                    "digest": (
+                        agreement.get("agreement_hash")
+                        or result.agreement_hash
+                    ),
+                    "seller_decision": _review_summary(
+                        data.get("seller_decision")
+                    ),
+                    "precheck": data.get("buyer_precheck"),
+                    "handle": handle.as_dict(),
                 }
         elif result.checkpoint is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED:
             view["status"] = "input_required"
