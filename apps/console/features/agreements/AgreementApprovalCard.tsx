@@ -47,7 +47,12 @@ export function AgreementApprovalCard({
       {pc ? (
         <p>Precheck: {typeof pc === "string" ? pc : pc.recommendation ?? pc.status}</p>
       ) : null}
-      <a href={url} data-testid="review-link">
+      <a
+        href={url}
+        data-testid="review-link"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         Review agreement
       </a>
     </section>

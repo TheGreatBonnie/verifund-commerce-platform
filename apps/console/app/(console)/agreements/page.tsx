@@ -43,7 +43,11 @@ export default async function AgreementsPage() {
           {agreements.map((agreement: any) => (
             <article key={agreement.agreement_id} className="mm-agreement-card">
               <AgreementSummary agreement={agreement} />
-              <Link href={`/agreements/${agreement.agreement_id}`}>
+              <Link
+                href={`/agreements/${agreement.agreement_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Review agreement
               </Link>
             </article>
