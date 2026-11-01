@@ -83,3 +83,7 @@ class Settings(BaseSettings):
         default=60.0,
         validation_alias=AliasChoices("VERIFUND_AGENT_TIMEOUT_SECONDS"),
     )
+    session_db_url: str = Field(
+        default="sqlite+aiosqlite:///./data/orchestrator_sessions.db",
+        validation_alias=AliasChoices("ORCHESTRATOR_SESSION_DB_URL"),
+    )
