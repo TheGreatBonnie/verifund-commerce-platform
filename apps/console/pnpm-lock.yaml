@@ -4,13 +4,18 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@ag-ui/a2a-middleware@0.0.6':
+    hash: c30325580fef115eefa3624b869e4fa1dc717ee51d9930a19ff6659461441bac
+    path: patches/@ag-ui__a2a-middleware@0.0.6.patch
+
 importers:
 
   .:
     dependencies:
       '@ag-ui/a2a-middleware':
         specifier: ^0.0.6
-        version: 0.0.6(@ag-ui/client@1.0.2)(react@19.3.1)(rxjs@7.8.1)
+        version: 0.0.6(patch_hash=c30325580fef115eefa3624b869e4fa1dc717ee51d9930a19ff6659461441bac)(@ag-ui/client@1.0.2)(react@19.3.1)(rxjs@7.8.1)
       '@ag-ui/client':
         specifier: 1.0.2
         version: 1.0.2
@@ -4669,7 +4674,7 @@ snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
-  '@ag-ui/a2a-middleware@0.0.6(@ag-ui/client@1.0.2)(react@19.3.1)(rxjs@7.8.1)':
+  '@ag-ui/a2a-middleware@0.0.6(patch_hash=c30325580fef115eefa3624b869e4fa1dc717ee51d9930a19ff6659461441bac)(@ag-ui/client@1.0.2)(react@19.3.1)(rxjs@7.8.1)':
     dependencies:
       '@a2a-js/sdk': 0.2.5
       '@ag-ui/client': 1.0.2
