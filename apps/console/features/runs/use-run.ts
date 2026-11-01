@@ -12,6 +12,11 @@ export function useRun(runId: string) {
     enabled: !!runId,
     refetchInterval: (query) => {
       const data = query.state.data;
+      // A brand-new thread has no run row yet; stop polling until one exists
+      // to avoid hammering /api/runs with 404s.
+      if (!data || query.state.status === "error") {
+        return false;
+      }
       if (isTerminalStage(data?.stage, Boolean(data?.settlement))) {
         return false;
       }

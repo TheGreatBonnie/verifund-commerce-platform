@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   UseAgentUpdate,
   useAgent,
@@ -58,6 +58,7 @@ export function useRunDetail(routeRunId: string) {
   const [buyerState, setBuyerState] = useState<BuyerState>({});
   const [isRunning, setIsRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const pendingBriefHandled = useRef(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [sellerFilter, setSellerFilter] = useState("all");
   const { run: buyerRun, refresh: refreshRun } = useRun(routeRunId);
@@ -70,6 +71,7 @@ export function useRunDetail(routeRunId: string) {
 
   useEffect(() => {
     if (routeRunId) agent.threadId = routeRunId;
+    pendingBriefHandled.current = false;
   }, [agent, routeRunId]);
 
   useEffect(() => {
@@ -118,6 +120,7 @@ export function useRunDetail(routeRunId: string) {
       setIsRunning(true);
       try {
         await copilotkit.runAgent({ agent });
+        await refreshRun();
       } catch (error) {
         setRunError(
           error instanceof Error
@@ -128,7 +131,7 @@ export function useRunDetail(routeRunId: string) {
         setIsRunning(false);
       }
     },
-    [agent, copilotkit, isReady, isRunning, routeRunId],
+    [agent, copilotkit, isReady, isRunning, refreshRun, routeRunId],
   );
 
   useEffect(() => {
@@ -142,10 +145,17 @@ export function useRunDetail(routeRunId: string) {
       // Session storage is an optional bridge from the dashboard and sidebar.
     }
     if (!pendingBrief) return;
+    if (pendingBriefHandled.current) return;
+    pendingBriefHandled.current = true;
     let cancelled = false;
     void (async () => {
       // Wait for the thread replay to settle before appending the new brief.
-      await copilotkit.connectAgent({ agent });
+      // CopilotChat may already have connected on mount; ignore failures here.
+      try {
+        await copilotkit.connectAgent({ agent });
+      } catch {
+        // ignore
+      }
       if (cancelled) return;
       await startRun(pendingBrief as string);
     })();
