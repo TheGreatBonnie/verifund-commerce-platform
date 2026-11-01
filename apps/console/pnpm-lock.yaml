@@ -13,6 +13,9 @@ importers:
 
   .:
     dependencies:
+      '@a2a-js/sdk':
+        specifier: 0.2.5
+        version: 0.2.5
       '@ag-ui/a2a-middleware':
         specifier: ^0.0.6
         version: 0.0.6(patch_hash=c30325580fef115eefa3624b869e4fa1dc717ee51d9930a19ff6659461441bac)(@ag-ui/client@1.0.2)(react@19.3.1)(rxjs@7.8.1)
