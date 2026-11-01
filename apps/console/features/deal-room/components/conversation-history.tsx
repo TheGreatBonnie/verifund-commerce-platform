@@ -6,7 +6,7 @@ import {
   useCopilotKit,
   useThreads,
 } from "@copilotkit/react-core/v2";
-import { Archive, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { shortId } from "@/lib/format";
 
@@ -27,6 +27,7 @@ export function ConversationHistory({
   const canMutate = threadEndpoints?.mutations === true;
 
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
 
@@ -66,7 +67,20 @@ export function ConversationHistory({
   return (
     <nav className="mm-conversation-history" aria-label="Conversation history">
       <header className="mm-conversation-history-head">
-        <span className="mm-kicker">Conversations</span>
+        <button
+          type="button"
+          className="mm-conversation-toggle"
+          aria-expanded={!collapsed}
+          aria-controls="mm-conversation-body"
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          {collapsed ? (
+            <ChevronRight size={13} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={13} aria-hidden="true" />
+          )}
+          <span className="mm-kicker">Conversations</span>
+        </button>
         <Button
           size="sm"
           variant="ghost"
@@ -76,6 +90,9 @@ export function ConversationHistory({
           <Plus size={13} aria-hidden="true" />
         </Button>
       </header>
+
+      {!collapsed ? (
+        <div id="mm-conversation-body">
 
       {isLoading ? <p className="mm-muted">Loading…</p> : null}
       {listError ? (
@@ -184,6 +201,8 @@ export function ConversationHistory({
         />
         Show archived
       </label>
+      </div>
+      ) : null}
     </nav>
   );
 }

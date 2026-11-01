@@ -4836,3 +4836,18 @@
   font-size: 12px;
   color: var(--muted);
 }
+
+.mm-conversation-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 0;
+}
+
+.mm-conversation-toggle .mm-kicker {
+  margin: 0;
+}
