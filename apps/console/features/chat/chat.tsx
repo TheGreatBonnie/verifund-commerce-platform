@@ -50,6 +50,7 @@ type ChatProps = {
   onRunSample: () => void;
   isRunning: boolean;
   isReady: boolean;
+  threadId?: string;
   onBuyerStateUpdate?: (state: BuyerState) => void;
   variant?: "rail" | "embedded";
   verifundMode?: string;
@@ -140,6 +141,7 @@ export function Chat({
   onRunSample,
   isRunning,
   isReady,
+  threadId,
   onBuyerStateUpdate,
   variant = "rail",
   verifundMode,
@@ -632,6 +634,7 @@ export function Chat({
       <div className="mm-chat-surface">
         <CopilotChat
           agentId="marketmesh_orchestrator"
+          threadId={threadId}
           className="mm-copilot-chat"
           labels={{
             welcomeMessageText:

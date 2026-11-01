@@ -1,4 +1,5 @@
 import { render } from "@testing-library/react";
+import { CopilotChat } from "@copilotkit/react-core/v2";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const hooks = vi.hoisted(() => ({
@@ -8,7 +9,7 @@ const hooks = vi.hoisted(() => ({
 }));
 
 vi.mock("@copilotkit/react-core/v2", () => ({
-  CopilotChat: () => <div data-testid="copilot-chat" />,
+  CopilotChat: vi.fn(() => <div data-testid="copilot-chat" />),
   useAgent: () => ({ agent: { messages: [] }, isReady: true }),
   useFrontendTool: hooks.useFrontendTool,
   useHumanInTheLoop: hooks.useHumanInTheLoop,
@@ -17,12 +18,13 @@ vi.mock("@copilotkit/react-core/v2", () => ({
 
 import { Chat } from "./chat";
 
-function renderChat() {
+function renderChat(threadId?: string) {
   return render(
     <Chat
       onRunSample={vi.fn()}
       isRunning={false}
       isReady
+      threadId={threadId}
       verifundMode="fake"
     />,
   );
@@ -58,5 +60,14 @@ describe("chat verifund tools", () => {
       ([tool]) => tool.name,
     );
     expect(renderNames).not.toContain("show_agreement_review");
+  });
+});
+
+describe("chat thread wiring", () => {
+  it("forwards the thread id to CopilotChat", () => {
+    renderChat("thread-1");
+
+    const copilotCall = vi.mocked(CopilotChat).mock.calls.at(-1);
+    expect(copilotCall?.[0]).toMatchObject({ threadId: "thread-1" });
   });
 });
