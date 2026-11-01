@@ -1,9 +1,51 @@
 import { notFound } from "next/navigation";
-import { fetchAgreement, fetchAgreementVersions } from "@/lib/api";
 import { AgreementDocument } from "@/features/agreements/AgreementDocument";
 import { AgreementSummary } from "@/features/agreements/AgreementSummary";
 import { VersionHistory } from "@/features/agreements/VersionHistory";
 import { AgreementDecisionPanel } from "./AgreementDecisionPanel";
+
+const CONTROL_PLANE =
+  process.env.VERIFUND_CONTROL_PLANE_URL ?? "http://127.0.0.1:9300";
+
+function actorHeaders() {
+  return {
+    "X-Actor-Id": "demo-buyer",
+    "X-Actor-Type": "buyer",
+  };
+}
+
+async function fetchAgreementServer(id: string): Promise<any | null> {
+  try {
+    const response = await fetch(
+      `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}`,
+      {
+        cache: "no-store",
+        headers: actorHeaders(),
+      },
+    );
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAgreementVersionsServer(id: string): Promise<any[]> {
+  try {
+    const response = await fetch(
+      `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}/versions`,
+      {
+        cache: "no-store",
+        headers: actorHeaders(),
+      },
+    );
+    if (!response.ok) return [];
+    const body = await response.json();
+    return Array.isArray(body) ? body : (body?.versions ?? []);
+  } catch {
+    return [];
+  }
+}
 
 export default async function AgreementReviewPage({
   params,
@@ -14,20 +56,10 @@ export default async function AgreementReviewPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  let agreement: any;
-  try {
-    agreement = await fetchAgreement(id);
-  } catch {
-    notFound();
-  }
+  const agreement = await fetchAgreementServer(id);
   if (!agreement) notFound();
 
-  let versions: any[] = [];
-  try {
-    versions = await fetchAgreementVersions(id);
-  } catch {
-    versions = [];
-  }
+  const versions = await fetchAgreementVersionsServer(id);
 
   const handle =
     typeof query.task_id === "string" &&
