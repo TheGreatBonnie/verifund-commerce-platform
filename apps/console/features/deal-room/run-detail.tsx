@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chat } from "@/features/chat/chat";
+import { ConversationHistory } from "@/features/deal-room/components/conversation-history";
 import { shortId, stageLabel } from "@/lib/format";
 import { config } from "@/lib/config";
 import { RunDetailWorkspace } from "./components/run-detail-workspace";
@@ -63,7 +64,9 @@ export function RunDetail({
         isRunning={detail.isRunning}
         onRunSample={() => void detail.startRun()}
         conversation={
-          <Chat
+          <>
+            <ConversationHistory activeThreadId={runId} />
+            <Chat
             variant="embedded"
             threadId={runId}
             onRunSample={() => void detail.startRun()}
@@ -73,6 +76,7 @@ export function RunDetail({
             verifundMode={config.verifundMode}
             onVerifundAction={() => void detail.refreshRun?.()}
           />
+          </>
         }
         runError={detail.runError}
         onClearRunError={detail.clearRunError}
