@@ -422,6 +422,28 @@ async def test_agreement_create_rejects_a_run_mismatch() -> None:
     assert buyer.calls == []
 
 
+async def test_agreement_create_rejects_a_second_run_on_the_same_thread() -> None:
+    value, _buyer = service()
+    await value.handle(task_request(), task_id="task-1", context_id="thread-1")
+
+    second = await value.handle(
+        task_request(
+            run_id="run-2",
+            idempotency_key="agreement:run-2:offer-1",
+            payload={
+                "award": award(run_id="run-2"),
+                "buyer_task_id": "buyer-task-2",
+                "buyer_context_id": "thread-1",
+            },
+        ),
+        task_id="task-2",
+        context_id="thread-1",
+    )
+
+    assert second.status == "failed"
+    assert "conversation" in second.message.lower()
+
+
 async def test_agreement_create_is_idempotent_for_the_same_task() -> None:
     value, _buyer = service()
     first = await value.handle(

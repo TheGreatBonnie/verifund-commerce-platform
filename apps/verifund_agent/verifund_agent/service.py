@@ -88,10 +88,10 @@ class VerifundAgentService:
         self.graph = graph
         self.buyer = buyer
 
-    def _config(self, task_id: str) -> dict[str, Any]:
+    def _config(self, context_id: str) -> dict[str, Any]:
         return {
             "configurable": {
-                "thread_id": task_id,
+                "thread_id": context_id,
                 "buyer": self.buyer,
             }
         }
@@ -151,7 +151,7 @@ class VerifundAgentService:
                 run_id=resume.run_id,
                 message="resume task does not match the A2A task",
             )
-        config = self._config(task_id)
+        config = self._config(context_id)
         snapshot = await self.graph.aget_state(config)
         if not snapshot.values:
             return self._failed(
@@ -212,8 +212,8 @@ class VerifundAgentService:
             output, skill=skill, task_id=task_id, run_id=resume.run_id
         )
 
-    async def get_agreement(self, task_id: str) -> dict[str, Any]:
-        snapshot = await self.graph.aget_state(self._config(task_id))
+    async def get_agreement(self, context_id: str) -> dict[str, Any]:
+        snapshot = await self.graph.aget_state(self._config(context_id))
         if not snapshot.values:
             return {}
         agreement = snapshot.values.get("agreement")
@@ -252,7 +252,7 @@ class VerifundAgentService:
                 run_id=request.run_id,
                 message="agreement requires the original Buyer task and context",
             )
-        config = self._config(task_id)
+        config = self._config(context_id)
         snapshot = await self.graph.aget_state(config)
         if snapshot.values:
             if snapshot.values.get("run_id") != request.run_id:
@@ -260,7 +260,10 @@ class VerifundAgentService:
                     skill=request.skill,
                     task_id=task_id,
                     run_id=request.run_id,
-                    message="A2A task already owns a different run",
+                    message=(
+                        "This conversation already has a lifecycle task. "
+                        "Start a new conversation."
+                    ),
                 )
             return self._snapshot_result(
                 snapshot, skill=request.skill, task_id=task_id
@@ -288,7 +291,7 @@ class VerifundAgentService:
         task_id: str,
         context_id: str,
     ) -> VerifundTaskResult:
-        snapshot = await self.graph.aget_state(self._config(task_id))
+        snapshot = await self.graph.aget_state(self._config(context_id))
         if not snapshot.values:
             return self._failed(
                 skill=request.skill,
@@ -311,7 +314,7 @@ class VerifundAgentService:
             if self._poll_is_ready(pending, projection):
                 output = await self.graph.ainvoke(
                     Command(resume={"projection": projection}),
-                    self._config(task_id),
+                    self._config(context_id),
                 )
                 return self._output_result(
                     output,
