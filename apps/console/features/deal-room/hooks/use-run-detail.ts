@@ -106,8 +106,6 @@ export function useRunDetail(routeRunId: string) {
     async (brief: string) => {
       if (isRunning || !isReady) return;
       agent.threadId = routeRunId;
-      agent.setMessages([]);
-      agent.setState({});
       setBuyerState({});
       setRunError(null);
       setHasStarted(true);
@@ -143,8 +141,18 @@ export function useRunDetail(routeRunId: string) {
     } catch {
       // Session storage is an optional bridge from the dashboard and sidebar.
     }
-    if (pendingBrief) void startRun(pendingBrief);
-  }, [isReady, startRun]);
+    if (!pendingBrief) return;
+    let cancelled = false;
+    void (async () => {
+      // Wait for the thread replay to settle before appending the new brief.
+      await copilotkit.connectAgent({ agent });
+      if (cancelled) return;
+      await startRun(pendingBrief as string);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agent, copilotkit, isReady, routeRunId, startRun]);
 
   const onBuyerStateUpdate = useCallback((next: BuyerState) => {
     setBuyerState((current) => {

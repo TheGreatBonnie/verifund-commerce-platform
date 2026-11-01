@@ -65,6 +65,7 @@ export function RunDetail({
         conversation={
           <Chat
             variant="embedded"
+            threadId={runId}
             onRunSample={() => void detail.startRun()}
             isRunning={detail.isRunning}
             isReady={detail.isReady}
