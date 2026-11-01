@@ -766,9 +766,10 @@ export function AgreementApprovalHitlCard({
           disabled={pending}
         />
       </label>
-      <div className="mm-approval-actions">
+      <div className="mm-approval-actions mm-approval-actions-split">
         <button
           type="button"
+          className="mm-button mm-button-signal mm-approval-primary"
           disabled={pending}
           onClick={() => decide(approveAgreement, "APPROVE")}
         >
@@ -776,6 +777,7 @@ export function AgreementApprovalHitlCard({
         </button>
         <button
           type="button"
+          className="mm-button mm-button-outline-danger"
           disabled={pending}
           onClick={() => decide(rejectAgreement, "REJECT")}
         >
@@ -783,6 +785,7 @@ export function AgreementApprovalHitlCard({
         </button>
         <button
           type="button"
+          className="mm-button mm-button-outline"
           disabled={pending}
           onClick={() => decide(requestChangesAgreement, "REQUEST_CHANGES")}
         >

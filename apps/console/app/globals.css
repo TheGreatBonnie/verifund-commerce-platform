@@ -2748,6 +2748,14 @@
   font-size: 10.5px;
 }
 
+.mm-approval-actions-split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mm-approval-actions-split .mm-approval-primary {
+  grid-column: 1 / -1;
+}
+
 /* ---------- Card accents: signal green for muted labels/notes ---------- */
 .mm-approval .mm-kicker,
 .mm-approval .mm-mono-note {
