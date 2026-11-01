@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import FastAPI, HTTPException
+from google.adk.sessions import DatabaseSessionService
 from pydantic import BaseModel
 from verifund_contracts import BuyerAgreementApprovalDecision
 
@@ -20,15 +21,21 @@ class ResumeAgreementRequest(BaseModel):
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     agent = build_agent(settings)
+    session_service = DatabaseSessionService(settings.session_db_url)
     adk_agent = ADKAgent(
         adk_agent=agent,
         app_name="marketmesh_orchestrator",
         user_id="demo_user",
-        session_timeout_seconds=3600,
+        session_timeout_seconds=30 * 24 * 3600,
         use_in_memory_services=True,
+        session_service=session_service,
+        use_thread_id_as_session_id=True,
+        delete_session_on_cleanup=False,
+        save_session_to_memory_on_cleanup=False,
     )
     app = FastAPI(title="MarketMesh Orchestrator")
     app.state.settings = settings
+    app.state.adk_agent = adk_agent
     add_adk_fastapi_endpoint(app, adk_agent, path="/")
 
     @app.get("/health")

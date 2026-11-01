@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi.testclient import TestClient
+from google.adk.sessions import DatabaseSessionService
 from orchestrator_agent import server as server_module
 from orchestrator_agent.settings import Settings
 from orchestrator_agent.verifund import VerifundProtocolError
@@ -94,3 +95,18 @@ def test_resume_agreement_endpoint_rejects_an_unknown_decision(monkeypatch) -> N
     response = client.post("/verifund/resume-agreement", json=body)
 
     assert response.status_code == 422
+
+
+def test_create_app_uses_a_durable_thread_keyed_session_manager(tmp_path) -> None:
+    db = tmp_path / "sessions.db"
+    settings = Settings(llm_mode="fake", session_db_url=f"sqlite+aiosqlite:///{db}")
+
+    app = server_module.create_app(settings)
+
+    adk_agent = app.state.adk_agent
+    manager = adk_agent._session_manager
+    assert manager._use_thread_id_as_session_id is True
+    assert manager._delete_session_on_cleanup is False
+    assert manager._save_session_to_memory_on_cleanup is False
+    inner_service = manager._session_service._inner
+    assert isinstance(inner_service, DatabaseSessionService)
