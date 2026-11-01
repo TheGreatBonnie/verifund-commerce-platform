@@ -152,6 +152,25 @@ account, webhook, tunnel, and payout setup, and
 [`docs/superpowers/specs/2026-10-27-verifund-control-plane-design.md`](docs/superpowers/specs/2026-10-27-verifund-control-plane-design.md)
 for the design.
 
+## Conversation history
+
+Durable, per-user conversation history is built on CopilotKit Intelligence and a
+durable ADK session store:
+
+- Set `CPK_INTELLIGENCE_API_KEY` (and optional `INTELLIGENCE_API_URL` /
+  `INTELLIGENCE_GATEWAY_WS_URL`) before building the console. Without a key, the
+  history panel is hidden and the runtime falls back to the in-memory agent runner.
+- Create the `demo-user` user in the Intelligence project; `identifyUser` returns
+  `{ id: "demo-user", name: "Demo User" }`.
+- The orchestrator persists ADK sessions in `./data/orchestrator_sessions.db`
+  (`ORCHESTRATOR_SESSION_DB_URL`). Ensure the directory is writable and persisted
+  across restarts.
+- Buyer and Verifund agents already use SQLite checkpoints (`checkpoint_path`).
+- The A2A middleware patch in `apps/console/patches/` is applied automatically
+  via pnpm, so `contextId` is propagated from the CopilotKit thread id.
+- One conversation thread maps to one procurement run. Starting a new run mints a
+  new thread.
+
 ### Tests
 
 - `cd apps/console && pnpm run test` — Vitest unit/component tests.
