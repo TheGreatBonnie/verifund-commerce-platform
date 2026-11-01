@@ -121,6 +121,7 @@ class BuyerExecutor(AgentExecutor):
         *,
         reason: str,
         message: str,
+        code: str = "invalid_request",
     ) -> None:
         response = {
             "status": "failed",
@@ -128,7 +129,7 @@ class BuyerExecutor(AgentExecutor):
             "message": message,
             "reason": reason,
             "error": {
-                "code": "invalid_request",
+                "code": code,
                 "message": message,
                 "retryable": False,
                 "details": {},
@@ -150,9 +151,9 @@ class BuyerExecutor(AgentExecutor):
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id or str(uuid.uuid4())
         context_id = context.context_id or task_id
-        thread_id = context_id
         text = self._message_text(context.message)
         payload = self._payload(text)
+        thread_id = context.context_id or str(payload.get("task_id") or task_id)
 
         message = context.message
         envelope = first_envelope(message) if message is not None else None
@@ -286,12 +287,6 @@ class BuyerExecutor(AgentExecutor):
                     }
                     if pending.get("seller_token_ref"):
                         resume["seller_token_ref"] = str(pending["seller_token_ref"])
-                    thread_id = str(
-                        review_request.buyer_context_id
-                        or context.context_id
-                        or thread_id
-                    )
-                    config["configurable"]["thread_id"] = thread_id
                 else:
                     agreement = AgreementProjection.model_validate(
                         pending.get("agreement") or {}
@@ -312,17 +307,27 @@ class BuyerExecutor(AgentExecutor):
             if resume is not None:
                 result = await self.graph.ainvoke(Command(resume=resume), config=config)
             elif "approval" in payload and "task_id" in payload:
-                thread_id = str(payload["task_id"])
-                config["configurable"]["thread_id"] = thread_id
                 decision = normalize_approval(payload["approval"])
                 result = await self.graph.ainvoke(Command(resume=decision), config=config)
             elif "seller_result" in payload and "task_id" in payload:
-                thread_id = str(payload["task_id"])
-                config["configurable"]["thread_id"] = thread_id
                 result = await self.graph.ainvoke(
                     Command(resume=payload["seller_result"]), config=config
                 )
             else:
+                snapshot = await self.graph.aget_state(config)
+                if snapshot.values and snapshot.values.get("stage") not in (None, "new"):
+                    await self._fail(
+                        event_queue,
+                        task_id,
+                        context_id,
+                        reason="thread_in_use",
+                        code="thread_in_use",
+                        message=(
+                            "This conversation already contains a run. "
+                            "Start a new conversation for a new purchase."
+                        ),
+                    )
+                    return
                 brief = str(payload.get("brief") or text)
                 result = await self.graph.ainvoke(
                     {

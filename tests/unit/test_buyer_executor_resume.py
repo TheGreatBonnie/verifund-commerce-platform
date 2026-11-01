@@ -25,13 +25,17 @@ FLAT_APPROVAL_MESSAGE = (
 
 
 class SpyGraph:
-    def __init__(self, result: dict | None = None) -> None:
+    def __init__(self, result: dict | None = None, values: dict | None = None) -> None:
         self.calls: list[tuple[object, dict]] = []
+        self.values = values or {}
         self.result = result or {
             "stage": "ordered",
             "messages": [],
             "order": {"order_id": "MM-TEST-ORDER"},
         }
+
+    async def aget_state(self, config):
+        return SimpleNamespace(values=self.values, interrupts=())
 
     async def ainvoke(self, payload, config):
         self.calls.append((payload, config))
@@ -95,7 +99,7 @@ async def test_flat_approval_resumes_the_approved_run():
         "approved_by": "Demo Buyer",
         "note": "",
     }
-    assert config["configurable"]["thread_id"] == RUN_ID
+    assert config["configurable"]["thread_id"] == "a2a-ctx"
     assert _status_responses(queue)[-1]["status"] == "ordered"
 
 
@@ -116,7 +120,7 @@ async def test_nested_approval_resumes_the_approved_run():
     payload, config = graph.calls[0]
     assert isinstance(payload, Command)
     assert payload.resume["approved"] is True
-    assert config["configurable"]["thread_id"] == RUN_ID
+    assert config["configurable"]["thread_id"] == "a2a-ctx"
 
 
 @pytest.mark.asyncio
