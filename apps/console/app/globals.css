@@ -686,6 +686,54 @@
   padding: 0 16px 16px;
 }
 
+.mm-agreement-approval-card {
+  border: 1px solid var(--ink);
+  border-top: 4px solid var(--signal);
+  border-radius: var(--radius);
+  background: #fbf9ee;
+  box-shadow: 4px 4px 0 rgba(216, 243, 106, 0.65);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mm-agreement-approval-card .mm-kicker {
+  color: var(--signal);
+  font-family: var(--font-spline-sans-mono), monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 9px;
+}
+
+.mm-agreement-approval-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.mm-agreement-approval-card [data-testid="review-link"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius);
+  background: var(--signal);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.mm-agreement-approval-card [data-testid="review-link"]:hover {
+  background: var(--signal-deep);
+  border-color: var(--signal-deep);
+}
+
 .mm-chat-approval-pending,
 .mm-chat-approval-result {
   margin: 0 16px 12px;
