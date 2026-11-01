@@ -895,8 +895,9 @@ class VerifundLifecycle:
         elif result.checkpoint is VerifundCheckpoint.BUYER_APPROVAL_REQUIRED:
             agreement = data.get("agreement")
             if isinstance(agreement, dict):
+                review_url = self._review_url(agreement, handle)
                 view["agreement_review"] = {
-                    "review_url": self._review_url(agreement, handle),
+                    "review_url": review_url,
                     "version": (
                         agreement.get("agreement_version")
                         or result.agreement_version
@@ -910,6 +911,26 @@ class VerifundLifecycle:
                     ),
                     "precheck": data.get("buyer_precheck"),
                     "handle": handle.as_dict(),
+                }
+                view["hitl"] = {
+                    "tool": "request_verifund_agreement_approval",
+                    "args": {
+                        "agreement": agreement,
+                        "review_url": review_url,
+                        "version": (
+                            agreement.get("agreement_version")
+                            or result.agreement_version
+                        ),
+                        "digest": (
+                            agreement.get("agreement_hash")
+                            or result.agreement_hash
+                        ),
+                        "seller_decision": _review_summary(
+                            data.get("seller_decision")
+                        ),
+                        "precheck": data.get("buyer_precheck"),
+                        "handle": handle.as_dict(),
+                    },
                 }
         elif result.checkpoint is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED:
             view["status"] = "input_required"

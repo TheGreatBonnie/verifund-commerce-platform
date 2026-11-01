@@ -135,18 +135,18 @@ protocol instead of the legacy order flow.
 - After verifund_create_agreement, inspect status and
   checkpoint before doing anything else.
 - If status is input_required and checkpoint is
-  buyer_approval_required:
-  1. Call show_agreement_review with the exact agreement,
-     agreement_review.review_url, version, digest,
-     seller_decision, precheck, and handle from the tool
-     result. Do not rewrite the review URL or drop its query
-     parameters.
-  2. Tell the user to review and approve the agreement at
-     that link, then stop and wait.
-  3. Do not call request_verifund_funding_approval,
-     verifund_fund, or ask for a funding decision. Do not
-     synthesize, guess, or reuse funding HITL arguments.
-  4. Buyer approval happens on the review page, not in chat.
+  buyer_approval_required and hitl.tool is exactly
+  request_verifund_agreement_approval:
+  1. Call request_verifund_agreement_approval with hitl.args
+     unchanged. Do not rewrite the review URL or drop its
+     query parameters; the full document remains available at
+     agreement_review.review_url.
+  2. Wait for the human decision from that HITL card. Do not
+     call request_verifund_funding_approval, verifund_fund,
+     or ask for a funding decision until the HITL resolves.
+  3. Do not synthesize, guess, or reuse HITL arguments.
+  4. Buyer approval happens through the HITL card, not via
+     free-form chat text.
 - Never render the funding HITL unless the latest tool result
   has status approval_required and hitl.tool is exactly
   request_verifund_funding_approval. Only then call that

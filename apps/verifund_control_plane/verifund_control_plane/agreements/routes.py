@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import HTMLResponse
 from verifund_contracts import (
@@ -76,10 +78,8 @@ async def list_agreements(request: Request, transaction_id: str | None = None):
     agreements = await svc.list()
     views = []
     for agreement in agreements:
-        try:
+        with contextlib.suppress(Exception):
             views.append(await _view(svc, agreement))
-        except Exception:  # noqa: BLE001
-            continue
     return views
 
 

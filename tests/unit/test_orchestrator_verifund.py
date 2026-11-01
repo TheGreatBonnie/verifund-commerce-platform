@@ -449,7 +449,12 @@ async def test_lifecycle_defers_the_buyer_decision_to_the_human_approval() -> No
     assert result["checkpoint"] == "buyer_approval_required"
     assert result["seller_decision"]["status"] == "accepted"
     assert result["buyer_review"] is None
-    assert "hitl" not in result
+    assert result["hitl"]["tool"] == "request_verifund_agreement_approval"
+    assert result["hitl"]["args"]["handle"] == {
+        "task_id": "vf-task-1",
+        "context_id": "vf-context-1",
+        "run_id": "run-1",
+    }
     review = result["agreement_review"]
     assert review["version"] == AGREEMENT.agreement_version
     assert review["digest"] == AGREEMENT.agreement_hash
@@ -794,10 +799,11 @@ def test_orchestrator_instruction_describes_the_verifund_settlement_flow() -> No
 
 def test_orchestrator_instruction_blocks_funding_until_buyer_approval() -> None:
     instruction = MARKETMESH_ORCHESTRATOR_INSTRUCTION
-    assert "show_agreement_review" in instruction
+    assert "request_verifund_agreement_approval" in instruction
     assert "buyer_approval_required" in instruction
     assert "agreement_review.review_url" in instruction
-    assert "Do not call request_verifund_funding_approval" in instruction
+    assert "request_verifund_funding_approval" in instruction
+    assert "verifund_fund" in instruction
     assert "synthesize" in instruction.lower()
     assert "approval_required" in instruction
     assert "hitl.tool" in instruction

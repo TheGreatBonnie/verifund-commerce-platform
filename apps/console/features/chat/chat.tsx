@@ -21,6 +21,8 @@ import {
   ReceiptCard,
   ReleaseApprovalCard,
   VerifundStatusCard,
+  AgreementApprovalHitlCard,
+  agreementApprovalArgsSchema,
   agreementReviewLink,
   bilateralReviewStatus,
   fundingApprovalArgsSchema,
@@ -248,6 +250,46 @@ export function Chat({
                 }}
               />
             </div>
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_agreement_approval",
+      description:
+        "Show the canonical agreement and wait for an explicit human buyer approval decision.",
+      available: verifundEnabled,
+      parameters: agreementApprovalArgsSchema,
+      render: ({ args, status, respond }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval-pending" role="status">
+              Preparing the agreement for your review…
+            </div>
+          );
+        }
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <AgreementApprovalHitlCard
+                args={args as any}
+                respond={respond}
+                onVerifundAction={onVerifundAction}
+              />
+            </div>
+          );
+        }
+        if (status === "complete") {
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              Agreement decision recorded. Continuing…
+            </p>
           );
         }
         return null;

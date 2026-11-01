@@ -4,6 +4,12 @@ import { useState } from "react";
 import { z } from "zod";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import type { SettlementProjection, SettlementReceipt } from "@/lib/types";
+import {
+  approveAgreement,
+  rejectAgreement,
+  requestChangesAgreement,
+  type ResumeHandle,
+} from "@/app/(console)/agreements/[id]/actions";
 
 export const reviewDecisionSchema = z.object({
   status: z.enum(["accepted", "rejected"]),
@@ -58,10 +64,27 @@ export const releaseApprovalArgsSchema = z.object({
   message: z.string().default("Release this transaction."),
 });
 
+export const agreementApprovalArgsSchema = z.object({
+  agreement: z.record(z.unknown()),
+  review_url: z.string().optional(),
+  version: z.number().int().positive().optional(),
+  digest: z.string().optional(),
+  seller_decision: z.record(z.unknown()).nullable().optional(),
+  precheck: z.record(z.unknown()).nullable().optional(),
+  handle: z
+    .object({
+      task_id: z.string(),
+      context_id: z.string(),
+      run_id: z.string(),
+    })
+    .optional(),
+});
+
 export type VerifundAgreement = z.infer<typeof agreementSchema>;
 export type ReviewDecision = z.infer<typeof reviewDecisionSchema>;
 export type FundingApprovalArgs = z.infer<typeof fundingApprovalArgsSchema>;
 export type ReleaseApprovalArgs = z.infer<typeof releaseApprovalArgsSchema>;
+export type AgreementApprovalArgs = z.infer<typeof agreementApprovalArgsSchema>;
 
 export type FundingDecision = {
   run_id: string;
@@ -638,5 +661,139 @@ export function VerifundStatusCard({
     <p className="mm-chat-approval-result" data-testid="verifund-status">
       {message || verifundStatusLabel(status, checkpoint, state)}
     </p>
+  );
+}
+
+export function AgreementApprovalHitlCard({
+  args,
+  respond,
+  onVerifundAction,
+}: {
+  args: AgreementApprovalArgs;
+  respond?: (result: unknown) => Promise<void>;
+  onVerifundAction?: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const a = (args?.agreement ?? {}) as Record<string, any>;
+  const id = String(a.agreement_id ?? a.id ?? "");
+  const version = Number(args?.version ?? a.current_version ?? a.agreement_version ?? 1);
+  const hash = String(args?.digest ?? a.agreement_hash ?? a.version?.agreement_hash ?? "");
+  const handle: ResumeHandle | null =
+    args?.handle?.task_id && args?.handle?.context_id && args?.handle?.run_id
+      ? {
+          task_id: args.handle.task_id,
+          context_id: args.handle.context_id,
+          run_id: args.handle.run_id,
+        }
+      : null;
+  const url = args?.review_url ?? a.review_url;
+  const seller = args?.seller_decision ?? a.seller_decision;
+  const pc = args?.precheck;
+
+  const decide = async (
+    action: (id: string, version: number, hash: string, note: string, key: string, handle?: ResumeHandle | null) => Promise<any>,
+    decision: "APPROVE" | "REJECT" | "REQUEST_CHANGES",
+  ) => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    const key = `buyer-decision:${decision}:${id}:${version}:${crypto.randomUUID()}`;
+    try {
+      const result = await action(id, version, hash, note, key, handle);
+      if (!result?.decisionRecorded) {
+        setError(result?.error ?? "decision_failed");
+        return;
+      }
+      await respond?.(result);
+      onVerifundAction?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "decision_failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <section
+      data-testid="agreement-approval-hitl"
+      className="mm-approval"
+    >
+      <div className="mm-verifund-head">
+        <div>
+          <p className="mm-kicker">Agreement review</p>
+          <h3>
+            <span>{a.seller_id ?? "Seller"}</span>
+          </h3>
+        </div>
+      </div>
+      <div className="mm-verifund-detail">
+        <div>
+          <p className="mm-kicker">Version</p>
+          <strong>{version}</strong>
+        </div>
+        <div>
+          <p className="mm-kicker">Digest</p>
+          <strong>{String(hash).slice(0, 12)}</strong>
+        </div>
+        {seller ? (
+          <div>
+            <p className="mm-kicker">Seller</p>
+            <strong>{typeof seller === "string" ? seller : String(seller.status ?? seller.decision)}</strong>
+          </div>
+        ) : null}
+        {pc ? (
+          <div>
+            <p className="mm-kicker">Precheck</p>
+            <strong>{typeof pc === "string" ? pc : String(pc.recommendation ?? pc.status)}</strong>
+          </div>
+        ) : null}
+      </div>
+      {url ? (
+        <p className="mm-verifund-meta">
+          <a href={url} target="_blank" rel="noopener noreferrer">
+            Open full review page
+          </a>
+        </p>
+      ) : null}
+      <label className="mm-note-field">
+        Note
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          disabled={pending}
+        />
+      </label>
+      <div className="mm-approval-actions">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => decide(approveAgreement, "APPROVE")}
+        >
+          {pending ? "Working…" : "Approve"}
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => decide(rejectAgreement, "REJECT")}
+        >
+          Reject
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => decide(requestChangesAgreement, "REQUEST_CHANGES")}
+        >
+          Request changes
+        </button>
+      </div>
+      {error ? (
+        <p role="alert" data-testid="agreement-hitl-error">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }
