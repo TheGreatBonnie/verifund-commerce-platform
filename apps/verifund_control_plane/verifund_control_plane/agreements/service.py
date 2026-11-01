@@ -629,6 +629,9 @@ class AgreementService:
     async def get_by_transaction(self, transaction_id, conn=None):
         return await self.repo.get_by_transaction(transaction_id, conn=conn)
 
+    async def list(self, conn=None):
+        return await self.repo.list_all(conn=conn)
+
     async def list_versions(self, agreement_id):
         return await self.repo.list_versions(agreement_id)
 

@@ -166,6 +166,15 @@ export function settlementEvidenceUrl(
 }
 
 
+export async function fetchAgreements(): Promise<AgreementView[]> {
+  const response = await fetch("/api/agreements", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Agreements request failed (${response.status})`);
+  }
+  const body = await response.json();
+  return Array.isArray(body) ? (body as AgreementView[]) : [];
+}
+
 export async function fetchAgreement(id: string): Promise<AgreementView> {
   const response = await fetch(`/api/agreements/${encodeURIComponent(id)}`, {
     cache: "no-store",

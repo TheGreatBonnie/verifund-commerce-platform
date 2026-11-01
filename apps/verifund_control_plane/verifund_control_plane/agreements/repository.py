@@ -303,6 +303,23 @@ class AgreementRepository:
             return None
         return await self.get(row["agreement_id"], conn=conn)
 
+    async def list_all(self, conn=None) -> list[Agreement]:
+        if conn is None:
+            async with self.engine.connect() as c:
+                return await self._list_all_with_conn(c)
+        return await self._list_all_with_conn(conn)
+
+    async def _list_all_with_conn(self, conn) -> list[Agreement]:
+        rows = (await conn.execute(
+            self.agreements.select().order_by(self.agreements.c.created_at.desc())
+        )).mappings().all()
+        result: list[Agreement] = []
+        for row in rows:
+            agr = await self.get(row["agreement_id"], conn=conn)
+            if agr is not None:
+                result.append(agr)
+        return result
+
     async def get_version(self, agreement_id: str, version: int, conn=None) -> AgreementVersion | None:
         if conn is None:
             async with self.engine.connect() as c:

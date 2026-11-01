@@ -66,12 +66,21 @@ async def _view(svc: AgreementService, agreement) -> dict:
 
 
 @router.get("")
-async def list_agreements(transaction_id: str, request: Request):
+async def list_agreements(request: Request, transaction_id: str | None = None):
     svc = get_service(request)
-    agreement = await svc.get_by_transaction(transaction_id)
-    if agreement is None:
-        return []
-    return [await _view(svc, agreement)]
+    if transaction_id:
+        agreement = await svc.get_by_transaction(transaction_id)
+        if agreement is None:
+            return []
+        return [await _view(svc, agreement)]
+    agreements = await svc.list()
+    views = []
+    for agreement in agreements:
+        try:
+            views.append(await _view(svc, agreement))
+        except Exception:  # noqa: BLE001
+            continue
+    return views
 
 
 @router.get("/{agreement_id}")
