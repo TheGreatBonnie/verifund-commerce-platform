@@ -248,6 +248,52 @@ async def test_paypal_return_redirects_to_the_console_run(tmp_path):
             )
 
 
+async def test_paypal_return_captures_an_approved_order(tmp_path):
+    settings = Settings(
+        _env_file=None,
+        mode="fake",
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}",
+        evidence_dir=tmp_path / "evidence",
+        reconciler_enabled=False,
+        public_base_url="http://test",
+        console_base_url="http://console.test",
+    )
+    app = create_app(settings, clock=lambda: NOW)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            award = await agreed(client)
+            await fund(client, award)
+            state = (
+                await client.get(
+                    f"/transactions/{award['transaction_id']}/state", headers=OPS
+                )
+            ).json()
+            order_id = state["funding"]["provider_order_id"]
+            async with app.state.repo.transaction() as conn:
+                await app.state.repo.update_fake_order(
+                    conn, order_id, status="APPROVED"
+                )
+            link = await _issue_link(app, award["transaction_id"], "return")
+            response = await client.get(
+                f"/return/{link.token}", follow_redirects=False
+            )
+            assert response.status_code == 303
+            assert response.headers["location"] == (
+                "http://console.test/runs/run-1?funding=complete"
+            )
+            state = (
+                await client.get(
+                    f"/transactions/{award['transaction_id']}/state", headers=OPS
+                )
+            ).json()
+            assert state["state"] == "FUNDED"
+            assert state["funding"]["status"] == "captured"
+            assert state["funding"]["capture_id"].startswith("FAKE-CAP-")
+
+
 async def test_paypal_cancel_cancels_pending_funding(tmp_path):
     settings = Settings(
         _env_file=None,

@@ -1386,7 +1386,15 @@ class VerifundService:
                 retryable=True,
             )
         order = await self.payments.get_order(str(order_id))
-        for capture in order.captures:
+        captures = order.captures
+        if order.status == "APPROVED" and not captures:
+            captures = (
+                await self.payments.capture_order(
+                    str(order_id),
+                    idempotency_key=f"capture:{transaction_id}:v1",
+                ),
+            )
+        for capture in captures:
             await self.apply_capture(transaction_id, capture, actor=actor)
         return (await self._projection_for(transaction_id, "buyer")).model_dump(
             mode="json"
