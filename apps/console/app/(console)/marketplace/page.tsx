@@ -52,7 +52,7 @@ export default function MarketplacePage() {
         if (sort === "Price: high to low") return second.unit_price_cents - first.unit_price_cents;
         return 0;
       });
-  }, [category, highlyRatedOnly, query, sort]);
+  }, [products, category, highlyRatedOnly, query, sort]);
 
   const startProductRun = (product: MarketplaceProduct) => {
     const brief = [
