@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { CopilotChat } from "@copilotkit/react-core/v2";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,14 +18,17 @@ vi.mock("@copilotkit/react-core/v2", () => ({
 
 import { Chat } from "@/features/chat/chat";
 
-function renderChat(threadId?: string) {
+function renderChat(
+  threadId?: string,
+  verifundMode: "off" | "fake" | "sandbox" = "fake",
+) {
   return render(
     <Chat
       onRunSample={vi.fn()}
       isRunning={false}
       isReady
       threadId={threadId}
-      verifundMode="fake"
+      verifundMode={verifundMode}
     />,
   );
 }
@@ -60,6 +63,57 @@ describe("chat verifund tools", () => {
       ([tool]) => tool.name,
     );
     expect(renderNames).not.toContain("show_agreement_review");
+  });
+});
+
+describe("chat paypal checkout", () => {
+  beforeEach(() => {
+    hooks.useFrontendTool.mockClear();
+    hooks.useHumanInTheLoop.mockClear();
+    hooks.useRenderTool.mockClear();
+  });
+
+  const checkoutTool = () =>
+    hooks.useHumanInTheLoop.mock.calls.find(
+      ([tool]) => tool.name === "request_verifund_paypal_checkout",
+    );
+
+  it("registers the embedded checkout in sandbox mode", () => {
+    renderChat(undefined, "sandbox");
+
+    const call = checkoutTool();
+    expect(call?.[0]).toMatchObject({
+      name: "request_verifund_paypal_checkout",
+      agentId: "marketmesh_orchestrator",
+      available: true,
+    });
+    expect(call?.[0].parameters).toBeTruthy();
+  });
+
+  it("does not offer the embedded checkout outside sandbox mode", () => {
+    renderChat(undefined, "fake");
+    expect(checkoutTool()?.[0].available).toBe(false);
+  });
+
+  it("reports the settlement state after the card completes", () => {
+    renderChat(undefined, "sandbox");
+    const call = checkoutTool();
+
+    render(
+      call![0].render({
+        args: {
+          transaction_id: "vf_1",
+          amount_cents: 340000,
+          currency: "USD",
+        },
+        status: "complete",
+        result: { state: "FUNDED" },
+      }),
+    );
+
+    expect(screen.getByTestId("verifund-checkout-settled").textContent).toContain(
+      "FUNDED",
+    );
   });
 });
 

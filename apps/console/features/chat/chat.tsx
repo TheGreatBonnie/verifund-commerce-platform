@@ -28,6 +28,8 @@ import {
   fundingApprovalArgsSchema,
   fundingDecision,
   parseVerifundToolResult,
+  PayPalCheckoutCard,
+  paypalCheckoutArgsSchema,
   releaseApprovalArgsSchema,
   releaseDecision,
   verifundToolsEnabled,
@@ -258,6 +260,45 @@ export function Chat({
       },
     },
     [verifundEnabled, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_paypal_checkout",
+      description:
+        "Show the embedded PayPal checkout and wait for the buyer to pay, cancel, or fall back to the redirect checkout.",
+      available: verifundEnabled && verifundMode === "sandbox",
+      parameters: paypalCheckoutArgsSchema,
+      render: ({ args, status, respond, result }) => {
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <PayPalCheckoutCard
+                args={args as any}
+                respond={respond}
+                onVerifundAction={onVerifundAction}
+              />
+            </div>
+          );
+        }
+        if (status === "complete") {
+          const state =
+            (result as any)?.state ?? (result as any)?.data?.state ?? "";
+          return (
+            <p
+              className="mm-chat-approval-result"
+              data-testid="verifund-checkout-settled"
+            >
+              Payment result recorded.
+              {state ? ` Settlement: ${state}.` : ""}
+            </p>
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, verifundMode, onVerifundAction],
   );
 
   useHumanInTheLoop(
