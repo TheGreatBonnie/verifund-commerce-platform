@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -552,6 +553,8 @@ class VerifundLifecycle:
         buyer_internal_url: str,
         buyer_internal_token: str,
         buyer_internal_timeout_seconds: float = 10.0,
+        funding_poll_interval_seconds: float = 2.0,
+        funding_poll_max_attempts: int = 150,
     ) -> None:
         self.verifund = verifund
         self.buyer = buyer
@@ -559,6 +562,8 @@ class VerifundLifecycle:
         self.buyer_internal_url = buyer_internal_url
         self.buyer_internal_token = buyer_internal_token
         self.buyer_internal_timeout_seconds = buyer_internal_timeout_seconds
+        self.funding_poll_interval_seconds = funding_poll_interval_seconds
+        self.funding_poll_max_attempts = funding_poll_max_attempts
 
     async def start(
         self,
@@ -694,6 +699,22 @@ class VerifundLifecycle:
         seller_card_url: str,
     ) -> dict[str, Any]:
         result = await self.verifund.status(handle)
+        # Wait for PayPal capture to settle before placing the purchase order.
+        # The verifund graph only advances past FUNDING_PENDING once the buyer
+        # projection reports FUNDED, so poll until that happens (bounded) rather
+        # than proceeding on a still-pending transaction.
+        attempts = 0
+        while (
+            result.checkpoint is VerifundCheckpoint.FUNDING_PENDING
+            and attempts < self.funding_poll_max_attempts
+        ):
+            if self.funding_poll_interval_seconds > 0:
+                await asyncio.sleep(self.funding_poll_interval_seconds)
+            try:
+                result = await self.verifund.status(handle)
+            except Exception:  # noqa: BLE001
+                break
+            attempts += 1
         if result.checkpoint is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED:
             order = await self._place_purchase_order(
                 handle, result, seller_card_url

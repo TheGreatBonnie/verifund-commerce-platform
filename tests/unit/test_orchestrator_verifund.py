@@ -371,6 +371,7 @@ def lifecycle(
     verifund: FakeVerifund,
     buyer: FakeBuyer | None = None,
     seller: FakeSeller | None = None,
+    **kwargs: Any,
 ) -> VerifundLifecycle:
     return VerifundLifecycle(
         verifund=cast(VerifundA2AClient, verifund),
@@ -378,6 +379,7 @@ def lifecycle(
         seller=cast(SellerA2AClient, seller or FakeSeller()),
         buyer_internal_url="http://buyer",
         buyer_internal_token="internal-token",
+        **kwargs,
     )
 
 
@@ -567,6 +569,68 @@ async def test_advance_places_the_purchase_order_and_reports_evidence() -> None:
     resume = next(call for call in verifund.calls if call[0] == "resume")
     assert resume[2] is VerifundCheckpoint.PURCHASE_ORDER_REQUIRED
     assert resume[3]["order"]["order_id"] == "ord-1"
+
+
+async def test_advance_waits_for_funding_before_placing_purchase_order() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED),
+        resume_results=[
+            task_result(
+                status="completed",
+                checkpoint=VerifundCheckpoint.EVIDENCE_PENDING,
+                state=TransactionState.FULFILLMENT_PENDING,
+                data={
+                    **binding(),
+                    "projection": {
+                        "transaction_id": AGREEMENT.transaction_id,
+                        "state": "FULFILLMENT_PENDING",
+                        "evidence": {
+                            "required": ["shipment_manifest"],
+                            "received": [],
+                            "complete": False,
+                        },
+                    },
+                },
+            )
+        ],
+        status_results=[
+            task_result(
+                status="completed",
+                checkpoint=VerifundCheckpoint.FUNDING_PENDING,
+                state=TransactionState.FUNDING_PENDING,
+                data={
+                    **binding(),
+                    "projection": {
+                        "transaction_id": AGREEMENT.transaction_id,
+                        "state": "FUNDING_PENDING",
+                    },
+                },
+            ),
+            task_result(
+                checkpoint=VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+                state=TransactionState.FUNDED,
+                data={
+                    **binding(),
+                    "seller_id": AGREEMENT.seller_id,
+                    "seller_token_ref": "run:run-1:transaction:vf_1",
+                    "purchase_order": purchase_order().model_dump(mode="json"),
+                },
+            ),
+        ],
+    )
+    seller = FakeSeller()
+    result = await lifecycle(
+        verifund, seller=seller, funding_poll_interval_seconds=0
+    ).advance(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"),
+        seller_card_url="http://seller/.well-known/agent-card.json",
+    )
+    assert result["status"] == "working"
+    assert result["checkpoint"] == "evidence_pending"
+    assert [call[0] for call in verifund.calls if call[0] == "status"] == [
+        "status",
+        "status",
+    ]
 
 
 async def test_advance_exposes_the_release_hitl_with_the_exact_args() -> None:
