@@ -1567,12 +1567,13 @@ class VerifundService:
                 retryable=True,
             )
         order = await self.payments.get_order(str(order_id))
+        attempt = int((record.funding or {}).get("order_attempt") or 1)
         captures = order.captures
         if order.status == "APPROVED" and not captures:
             captures = (
                 await self.payments.capture_order(
                     str(order_id),
-                    idempotency_key=f"capture:{transaction_id}:v1",
+                    idempotency_key=f"capture:{transaction_id}:v{attempt}",
                 ),
             )
         for capture in captures:
