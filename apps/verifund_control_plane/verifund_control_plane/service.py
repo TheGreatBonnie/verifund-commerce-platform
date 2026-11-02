@@ -1358,6 +1358,95 @@ class VerifundService:
         )
         return FundResponse.model_validate(response)
 
+    def _funding_session(self, record: TransactionRecord) -> dict[str, Any]:
+        funding = record.funding or {}
+        return {
+            "transaction_id": record.transaction_id,
+            "amount_cents": record.amount_cents,
+            "currency": record.currency,
+            "expires_at": self._iso(self._funding_deadline(record)),
+            "agreement_version": record.agreement_version,
+            "agreement_hash": record.agreement_hash,
+            "order_attempt": int(funding.get("order_attempt") or 0),
+            "provider_order_id": funding.get("provider_order_id"),
+        }
+
+    async def prepare_funding(
+        self, transaction_id: str, *, actor: str
+    ) -> dict[str, Any]:
+        """Validate funding and pin the deadline without calling PayPal.
+
+        The transaction is left in ``AGREED`` so the redirect fallback can still
+        call :meth:`fund`; ``attach_funding_order`` owns the transition.
+        """
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state == TransactionState.FUNDING_PENDING:
+            return self._funding_session(record)
+        if record.state != TransactionState.AGREED:
+            raise VerifundError(
+                "invalid_state", "transaction is not ready for funding", status_code=409
+            )
+        if not record.approval:
+            raise VerifundError(
+                "invalid_state", "buyer approval is required", status_code=409
+            )
+
+        agreement = await self.agreement_service.get_by_transaction(transaction_id)
+        if agreement is None:
+            raise VerifundError("not_found", "agreement not found", status_code=404)
+        txn_proj = await self._projection(record, "buyer")
+        try:
+            await self.agreement_service.verify_funding_binding(
+                agreement,
+                txn_proj,
+                record.agreement_version,
+                record.agreement_hash,
+            )
+        except Exception as exc:
+            from verifund_control_plane.agreements.models import AgreementError
+            if isinstance(exc, AgreementError):
+                raise VerifundError(exc.code, exc.message, status_code=409)
+            raise
+        approval = record.approval or {}
+        if approval.get("agreement_version") not in (
+            None,
+            record.agreement_version,
+        ) or (
+            approval.get("agreement_hash") is not None
+            and approval.get("agreement_hash") != record.agreement_hash
+        ):
+            raise VerifundError(
+                "hash_mismatch",
+                "funding approval binds a different version",
+                status_code=409,
+            )
+
+        if (record.deadlines or {}).get("funding"):
+            return self._funding_session(record)
+        deadline = self._funding_deadline(record)
+        try:
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={
+                        "deadlines": {
+                            **(current.deadlines or {}),
+                            "funding": self._iso(deadline),
+                        }
+                    },
+                    audit=AuditInput(actor, "funding_prepared"),
+                )
+        except VerifundError as exc:
+            # A concurrent prepare already stored the deadline.
+            if exc.code != "conflict":
+                raise
+        return self._funding_session(
+            await self.repo.get_transaction(transaction_id)
+        )
+
     async def refresh_funding(
         self, transaction_id: str, *, actor: str
     ) -> dict[str, Any]:
