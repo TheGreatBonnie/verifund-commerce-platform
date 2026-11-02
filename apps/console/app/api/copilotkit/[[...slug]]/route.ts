@@ -6,9 +6,11 @@ import {
 } from "@copilotkit/runtime/v2";
 import { HttpAgent } from "@ag-ui/client";
 import { A2AMiddlewareAgent } from "@ag-ui/a2a-middleware";
+import type { RunAgentInput } from "@ag-ui/core";
 import { A2AClient } from "@a2a-js/sdk/client";
 import { handle } from "hono/vercel";
 import { createDefaultAgent } from "../../../agent";
+import { singleTerminalStream } from "@/lib/single-terminal-stream";
 
 // Force dynamic rendering for the API route to avoid build-time fetching
 export const dynamic = "force-dynamic";
@@ -167,6 +169,16 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
         }),
       );
     }
+  }
+
+  // A2AMiddlewareAgent starts a new orchestration sub-run after each A2A tool
+  // call while keeping the original run id, so downstream consumers receive
+  // duplicate RUN_STARTED/RUN_FINISHED pairs for one logical run. CopilotKit
+  // Intelligence rejects the second terminal event as
+  // `terminal_event_already_received` and aborts the run, so normalize the
+  // stream to a single start and a single terminal event.
+  run(input: RunAgentInput) {
+    return singleTerminalStream(super.run(input));
   }
 }
 
