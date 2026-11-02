@@ -6,7 +6,7 @@ const OPS_TOKEN = process.env.VERIFUND_OPS_TOKEN ?? "dev-verifund-ops";
 
 function headers(extra?: HeadersInit): Headers {
   const value = new Headers(extra);
-  value.set("x-verifund-ops-token", OPS_TOKEN);
+  value.set("authorization", `Bearer ${OPS_TOKEN}`);
   return value;
 }
 
