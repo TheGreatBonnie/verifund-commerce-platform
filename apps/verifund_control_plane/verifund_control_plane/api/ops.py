@@ -4,6 +4,7 @@ import secrets
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, Field
 from verifund_contracts import (
     AcceptRequest,
     ApproveRequest,
@@ -22,6 +23,10 @@ from verifund_contracts import (
 from verifund_control_plane.errors import VerifundError
 
 router = APIRouter(prefix="")
+
+
+class AttachFundingOrderRequest(BaseModel):
+    order_id: str = Field(min_length=1)
 
 
 def _service(request: Request):
@@ -281,6 +286,26 @@ async def refresh_payout(
 ) -> dict[str, Any]:
     return await _service(request).refresh_payout(
         transaction_id, actor=actor(request)
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/funding/prepare",
+    dependencies=[Depends(require_ops)],
+)
+async def prepare_funding(transaction_id: str, request: Request) -> dict[str, Any]:
+    return await _service(request).prepare_funding(transaction_id, actor=actor(request))
+
+
+@router.post(
+    "/transactions/{transaction_id}/funding/attach-order",
+    dependencies=[Depends(require_ops)],
+)
+async def attach_funding_order(
+    transaction_id: str, body: AttachFundingOrderRequest, request: Request
+) -> dict[str, Any]:
+    return await _service(request).attach_funding_order(
+        transaction_id, body.order_id, actor=actor(request)
     )
 
 
