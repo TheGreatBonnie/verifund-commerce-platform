@@ -16,6 +16,7 @@ from verifund_agent.graph import (
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewResult,
+    CheckoutDecision,
     FundingApprovalDecision,
 )
 
@@ -226,15 +227,57 @@ class Buyer:
             "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
         }
 
-    async def approve_funding(self, run_id, decision):
-        self.calls.append(("approve_funding", run_id, decision))
+    async def approve_funding(self, run_id, decision, *, defer_checkout=False):
+        self.calls.append(("approve_funding", run_id, decision, defer_checkout))
         return {
             "projection": {
                 "transaction_id": "vf_1",
-                "state": "FUNDED",
+                "state": "AGREED" if defer_checkout else "FUNDED",
             },
-            "checkout_url": "http://paypal.test/checkout/1",
-            "expires_at": "2026-10-27T12:30:00Z",
+            "checkout_url": None if defer_checkout else "http://paypal.test/checkout/1",
+            "expires_at": None if defer_checkout else "2026-10-27T12:30:00Z",
+        }
+
+    async def prepare_funding(self, run_id):
+        self.calls.append(("prepare_funding", run_id))
+        return {
+            "checkout_session": {
+                "transaction_id": "vf_1",
+                "amount_cents": 123400,
+                "currency": "USD",
+                "expires_at": "2026-10-27T12:30:00Z",
+                "agreement_version": 1,
+                "agreement_hash": AGREEMENT_HASH,
+                "order_attempt": 0,
+                "provider_order_id": None,
+            }
+        }
+
+    async def cancel(self, run_id, *, reason_code, note=""):
+        self.calls.append(("cancel", run_id, reason_code, note))
+        return {"transaction_id": "vf_1", "state": "CANCELED"}
+
+    async def purchase_order(self, run_id, request):
+        self.calls.append(("purchase_order", run_id, request))
+        return {
+            "run_id": run_id,
+            "transaction_id": "vf_1",
+            "agreement_version": 1,
+            "agreement_hash": AGREEMENT_HASH,
+            "seller_id": "northwind-audio",
+            "offer_id": "offer-1",
+            "amount_cents": 123400,
+            "seller_token_ref": "run:run-1:transaction:vf_1",
+            "purchase_order": {
+                "request_id": "po-run-1-offer-1",
+                "run_id": run_id,
+                "offer_id": "offer-1",
+                "seller_id": "northwind-audio",
+                "quantity": 12,
+                "expected_total_cents": 123400,
+                "settlement_transaction_id": "vf_1",
+                "agreement_hash": AGREEMENT_HASH,
+            },
         }
 
     async def get_agreement(self, run_id):
@@ -438,3 +481,161 @@ def test_funding_approval_must_match_the_agreement() -> None:
         )
         is False
     )
+
+
+async def reach_funding_approval(graph, runtime, **overrides) -> None:
+    await graph.ainvoke(initial_state(**overrides), runtime)
+    await graph.ainvoke(
+        Command(resume=review("seller").model_dump(mode="json")), runtime
+    )
+    await graph.ainvoke(
+        Command(resume=buyer_approval_decision().model_dump(mode="json")), runtime
+    )
+
+
+def checkout_decision(**overrides) -> CheckoutDecision:
+    payload = {
+        "status": "completed",
+        "transaction_id": "vf_1",
+        "order_id": "ORDER-1",
+        "capture_id": "CAP-1",
+        "projection": {"transaction_id": "vf_1", "state": "FUNDED"},
+        "idempotency_key": "checkout:vf_1",
+    }
+    payload.update(overrides)
+    return CheckoutDecision.model_validate(payload)
+
+
+async def test_embedded_checkout_stops_before_creating_a_paypal_order() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+
+    approved = await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+
+    stop = approved["__interrupt__"][0].value
+    assert stop["reason"] == "funding_checkout_required"
+    assert stop["amount_cents"] == 123400
+    assert stop["currency"] == "USD"
+    assert stop["expires_at"] == "2026-10-27T12:30:00Z"
+    assert stop["responseSchema"]["title"] == "CheckoutDecision"
+    names = [call[0] for call in buyer.calls]
+    assert "prepare_funding" in names
+    assert names.count("approve_funding") == 1
+    assert buyer.calls[names.index("approve_funding")][3] is True
+
+
+async def test_completed_checkout_goes_straight_to_the_purchase_order() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+
+    result = await graph.ainvoke(
+        Command(resume=checkout_decision().model_dump(mode="json")), runtime
+    )
+
+    stop = result["__interrupt__"][0].value
+    assert stop["reason"] == "purchase_order_required"
+
+
+async def test_canceled_checkout_cancels_the_run() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+
+    done = await graph.ainvoke(
+        Command(
+            resume=checkout_decision(
+                status="canceled", projection={}, capture_id=None
+            ).model_dump(mode="json")
+        ),
+        runtime,
+    )
+
+    assert "__interrupt__" not in done
+    assert done["stage"] == "funding_rejected"
+    names = [call[0] for call in buyer.calls]
+    assert "cancel" in names
+    assert "purchase_order" not in names
+
+
+async def test_checkout_fallback_funds_through_the_redirect_flow() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+
+    fallback = await graph.ainvoke(
+        Command(
+            resume=checkout_decision(
+                status="fallback", projection={}, capture_id=None
+            ).model_dump(mode="json")
+        ),
+        runtime,
+    )
+
+    stop = fallback["__interrupt__"][0].value
+    assert stop["reason"] == "funding_pending"
+    assert stop["checkout_url"] == "http://paypal.test/checkout/1"
+    names = [call[0] for call in buyer.calls]
+    assert names.count("approve_funding") == 2
+    assert buyer.calls[names.index("approve_funding", names.index("prepare_funding"))][3] is False
+
+
+async def test_checkout_must_settle_the_agreed_transaction() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+
+    with pytest.raises(VerifundProtocolError):
+        await graph.ainvoke(
+            Command(
+                resume=checkout_decision(transaction_id="vf_2").model_dump(
+                    mode="json"
+                )
+            ),
+            runtime,
+        )
+    with pytest.raises(VerifundProtocolError):
+        await graph.ainvoke(
+            Command(
+                resume=checkout_decision(
+                    projection={"transaction_id": "vf_1", "state": "FUNDING_PENDING"}
+                ).model_dump(mode="json")
+            ),
+            runtime,
+        )
+
+
+async def test_redirect_mode_never_prepares_a_checkout() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime)
+
+    funded = await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+
+    assert funded["__interrupt__"][0].value["reason"] == "funding_pending"
+    names = [call[0] for call in buyer.calls]
+    assert "prepare_funding" not in names
+    assert buyer.calls[names.index("approve_funding")][3] is False

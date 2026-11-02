@@ -18,6 +18,7 @@ from verifund_agent.graph import (
     VerifundState,
     buyer_approval_payload,
     change_resolution_payload,
+    checkout_payload,
     evidence_pending_payload,
     funding_approval_payload,
     funding_pending_payload,
@@ -33,10 +34,11 @@ CHECKPOINT_ORDER = {
     VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: 3,
     VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: 4,
     VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: 5,
-    VerifundCheckpoint.FUNDING_PENDING: 6,
-    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: 7,
-    VerifundCheckpoint.EVIDENCE_PENDING: 8,
-    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: 9,
+    VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED: 6,
+    VerifundCheckpoint.FUNDING_PENDING: 7,
+    VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: 8,
+    VerifundCheckpoint.EVIDENCE_PENDING: 9,
+    VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: 10,
 }
 
 CHECKPOINT_SKILLS = {
@@ -45,6 +47,7 @@ CHECKPOINT_SKILLS = {
     VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: VerifundSkill.AGREEMENT_CREATE,
     VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: VerifundSkill.AGREEMENT_CREATE,
     VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: VerifundSkill.TRANSACTION_FUND,
+    VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED: VerifundSkill.TRANSACTION_FUND,
     VerifundCheckpoint.FUNDING_PENDING: VerifundSkill.TRANSACTION_FUND,
     VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: VerifundSkill.TRANSACTION_FUND,
     VerifundCheckpoint.EVIDENCE_PENDING: VerifundSkill.EVIDENCE_REVIEW,
@@ -57,6 +60,7 @@ PAYLOAD_BUILDERS = {
     VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: buyer_approval_payload,
     VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: change_resolution_payload,
     VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: funding_approval_payload,
+    VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED: checkout_payload,
     VerifundCheckpoint.FUNDING_PENDING: funding_pending_payload,
     VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: purchase_order_payload,
     VerifundCheckpoint.EVIDENCE_PENDING: evidence_pending_payload,
@@ -69,6 +73,7 @@ CHECKPOINT_STATES = {
     VerifundCheckpoint.BUYER_APPROVAL_REQUIRED: TransactionState.AWARDED,
     VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED: TransactionState.AWARDED,
     VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: TransactionState.AGREED,
+    VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED: TransactionState.AGREED,
     VerifundCheckpoint.FUNDING_PENDING: TransactionState.FUNDING_PENDING,
     VerifundCheckpoint.PURCHASE_ORDER_REQUIRED: TransactionState.FUNDED,
     VerifundCheckpoint.EVIDENCE_PENDING: TransactionState.FULFILLMENT_PENDING,
@@ -83,10 +88,15 @@ POLLED_CHECKPOINTS = {
 
 class VerifundAgentService:
     def __init__(
-        self, *, graph: Any, buyer: BuyerInternalClient
+        self,
+        *,
+        graph: Any,
+        buyer: BuyerInternalClient,
+        checkout_mode: str = "redirect",
     ) -> None:
         self.graph = graph
         self.buyer = buyer
+        self.checkout_mode = checkout_mode
 
     def _config(self, context_id: str) -> dict[str, Any]:
         return {
@@ -276,6 +286,7 @@ class VerifundAgentService:
                 "award": award,
                 "buyer_task_id": buyer_task_id,
                 "buyer_context_id": buyer_context_id,
+                "checkout_mode": self.checkout_mode,
                 "stage": "initialized",
             },
             config,
@@ -474,6 +485,14 @@ class VerifundAgentService:
                 checkpoint=checkpoint,
                 approval_type="funding",
                 next_action="approve_funding",
+            )
+        if checkpoint is VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED:
+            return VerifundTaskResult(
+                **common,
+                status="approval_required",
+                checkpoint=checkpoint,
+                approval_type="checkout",
+                next_action="complete_checkout",
             )
         if checkpoint is VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED:
             return VerifundTaskResult(

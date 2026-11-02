@@ -12,6 +12,7 @@ from verifund_contracts import (
     AgreementReviewResult,
     BuyerAgreementApprovalDecision,
     FundingApprovalDecision,
+    TransactionState,
     VerifundCheckpoint,
     VerifundResumeRequest,
     VerifundSkill,
@@ -496,3 +497,71 @@ async def test_status_reports_the_funding_approval() -> None:
     assert status.checkpoint == "funding_approval_required"
     assert status.status == "approval_required"
     assert status.approval_type == "funding"
+
+
+class CheckoutBuyer(Buyer):
+    async def approve_funding(self, run_id, decision, *, defer_checkout=False):
+        self.calls.append(("approve_funding", run_id, defer_checkout))
+        return {
+            "projection": {"transaction_id": "vf_1", "state": "AGREED"},
+            "checkout_url": None,
+            "expires_at": None,
+        }
+
+    async def prepare_funding(self, run_id):
+        self.calls.append(("prepare_funding", run_id))
+        return {
+            "checkout_session": {
+                "transaction_id": "vf_1",
+                "amount_cents": 123400,
+                "currency": "USD",
+                "expires_at": "2026-10-28T12:00:00Z",
+                "order_attempt": 0,
+                "provider_order_id": None,
+            }
+        }
+
+
+async def test_checkout_checkpoint_is_an_approval_the_console_can_render() -> None:
+    buyer = CheckoutBuyer()
+    graph = build_graph(MemorySaver())
+    value = VerifundAgentService(
+        graph=graph,
+        buyer=cast(BuyerInternalClient, buyer),
+        checkout_mode="embedded",
+    )
+    await value.handle(task_request(), task_id="task-1", context_id="run-1")
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.SELLER_REVIEW_REQUIRED,
+            review("seller").model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+    await value.resume(
+        resume_request(
+            VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
+            buyer_approval_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+
+    result = await value.resume(
+        resume_request(
+            VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+            funding_decision().model_dump(mode="json"),
+        ),
+        task_id="task-1",
+        context_id="run-1",
+    )
+
+    assert result.status == "approval_required"
+    assert result.checkpoint == VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED
+    assert result.approval_type == "checkout"
+    assert result.next_action == "complete_checkout"
+    assert result.state == TransactionState.AGREED
+    assert result.data["amount_cents"] == 123400
+    assert result.data["currency"] == "USD"
+    assert ("approve_funding", "run-1", True) in buyer.calls

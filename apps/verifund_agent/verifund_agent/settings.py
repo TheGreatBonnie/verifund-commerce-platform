@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,6 +33,10 @@ class Settings(BaseSettings):
     buyer_internal_token: str = Field(
         default="dev-verifund-agent-internal",
         validation_alias=AliasChoices("VERIFUND_AGENT_INTERNAL_TOKEN"),
+    )
+    checkout_mode: Literal["redirect", "embedded"] = Field(
+        default="redirect",
+        validation_alias=AliasChoices("VERIFUND_CHECKOUT_MODE"),
     )
     request_timeout_seconds: float = Field(
         default=20.0,

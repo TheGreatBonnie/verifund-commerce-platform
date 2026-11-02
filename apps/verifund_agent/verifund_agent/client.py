@@ -80,11 +80,16 @@ class BuyerInternalClient:
         return agreement
 
     async def approve_funding(
-        self, run_id: str, decision: FundingApprovalDecision
+        self,
+        run_id: str,
+        decision: FundingApprovalDecision,
+        *,
+        defer_checkout: bool = False,
     ) -> dict[str, Any]:
+        suffix = "?defer_checkout=true" if defer_checkout else ""
         return await self._request(
             "POST",
-            f"/internal/runs/{run_id}/settlement/approve-funding",
+            f"/internal/runs/{run_id}/settlement/approve-funding{suffix}",
             json=decision.model_dump(mode="json"),
         )
 

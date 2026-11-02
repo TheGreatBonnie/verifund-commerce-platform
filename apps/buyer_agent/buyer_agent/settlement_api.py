@@ -414,13 +414,18 @@ async def internal_create_agreement(
 
 @router.post("/internal/runs/{run_id}/settlement/approve-funding")
 async def internal_approve_funding(
-    run_id: str, body: FundingApprovalDecision, request: Request
+    run_id: str,
+    body: FundingApprovalDecision,
+    request: Request,
+    defer_checkout: bool = False,
 ) -> dict[str, Any]:
     _require_verifund_agent(request)
     if body.run_id != run_id:
         raise HTTPException(status_code=403, detail="run does not match the decision")
     try:
-        return await _agreements(request).approve_funding(run_id, body)
+        return await _agreements(request).approve_funding(
+            run_id, body, defer_checkout=defer_checkout
+        )
     except AgreementBindingError as exc:
         raise _binding_error(exc) from exc
 

@@ -302,7 +302,11 @@ class BuyerAgreementService:
             raise AgreementBindingError("transaction is bound to another agreement")
 
     async def approve_funding(
-        self, run_id: str, decision: FundingApprovalDecision
+        self,
+        run_id: str,
+        decision: FundingApprovalDecision,
+        *,
+        defer_checkout: bool = False,
     ) -> dict[str, Any]:
         projection, _ = await self._binding(run_id)
         self._require_binding(
@@ -329,6 +333,16 @@ class BuyerAgreementService:
             agreement_hash=decision.agreement_hash,
             agreement_version=decision.agreement_version,
         )
+        if defer_checkout:
+            # The embedded checkout creates the PayPal order from the console,
+            # so approval is recorded without issuing redirect links.
+            approved = await self.client.get_state(decision.transaction_id)
+            await self._store.save_projection(run_id, approved)
+            return {
+                "projection": approved,
+                "checkout_url": None,
+                "expires_at": None,
+            }
         funded = await self.client.fund(
             decision.transaction_id,
             FundRequest(

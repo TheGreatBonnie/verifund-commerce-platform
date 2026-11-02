@@ -35,7 +35,9 @@ def create_app(
         internal_token=settings.buyer_internal_token,
         timeout=settings.request_timeout_seconds,
     )
-    service = VerifundAgentService(graph=graph, buyer=buyer)
+    service = VerifundAgentService(
+        graph=graph, buyer=buyer, checkout_mode=settings.checkout_mode
+    )
     executor = VerifundExecutor(service)
     task_store = DatabaseTaskStore(engine=engine, create_table=True)
     handler = DefaultRequestHandler(

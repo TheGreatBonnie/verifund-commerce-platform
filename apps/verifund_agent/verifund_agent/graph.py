@@ -16,6 +16,8 @@ from verifund_contracts import (
     BuyerOrderReportResponse,
     BuyerPurchaseOrderRequest,
     BuyerPurchaseOrderResponse,
+    CancelReason,
+    CheckoutDecision,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
     TransactionState,
@@ -45,6 +47,9 @@ class VerifundState(TypedDict, total=False):
     seller_decision: dict
     funding_approval: dict
     funding_projection: dict
+    checkout_mode: str
+    checkout_session: dict
+    checkout_decision: dict
     checkout_url: str
     expires_at: str
     purchase_order: dict
@@ -67,6 +72,7 @@ PENDING_CHECKPOINTS = {
     "await_buyer_approval": VerifundCheckpoint.BUYER_APPROVAL_REQUIRED,
     "await_change_resolution": VerifundCheckpoint.AGREEMENT_CHANGES_REQUESTED,
     "await_funding_approval": VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+    "await_checkout": VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED,
     "await_funding_settlement": VerifundCheckpoint.FUNDING_PENDING,
     "await_purchase_order": VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
     "await_evidence": VerifundCheckpoint.EVIDENCE_PENDING,
@@ -213,6 +219,31 @@ def funding_decision_route(state: VerifundState) -> Literal["approved", "rejecte
     if approval.get("approved") is True:
         return "approved"
     return "rejected"
+
+
+def approve_funding_route(
+    state: VerifundState,
+) -> Literal["fund", "checkout"]:
+    approval = state.get("funding_approval") or {}
+    if approval.get("approved") is not True:
+        # fund_transaction cancels the transaction for a rejection.
+        return "fund"
+    if state.get("checkout_mode") == "embedded":
+        return "checkout"
+    return "fund"
+
+
+def checkout_route(
+    state: VerifundState,
+) -> Literal[
+    "request_purchase_order", "fund_transaction", "cancel_checkout_transaction"
+]:
+    stage = state.get("stage")
+    if stage == "funding_canceled":
+        return "cancel_checkout_transaction"
+    if stage == "checkout_fallback":
+        return "fund_transaction"
+    return "request_purchase_order"
 
 
 def release_decision_route(state: VerifundState) -> Literal["approved", "rejected"]:
@@ -567,6 +598,110 @@ async def fund_transaction(
     }
 
 
+async def approve_funding_only(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    approval = FundingApprovalDecision.model_validate(
+        state.get("funding_approval") or {}
+    )
+    agreement = _agreement(state)
+    if not funding_approval_matches(approval, agreement):
+        raise VerifundProtocolError(
+            "funding approval does not match the agreement"
+        )
+    response = await _buyer(config).approve_funding(
+        state.get("run_id") or agreement.run_id,
+        approval,
+        defer_checkout=True,
+    )
+    projection = response.get("projection") or {}
+    if projection.get("transaction_id") != agreement.transaction_id:
+        raise VerifundProtocolError(
+            "buyer returned a mismatched funding projection"
+        )
+    return {
+        "projection": projection,
+        "funding_projection": projection,
+        "stage": "approved",
+    }
+
+
+async def prepare_checkout(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    agreement = _agreement(state)
+    response = await _buyer(config).prepare_funding(
+        state.get("run_id") or agreement.run_id
+    )
+    session = response.get("checkout_session") or {}
+    if session.get("transaction_id") != agreement.transaction_id:
+        raise VerifundProtocolError("prepare returned a mismatched transaction")
+    return {"checkout_session": session, "stage": "checkout_required"}
+
+
+def checkout_payload(state: VerifundState) -> dict[str, Any]:
+    agreement = _agreement(state)
+    session = state.get("checkout_session") or {}
+    return {
+        "reason": "funding_checkout_required",
+        "message": "Complete the PayPal checkout to fund this transaction.",
+        "task_id": state.get("task_id"),
+        "context_id": state.get("context_id"),
+        "amount_cents": session.get("amount_cents"),
+        "currency": session.get("currency"),
+        "expires_at": session.get("expires_at"),
+        **_binding(agreement),
+        "responseSchema": CheckoutDecision.model_json_schema(),
+    }
+
+
+async def await_checkout(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    value = interrupt(checkout_payload(state))
+    decision = CheckoutDecision.model_validate(value)
+    agreement = _agreement(state)
+    if decision.transaction_id != agreement.transaction_id:
+        raise VerifundProtocolError(
+            "checkout decision does not match the agreement"
+        )
+    if decision.status == "canceled":
+        return {
+            "checkout_decision": decision.model_dump(mode="json"),
+            "stage": "funding_canceled",
+        }
+    if decision.status == "fallback":
+        return {
+            "checkout_decision": decision.model_dump(mode="json"),
+            "stage": "checkout_fallback",
+        }
+    projection = decision.projection or {}
+    if projection.get("transaction_id") != agreement.transaction_id:
+        raise VerifundProtocolError(
+            "checkout projection does not match the agreement"
+        )
+    if projection.get("state") != TransactionState.FUNDED.value:
+        raise VerifundProtocolError("checkout is not settled")
+    return {
+        "checkout_decision": decision.model_dump(mode="json"),
+        "projection": projection,
+        "funding_projection": projection,
+        "stage": "funded",
+    }
+
+
+async def cancel_checkout_transaction(
+    state: VerifundState, config: RunnableConfig
+) -> dict[str, Any]:
+    agreement = _agreement(state)
+    await _buyer(config).cancel(
+        state.get("run_id") or agreement.run_id,
+        reason_code=CancelReason.BUYER_CANCELLED.value,
+        note="Buyer canceled the PayPal checkout",
+    )
+    return {"stage": "funding_rejected"}
+
+
 async def await_funding_settlement(
     state: VerifundState, config: RunnableConfig
 ) -> dict[str, Any]:
@@ -777,6 +912,10 @@ def build_graph(checkpointer):
     builder.add_node("await_buyer_approval", await_buyer_approval)
     builder.add_node("await_change_resolution", await_change_resolution)
     builder.add_node("await_funding_approval", await_funding_approval)
+    builder.add_node("approve_funding_only", approve_funding_only)
+    builder.add_node("prepare_checkout", prepare_checkout)
+    builder.add_node("await_checkout", await_checkout)
+    builder.add_node("cancel_checkout_transaction", cancel_checkout_transaction)
     builder.add_node("fund_transaction", fund_transaction)
     builder.add_node("await_funding_settlement", await_funding_settlement)
     builder.add_node("request_purchase_order", request_purchase_order)
@@ -818,7 +957,26 @@ def build_graph(checkpointer):
     builder.add_edge("await_seller_operator", "sync_agreement")
     builder.add_edge("await_buyer_approval", "sync_agreement")
     builder.add_edge("await_change_resolution", "sync_agreement")
-    builder.add_edge("await_funding_approval", "fund_transaction")
+    builder.add_conditional_edges(
+        "await_funding_approval",
+        approve_funding_route,
+        {
+            "fund": "fund_transaction",
+            "checkout": "approve_funding_only",
+        },
+    )
+    builder.add_edge("approve_funding_only", "prepare_checkout")
+    builder.add_edge("prepare_checkout", "await_checkout")
+    builder.add_conditional_edges(
+        "await_checkout",
+        checkout_route,
+        {
+            "request_purchase_order": "request_purchase_order",
+            "fund_transaction": "fund_transaction",
+            "cancel_checkout_transaction": "cancel_checkout_transaction",
+        },
+    )
+    builder.add_edge("cancel_checkout_transaction", "finalize_rejected")
     builder.add_conditional_edges(
         "fund_transaction",
         funding_decision_route,
