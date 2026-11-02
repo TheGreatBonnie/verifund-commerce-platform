@@ -26,6 +26,7 @@ from orchestrator_agent.verifund import (
 from verifund_contracts import (
     AgreementProjection,
     AgreementReviewResult,
+    CheckoutDecision,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
     TransactionState,
@@ -888,3 +889,93 @@ def test_settings_default_to_sandbox_and_keep_verifund_credentials_separate(
     assert settings.verifund_agent_url.endswith(":9301")
     assert settings.verifund_agent_a2a_token
     assert settings.verifund_agent_a2a_token != settings.buyer_internal_token
+
+
+def checkout_result() -> VerifundTaskResult:
+    return task_result(
+        skill=VerifundSkill.TRANSACTION_FUND,
+        status="approval_required",
+        checkpoint=VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED,
+        approval_type="checkout",
+        state=TransactionState.AGREED,
+        data={
+            **binding(),
+            "amount_cents": AGREEMENT.amount_cents,
+            "currency": "USD",
+            "expires_at": "2026-10-28T12:00:00Z",
+        },
+        message="Complete the PayPal checkout to fund this transaction.",
+    )
+
+
+async def test_advance_exposes_the_checkout_hitl_with_the_exact_args() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED),
+        resume_results=[],
+        status_results=[checkout_result()],
+    )
+
+    result = await lifecycle(verifund).advance(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"),
+        seller_card_url="http://seller/.well-known/agent-card.json",
+    )
+
+    assert result["status"] == "approval_required"
+    assert result["hitl"]["tool"] == "request_verifund_paypal_checkout"
+    assert set(result["hitl"]["args"]) == {
+        "transaction_id",
+        "amount_cents",
+        "currency",
+        "expires_at",
+        "message",
+    }
+    assert result["hitl"]["args"]["amount_cents"] == AGREEMENT.amount_cents
+    assert result["hitl"]["args"]["currency"] == "USD"
+    assert result["hitl"]["args"]["expires_at"] == "2026-10-28T12:00:00Z"
+
+
+async def test_checkout_decision_resumes_the_same_task() -> None:
+    verifund = FakeVerifund(
+        start_result=task_result(checkpoint=VerifundCheckpoint.SELLER_REVIEW_REQUIRED),
+        resume_results=[
+            task_result(
+                status="input_required",
+                checkpoint=VerifundCheckpoint.PURCHASE_ORDER_REQUIRED,
+                state=TransactionState.FUNDED,
+                data=binding(),
+            )
+        ],
+    )
+    decision = CheckoutDecision(
+        status="completed",
+        transaction_id=AGREEMENT.transaction_id,
+        order_id="ORDER-1",
+        capture_id="CAP-1",
+        projection={
+            "transaction_id": AGREEMENT.transaction_id,
+            "state": "FUNDED",
+        },
+        idempotency_key=f"checkout:{AGREEMENT.transaction_id}",
+    )
+
+    result = await lifecycle(verifund).resume_checkout(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"),
+        decision,
+    )
+
+    assert result["checkpoint"] == "purchase_order_required"
+    resume = next(call for call in verifund.calls if call[0] == "resume")
+    assert resume[2] is VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED
+    assert resume[3] == decision.model_dump(mode="json")
+
+
+def test_the_checkout_tool_and_instruction_are_registered() -> None:
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    names = {tool.name for tool in tools}
+    assert "verifund_checkout" in names
+    assert "verifund_fund" in names
+    assert "request_verifund_paypal_checkout" in (
+        MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    )

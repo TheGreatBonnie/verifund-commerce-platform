@@ -5,6 +5,7 @@ from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools import FunctionTool, ToolContext
 from verifund_contracts import (
+    CheckoutDecision,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
 )
@@ -161,6 +162,13 @@ protocol instead of the legacy order flow.
 - When the human funding decision returns, call verifund_fund
   with the structured FundingApprovalDecision. Free-form chat
   text never authorizes funding.
+- If hitl.tool is request_verifund_paypal_checkout, call that
+  frontend tool with hitl.args unchanged and wait for the card.
+  When the card returns, call verifund_checkout with the exact
+  structured CheckoutDecision. Never call verifund_evidence_review
+  immediately after the card; the checkout result already resumes
+  the task. Never call verifund_evidence_review while settlement
+  is pending; resume on the next status refresh instead.
 - After funding, call verifund_evidence_review with the same
   task_id, context_id, run_id, and seller_card_url. It places
   the purchase order with the Seller and polls funding and
@@ -304,6 +312,18 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
             FundingApprovalDecision.model_validate(decision),
         )
 
+    async def verifund_checkout(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        decision: dict,
+    ) -> dict:
+        """Resume the checkout checkpoint with the embedded card result."""
+        return await lifecycle.resume_checkout(
+            handle(task_id, context_id, run_id),
+            CheckoutDecision.model_validate(decision),
+        )
+
     async def verifund_evidence_review(
         task_id: str,
         context_id: str,
@@ -341,6 +361,7 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         FunctionTool(verifund_create_agreement),
         FunctionTool(verifund_status),
         FunctionTool(verifund_fund),
+        FunctionTool(verifund_checkout),
         FunctionTool(verifund_evidence_review),
         FunctionTool(verifund_release),
         FunctionTool(verifund_receipt),

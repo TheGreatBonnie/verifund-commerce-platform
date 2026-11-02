@@ -17,6 +17,7 @@ from verifund_contracts import (
     AgreementReviewDecision,
     AgreementReviewRequest,
     AgreementReviewResult,
+    CheckoutDecision,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
     VerifundCheckpoint,
@@ -812,6 +813,19 @@ class VerifundLifecycle:
         )
         return self._view(handle, result)
 
+    async def resume_checkout(
+        self,
+        handle: VerifundTaskHandle,
+        decision: CheckoutDecision,
+    ) -> dict[str, Any]:
+        result = await self.verifund.resume(
+            handle,
+            checkpoint=VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED,
+            value=decision.model_dump(mode="json"),
+            idempotency_key=decision.idempotency_key,
+        )
+        return self._view(handle, result)
+
     async def resume_release(
         self,
         handle: VerifundTaskHandle,
@@ -909,6 +923,11 @@ class VerifundLifecycle:
                     "tool": "request_verifund_funding_approval",
                     "args": self._funding_args(handle, result),
                 }
+            elif result.approval_type == "checkout":
+                view["hitl"] = {
+                    "tool": "request_verifund_paypal_checkout",
+                    "args": self._checkout_args(handle, result),
+                }
             elif result.approval_type == "release":
                 view["hitl"] = {
                     "tool": "request_verifund_release_approval",
@@ -986,6 +1005,22 @@ class VerifundLifecycle:
             "buyer_review": _review_summary(data.get("buyer_review")),
             "seller_decision": _review_summary(data.get("seller_decision")),
             "message": result.message or "Approve funding for this agreement.",
+        }
+
+    @staticmethod
+    def _checkout_args(
+        handle: VerifundTaskHandle, result: VerifundTaskResult
+    ) -> dict[str, Any]:
+        data = result.data or {}
+        return {
+            "transaction_id": data.get("transaction_id"),
+            "amount_cents": data.get("amount_cents"),
+            "currency": data.get("currency"),
+            "expires_at": data.get("expires_at"),
+            "message": (
+                result.message
+                or "Complete the PayPal checkout to fund this transaction."
+            ),
         }
 
     @staticmethod
