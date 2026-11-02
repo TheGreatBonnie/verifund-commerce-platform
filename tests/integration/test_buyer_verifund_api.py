@@ -197,7 +197,7 @@ class Agreements:
             "projection": self.current,
         }
 
-    async def approve_funding(self, run_id, decision):
+    async def approve_funding(self, run_id, decision, *, defer_checkout=False):
         self.calls.append(("approve_funding", run_id, decision))
         return {
             "projection": projection("FUNDING_PENDING"),

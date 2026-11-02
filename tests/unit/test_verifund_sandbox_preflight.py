@@ -217,3 +217,40 @@ def test_preflight_rejects_the_live_paypal_host():
     assert report.ok is False
     assert checks["paypal_environment"].ok is False
     assert checks["settings"].ok is False
+
+
+def test_preflight_checks_the_embedded_checkout_client_id():
+    with httpx.Client(
+        transport=httpx.MockTransport(paypal_handler())
+    ) as client:
+        matched = preflight(
+            sandbox_settings(),
+            client=client,
+            environ={
+                "VERIFUND_CHECKOUT_MODE": "embedded",
+                "NEXT_PUBLIC_PAYPAL_CLIENT_ID": "client-id",
+            },
+        )
+        mismatched = preflight(
+            sandbox_settings(),
+            client=client,
+            environ={
+                "VERIFUND_CHECKOUT_MODE": "embedded",
+                "NEXT_PUBLIC_PAYPAL_CLIENT_ID": "other-client-id",
+            },
+        )
+
+    checks = {check.name: check for check in matched.checks}
+    assert checks["checkout_client_id"].ok is True
+    assert checks["checkout_client_secret"].ok is True
+    mismatched_checks = {check.name: check for check in mismatched.checks}
+    assert mismatched_checks["checkout_client_id"].ok is False
+
+
+def test_preflight_skips_checkout_checks_in_redirect_mode():
+    with httpx.Client(
+        transport=httpx.MockTransport(paypal_handler())
+    ) as client:
+        report = preflight(sandbox_settings(), client=client, environ={})
+
+    assert "checkout_client_id" not in {check.name for check in report.checks}

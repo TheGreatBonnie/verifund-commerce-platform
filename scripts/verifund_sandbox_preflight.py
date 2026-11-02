@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -80,6 +82,38 @@ def _settings_check(settings: Settings) -> tuple[PreflightCheck, str | None]:
         PreflightCheck("settings", True, "required sandbox settings are present"),
         None,
     )
+
+
+def _checkout_checks(
+    settings: Settings, environ: Mapping[str, str]
+) -> list[PreflightCheck]:
+    """The embedded card needs the same client id on both sides."""
+    if environ.get("VERIFUND_CHECKOUT_MODE", "redirect") != "embedded":
+        return []
+    public_id = environ.get("NEXT_PUBLIC_PAYPAL_CLIENT_ID", "")
+    return [
+        PreflightCheck(
+            "checkout_client_id",
+            bool(public_id) and public_id == settings.paypal_client_id,
+            (
+                "NEXT_PUBLIC_PAYPAL_CLIENT_ID matches PAYPAL_CLIENT_ID"
+                if public_id and public_id == settings.paypal_client_id
+                else (
+                    "NEXT_PUBLIC_PAYPAL_CLIENT_ID must be set and equal "
+                    "PAYPAL_CLIENT_ID for the embedded checkout"
+                )
+            ),
+        ),
+        PreflightCheck(
+            "checkout_client_secret",
+            bool(settings.paypal_client_secret),
+            (
+                "PAYPAL_CLIENT_SECRET is present for the server-side order calls"
+                if settings.paypal_client_secret
+                else "PAYPAL_CLIENT_SECRET is required for the embedded checkout"
+            ),
+        ),
+    ]
 
 
 def _account_checks(settings: Settings) -> list[PreflightCheck]:
@@ -233,7 +267,12 @@ def _public_checks(
     return checks
 
 
-def preflight(settings: Settings, *, client: httpx.Client) -> PreflightReport:
+def preflight(
+    settings: Settings,
+    *,
+    client: httpx.Client,
+    environ: Mapping[str, str] | None = None,
+) -> PreflightReport:
     checks: list[PreflightCheck] = []
     mode_ok = settings.mode == "sandbox"
     checks.append(
@@ -262,6 +301,7 @@ def preflight(settings: Settings, *, client: httpx.Client) -> PreflightReport:
         )
     )
     checks.extend(_account_checks(settings))
+    checks.extend(_checkout_checks(settings, environ or os.environ))
     checks.append(
         PreflightCheck(
             "reconciler",

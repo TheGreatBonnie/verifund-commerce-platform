@@ -118,7 +118,18 @@ PAYPAL_CLIENT_SECRET=<client-secret>
 PAYPAL_WEBHOOK_ID=<webhook-id>
 PAYPAL_PLATFORM_EMAIL=<platform-business-email>
 PAYPAL_BUYER_EMAIL=<buyer-personal-email>
+
+# Optional: render the PayPal button inside the console chat.
+VERIFUND_CHECKOUT_MODE=embedded
+NEXT_PUBLIC_PAYPAL_CLIENT_ID=<same value as PAYPAL_CLIENT_ID>
+NEXT_PUBLIC_PAYPAL_ENVIRONMENT=sandbox
 ```
+
+`VERIFUND_CHECKOUT_MODE` defaults to `redirect`, which keeps the
+PayPal-hosted checkout link. `embedded` renders the PayPal button in the chat
+card; `NEXT_PUBLIC_PAYPAL_CLIENT_ID` must equal `PAYPAL_CLIENT_ID`, and
+`PAYPAL_CLIENT_SECRET` stays server-side because Next.js creates and captures
+the order. Fake mode always uses the redirect flow.
 
 `VERIFUND_INSPECTION_WINDOW_HOURS=0` makes a one-shot demo release immediately
 after verification. The production default is `24`; with a non-zero window the
@@ -146,6 +157,8 @@ check. Add `--json` for machine-readable output.
 | `reconciler` | webhook fallback and deadline processing are enabled |
 | `paypal_oauth` | the client ID/secret obtain a sandbox access token |
 | `paypal_webhook` | the webhook ID resolves for this REST app |
+| `checkout_client_id` | embedded mode only: `NEXT_PUBLIC_PAYPAL_CLIENT_ID` equals `PAYPAL_CLIENT_ID` |
+| `checkout_client_secret` | embedded mode only: `PAYPAL_CLIENT_SECRET` is set |
 | `public_health` | the tunnel reaches `GET /health` |
 | `public_webhook` | an unsigned `POST /webhooks/paypal` returns `401`, proving traffic reaches the control plane |
 
@@ -191,8 +204,8 @@ the console or rerun with `VERIFUND_INSPECTION_WINDOW_HOURS=0`.
 2. `uv run python scripts/dev.py --verifund sandbox`
 3. Open <http://127.0.0.1:3000>, run the sample brief, and review the exact
    agreement in the chat HITL card.
-4. Approve agreement/funding in chat, follow the checkout action, and pay as the
-   buyer on PayPal's hosted page.
+4. Approve agreement/funding in chat, then either pay with the embedded PayPal
+   button or follow the checkout link, depending on `VERIFUND_CHECKOUT_MODE`.
 5. Return to the run chat and wait for confirmed capture, seller order, two
    evidence items, and the control plane's verification result.
 6. Review the evidence summary and approve payout release in the separate chat
@@ -202,6 +215,32 @@ the console or rerun with `VERIFUND_INSPECTION_WINDOW_HOURS=0`.
 
 The buyer keeps polling `GET /transactions/{id}/state`; chat and the
 Transaction Room render the same run projection when `last_seq` advances.
+
+### Embedded checkout (optional)
+
+With `VERIFUND_CHECKOUT_MODE=embedded` the funding-approval decision is recorded
+without creating a PayPal order. The chat card then:
+
+1. Calls `POST /transactions/{id}/funding/prepare`, which validates the
+   agreement binding and pins the funding deadline but leaves the transaction
+   `AGREED`.
+2. Creates the order with `@paypal/paypal-server-sdk` using `PAYPAL_CLIENT_ID`
+   and `PAYPAL_CLIENT_SECRET`, then attaches it with
+   `POST /transactions/{id}/funding/attach-order`, which moves the transaction to
+   `FUNDING_PENDING`.
+3. Captures through the SDK and calls `POST /transactions/{id}/funding/refresh`
+   so the control plane stays the settlement authority. A capture that PayPal
+   reports as `PENDING` polls `funding/refresh` until `FUNDED`.
+
+Behavior notes:
+
+- Closing the PayPal popup does not cancel the deal. The transaction stays
+  `FUNDING_PENDING` until the funding deadline, and the buyer can retry; a retry
+  creates a new order attempt after the previous order expires or the deadline
+  passes.
+- An explicit cancel in the card ends the run and cancels the transaction.
+- If the PayPal SDK fails to load, the card offers **Pay on PayPal's site**,
+  which falls back to the hosted checkout for the same transaction.
 
 ## 10. Webhook behavior
 
