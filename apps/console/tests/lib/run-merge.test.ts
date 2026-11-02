@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { BuyerRun } from "./api";
-import { mergeRunState } from "./run-merge";
-import type { BuyerState, SettlementProjection } from "./types";
+import type { BuyerRun } from "@/lib/api";
+import { mergeRunState } from "@/lib/run-merge";
+import type { BuyerState, SettlementProjection } from "@/lib/types";
 
 const settlement = {
   transaction_id: "vf_1",

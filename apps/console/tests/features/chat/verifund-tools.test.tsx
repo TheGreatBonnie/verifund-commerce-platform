@@ -12,7 +12,7 @@ import {
   releaseGate,
   verifundStatusLabel,
   verifundToolsEnabled,
-} from "./verifund-tools";
+} from "@/features/chat/verifund-tools";
 
 const HASH = "a".repeat(64);
 const NOW = "2026-10-27T12:00:00.000Z";

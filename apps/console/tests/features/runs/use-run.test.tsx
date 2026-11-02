@@ -7,7 +7,7 @@ vi.mock("@/lib/api", () => ({
   fetchRun: vi.fn(() => new Promise(() => {})),
 }));
 
-import { useRun } from "./use-run";
+import { useRun } from "@/features/runs/use-run";
 
 function createWrapper() {
   const queryClient = new QueryClient({

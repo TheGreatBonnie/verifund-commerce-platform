@@ -4,7 +4,7 @@ import type {
   SettlementProjection,
   SettlementReceipt,
 } from "@/lib/types";
-import { TransactionRoom } from "./transaction-room";
+import { TransactionRoom } from "@/features/deal-room/components/transaction-room";
 
 const HASH = "a".repeat(64);
 

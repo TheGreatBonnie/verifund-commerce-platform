@@ -4,7 +4,7 @@ import {
   approveAgreement,
   rejectAgreement,
   requestChangesAgreement,
-} from "./actions";
+} from "@/app/(console)/agreements/[id]/actions";
 
 const HASH = "a".repeat(64);
 const HANDLE = {

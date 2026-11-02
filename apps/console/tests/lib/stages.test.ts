@@ -3,7 +3,7 @@ import {
   isPausedStage,
   isTerminalStage,
   stageLabel,
-} from "./stages";
+} from "@/lib/stages";
 
 describe("settlement stages", () => {
   it("labels buyer and settlement stages", () => {

@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 
-import MarketplacePage from "./page";
+import MarketplacePage from "@/app/(console)/marketplace/page";
 
 function createWrapper() {
   const queryClient = new QueryClient({

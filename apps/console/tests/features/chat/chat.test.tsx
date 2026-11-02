@@ -16,7 +16,7 @@ vi.mock("@copilotkit/react-core/v2", () => ({
   useRenderTool: hooks.useRenderTool,
 }));
 
-import { Chat } from "./chat";
+import { Chat } from "@/features/chat/chat";
 
 function renderChat(threadId?: string) {
   return render(

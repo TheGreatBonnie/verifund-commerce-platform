@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, expect, it } from "vitest";
-import nextConfig from "./next.config";
+import nextConfig from "@/next.config";
 
 describe("next.config", () => {
   it("allows the CopilotKit Intelligence realtime gateway in connect-src", async () => {

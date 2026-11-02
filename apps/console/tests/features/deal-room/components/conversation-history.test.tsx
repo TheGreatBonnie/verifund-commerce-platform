@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 
-import { ConversationHistory } from "./conversation-history";
+import { ConversationHistory } from "@/features/deal-room/components/conversation-history";
 
 const threads = [
   {

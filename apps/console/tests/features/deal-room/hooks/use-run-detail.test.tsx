@@ -48,7 +48,7 @@ vi.mock("@/lib/api", () => ({
   fetchRun: vi.fn(() => new Promise(() => {})),
 }));
 
-import { useRunDetail } from "./use-run-detail";
+import { useRunDetail } from "@/features/deal-room/hooks/use-run-detail";
 
 function createWrapper() {
   const queryClient = new QueryClient({
