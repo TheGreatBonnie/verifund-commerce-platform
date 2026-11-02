@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchRun } from "@/lib/api";
 import { isTerminalStage } from "@/lib/stages";
@@ -23,10 +24,14 @@ export function useRun(runId: string) {
       return data?.stage === "review_required" ? 10_000 : 2_000;
     },
   });
+  const refresh = useCallback(
+    () => qc.invalidateQueries({ queryKey: ["run", runId] }),
+    [qc, runId],
+  );
   return {
     run: q.data ?? null,
     isLoading: q.isLoading,
     error: q.error ? "Run unavailable" : null,
-    refresh: () => qc.invalidateQueries({ queryKey: ["run", runId] }),
+    refresh,
   };
 }

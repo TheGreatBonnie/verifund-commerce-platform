@@ -58,7 +58,8 @@ export function useRunDetail(routeRunId: string) {
   const [buyerState, setBuyerState] = useState<BuyerState>({});
   const [isRunning, setIsRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
-  const pendingBriefHandled = useRef(false);
+  const pendingBriefStartedFor = useRef<string | null>(null);
+  const mountedRef = useRef(true);
   const [runError, setRunError] = useState<string | null>(null);
   const [sellerFilter, setSellerFilter] = useState("all");
   const { run: buyerRun, refresh: refreshRun } = useRun(routeRunId);
@@ -71,8 +72,24 @@ export function useRunDetail(routeRunId: string) {
 
   useEffect(() => {
     if (routeRunId) agent.threadId = routeRunId;
-    pendingBriefHandled.current = false;
   }, [agent, routeRunId]);
+
+  const lastRouteRunId = useRef(routeRunId);
+  useEffect(() => {
+    // Reset the one-shot guard only when the route truly changes. StrictMode
+    // re-runs mount effects with the same route, and clearing the guard there
+    // would dispatch the same brief twice.
+    if (lastRouteRunId.current === routeRunId) return;
+    lastRouteRunId.current = routeRunId;
+    pendingBriefStartedFor.current = null;
+  }, [routeRunId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const latest = parseBuyerStateFromMessages(
@@ -105,8 +122,8 @@ export function useRunDetail(routeRunId: string) {
   const traceError = trace.error ? "Trace feed unavailable" : null;
 
   const startRun = useCallback(
-    async (brief: string) => {
-      if (isRunning || !isReady) return;
+    (brief: string): boolean => {
+      if (isRunning || !isReady) return false;
       agent.threadId = routeRunId;
       setBuyerState({});
       setRunError(null);
@@ -118,51 +135,80 @@ export function useRunDetail(routeRunId: string) {
         content: brief,
       });
       setIsRunning(true);
-      try {
-        await copilotkit.runAgent({ agent });
-        await refreshRun();
-      } catch (error) {
-        setRunError(
-          error instanceof Error
-            ? error.message
-            : "The buyer agent could not start the run.",
-        );
-      } finally {
-        setIsRunning(false);
-      }
+      void (async () => {
+        try {
+          await copilotkit.runAgent({ agent });
+          await refreshRun();
+        } catch (error) {
+          setRunError(
+            error instanceof Error
+              ? error.message
+              : "The buyer agent could not start the run.",
+          );
+        } finally {
+          setIsRunning(false);
+        }
+      })();
+      return true;
     },
     [agent, copilotkit, isReady, isRunning, refreshRun, routeRunId],
   );
 
+  // Keep the pending-brief effect independent of callback identity churn.
+  // Otherwise any render during connectAgent() tears down the effect and
+  // cancels the one-shot startup after the brief has already been consumed.
+  const startRunRef = useRef(startRun);
+  useEffect(() => {
+    startRunRef.current = startRun;
+  }, [startRun]);
+
   useEffect(() => {
     if (!isReady) return;
+    if (pendingBriefStartedFor.current === routeRunId) return;
+
     let pendingBrief: string | null = null;
     try {
       pendingBrief = window.sessionStorage.getItem("marketmesh:pendingBrief");
-      if (pendingBrief)
-        window.sessionStorage.removeItem("marketmesh:pendingBrief");
     } catch {
-      // Session storage is an optional bridge from the dashboard and sidebar.
+      // Session storage is an optional bridge from the marketplace and sidebar.
     }
     if (!pendingBrief) return;
-    if (pendingBriefHandled.current) return;
-    pendingBriefHandled.current = true;
-    let cancelled = false;
+
+    pendingBriefStartedFor.current = routeRunId;
+    const routeAtStart = routeRunId;
+
     void (async () => {
       // Wait for the thread replay to settle before appending the new brief.
       // CopilotChat may already have connected on mount; ignore failures here.
       try {
         await copilotkit.connectAgent({ agent });
       } catch {
-        // ignore
+        // startRun below will surface a real dispatch failure.
       }
-      if (cancelled) return;
-      await startRun(pendingBrief as string);
+      if (!mountedRef.current) return;
+      if (pendingBriefStartedFor.current !== routeAtStart) return;
+
+      const started = startRunRef.current(pendingBrief as string);
+      if (!started) {
+        if (pendingBriefStartedFor.current === routeAtStart) {
+          pendingBriefStartedFor.current = null;
+        }
+        return;
+      }
+
+      try {
+        // Only clear the handoff once the run has actually been dispatched.
+        // Comparing first also avoids deleting a newer brief from another tab.
+        if (
+          window.sessionStorage.getItem("marketmesh:pendingBrief") === pendingBrief
+        ) {
+          window.sessionStorage.removeItem("marketmesh:pendingBrief");
+        }
+      } catch {
+        // Session storage is optional; the run is already under way.
+      }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [agent, copilotkit, isReady, routeRunId, startRun]);
+  }, [agent, copilotkit, isReady, isRunning, routeRunId]);
 
   const onBuyerStateUpdate = useCallback((next: BuyerState) => {
     setBuyerState((current) => {
