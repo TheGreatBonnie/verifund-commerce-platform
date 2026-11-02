@@ -540,6 +540,21 @@ class FundingApprovalDecision(VerifundModel):
     idempotency_key: str = Field(min_length=1)
 
 
+class CheckoutDecision(VerifundModel):
+    status: Literal["completed", "canceled", "fallback"]
+    transaction_id: str = Field(min_length=1)
+    order_id: str | None = None
+    capture_id: str | None = None
+    projection: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _completed_requires_projection(self) -> CheckoutDecision:
+        if self.status == "completed" and not self.projection:
+            raise ValueError("completed checkout requires a settlement projection")
+        return self
+
+
 class ReleaseApprovalDecision(VerifundModel):
     run_id: str = Field(min_length=1)
     transaction_id: str = Field(min_length=1)

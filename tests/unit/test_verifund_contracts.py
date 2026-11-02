@@ -8,10 +8,14 @@ import respx
 from pydantic import ValidationError
 from verifund_contracts import (
     AwardRequest,
+    CheckoutDecision,
     RejectRequest,
     TransactionProjection,
+    VerifundCheckpoint,
     VerifundClient,
     VerifundError,
+    VerifundSkill,
+    VerifundTaskResult,
 )
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -113,6 +117,43 @@ def test_projection_round_trip_has_no_extra_fields():
         updated_at=NOW,
     )
     assert projection.model_dump()["state"] == "AWARDED"
+
+
+def test_checkout_checkpoint_requires_checkout_approval_type():
+    result = VerifundTaskResult(
+        skill=VerifundSkill.TRANSACTION_FUND,
+        status="approval_required",
+        checkpoint=VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED,
+        approval_type="checkout",
+        run_id="run-1",
+    )
+    assert result.approval_type == "checkout"
+
+
+def test_checkout_checkpoint_rejects_funding_approval_type():
+    with pytest.raises(ValidationError):
+        VerifundTaskResult(
+            skill=VerifundSkill.TRANSACTION_FUND,
+            status="approval_required",
+            checkpoint=VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED,
+            approval_type="funding",
+            run_id="run-1",
+        )
+
+
+def test_completed_checkout_decision_requires_a_projection():
+    with pytest.raises(ValidationError):
+        CheckoutDecision(
+            status="completed",
+            transaction_id="vf_1",
+            idempotency_key="checkout:vf_1",
+        )
+    decision = CheckoutDecision(
+        status="canceled",
+        transaction_id="vf_1",
+        idempotency_key="checkout:vf_1",
+    )
+    assert decision.status == "canceled"
 
 
 @respx.mock

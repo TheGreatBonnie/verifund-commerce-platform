@@ -40,6 +40,7 @@ class VerifundCheckpoint(StrEnum):
     SELLER_OPERATOR_REQUIRED = "seller_operator_required"        # NEW
     AGREEMENT_CHANGES_REQUESTED = "agreement_changes_requested"  # NEW
     FUNDING_APPROVAL_REQUIRED = "funding_approval_required"
+    FUNDING_CHECKOUT_REQUIRED = "funding_checkout_required"
     FUNDING_PENDING = "funding_pending"
     PURCHASE_ORDER_REQUIRED = "purchase_order_required"
     EVIDENCE_PENDING = "evidence_pending"
@@ -150,7 +151,7 @@ class VerifundTaskResult(VerifundModel):
     ]
     task_id: str | None = None
     checkpoint: VerifundCheckpoint | None = None
-    approval_type: Literal["funding", "release"] | None = None
+    approval_type: Literal["funding", "checkout", "release"] | None = None
     run_id: str = Field(min_length=1)
     transaction_id: str | None = None
     agreement_version: int | None = None
@@ -166,6 +167,7 @@ class VerifundTaskResult(VerifundModel):
         if self.status == "approval_required":
             expected = {
                 VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED: "funding",
+                VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED: "checkout",
                 VerifundCheckpoint.RELEASE_APPROVAL_REQUIRED: "release",
             }.get(self.checkpoint)
             if expected is None or self.approval_type != expected:
