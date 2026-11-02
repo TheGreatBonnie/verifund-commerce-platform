@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   Check,
@@ -13,12 +14,47 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
-import { products, orders } from "@/lib/data";
+import { orders } from "@/lib/data";
+import { fetchMarketplaceProducts } from "@/lib/api";
+import type { MarketplaceProduct } from "@/lib/types";
 import { useRuns } from "@/features/runs/use-runs";
 import { RunSummaryCard } from "@/features/runs/run-summary-card";
 
 const SAMPLE_BRIEF =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
+
+type HomeProduct = {
+  id: string;
+  name: string;
+  category: string;
+  desc: string;
+  emoji: string;
+  tag: string;
+  color: string;
+  price: number;
+  original: number;
+  rating: string;
+  reviews: string;
+  seller: string;
+};
+
+function toHomeProduct(product: MarketplaceProduct): HomeProduct {
+  const offer = product.offers?.[0];
+  return {
+    id: product.id,
+    name: product.name,
+    category: product.category,
+    desc: product.description,
+    emoji: product.image_emoji ?? "📦",
+    tag: product.tag ?? "Available",
+    color: product.color ?? "#eef2ed",
+    price: Math.round((product.unit_price_cents ?? 0) / 100),
+    original: Math.round((product.original_unit_price_cents ?? 0) / 100),
+    rating: String(product.rating ?? ""),
+    reviews: String(product.reviews ?? ""),
+    seller: product.seller ?? offer?.seller_name ?? "",
+  };
+}
 
 const capabilities = [
   {
@@ -47,12 +83,18 @@ const capabilities = [
   },
 ];
 
-const categories = Array.from(new Set(products.map((product) => product.category)));
-
 export default function Home() {
   const router = useRouter();
   const { runs } = useRuns();
   const recent = runs.slice(0, 3);
+
+  const catalogQuery = useQuery({
+    queryKey: ["marketplace-products"],
+    queryFn: fetchMarketplaceProducts,
+    staleTime: 15_000,
+  });
+  const products = (catalogQuery.data ?? []).map(toHomeProduct);
+  const categories = Array.from(new Set(products.map((product) => product.category)));
 
   const runSample = () => {
     const threadId = crypto.randomUUID();
@@ -202,8 +244,21 @@ export default function Home() {
             <p className="mm-kicker">From the sample catalog</p>
             <h2 id="featured-title">Featured products</h2>
           </div>
-          <span className="mm-dashboard-section-note">Mock marketplace data</span>
+          <span className="mm-dashboard-section-note">Live seller catalogs</span>
         </header>
+        {catalogQuery.isLoading ? (
+          <div className="mm-product-grid">
+            <div className="mm-marketplace-empty" aria-busy="true">Loading live seller catalogs…</div>
+          </div>
+        ) : catalogQuery.error ? (
+          <div className="mm-product-grid">
+            <div className="mm-marketplace-empty" role="alert">
+              <h3>Marketplace catalog unavailable</h3>
+              <p>{catalogQuery.error.message}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void catalogQuery.refetch()}>Retry</Button>
+            </div>
+          </div>
+        ) : (
         <div className="mm-product-grid">
           {products.slice(0, 5).map((product) => (
             <article className="mm-product-card" key={product.id}>
@@ -230,12 +285,13 @@ export default function Home() {
                   onClick={() => runProductBrief(product)}
                   leftIcon={<Handshake size={13} aria-hidden="true" />}
                 >
-                  Ask agent
+                  Ask agent to negotiate
                 </Button>
               </div>
             </article>
           ))}
         </div>
+        )}
       </section>
 
       <section className="mm-dashboard-section" aria-labelledby="categories-title">
