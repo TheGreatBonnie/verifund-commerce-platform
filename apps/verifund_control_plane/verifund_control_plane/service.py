@@ -1447,6 +1447,98 @@ class VerifundService:
             await self.repo.get_transaction(transaction_id)
         )
 
+    async def _funding_order_is_dead(self, order_id: str) -> bool:
+        try:
+            order = await self.payments.get_order(order_id)
+        except VerifundError as exc:
+            return exc.code == "not_found"
+        return order.status in {"VOIDED", "EXPIRED"} or bool(order.captures)
+
+    async def attach_funding_order(
+        self, transaction_id: str, order_id: str, *, actor: str
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state not in {
+            TransactionState.AGREED,
+            TransactionState.FUNDING_PENDING,
+        }:
+            raise VerifundError(
+                "invalid_state", "transaction is not awaiting funding", status_code=409
+            )
+        funding = dict(record.funding or {})
+        existing = funding.get("provider_order_id")
+        attempt = int(funding.get("order_attempt") or 0)
+        replaced = False
+        if existing and existing != order_id:
+            past_deadline = self._now() >= self._funding_deadline(record)
+            if not past_deadline and not await self._funding_order_is_dead(existing):
+                raise VerifundError(
+                    "conflict", "funding order already attached", status_code=409
+                )
+            attempt = max(attempt, 1) + 1
+            replaced = True
+        elif not existing:
+            attempt = max(attempt, 1)
+        elif record.state == TransactionState.FUNDING_PENDING:
+            # Replaying the same attach must not bump the version.
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            current_funding = dict(current.funding or {})
+            current_order = current_funding.get("provider_order_id")
+            if current_order and current_order not in {order_id, existing}:
+                raise VerifundError(
+                    "conflict", "funding order changed; reload and retry", status_code=409
+                )
+            deadline = (
+                self._now()
+                + timedelta(hours=self.settings.funding_timeout_hours)
+                if replaced
+                else self._funding_deadline(current)
+            )
+            changes = {
+                "funding": {
+                    **current_funding,
+                    "status": "pending",
+                    "provider_order_id": order_id,
+                    "order_attempt": attempt,
+                },
+                "deadlines": {
+                    **(current.deadlines or {}),
+                    "funding": self._iso(deadline),
+                },
+            }
+            if current.state == TransactionState.AGREED:
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=TransactionState.AGREED,
+                    new_state=TransactionState.FUNDING_PENDING,
+                    changes=changes,
+                    events=[EventInput("funding_required", {}, actor)],
+                    audit=AuditInput(actor, "funding_order_attached"),
+                )
+            elif current.state == TransactionState.FUNDING_PENDING:
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes=changes,
+                    audit=AuditInput(actor, "funding_order_attached"),
+                )
+            else:
+                raise VerifundError(
+                    "invalid_state",
+                    "transaction is not awaiting funding",
+                    status_code=409,
+                )
+        return (await self._projection_for(transaction_id, "buyer")).model_dump(
+            mode="json"
+        )
+
     async def refresh_funding(
         self, transaction_id: str, *, actor: str
     ) -> dict[str, Any]:
