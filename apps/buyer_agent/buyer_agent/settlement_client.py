@@ -296,6 +296,11 @@ class BuyerSettlementClient:
         )
         return response.model_dump(mode="json")
 
+    async def prepare_funding(self, transaction_id: str) -> dict:
+        return await self._client.prepare_funding(
+            transaction_id, actor=self.actor
+        )
+
     async def refresh_funding(self, transaction_id: str) -> dict:
         return await self._client.refresh_funding(
             transaction_id, actor=self.actor

@@ -347,6 +347,28 @@ class BuyerAgreementService:
             "expires_at": funded["expires_at"],
         }
 
+    async def prepare_funding(self, run_id: str) -> dict[str, Any]:
+        projection, _ = await self._binding(run_id)
+        session = await self.client.prepare_funding(
+            str(projection["transaction_id"])
+        )
+        return {"checkout_session": session}
+
+    async def cancel(
+        self, run_id: str, *, reason_code: str, note: str = ""
+    ) -> dict[str, Any]:
+        projection, _ = await self._binding(run_id)
+        canceled = await self.client.cancel(
+            str(projection["transaction_id"]),
+            CancelRequest(
+                reason_code=CancelReason(reason_code),
+                note=note,
+            ),
+            actor="buyer-agent",
+        )
+        await self._store.save_projection(run_id, canceled)
+        return canceled
+
     async def purchase_order(
         self, run_id: str, request: BuyerPurchaseOrderRequest
     ) -> dict[str, Any]:

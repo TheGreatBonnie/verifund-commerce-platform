@@ -88,6 +88,22 @@ class BuyerInternalClient:
             json=decision.model_dump(mode="json"),
         )
 
+    async def prepare_funding(self, run_id: str) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/internal/runs/{run_id}/settlement/prepare-funding",
+            json={},
+        )
+
+    async def cancel(
+        self, run_id: str, *, reason_code: str, note: str = ""
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/internal/runs/{run_id}/settlement/cancel",
+            json={"reason_code": reason_code, "note": note},
+        )
+
     async def purchase_order(
         self, run_id: str, request: BuyerPurchaseOrderRequest
     ) -> dict[str, Any]:

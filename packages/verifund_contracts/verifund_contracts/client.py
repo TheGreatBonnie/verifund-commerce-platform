@@ -248,6 +248,16 @@ class VerifundClient:
             )
         )
 
+    async def prepare_funding(
+        self, transaction_id: str, *, actor: str = "buyer-agent"
+    ) -> dict:
+        return await self._request(
+            "POST",
+            f"/transactions/{transaction_id}/funding/prepare",
+            body={},
+            actor=actor,
+        )
+
     async def refresh_funding(
         self, transaction_id: str, *, actor: str = "buyer-agent"
     ) -> dict:

@@ -42,6 +42,13 @@ class CancelBody(BaseModel):
     note: str = ""
 
 
+class InternalCancelBody(BaseModel):
+    reason_code: Literal[
+        "buyer_rejected", "buyer_cancelled", "reviewer_cancelled"
+    ]
+    note: str = ""
+
+
 class SellerTokenBody(BaseModel):
     run_id: str = Field(min_length=1)
     transaction_id: str = Field(min_length=1)
@@ -414,6 +421,28 @@ async def internal_approve_funding(
         raise HTTPException(status_code=403, detail="run does not match the decision")
     try:
         return await _agreements(request).approve_funding(run_id, body)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/prepare-funding")
+async def internal_prepare_funding(run_id: str, request: Request) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    try:
+        return await _agreements(request).prepare_funding(run_id)
+    except AgreementBindingError as exc:
+        raise _binding_error(exc) from exc
+
+
+@router.post("/internal/runs/{run_id}/settlement/cancel")
+async def internal_cancel(
+    run_id: str, body: InternalCancelBody, request: Request
+) -> dict[str, Any]:
+    _require_verifund_agent(request)
+    try:
+        return await _agreements(request).cancel(
+            run_id, reason_code=body.reason_code, note=body.note
+        )
     except AgreementBindingError as exc:
         raise _binding_error(exc) from exc
 
