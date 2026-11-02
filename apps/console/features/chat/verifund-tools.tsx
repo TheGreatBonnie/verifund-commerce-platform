@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import {
+  PayPalOneTimePaymentButton,
+  PayPalProvider,
+} from "@paypal/react-paypal-js/sdk-v6";
 import { z } from "zod";
+import {
+  captureOrderAction,
+  createOrderAction,
+  pollFundingAction,
+} from "@/app/actions";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import type { SettlementProjection, SettlementReceipt } from "@/lib/types";
 import {
@@ -64,6 +73,16 @@ export const releaseApprovalArgsSchema = z.object({
   message: z.string().default("Release this transaction."),
 });
 
+export const paypalCheckoutArgsSchema = z.object({
+  transaction_id: z.string().min(1),
+  amount_cents: z.number().int().positive(),
+  currency: z.string().min(1),
+  expires_at: z.string().optional(),
+  message: z
+    .string()
+    .default("Complete the PayPal checkout to fund this transaction."),
+});
+
 export const agreementApprovalArgsSchema = z.object({
   agreement: z.record(z.unknown()),
   review_url: z.string().optional(),
@@ -85,6 +104,7 @@ export type ReviewDecision = z.infer<typeof reviewDecisionSchema>;
 export type FundingApprovalArgs = z.infer<typeof fundingApprovalArgsSchema>;
 export type ReleaseApprovalArgs = z.infer<typeof releaseApprovalArgsSchema>;
 export type AgreementApprovalArgs = z.infer<typeof agreementApprovalArgsSchema>;
+export type PayPalCheckoutArgs = z.infer<typeof paypalCheckoutArgsSchema>;
 
 export type FundingDecision = {
   run_id: string;
@@ -642,6 +662,128 @@ export function CheckoutCard({
         Open the payment checkout
       </a>
       {expiresAt ? <p>Link expires at {expiresAt}</p> : null}
+    </section>
+  );
+}
+
+export function PayPalCheckoutCard({
+  args,
+  respond,
+  onVerifundAction,
+  pollIntervalMs = 2000,
+}: {
+  args: PayPalCheckoutArgs;
+  respond?: (result: unknown) => Promise<void>;
+  onVerifundAction?: () => void;
+  pollIntervalMs?: number;
+}) {
+  const [phase, setPhase] = useState<
+    "ready" | "confirming" | "fallback" | "error"
+  >("ready");
+  const [error, setError] = useState<string | null>(null);
+  const busy = phase === "confirming";
+
+  async function decide(decision: Record<string, unknown>) {
+    await respond?.(decision);
+    onVerifundAction?.();
+  }
+
+  function base() {
+    return {
+      transaction_id: args.transaction_id,
+      idempotency_key: `checkout:${args.transaction_id}`,
+    };
+  }
+
+  async function pollUntilFunded() {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      const projection = await pollFundingAction({
+        transactionId: args.transaction_id,
+      });
+      if (projection.state === "FUNDED") return projection;
+      if (projection.state !== "FUNDING_PENDING") break;
+    }
+    throw new Error("Payment captured but settlement is still pending");
+  }
+
+  async function approve({ orderId }: { orderId: string }) {
+    try {
+      setPhase("confirming");
+      setError(null);
+      const result = await captureOrderAction({
+        transactionId: args.transaction_id,
+        orderId,
+      });
+      const projection =
+        result.settlementState === "FUNDED"
+          ? { transaction_id: args.transaction_id, state: "FUNDED" }
+          : await pollUntilFunded();
+      setPhase("ready");
+      await decide({
+        status: "completed",
+        ...base(),
+        order_id: result.orderId,
+        capture_id: result.captureId,
+        projection,
+      });
+    } catch (cause) {
+      setPhase("error");
+      setError(
+        cause instanceof Error ? cause.message : "The payment did not settle.",
+      );
+    }
+  }
+
+  return (
+    <section className="mm-approval" data-testid="paypal-checkout">
+      <p className="mm-kicker">Verifund · PayPal checkout</p>
+      <p>{args.message}</p>
+      <p data-testid="verifund-checkout-amount">
+        {money(args.amount_cents, args.currency)} · {args.currency}
+      </p>
+      {phase === "fallback" ? (
+        <div>
+          <p>PayPal is unavailable in this browser.</p>
+          <button
+            type="button"
+            className="mm-button"
+            onClick={() => decide({ status: "fallback", ...base() })}
+          >
+            Pay on PayPal&apos;s site
+          </button>
+        </div>
+      ) : (
+        <PayPalProvider
+          clientId={process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? ""}
+          environment={
+            process.env.NEXT_PUBLIC_PAYPAL_ENVIRONMENT === "production"
+              ? "production"
+              : "sandbox"
+          }
+          components={["paypal-payments"]}
+          pageType="checkout"
+        >
+          <PayPalOneTimePaymentButton
+            presentationMode="auto"
+            disabled={busy}
+            createOrder={async () => {
+              const { id } = await createOrderAction({
+                transactionId: args.transaction_id,
+              });
+              return { orderId: id };
+            }}
+            onApprove={approve}
+            onCancel={() => decide({ status: "canceled", ...base() })}
+            onError={() => setPhase("fallback")}
+          />
+        </PayPalProvider>
+      )}
+      {busy ? <p>Confirming payment…</p> : null}
+      {phase === "error" && error ? <p role="alert">{error}</p> : null}
+      {args.expires_at ? (
+        <p className="mm-mono-note">Offer expires at {args.expires_at}</p>
+      ) : null}
     </section>
   );
 }
