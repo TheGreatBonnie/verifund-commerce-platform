@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Literal, Optional
+
 from ag_ui_adk import AGUIToolset
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
@@ -165,10 +167,13 @@ protocol instead of the legacy order flow.
 - If hitl.tool is request_verifund_paypal_checkout, call that
   frontend tool with hitl.args unchanged and wait for the card.
   When the card returns, call verifund_checkout with the exact
-  structured CheckoutDecision. Never call verifund_evidence_review
-  immediately after the card; the checkout result already resumes
-  the task. Never call verifund_evidence_review while settlement
-  is pending; resume on the next status refresh instead.
+  status, transaction_id, idempotency_key, order_id, capture_id,
+  and projection from the card result. The verifund agent verifies
+  the settlement with the Buyer; never substitute or invent a
+  funded state. Never call verifund_evidence_review immediately
+  after the card; the checkout result already resumes the task.
+  Never call verifund_evidence_review while settlement is pending;
+  resume on the next status refresh instead.
 - After funding, call verifund_evidence_review with the same
   task_id, context_id, run_id, and seller_card_url. It places
   the purchase order with the Seller and polls funding and
@@ -316,12 +321,26 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         task_id: str,
         context_id: str,
         run_id: str,
-        decision: dict,
+        status: Literal["completed", "canceled", "fallback"],
+        transaction_id: str,
+        idempotency_key: str,
+        # ADK's automatic function parser does not understand PEP 604 unions.
+        projection: Optional[dict[str, Any]] = None,  # noqa: UP045
+        order_id: Optional[str] = None,  # noqa: UP045
+        capture_id: Optional[str] = None,  # noqa: UP045
     ) -> dict:
         """Resume the checkout checkpoint with the embedded card result."""
+        decision = CheckoutDecision(
+            status=status,
+            transaction_id=transaction_id,
+            order_id=order_id or None,
+            capture_id=capture_id or None,
+            projection=projection or {},
+            idempotency_key=idempotency_key,
+        )
         return await lifecycle.resume_checkout(
             handle(task_id, context_id, run_id),
-            CheckoutDecision.model_validate(decision),
+            decision,
         )
 
     async def verifund_evidence_review(

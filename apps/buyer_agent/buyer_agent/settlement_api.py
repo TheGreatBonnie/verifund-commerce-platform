@@ -391,8 +391,14 @@ def _binding_error(exc: AgreementBindingError) -> HTTPException:
 
 
 @router.get("/internal/runs/{run_id}/settlement")
-async def internal_get_settlement(run_id: str, request: Request) -> dict[str, Any]:
+async def internal_get_settlement(
+    run_id: str, request: Request, refresh: bool = False
+) -> dict[str, Any]:
     _require_verifund_agent(request)
+    if refresh:
+        projection = await load_settlement_projection(request, run_id)
+        if projection is None:
+            raise HTTPException(status_code=404, detail="settlement not found")
     try:
         return await _agreements(request).view(run_id)
     except AgreementBindingError as exc:

@@ -979,3 +979,32 @@ def test_the_checkout_tool_and_instruction_are_registered() -> None:
     assert "request_verifund_paypal_checkout" in (
         MARKETMESH_ORCHESTRATOR_INSTRUCTION
     )
+
+
+def test_the_checkout_tool_exposes_the_structured_decision_fields() -> None:
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    tool = next(tool for tool in tools if tool.name == "verifund_checkout")
+    declaration = tool._get_declaration()
+    assert declaration is not None
+    parameters = declaration.parameters
+    assert parameters is not None
+    properties = parameters.properties
+    assert set(properties) == {
+        "task_id",
+        "context_id",
+        "run_id",
+        "status",
+        "transaction_id",
+        "idempotency_key",
+        "projection",
+        "order_id",
+        "capture_id",
+    }
+    assert properties["status"].enum == [
+        "completed",
+        "canceled",
+        "fallback",
+    ]
+    assert "projection" not in parameters.required

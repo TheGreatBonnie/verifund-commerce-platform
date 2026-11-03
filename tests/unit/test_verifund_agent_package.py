@@ -82,6 +82,24 @@ async def test_buyer_client_uses_only_the_agent_internal_header() -> None:
 
 
 @respx.mock
+async def test_buyer_client_can_request_a_fresh_settlement() -> None:
+    route = respx.get(
+        "http://buyer/internal/runs/run-1/settlement",
+        params={"refresh": "true"},
+    ).mock(
+        return_value=httpx.Response(
+            200, json={"projection": {"transaction_id": "vf_1", "state": "FUNDED"}}
+        )
+    )
+    client = BuyerInternalClient(
+        "http://buyer",
+        internal_token="agent-internal",
+    )
+    await client.get_settlement("run-1", refresh=True)
+    assert route.called
+
+
+@respx.mock
 async def test_buyer_client_creates_an_agreement_with_the_exact_award() -> None:
     route = respx.post(
         "http://buyer/internal/runs/run-1/settlement/agreement"

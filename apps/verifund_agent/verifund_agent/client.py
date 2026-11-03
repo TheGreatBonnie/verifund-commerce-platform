@@ -63,9 +63,12 @@ class BuyerInternalClient:
             json=request.model_dump(mode="json"),
         )
 
-    async def get_settlement(self, run_id: str) -> dict[str, Any]:
+    async def get_settlement(
+        self, run_id: str, *, refresh: bool = False
+    ) -> dict[str, Any]:
+        suffix = "?refresh=true" if refresh else ""
         return await self._request(
-            "GET", f"/internal/runs/{run_id}/settlement"
+            "GET", f"/internal/runs/{run_id}/settlement{suffix}"
         )
 
     async def get_agreement(self, run_id: str) -> dict[str, Any]:

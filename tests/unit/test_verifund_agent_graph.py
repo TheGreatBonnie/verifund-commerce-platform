@@ -202,6 +202,8 @@ class Buyer:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
         self._settlement_calls = 0
+        self.settlement_state = "AWARDED"
+        self.settlement_transaction_id = "vf_1"
 
     async def create_agreement(self, run_id, request):
         self.calls.append(("create_agreement", run_id, request))
@@ -214,8 +216,8 @@ class Buyer:
             "seller_token_ref": "run:run-1:transaction:vf_1",
         }
 
-    async def get_settlement(self, run_id):
-        self.calls.append(("get_settlement", run_id))
+    async def get_settlement(self, run_id, *, refresh=False):
+        self.calls.append(("get_settlement", run_id, refresh))
         self._settlement_calls += 1
         agreement = AGREEMENT.model_dump(mode="json")
         if self._settlement_calls == 2:
@@ -224,7 +226,10 @@ class Buyer:
             agreement["status"] = "AGREED"
         return {
             "agreement": agreement,
-            "projection": {"transaction_id": "vf_1", "state": "AWARDED"},
+            "projection": {
+                "transaction_id": self.settlement_transaction_id,
+                "state": self.settlement_state,
+            },
         }
 
     async def approve_funding(self, run_id, decision, *, defer_checkout=False):
@@ -290,8 +295,8 @@ class Buyer:
 class StaleBuyer(Buyer):
     """The buyer store never learns that the console recorded the decision."""
 
-    async def get_settlement(self, run_id):
-        self.calls.append(("get_settlement", run_id))
+    async def get_settlement(self, run_id, *, refresh=False):
+        self.calls.append(("get_settlement", run_id, refresh))
         return {
             "agreement": {
                 **AGREEMENT.model_dump(mode="json"),
@@ -536,6 +541,7 @@ async def test_completed_checkout_goes_straight_to_the_purchase_order() -> None:
     await graph.ainvoke(
         Command(resume=funding_decision().model_dump(mode="json")), runtime
     )
+    buyer.settlement_state = "FUNDED"
 
     result = await graph.ainvoke(
         Command(resume=checkout_decision().model_dump(mode="json")), runtime
@@ -543,6 +549,53 @@ async def test_completed_checkout_goes_straight_to_the_purchase_order() -> None:
 
     stop = result["__interrupt__"][0].value
     assert stop["reason"] == "purchase_order_required"
+
+
+async def test_completed_checkout_without_a_relayed_projection_uses_the_server_settlement() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+    buyer.settlement_state = "FUNDED"
+
+    result = await graph.ainvoke(
+        Command(
+            resume={
+                "status": "completed",
+                "transaction_id": "vf_1",
+                "order_id": "ORDER-1",
+                "capture_id": "CAP-1",
+                "idempotency_key": "checkout:vf_1",
+            }
+        ),
+        runtime,
+    )
+
+    stop = result["__interrupt__"][0].value
+    assert stop["reason"] == "purchase_order_required"
+    assert ("get_settlement", "run-1", True) in buyer.calls
+
+
+async def test_completed_checkout_rejects_an_unfunded_server_settlement() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+    # The relayed projection claims FUNDED; the authoritative settlement does
+    # not. The graph must trust the server, not the card.
+    buyer.settlement_state = "FUNDING_PENDING"
+
+    with pytest.raises(VerifundProtocolError, match="checkout is not settled"):
+        await graph.ainvoke(
+            Command(resume=checkout_decision().model_dump(mode="json")),
+            runtime,
+        )
 
 
 async def test_canceled_checkout_cancels_the_run() -> None:
@@ -614,13 +667,10 @@ async def test_checkout_must_settle_the_agreed_transaction() -> None:
             ),
             runtime,
         )
+    buyer.settlement_transaction_id = "vf_2"
     with pytest.raises(VerifundProtocolError):
         await graph.ainvoke(
-            Command(
-                resume=checkout_decision(
-                    projection={"transaction_id": "vf_1", "state": "FUNDING_PENDING"}
-                ).model_dump(mode="json")
-            ),
+            Command(resume=checkout_decision().model_dump(mode="json")),
             runtime,
         )
 

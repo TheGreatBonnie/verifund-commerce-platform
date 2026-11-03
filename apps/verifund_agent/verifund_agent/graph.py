@@ -675,15 +675,24 @@ async def await_checkout(
             "checkout_decision": decision.model_dump(mode="json"),
             "stage": "checkout_fallback",
         }
-    projection = decision.projection or {}
+    # The card's projection is advisory: nested fields can be lost when the
+    # orchestrator LLM relays the HITL result. Read the settlement from the
+    # Buyer, refreshed from the control plane, before advancing.
+    settlement = await _buyer(config).get_settlement(
+        state.get("run_id") or agreement.run_id,
+        refresh=True,
+    )
+    projection = settlement.get("projection") or {}
     if projection.get("transaction_id") != agreement.transaction_id:
         raise VerifundProtocolError(
-            "checkout projection does not match the agreement"
+            "checkout settlement does not match the agreement"
         )
     if projection.get("state") != TransactionState.FUNDED.value:
         raise VerifundProtocolError("checkout is not settled")
+    recorded = decision.model_dump(mode="json")
+    recorded["projection"] = projection
     return {
-        "checkout_decision": decision.model_dump(mode="json"),
+        "checkout_decision": recorded,
         "projection": projection,
         "funding_projection": projection,
         "stage": "funded",

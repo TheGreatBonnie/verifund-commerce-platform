@@ -12,6 +12,7 @@ from fastapi import FastAPI
 class Settings:
     console_api_token = "console-token"
     internal_api_token = "internal-token"
+    verifund_agent_internal_token = "agent-internal"
     verifund_mode = "fake"
 
 
@@ -67,6 +68,19 @@ class Store:
 
     async def get_secret_by_transaction(self, transaction_id):
         return self.secret if transaction_id == "vf_1" else None
+
+
+class Agreements:
+    def __init__(self, store: Store) -> None:
+        self.store = store
+
+    async def view(self, run_id):
+        return {
+            "run_id": run_id,
+            "transaction_id": "vf_1",
+            "agreement": {},
+            "projection": await self.store.get_projection(run_id),
+        }
 
 
 class Client:
@@ -172,6 +186,7 @@ def services(*, cached=None, client=None, paused=True):
         store=SimpleNamespace(settlement=store, trace=Trace()),
         coordinator=SettlementCoordinator(),
         trace=Trace(),
+        agreements=Agreements(store),
     )
     return value, store, client, graph
 
@@ -221,6 +236,25 @@ async def test_get_settlement_refreshes_and_caches_the_projection(api):
     assert body["settlement_unavailable"] is False
     assert store.saved[-1]["state"] == "FUNDED"
     assert client.calls[-1] == ("state", "vf_1", "console:reviewer")
+
+
+async def test_internal_settlement_can_refresh_the_cached_projection():
+    cached = projection("FUNDING_PENDING")
+    cached["last_seq"] = 4
+    app, store, client, _ = build(cached=cached)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://buyer"
+    ) as http:
+        response = await http.get(
+            "/internal/runs/run-1/settlement?refresh=true",
+            headers={"x-verifund-agent-token": "agent-internal"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["projection"]["state"] == "FUNDED"
+    assert client.calls[-1] == ("state", "vf_1", "console:reviewer")
+    assert store.saved[-1]["state"] == "FUNDED"
 
 
 async def test_get_settlement_records_one_trace_event_per_advance():

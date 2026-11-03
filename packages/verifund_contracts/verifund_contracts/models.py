@@ -545,14 +545,10 @@ class CheckoutDecision(VerifundModel):
     transaction_id: str = Field(min_length=1)
     order_id: str | None = None
     capture_id: str | None = None
+    # Advisory only. The verifund agent re-reads the authoritative settlement
+    # before advancing, so an LLM relay may omit this nested object.
     projection: dict[str, Any] = Field(default_factory=dict)
     idempotency_key: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _completed_requires_projection(self) -> CheckoutDecision:
-        if self.status == "completed" and not self.projection:
-            raise ValueError("completed checkout requires a settlement projection")
-        return self
 
 
 class ReleaseApprovalDecision(VerifundModel):

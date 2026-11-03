@@ -141,19 +141,22 @@ def test_checkout_checkpoint_rejects_funding_approval_type():
         )
 
 
-def test_completed_checkout_decision_requires_a_projection():
-    with pytest.raises(ValidationError):
-        CheckoutDecision(
-            status="completed",
-            transaction_id="vf_1",
-            idempotency_key="checkout:vf_1",
-        )
+def test_completed_checkout_decision_does_not_require_a_projection():
+    # The card's projection is advisory. The verifund agent re-reads the
+    # authoritative settlement, so a relayed decision may omit it.
     decision = CheckoutDecision(
+        status="completed",
+        transaction_id="vf_1",
+        idempotency_key="checkout:vf_1",
+    )
+    assert decision.projection == {}
+
+    canceled = CheckoutDecision(
         status="canceled",
         transaction_id="vf_1",
         idempotency_key="checkout:vf_1",
     )
-    assert decision.status == "canceled"
+    assert canceled.status == "canceled"
 
 
 @respx.mock
