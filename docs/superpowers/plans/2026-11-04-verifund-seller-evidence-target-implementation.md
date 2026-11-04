@@ -734,7 +734,9 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-Define protocol and a fake/in-memory implementation with retry/backoff and ops alert. Real aggregator behind the same interface.
+Define protocol and a fake/in-memory implementation with retry/backoff and ops alert. Real
+aggregator behind the same interface, including a PayPal Tracking adapter (Orders v2
+`track`, Tracking v1 fallback, carrier-code validation, webhook/polling status updates).
 
 - [ ] **Step 4: Run tests**
 
@@ -1195,6 +1197,90 @@ Check `product_photos`, `serial`, `hardware`, `warranty`, `shipping`, `delivery_
 ```bash
 git add docs/superpowers/specs/2026-11-04-verifund-seller-evidence-target-design.md
 git commit -m "docs: align mock and contract ids"
+```
+
+
+---
+
+## Milestone E — PayPal tracking integration
+
+### Task 28: PayPal tracking adapter
+
+**Files:**
+- Create: `apps/verifund_control_plane/verifund_control_plane/paypal_tracking.py`
+- Modify: `apps/verifund_control_plane/verifund_control_plane/carrier.py`
+- Test: `tests/unit/test_verifund_paypal_tracking.py`
+
+**Interfaces:**
+- Produces: `PayPalTrackingClient.fetch(tracking_number, carrier) -> CarrierRecord`.
+
+- [ ] **Step 1: Write failing test**
+
+```python
+async def test_paypal_tracking_returns_delivered():
+    client = FakePayPalTracking(status="DELIVERED")
+    record = await client.fetch("1Z...", "UPS")
+    assert record.status == "delivered"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `uv run pytest tests/unit/test_verifund_paypal_tracking.py -q`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement**
+
+OAuth token handling, Orders v2 `track`, Tracking v1 fallback, carrier-code validation, retry/backoff, ops alert.
+
+- [ ] **Step 4: Run tests**
+
+Run: `uv run pytest tests/unit/test_verifund_paypal_tracking.py -q`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/verifund_control_plane/verifund_control_plane/paypal_tracking.py apps/verifund_control_plane/verifund_control_plane/carrier.py
+git commit -m "feat(carrier): PayPal tracking adapter"
+```
+
+### Task 29: PayPal tracking webhooks and polling
+
+**Files:**
+- Modify: `apps/verifund_control_plane/verifund_control_plane/reconciler.py`
+- Modify: `apps/verifund_control_plane/verifund_control_plane/service.py`
+- Test: `tests/unit/test_verifund_reconciler.py`
+
+**Interfaces:**
+- Produces: `handle_paypal_tracking_webhook`, `refresh_paypal_tracking`.
+
+- [ ] **Step 1: Write failing test**
+
+```python
+async def test_paypal_tracking_webhook_updates_delivery_requirement():
+    await handle_paypal_tracking_webhook(payload_delivered)
+    assert delivery_requirement.status == "PASS" if buyer_confirmed else "REVIEW"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement**
+
+Idempotent webhook processing, polling fallback, status mapping, tracker ID persistence, reconciler trigger.
+
+- [ ] **Step 4: Run tests**
+
+Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/verifund_control_plane/verifund_control_plane/reconciler.py apps/verifund_control_plane/verifund_control_plane/service.py
+git commit -m "feat(carrier): PayPal tracking webhooks and polling"
 ```
 
 ---
@@ -1913,7 +1999,9 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-Define protocol and a fake/in-memory implementation with retry/backoff and ops alert. Real aggregator behind the same interface.
+Define protocol and a fake/in-memory implementation with retry/backoff and ops alert. Real
+aggregator behind the same interface, including a PayPal Tracking adapter (Orders v2
+`track`, Tracking v1 fallback, carrier-code validation, webhook/polling status updates).
 
 - [ ] **Step 4: Run tests**
 

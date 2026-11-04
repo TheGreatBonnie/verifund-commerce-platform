@@ -228,9 +228,12 @@ Rollup:
 ### 3.3 Delivery is buyer-attested, carrier-corroborated
 
 1. Seller submits `shipment_manifest` and `invoice` (and any other seller-owned requirement).
-2. Carrier record is fetched via aggregator (EasyPost/Shippo) against the PO tracking number,
+2. Carrier record is fetched via a `CarrierClient` adapter against the PO tracking number,
    with retry/backoff and an ops alert on outage; a carrier outage leaves the delivery
-   requirement `REVIEW` with a retry scheduled, not a permanent block.
+   requirement `REVIEW` with a retry scheduled, not a permanent block. For PayPal-funded
+   orders the adapter may use PayPal Tracking (Orders v2 `track` or Tracking v1) as the
+   carrier source; EasyPost/Shippo remain the fallback for unsupported carriers or
+   non-PayPal funding. PayPal tracking status updates may arrive via webhook or polling.
 3. Buyer calls `CONFIRM_DELIVERY` (buyer bearer token, decision 31) with `confirmed_at`,
    which must be within ±`N` hours of the carrier's delivered event and not in the future;
    the server rejects an out-of-bounds value with `422 invalid_request` rather than
@@ -859,9 +862,9 @@ Projections (`service.py`):
 
 ## 7. Implementation sequence
 
-Recommended as four milestones, not one plan. Step 7's blocker (ladder cap) is resolved
-enough to start; the refund path (step 9) is a prerequisite for the refund branch of the
-forced outcome.
+Recommended as five milestones. Step 7's blocker (ladder cap) is resolved enough to
+start; the refund path (step 10) is a prerequisite for the refund branch of the forced
+outcome. Milestone E is carrier-source-specific and can run in parallel with Milestone B.
 
 **Milestone A — catalog and verification (no money movement):**
 
@@ -909,8 +912,18 @@ forced outcome.
     `REFUNDED`; collapse the prototype's two status vocabularies into one; gate the
     agreement routes; wire invitation exchange.
 
+**Milestone E — PayPal tracking integration:**
+
+14. PayPal tracking adapter — `PayPalTrackingClient` behind `CarrierClient`; Orders v2
+    `track` plus Tracking v1 fallback; carrier-code validation from PayPal's carrier list.
+15. PayPal tracking status flow — webhook handling with idempotency, polling fallback,
+    status mapping to `PASS`/`REVIEW`, tracker ID persistence, ops/console visibility.
+
+
 ## 8. Remaining risks / assumptions
 
+- PayPal Tracking is carrier- and status-coarse; it complements but does not replace
+  buyer confirmation as the delivery trust anchor.
 - Carrier aggregator is a new external dependency with its own outage/retry semantics;
   scan-status gating makes evidence verification asynchronous.
 - Grandfathering means two code paths (settings-based vs terms-based) must coexist until
