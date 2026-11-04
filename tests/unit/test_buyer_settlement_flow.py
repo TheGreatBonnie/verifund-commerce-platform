@@ -200,3 +200,37 @@ async def test_purchase_order_report_carries_settlement_fields():
     assert report.seller_order_id == "MM-1"
     assert report.tracking_number == "TRK-1"
     assert report.total_cents == 123400
+
+from commerce_core.binding import binding_from_award, offer_hash
+
+ATTRIBUTES = {"color": "#eaf0fb", "image_emoji": "💻"}
+
+
+def test_build_award_request_preserves_attributes_and_binding_version():
+    payload = award_payload()
+    payload["winner"].update(
+        {
+            "binding_version": 2,
+            "line_items": [
+                {
+                    "sku": "NC-700",
+                    "name": "MacBook Air M4 13-inch",
+                    "quantity": 12,
+                    "unit_price_cents": 10000,
+                    "warranty_addon_cents": 0,
+                    "attributes": ATTRIBUTES,
+                }
+            ],
+        }
+    )
+    request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, payload)
+    assert request.binding_version == 2
+    assert request.line_items[0].attributes == ATTRIBUTES
+    assert offer_hash(binding_from_award(request.model_dump(mode="json"))) == request.offer_hash
+
+
+def test_build_award_request_keeps_legacy_offers_on_v1():
+    request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
+    assert request.binding_version == 1
+    assert request.line_items[0].attributes == {}
+    assert offer_hash(binding_from_award(request.model_dump(mode="json"))) == request.offer_hash

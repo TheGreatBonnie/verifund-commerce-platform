@@ -51,6 +51,7 @@ def build_award_request(
                     "list_unit_price_cents", item["unit_price_cents"]
                 ),
                 "warranty_addon_cents": item.get("warranty_addon_cents", 0),
+                "attributes": item.get("attributes") or {},
             }
             for item in winner["line_items"]
         ],
@@ -70,6 +71,7 @@ def build_award_request(
         "warranty_months": winner["warranty_months"],
         "returns_days": winner["returns_days"],
         "round": winner.get("round", 1),
+        "binding_version": winner.get("binding_version", 1),
         "valid_until": winner.get("valid_until")
         or (datetime.now(UTC) + timedelta(hours=1)),
     }
@@ -96,9 +98,11 @@ def build_award_request(
                 quantity=item["quantity"],
                 unit_price_cents=item["unit_price_cents"],
                 warranty_addon_cents=item.get("warranty_addon_cents", 0),
+                attributes=item.get("attributes") or {},
             )
             for item in winner["line_items"]
         ],
+        binding_version=winner.get("binding_version", 1),
         delivery_days=winner["delivery_days"],
         warranty_months=winner["warranty_months"],
         returns_days=winner["returns_days"],
