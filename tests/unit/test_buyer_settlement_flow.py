@@ -12,6 +12,7 @@ from buyer_agent.settlement_flow import (
     start_funding,
 )
 from commerce_core.binding import binding_from_award, offer_hash
+from verifund_contracts.terms import validate_requirements
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
@@ -234,3 +235,68 @@ def test_build_award_request_keeps_legacy_offers_on_v1():
     assert request.binding_version == 1
     assert request.line_items[0].attributes == {}
     assert offer_hash(binding_from_award(request.model_dump(mode="json"))) == request.offer_hash
+
+
+def test_buyer_authors_seven_requirements():
+    request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
+    ids = [r.requirement_id for r in request.requirements]
+    assert ids == [
+        "product_photos",
+        "serial",
+        "hardware",
+        "warranty",
+        "shipping",
+        "delivery_confirmation",
+        "invoice",
+    ]
+    validate_requirements(request.requirements)
+    by_id = {r.requirement_id: r for r in request.requirements}
+
+    shipping = by_id["shipping"]
+    assert shipping.kind == "shipment_manifest"
+    assert shipping.source == "reference"
+    assert shipping.accepted_formats == []
+    shipping_checks = {c.check_id: c.operator for c in shipping.checks}
+    assert shipping_checks == {"tracking_matches_po": "eq", "carrier_present": "exists"}
+
+    delivery = by_id["delivery_confirmation"]
+    assert delivery.kind == "delivery_confirmation"
+    assert delivery.owner == "system"
+    assert delivery.source == "reference"
+    assert [c.check_id for c in delivery.checks] == ["carrier_and_buyer_agree"]
+    assert delivery.checks[0].operator == "exists"
+
+    invoice = by_id["invoice"]
+    assert invoice.kind == "invoice"
+    assert invoice.source == "file"
+    assert invoice.accepted_formats
+    invoice_checks = {c.check_id: c for c in invoice.checks}
+    assert list(invoice_checks) == [
+        "invoice_total_matches",
+        "currency_matches",
+        "seller_matches",
+        "line_items_match",
+    ]
+    total_check = invoice_checks["invoice_total_matches"]
+    assert total_check.operator == "eq"
+    assert total_check.expected_value == 123400
+    assert total_check.ai_derived is True
+    assert invoice_checks["currency_matches"].expected_value == "USD"
+    assert invoice_checks["seller_matches"].expected_value == "northwind-audio"
+    line_items_check = invoice_checks["line_items_match"]
+    assert line_items_check.operator == "contains"
+    assert "NC-700" in str(line_items_check.expected_value)
+
+    assert "serial_number" not in by_id
+    hardware = by_id["hardware"]
+    assert "text/csv" in hardware.accepted_formats
+    assert [c.check_id for c in hardware.checks] == ["ram_gte_32gb", "storage_gte_1tb"]
+
+
+def test_evidence_required_is_deprecated_mirror_of_requirements():
+    request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
+    assert [e.value for e in request.evidence_required] == [
+        "shipment_manifest",
+        "delivery_confirmation",
+        "invoice",
+    ]

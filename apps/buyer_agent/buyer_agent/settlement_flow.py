@@ -11,11 +11,14 @@ from verifund_contracts import (
     AwardRequest,
     CancelReason,
     CancelRequest,
+    EvidenceKind,
     FundRequest,
     PurchaseOrderLineItem,
     PurchaseOrderReport,
     RejectReason,
     ReleaseRequest,
+    Requirement,
+    RequirementCheck,
 )
 
 
@@ -28,6 +31,219 @@ def settlement_enabled(services: Any) -> bool:
 
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+# Requirement ids with no counterpart in the deprecated `EvidenceKind` vocabulary are
+# omitted from the mirror (`product_photos`, `serial`, `hardware`, `warranty`); the mirror
+# exists only so grandfathered callers keep working, so it stays byte-identical to the
+# legacy `evidence_required` authoring.
+_LEGACY_EVIDENCE_KIND_BY_REQUIREMENT_ID = {
+    "shipping": EvidenceKind.SHIPMENT_MANIFEST,
+    "delivery_confirmation": EvidenceKind.DELIVERY_CONFIRMATION,
+    "invoice": EvidenceKind.INVOICE,
+}
+
+
+def _legacy_evidence_required(requirements: list[Requirement]) -> list[EvidenceKind]:
+    return [
+        _LEGACY_EVIDENCE_KIND_BY_REQUIREMENT_ID[requirement.requirement_id]
+        for requirement in requirements
+        if requirement.requirement_id in _LEGACY_EVIDENCE_KIND_BY_REQUIREMENT_ID
+    ]
+
+
+def _requirement_catalog(
+    *,
+    winner: dict[str, Any],
+    seller_id: str,
+    amount_cents: int,
+    currency: str,
+) -> list[Requirement]:
+    """Buyer-authored requirement catalog for the agreement (spec §3.9.2).
+
+    The expected values are literals copied from the award where one exists; checks
+    whose value is only known later (`tracking_matches_po`) or that pass through AI
+    extraction (`serial_matches_device`, invoice arithmetic, line items) either omit
+    `expected_value` with `ai_derived=true` or carry a derivation descriptor literal.
+    """
+    line_items = winner["line_items"]
+    line_items_expected = ", ".join(
+        f"{item['sku']} x{item['quantity']}" for item in line_items
+    )
+    return [
+        Requirement(
+            requirement_id="product_photos",
+            title="Product photographs",
+            description="Clear photographs of the product showing the item offered.",
+            owner="seller",
+            kind="other",
+            source="file",
+            accepted_formats=["image/jpeg", "image/png", "image/webp", "video/mp4"],
+            checks=[
+                RequirementCheck(
+                    check_id="photo_integrity",
+                    description="Product photograph is present and passes media intake checks.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="serial",
+            title="Serial number photograph",
+            description="Photograph of the device serial number label.",
+            owner="seller",
+            kind="other",
+            source="file",
+            accepted_formats=["image/jpeg", "image/png", "image/webp"],
+            checks=[
+                RequirementCheck(
+                    check_id="serial_readable",
+                    description="Serial number photograph is present and legible.",
+                    operator="exists",
+                    verification_method="extraction",
+                ),
+                RequirementCheck(
+                    check_id="serial_matches_device",
+                    description="Extracted serial number matches the device being shipped.",
+                    operator="eq",
+                    verification_method="extraction",
+                    ai_derived=True,
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="hardware",
+            title="Hardware diagnostic report",
+            description="Diagnostic report showing at least 32 GB of RAM and 1 TB of storage.",
+            owner="seller",
+            kind="other",
+            source="file",
+            accepted_formats=["text/csv", "application/pdf", "image/webp", "video/mp4"],
+            checks=[
+                RequirementCheck(
+                    check_id="ram_gte_32gb",
+                    description="At least 32 GB of RAM.",
+                    expected_value=32,
+                    operator="gte",
+                    unit="GB",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="storage_gte_1tb",
+                    description="At least 1 TB of storage.",
+                    expected_value=1,
+                    operator="gte",
+                    unit="TB",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="warranty",
+            title="Warranty documentation",
+            description="Warranty documentation covering at least 90 days from delivery.",
+            owner="seller",
+            kind="other",
+            source="file",
+            accepted_formats=["application/pdf", "image/jpeg", "image/png", "image/webp"],
+            checks=[
+                RequirementCheck(
+                    check_id="warranty_gte_90_days",
+                    description="Warranty covers at least 90 days.",
+                    expected_value=90,
+                    operator="gte",
+                    unit="days",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="shipping",
+            title="Shipping information",
+            description="Carrier and tracking number matching the purchase order.",
+            owner="seller",
+            kind="shipment_manifest",
+            source="reference",
+            checks=[
+                RequirementCheck(
+                    check_id="tracking_matches_po",
+                    description="Tracking number matches the tracking number on the purchase order.",
+                    # PO tracking is assigned after the award; derived at verification time.
+                    expected_value="purchase_order.tracking_number",
+                    operator="eq",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="carrier_present",
+                    description="Carrier is present on the shipping reference.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="delivery_confirmation",
+            title="Delivery confirmation",
+            description="System-generated from the carrier record and the buyer confirmation.",
+            owner="system",
+            kind="delivery_confirmation",
+            source="reference",
+            checks=[
+                RequirementCheck(
+                    check_id="carrier_and_buyer_agree",
+                    description="Carrier record and buyer confirmation agree on delivery.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="invoice",
+            title="Invoice",
+            description="Invoice matching the agreement totals, currency, seller, and line items.",
+            owner="seller",
+            kind="invoice",
+            source="file",
+            accepted_formats=["application/pdf", "image/jpeg", "image/png", "image/webp"],
+            checks=[
+                RequirementCheck(
+                    check_id="invoice_total_matches",
+                    description=(
+                        "Invoice total matches the agreement total; extracted arithmetic is "
+                        "REVIEW-only."
+                    ),
+                    expected_value=amount_cents,
+                    operator="eq",
+                    unit="cents",
+                    verification_method="extraction",
+                    ai_derived=True,
+                ),
+                RequirementCheck(
+                    check_id="currency_matches",
+                    description="Invoice currency matches the agreement currency.",
+                    expected_value=currency,
+                    operator="eq",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="seller_matches",
+                    description="Invoice seller matches the agreement seller.",
+                    expected_value=seller_id,
+                    operator="eq",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="line_items_match",
+                    description="Invoice contains the award line items.",
+                    expected_value=line_items_expected,
+                    operator="contains",
+                    verification_method="extraction",
+                    ai_derived=True,
+                ),
+            ],
+        ),
+    ]
 
 
 def build_award_request(
@@ -77,6 +293,12 @@ def build_award_request(
     }
     offer = Offer.model_validate(normalized)
     computed_offer_hash = offer_hash(canonical_offer_binding(offer))
+    requirements = _requirement_catalog(
+        winner=winner,
+        seller_id=winner["seller_id"],
+        amount_cents=winner["total_cents"],
+        currency=winner.get("currency", "USD"),
+    )
     return AwardRequest(
         run_id=run_id,
         buyer_id=str(mandate.get("buyer_id") or "demo-buyer"),
@@ -112,11 +334,9 @@ def build_award_request(
         or datetime.now(UTC) + timedelta(hours=1),
         inspection_period_hours=48,
         inspection_starts_on="DELIVERY_CONFIRMED",
-        evidence_required=[
-            "shipment_manifest",
-            "delivery_confirmation",
-            "invoice",
-        ],
+        requirements=requirements,
+        # DEPRECATED mirror of the requirement ids, derived for grandfathered callers.
+        evidence_required=_legacy_evidence_required(requirements),
         dispute_window_hours=72,
     )
 
