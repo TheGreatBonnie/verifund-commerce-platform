@@ -962,6 +962,27 @@ export function AgreementApprovalHitlCard({
   const seller = args?.seller_decision ?? a.seller_decision;
   const pc = args?.precheck;
 
+  const terms = agreementTerms(a);
+  const totals = (terms.totals ?? {}) as Record<string, any>;
+  const currency = String(totals.currency ?? a.currency ?? "USD");
+  const inspection = (terms.inspection ?? {}) as Record<string, any>;
+  const delivery = (terms.delivery ?? {}) as Record<string, any>;
+  const remedies = (terms.remedies ?? {}) as Record<string, any>;
+  const evidence = Array.isArray(terms.evidence_required)
+    ? terms.evidence_required
+    : [];
+  const approved = a.status === "AGREED";
+  const expiresAt = formatStamp(a.expires_at);
+  const sellerStatus =
+    typeof seller === "string"
+      ? seller
+      : seller?.status ?? seller?.decision ?? "Accepted";
+  const precheckStatus = pc
+    ? typeof pc === "string"
+      ? pc
+      : pc.recommendation ?? pc.status
+    : null;
+
   const decide = async (
     action: (id: string, version: number, hash: string, note: string, key: string, handle?: ResumeHandle | null) => Promise<any>,
     decision: "APPROVE" | "REJECT" | "REQUEST_CHANGES",
@@ -986,47 +1007,204 @@ export function AgreementApprovalHitlCard({
   };
 
   return (
-    <section
-      data-testid="agreement-approval-hitl"
-      className="mm-approval"
-    >
+    <section data-testid="agreement-approval-hitl" className="mm-approval">
       <div className="mm-verifund-head">
         <div>
-          <p className="mm-kicker">Agreement review</p>
+          <p className="mm-kicker">Verifund agreement</p>
           <h3>
-            <span>{a.seller_id ?? "Seller"}</span>
+            <span>{id || "Agreement"}</span>
           </h3>
         </div>
+        {approved ? (
+          <span className="mm-status-pill">
+            <CheckCircle2 size={11} /> Approved
+          </span>
+        ) : (
+          <span className="mm-status-pill is-amber">
+            <Clock3 size={11} /> Awaiting your approval
+          </span>
+        )}
       </div>
+
       <div className="mm-verifund-detail">
         <div>
           <p className="mm-kicker">Version</p>
-          <strong>{version}</strong>
+          <strong>v{version}</strong>
         </div>
         <div>
-          <p className="mm-kicker">Digest</p>
-          <strong>{String(hash).slice(0, 12)}</strong>
+          <p className="mm-kicker">Expires</p>
+          <strong>{expiresAt ?? "Not set"}</strong>
         </div>
-        {seller ? (
-          <div>
-            <p className="mm-kicker">Seller</p>
-            <strong>{typeof seller === "string" ? seller : String(seller.status ?? seller.decision)}</strong>
-          </div>
-        ) : null}
-        {pc ? (
-          <div>
-            <p className="mm-kicker">Precheck</p>
-            <strong>{typeof pc === "string" ? pc : String(pc.recommendation ?? pc.status)}</strong>
-          </div>
-        ) : null}
       </div>
-      {url ? (
-        <p className="mm-verifund-meta">
-          <a href={url} target="_blank" rel="noopener noreferrer">
-            Open full review page
-          </a>
+
+      <div data-testid="agreement-product-summary">
+        <ProductSummary agreement={a} />
+      </div>
+
+      <div className="mm-money" data-testid="agreement-money-rows">
+        <p className="mm-money-label">Agreed commercial terms</p>
+        <div className="mm-money-row">
+          <span>Product price</span>
+          <strong>
+            {money(Number(totals.subtotal_cents ?? a.amount_cents ?? 0), currency)}
+          </strong>
+        </div>
+        <div className="mm-money-row">
+          <span>Tracked shipping</span>
+          <strong>{money(Number(totals.shipping_cents ?? 0), currency)}</strong>
+        </div>
+        <div className="mm-money-row">
+          <span>Taxes</span>
+          <strong>{money(Number(totals.tax_cents ?? 0), currency)}</strong>
+        </div>
+        <div className="mm-money-row">
+          <span>Fees</span>
+          <strong>{money(Number(totals.fees_cents ?? 0), currency)}</strong>
+        </div>
+        <div className="mm-money-total">
+          <span>Total payable</span>
+          <strong>
+            {money(Number(totals.total_cents ?? a.amount_cents ?? 0), currency)}{" "}
+            <em>{currency}</em>
+          </strong>
+        </div>
+      </div>
+
+      <div className="mm-inspection" data-testid="agreement-inspection-panel">
+        <p className="mm-money-label">
+          <Clock3 size={11} /> Inspection and verification
         </p>
-      ) : null}
+        <dl className="mm-inspection-grid">
+          <div>
+            <dt>Inspection window</dt>
+            <dd>
+              {inspection.period_hours ?? a.inspection_period_hours ?? 0} hours
+              after {String(inspection.starts_on ?? "delivery").replaceAll("_", " ").toLowerCase()}
+            </dd>
+          </div>
+          <div>
+            <dt>Verification checklist</dt>
+            <dd>
+              <ul className="mm-check-list">
+                {evidence.length ? (
+                  evidence.map((item: string) => (
+                    <li key={item}>
+                      <CheckCircle2 size={11} />
+                      {labelFor(EVIDENCE_LABELS, item)}
+                    </li>
+                  ))
+                ) : (
+                  <li>No evidence requirements listed</li>
+                )}
+              </ul>
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      <details className="mm-card-section">
+        <summary>
+          <ShieldCheck size={12} /> Seller obligations
+        </summary>
+        <ul className="mm-check-list">
+          <li>
+            <CheckCircle2 size={11} /> Match the agreed product specifications
+          </li>
+          <li>
+            <CheckCircle2 size={11} /> Provide tracked shipping within{" "}
+            {delivery.delivery_days ?? a.delivery_days ?? 0} days
+          </li>
+          <li>
+            <CheckCircle2 size={11} /> Maintain a{" "}
+            {terms.warranty_months ?? a.warranty_months ?? 0}-month warranty
+          </li>
+        </ul>
+      </details>
+
+      <details className="mm-card-section">
+        <summary>
+          <Info size={12} /> Returns and disputes
+        </summary>
+        <div className="mm-acceptance">
+          <div className="mm-acceptance-row">
+            <span>Not delivered</span>
+            <strong>
+              {remedies.non_delivery
+                ? labelFor(REMEDY_LABELS, remedies.non_delivery)
+                : "Not specified"}
+            </strong>
+          </div>
+          <div className="mm-acceptance-row">
+            <span>Late delivery</span>
+            <strong>
+              {remedies.late_delivery
+                ? labelFor(REMEDY_LABELS, remedies.late_delivery)
+                : "Not specified"}
+            </strong>
+          </div>
+          <div className="mm-acceptance-row">
+            <span>Damaged goods</span>
+            <strong>
+              {remedies.damaged_goods
+                ? labelFor(REMEDY_LABELS, remedies.damaged_goods)
+                : "Not specified"}
+            </strong>
+          </div>
+          <div className="mm-acceptance-row">
+            <span>Returns window</span>
+            <strong>{terms.returns_days ?? a.returns_days ?? 0} days</strong>
+          </div>
+          <div className="mm-acceptance-row">
+            <span>Dispute window</span>
+            <strong>{terms.dispute_window_hours ?? 0} hours</strong>
+          </div>
+        </div>
+        {url ? (
+          <a href={url} target="_blank" rel="noopener noreferrer">
+            Open full agreement <ChevronRight size={11} />
+          </a>
+        ) : null}
+      </details>
+
+      <details className="mm-card-section">
+        <summary>
+          <FileCheck2 size={12} /> Agreement acceptance
+        </summary>
+        <div className="mm-acceptance">
+          <div className="mm-acceptance-row">
+            <span>Seller Agent</span>
+            <strong className="is-ok">{String(sellerStatus)}</strong>
+          </div>
+          <div className="mm-acceptance-row">
+            <span>Buyer</span>
+            <strong className="is-pending">
+              {approved ? "Approved" : "Awaiting approval"}
+            </strong>
+          </div>
+          <div className="mm-acceptance-row">
+            <span>Verifund</span>
+            <strong className="is-ok">Validated</strong>
+          </div>
+          {precheckStatus ? (
+            <div className="mm-acceptance-row">
+              <span>Precheck</span>
+              <strong>{String(precheckStatus)}</strong>
+            </div>
+          ) : null}
+        </div>
+      </details>
+
+      <details className="mm-card-section">
+        <summary>
+          <LockKeyhole size={12} /> Agreement digest
+        </summary>
+        <p className="mm-digest">
+          <strong>{String(hash).slice(0, 16) || "unavailable"}</strong>
+          <span>Created {formatStamp(a.created_at) ?? "unknown"}</span>
+          <span>v{version}</span>
+        </p>
+      </details>
+
       <label className="mm-note-field">
         Note
         <textarea
@@ -1035,6 +1213,7 @@ export function AgreementApprovalHitlCard({
           disabled={pending}
         />
       </label>
+
       <div className="mm-approval-actions mm-approval-actions-split">
         <button
           type="button"
@@ -1061,11 +1240,16 @@ export function AgreementApprovalHitlCard({
           Request changes
         </button>
       </div>
+
       {error ? (
         <p role="alert" data-testid="agreement-hitl-error">
           {error}
         </p>
       ) : null}
+
+      <p className="mm-approval-prompt">
+        Approval applies only to agreement {id}, version v{version}.
+      </p>
     </section>
   );
 }
