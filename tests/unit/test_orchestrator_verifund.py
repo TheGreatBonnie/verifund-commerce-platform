@@ -927,6 +927,7 @@ async def test_advance_exposes_the_checkout_hitl_with_the_exact_args() -> None:
         "amount_cents",
         "currency",
         "expires_at",
+        "agreement",
         "message",
     }
     assert result["hitl"]["args"]["amount_cents"] == AGREEMENT.amount_cents
@@ -1008,3 +1009,10 @@ def test_the_checkout_tool_exposes_the_structured_decision_fields() -> None:
         "fallback",
     ]
     assert "projection" not in parameters.required
+
+
+def test_checkout_args_carry_the_agreement_projection() -> None:
+    result = checkout_result()
+    args = VerifundLifecycle._checkout_args(cast(Any, None), result)
+    assert args["agreement"] == binding()["agreement"]
+    assert args["amount_cents"] == AGREEMENT.amount_cents

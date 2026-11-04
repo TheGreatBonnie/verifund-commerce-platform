@@ -43,6 +43,7 @@ export const agreementSchema = z.object({
       quantity: z.number().int().positive(),
       unit_price_cents: z.number().int().positive(),
       warranty_addon_cents: z.number().int().nonnegative().default(0),
+      attributes: z.record(z.string()),
     }),
   ),
   shipping_cents: z.number().int().nonnegative(),
@@ -78,6 +79,7 @@ export const paypalCheckoutArgsSchema = z.object({
   amount_cents: z.number().int().positive(),
   currency: z.string().min(1),
   expires_at: z.string().optional(),
+  agreement: z.record(z.unknown()),
   message: z
     .string()
     .default("Complete the PayPal checkout to fund this transaction."),

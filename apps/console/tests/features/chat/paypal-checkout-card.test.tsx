@@ -51,6 +51,32 @@ const ARGS = {
   transaction_id: "vf_1",
   amount_cents: 340000,
   currency: "USD",
+  agreement: {
+    agreement_id: "agr_1",
+    agreement_version: 1,
+    terms: {
+      parties: { seller: { display_name: "NovaTech" } },
+      items: [
+        {
+          sku: "NC-700",
+          name: "Nimbus NC-700 ANC Headset",
+          quantity: 12,
+          unit_price_cents: 10000,
+          warranty_addon_cents: 0,
+          attributes: { color: "#eef2ed", image_emoji: "🎧", condition: "new" },
+        },
+      ],
+      totals: {
+        currency: "USD",
+        subtotal_cents: 120000,
+        shipping_cents: 3400,
+        tax_cents: 0,
+        fees_cents: 0,
+        total_cents: 123400,
+      },
+      inspection: { period_hours: 48 },
+    },
+  },
   expires_at: "2026-10-28T12:00:00Z",
   message: "Complete the PayPal checkout to fund this transaction.",
 };

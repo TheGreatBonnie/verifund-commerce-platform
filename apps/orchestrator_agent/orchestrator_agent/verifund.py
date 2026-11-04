@@ -1017,6 +1017,7 @@ class VerifundLifecycle:
             "amount_cents": data.get("amount_cents"),
             "currency": data.get("currency"),
             "expires_at": data.get("expires_at"),
+            "agreement": data.get("agreement"),
             "message": (
                 result.message
                 or "Complete the PayPal checkout to fund this transaction."

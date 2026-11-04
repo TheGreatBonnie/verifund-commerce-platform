@@ -34,6 +34,7 @@ const agreement = {
       quantity: 12,
       unit_price_cents: 10000,
       warranty_addon_cents: 0,
+      attributes: { image_emoji: "🎧", condition: "new" },
     },
   ],
   shipping_cents: 3400,
