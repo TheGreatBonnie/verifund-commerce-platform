@@ -139,6 +139,35 @@ function responseSummary(rawResult: string) {
   }
 }
 
+function VerifundA2AExchange({
+  status,
+  task,
+  response,
+  children,
+}: {
+  status?: string;
+  task: string;
+  response?: string;
+  children: any;
+}) {
+  return (
+    <div data-testid="verifund-exchange" className="mm-verifund-exchange">
+      <MessageToA2A
+        status={status === "executing" ? "executing" : "complete"}
+        args={{ agentName: "Verifund", task }}
+      />
+      {response ? (
+        <MessageFromA2A
+          status="complete"
+          args={{ agentName: "Verifund" }}
+          response={response}
+        />
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 export function Chat({
   onRunSample,
   isRunning,
@@ -375,29 +404,45 @@ export function Chat({
       run_id: z.string().optional(),
       award: z.record(z.unknown()).optional(),
     }),
-    render: ({ status, result }) => {
+    render: ({ parameters, status, result }) => {
       const parsed = parseVerifundToolResult(result);
       if (status !== "complete" || !parsed) return null;
+      const task = `Create agreement for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
+
+      let children: any = null;
       if (
         parsed.checkpoint === "buyer_approval_required" &&
         parsed.agreement_review
       ) {
-        return (
+        children = (
           <div className="mm-chat-approval">
             <AgreementReviewLinkFromResult result={parsed} />
           </div>
         );
+      } else {
+        const agreement = parsed.data?.agreement;
+        if (agreement) {
+          children = (
+            <div className="mm-chat-approval">
+              <AgreementReviewCard
+                agreement={agreement as any}
+                buyerReview={(parsed.data?.buyer_review as any) ?? null}
+                sellerDecision={(parsed.data?.seller_decision as any) ?? null}
+              />
+            </div>
+          );
+        }
       }
-      const agreement = parsed.data?.agreement;
-      if (!agreement) return null;
+      if (!children) return null;
       return (
-        <div className="mm-chat-approval">
-          <AgreementReviewCard
-            agreement={agreement as any}
-            buyerReview={(parsed.data?.buyer_review as any) ?? null}
-            sellerDecision={(parsed.data?.seller_decision as any) ?? null}
-          />
-        </div>
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          {children}
+        </VerifundA2AExchange>
       );
     },
   });
@@ -456,16 +501,24 @@ export function Chat({
   useRenderTool({
     name: "verifund_status",
     parameters: z.object({ run_id: z.string().optional() }),
-    render: ({ status, result }) => {
+    render: ({ parameters, status, result }) => {
       const parsed = parseVerifundToolResult(result);
       if (status !== "complete" || !parsed) return null;
+      const task = `Check Verifund status for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
       return (
-        <VerifundStatusCard
-          status={parsed.status}
-          checkpoint={parsed.checkpoint}
-          state={parsed.state ?? parsed.data?.projection?.state}
-          message={parsed.message}
-        />
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          <VerifundStatusCard
+            status={parsed.status}
+            checkpoint={parsed.checkpoint}
+            state={parsed.state ?? parsed.data?.projection?.state}
+            message={parsed.message}
+          />
+        </VerifundA2AExchange>
       );
     },
   });
@@ -473,18 +526,26 @@ export function Chat({
   useRenderTool({
     name: "verifund_evidence_review",
     parameters: z.object({ run_id: z.string().optional() }),
-    render: ({ status, result }) => {
+    render: ({ parameters, status, result }) => {
       const parsed = parseVerifundToolResult(result);
       if (status !== "complete" || !parsed) return null;
+      const task = `Review evidence for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
       return (
-        <EvidenceSummaryCard
-          projection={
-            (parsed.data?.projection ?? {
-              evidence: parsed.evidence,
-              verification: parsed.verification,
-            }) as any
-          }
-        />
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          <EvidenceSummaryCard
+            projection={
+              (parsed.data?.projection ?? {
+                evidence: parsed.evidence,
+                verification: parsed.verification,
+              }) as any
+            }
+          />
+        </VerifundA2AExchange>
       );
     },
   });
@@ -492,25 +553,34 @@ export function Chat({
   useRenderTool({
     name: "verifund_fund",
     parameters: z.object({ run_id: z.string().optional() }),
-    render: ({ status, result }) => {
+    render: ({ parameters, status, result }) => {
       const parsed = parseVerifundToolResult(result);
       if (status !== "complete" || !parsed) return null;
       const url = parsed.checkout_url ?? parsed.data?.checkout_url;
-      if (typeof url === "string") {
-        return (
+      const task = `Fund transaction for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
+      const children =
+        typeof url === "string" ? (
           <CheckoutCard
             url={url}
             expiresAt={parsed.expires_at ?? parsed.data?.expires_at ?? null}
           />
+        ) : (
+          <VerifundStatusCard
+            status={parsed.status}
+            checkpoint={parsed.checkpoint}
+            state={parsed.state}
+            message={parsed.message}
+          />
         );
-      }
       return (
-        <VerifundStatusCard
-          status={parsed.status}
-          checkpoint={parsed.checkpoint}
-          state={parsed.state}
-          message={parsed.message}
-        />
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          {children}
+        </VerifundA2AExchange>
       );
     },
   });
@@ -518,11 +588,19 @@ export function Chat({
   useRenderTool({
     name: "verifund_receipt",
     parameters: z.object({ run_id: z.string().optional() }),
-    render: ({ status, result }) => {
+    render: ({ parameters, status, result }) => {
       const parsed = parseVerifundToolResult(result);
       const receipt = parsed?.data?.receipt;
       if (status !== "complete" || !receipt) return null;
-      return <ReceiptCard receipt={receipt as any} />;
+      const task = `Get receipt for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = "Receipt available";
+      return (
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          <ReceiptCard receipt={receipt as any} />
+        </VerifundA2AExchange>
+      );
     },
   });
 

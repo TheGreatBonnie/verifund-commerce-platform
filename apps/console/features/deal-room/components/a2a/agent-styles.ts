@@ -68,6 +68,17 @@ export function getAgentStyle(agentName: string): AgentStyle {
     };
   }
 
+  // Verifund (teal/cyan)
+  if (nameLower.includes("verifund")) {
+    return {
+      bgColor: "bg-gradient-to-r from-cyan-100 to-teal-100",
+      textColor: "text-cyan-800",
+      borderColor: "border-cyan-400",
+      icon: "💳",
+      framework: "Verifund",
+    };
+  }
+
   // Summit Tech Supply (green)
   if (nameLower.includes("summit tech") || nameLower.includes("summit-tech")) {
     return {
