@@ -28,7 +28,7 @@ from seller_agent.settlement import SellerSettlementClient
 from seller_agent.store import SellerStore
 from sqlalchemy.ext.asyncio import create_async_engine
 
-NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
+NOW = datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
 HASH = "a" * 64
 TOKEN = "v1.secret"
 
