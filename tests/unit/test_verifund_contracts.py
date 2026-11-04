@@ -10,6 +10,10 @@ from verifund_contracts import (
     AwardRequest,
     CheckoutDecision,
     RejectRequest,
+    Requirement,
+    RequirementCheck,
+    RequirementResult,
+    RequirementStatus,
     TransactionProjection,
     VerifundCheckpoint,
     VerifundClient,
@@ -204,3 +208,54 @@ async def test_client_sends_ops_headers_and_raises_structured_error():
     assert request.headers["authorization"] == "Bearer ops-token"
     assert request.headers["x-verifund-actor"] == "buyer-agent"
     assert request.headers["idempotency-key"] == "award:run-1:offer-1"
+
+
+def test_requirement_and_result_types_construct():
+    req = Requirement(
+        requirement_id="hardware",
+        title="Hardware diagnostic report",
+        description="...",
+        owner="seller",
+        kind="other",
+        source="file",
+        accepted_formats=["application/pdf"],
+        checks=[
+            RequirementCheck(check_id="ram", description="RAM", expected_value=32,
+                             operator="gte", unit="GB",
+                             verification_method="deterministic", ai_derived=False)
+        ],
+        required=True,
+    )
+    result = RequirementResult(
+        requirement_id="hardware",
+        kind="other",
+        owner="seller",
+        source="file",
+        status=RequirementStatus.PASS,
+        checks=[],
+        submissions=[],
+        declared_at=None,
+        declared_by=None,
+        attempt=None,
+        reasons=[],
+        checked_at=None,
+        remediation=None,
+    )
+    assert req.requirement_id == result.requirement_id
+
+
+def test_requirement_types_round_trip_json():
+    req = Requirement(
+        requirement_id="hardware",
+        title="Hardware diagnostic report",
+        description="...",
+        owner="seller",
+        kind="other",
+        source="file",
+        accepted_formats=["application/pdf"],
+        checks=[RequirementCheck(check_id="ram", description="RAM", expected_value=32,
+                                 operator="gte", unit="GB",
+                                 verification_method="deterministic", ai_derived=False)],
+    )
+    dumped = req.model_dump(mode="json")
+    assert Requirement.model_validate(dumped) == req

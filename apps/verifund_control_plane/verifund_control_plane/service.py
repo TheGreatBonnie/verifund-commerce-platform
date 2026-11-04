@@ -31,7 +31,6 @@ from verifund_contracts import (
 from verifund_control_plane.domain import (
     EVIDENCE_UPLOAD_STATES,
     NON_OVERRIDABLE_REASONS,
-    REQUIRED_EVIDENCE,
     TransactionRecord,
     allowed_actions,
     canonical_json,
@@ -133,7 +132,6 @@ class VerifundService:
         items: list[EvidenceItem] | None = None,
     ) -> TransactionProjection:
         evidence_items = items or []
-        received = sorted({item.kind for item in evidence_items})
         deadlines = {
             key: (
                 datetime.fromisoformat(value)
@@ -143,9 +141,7 @@ class VerifundService:
             for key, value in (record.deadlines or {}).items()
         }
         summary = EvidenceSummary(
-            required=list(REQUIRED_EVIDENCE),
-            received=received,
-            complete=all(kind in received for kind in REQUIRED_EVIDENCE),
+            requirements=[],  # per-requirement results land with the catalog rollup (Task 8)
             deadline=deadlines.get("evidence"),
             items=evidence_items,
         )
@@ -921,7 +917,6 @@ class VerifundService:
             )
         agreement = await self.agreement_service.build_projection(agreement_record)
         items = await self.repo.list_evidence(transaction_id)
-        received = sorted({item.kind for item in items})
         deadlines = {
             key: (
                 datetime.fromisoformat(value)
@@ -949,9 +944,7 @@ class VerifundService:
                 ("seller_order_id", "tracking_number", "carrier", "eta"),
             ),
             evidence=EvidenceSummary(
-                required=list(REQUIRED_EVIDENCE),
-                received=received,
-                complete=all(kind in received for kind in REQUIRED_EVIDENCE),
+                requirements=[],  # per-requirement results land with the catalog rollup (Task 8)
                 deadline=deadlines.get("evidence"),
                 items=items,
             ),

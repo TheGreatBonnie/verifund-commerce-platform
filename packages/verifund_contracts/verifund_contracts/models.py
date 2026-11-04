@@ -54,12 +54,19 @@ class BuyerApprovalDecision(StrEnum):
 class RemedyPolicy(StrEnum):
     CANCEL_AND_REFUND = "cancel_and_refund"
     REFUND_OR_REPLACEMENT = "refund_or_replacement"
+    REPAIR_OR_REPLACEMENT = "repair_or_replacement"
 
 
 class RemedyTerms(VerifundModel):
+    # Grandfathered agreements carry three remedy keys. `not_as_described` is
+    # omitted from dumps when unset so stored terms and `model_dump()` stay
+    # comparable with what grandfathered agreements contain.
     non_delivery: RemedyPolicy
     late_delivery: RemedyPolicy
     damaged_goods: RemedyPolicy
+    not_as_described: RemedyPolicy | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class EvidenceKind(StrEnum):
@@ -93,6 +100,14 @@ class CancelReason(StrEnum):
     SELLER_REJECTED = "seller_rejected"      # NEW; seller decision path
 
 
+class RequirementStatus(StrEnum):
+    NOT_SUBMITTED = "not_submitted"
+    PENDING_SCAN = "pending_scan"
+    PASS = "pass"
+    FAIL = "fail"
+    REVIEW = "review"
+
+
 class ReviewReason(StrEnum):
     MISSING_EVIDENCE = "missing_evidence"
     INVALID_EVIDENCE_HASH = "invalid_evidence_hash"
@@ -124,6 +139,35 @@ class VerifundErrorCode(StrEnum):
     PROVIDER_REJECTED = "provider_rejected"
     PROVIDER_AMBIGUOUS = "provider_ambiguous"
     INTERNAL = "internal"
+
+
+class RequirementCheck(VerifundModel):
+    check_id: str
+    description: str
+    expected_value: str | int | float | None = None
+    operator: str  # eq | gte | lte | contains | exists
+    unit: str | None = None
+    verification_method: str
+    ai_derived: bool = False
+
+
+class Requirement(VerifundModel):
+    requirement_id: str
+    title: str
+    description: str
+    owner: str  # seller | system | buyer
+    kind: str
+    source: str  # file | reference
+    accepted_formats: list[str] = Field(default_factory=list)
+    checks: list[RequirementCheck] = Field(default_factory=list)
+    required: bool = True
+
+
+class RequirementCheckResult(VerifundModel):
+    check_id: str
+    status: str  # pass | fail | review | not_evaluated
+    reasons: list[ReviewReason] = Field(default_factory=list)
+    observed_value: str | int | float | None = None
 
 
 class AwardLineItem(VerifundModel):
@@ -279,11 +323,14 @@ class AwardRequest(VerifundModel):
     offer_valid_until: datetime                        # NEW
     inspection_period_hours: int = Field(default=48, ge=1)  # NEW
     inspection_starts_on: str = Field(default="DELIVERY_CONFIRMED", min_length=1)  # NEW
+    requirements: list[Requirement] = Field(default_factory=list)  # NEW
+    # DEPRECATED mirror of `requirements`; retained for grandfathered callers.
     evidence_required: list[EvidenceKind] = Field(      # NEW
         default_factory=lambda: [EvidenceKind.SHIPMENT_MANIFEST,
                                  EvidenceKind.DELIVERY_CONFIRMATION,
                                  EvidenceKind.INVOICE],
         min_length=1,
+        description="Deprecated: use `requirements` instead",
     )
     remedies: RemedyTerms = Field(              # NEW; default keeps existing callers working
         default_factory=lambda: RemedyTerms(
@@ -743,19 +790,39 @@ class PurchaseOrderProjection(VerifundModel):
 
 class EvidenceItem(VerifundModel):
     evidence_id: str
+    requirement_id: str | None = None
     kind: str
     sha256: str
     media_type: str
     size_bytes: int
     original_filename: str
     note: str | None = None
+    origin: str | None = None  # seller | buyer | carrier | system
+    attributed_to: str | None = None
+    captured_at: datetime | None = None
+    scan_status: str | None = None  # pending | clean | rejected
+    agreement_version: int | None = None
     created_at: datetime
 
 
+class RequirementResult(VerifundModel):
+    requirement_id: str
+    kind: str
+    owner: str
+    source: str
+    status: RequirementStatus
+    checks: list[RequirementCheckResult] = Field(default_factory=list)
+    submissions: list[EvidenceItem] = Field(default_factory=list)
+    declared_at: datetime | None = None
+    declared_by: str | None = None
+    attempt: int | None = None
+    reasons: list[ReviewReason] = Field(default_factory=list)
+    checked_at: datetime | None = None
+    remediation: dict[str, Any] | None = None
+
+
 class EvidenceSummary(VerifundModel):
-    required: list[str]
-    received: list[str]
-    complete: bool
+    requirements: list[RequirementResult] = Field(default_factory=list)
     deadline: datetime | None = None
     items: list[EvidenceItem]
 
@@ -765,6 +832,7 @@ class VerificationProjection(VerifundModel):
     reasons: list[str] = Field(default_factory=list)
     checked_at: datetime | None = None
     override_allowed: bool = False
+    requirements: list[RequirementResult] = Field(default_factory=list)
 
 
 class PayoutProjection(VerifundModel):
@@ -773,6 +841,17 @@ class PayoutProjection(VerifundModel):
     item_id: str | None = None
     amount_cents: int | None = None
     updated_at: datetime | None = None
+
+
+class DisputeProjection(VerifundModel):
+    # Surfaced to the seller only while the transaction is in DISPUTE_OPEN,
+    # so the seller can read the buyer's claim and respond.
+    status: str
+    reason_code: str
+    requirement_ids: list[str] = Field(default_factory=list)
+    claim: str
+    opened_at: datetime
+    escalation_rung: int = 0
 
 
 class EvidenceList(VerifundModel):
@@ -822,6 +901,8 @@ class SellerProjection(VerifundModel):
     returns_days: int
     purchase_order: PurchaseOrderProjection | None = None
     evidence: EvidenceSummary | None = None
+    payout: PayoutProjection | None = None
+    dispute: DisputeProjection | None = None
     deadlines: dict[str, datetime | None]
     allowed_actions: list[str] = Field(default_factory=list)
     updated_at: datetime
