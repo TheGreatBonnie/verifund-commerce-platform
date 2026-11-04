@@ -3,7 +3,50 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from verifund_contracts.models import AwardRequest
+from verifund_contracts.models import AwardRequest, Requirement
+
+
+def validate_requirements(requirements: list[Requirement]) -> None:
+    """Enforce the creation floors from spec §3.1.1 (decisions 24/25).
+
+    Floors: non-empty list; unique ``requirement_id``; unique ``check_id`` within a
+    requirement; non-empty ``checks``; ``accepted_formats`` non-empty when
+    ``source == "file"``; ``owner`` present on every entry; ``expected_value`` present
+    whenever ``operator != "exists"`` and the check is not AI-derived; exactly one
+    system-owned ``delivery_confirmation`` requirement.
+
+    The delivery requirement is identified by ``requirement_id == "delivery_confirmation"``
+    because ``requirement_id`` is the stable addressing key (decision 36) and the
+    acceptance clock keys off it; the canonical catalog also sets
+    ``kind == "delivery_confirmation"`` (§3.9.2), which is not floor-checked here.
+    """
+    if not requirements:
+        raise ValueError("invalid_requirements")
+    seen_ids: set[str] = set()
+    for requirement in requirements:
+        if requirement.requirement_id in seen_ids:
+            raise ValueError("invalid_requirements")
+        seen_ids.add(requirement.requirement_id)
+        if not requirement.owner or not requirement.owner.strip():
+            raise ValueError("invalid_requirements")
+        if requirement.source == "file" and not requirement.accepted_formats:
+            raise ValueError("invalid_requirements")
+        if not requirement.checks:
+            raise ValueError("invalid_requirements")
+        seen_checks: set[str] = set()
+        for check in requirement.checks:
+            if check.check_id in seen_checks:
+                raise ValueError("invalid_requirements")
+            seen_checks.add(check.check_id)
+            if (
+                check.operator != "exists"
+                and not check.ai_derived
+                and check.expected_value is None
+            ):
+                raise ValueError("invalid_requirements")
+    delivery = [r for r in requirements if r.requirement_id == "delivery_confirmation"]
+    if len(delivery) != 1 or delivery[0].owner != "system":
+        raise ValueError("invalid_requirements")
 
 
 def validate_terms(terms: dict[str, Any], award: AwardRequest | None = None) -> None:

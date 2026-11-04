@@ -21,6 +21,7 @@ from verifund_contracts import (
     VerifundSkill,
     VerifundTaskResult,
 )
+from verifund_contracts.terms import validate_requirements
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
@@ -208,6 +209,155 @@ async def test_client_sends_ops_headers_and_raises_structured_error():
     assert request.headers["authorization"] == "Bearer ops-token"
     assert request.headers["x-verifund-actor"] == "buyer-agent"
     assert request.headers["idempotency-key"] == "award:run-1:offer-1"
+
+
+def _check(**overrides):
+    data = {
+        "check_id": "carrier_and_buyer_agree",
+        "description": "carrier and buyer agree on delivery",
+        "expected_value": None,
+        "operator": "exists",
+        "unit": None,
+        "verification_method": "deterministic",
+        "ai_derived": False,
+    }
+    data.update(overrides)
+    return RequirementCheck(**data)
+
+
+def _requirement(**overrides):
+    data = {
+        "requirement_id": "product_photos",
+        "title": "Product photographs",
+        "description": "Clear photographs of the product",
+        "owner": "seller",
+        "kind": "other",
+        "source": "file",
+        "accepted_formats": ["image/jpeg"],
+        "checks": [_check(check_id="photo_integrity")],
+        "required": True,
+    }
+    data.update(overrides)
+    return Requirement(**data)
+
+
+def _delivery_requirement(**overrides):
+    data = {
+        "requirement_id": "delivery_confirmation",
+        "title": "Delivery confirmation",
+        "description": "System-generated from carrier record and buyer confirmation",
+        "owner": "system",
+        "kind": "delivery_confirmation",
+        "source": "reference",
+        "accepted_formats": [],
+        "checks": [_check()],
+        "required": True,
+    }
+    data.update(overrides)
+    return Requirement(**data)
+
+
+def _valid_requirements():
+    return [_requirement(), _delivery_requirement()]
+
+
+def test_requirement_floors_accept_canonical_catalog():
+    assert validate_requirements(_valid_requirements()) is None
+
+
+def test_requirement_floor_rejects_empty_list():
+    with pytest.raises(ValueError):
+        validate_requirements([])
+
+
+def test_requirement_floor_rejects_duplicate_requirement_id():
+    catalog = [_requirement(), _requirement(), _delivery_requirement()]
+    with pytest.raises(ValueError):
+        validate_requirements(catalog)
+
+
+def test_requirement_floor_rejects_duplicate_check_id_within_requirement():
+    requirement = _requirement(
+        checks=[_check(check_id="photo_integrity"), _check(check_id="photo_integrity")]
+    )
+    with pytest.raises(ValueError):
+        validate_requirements([requirement, _delivery_requirement()])
+
+
+def test_requirement_floor_allows_same_check_id_across_requirements():
+    first = _requirement(checks=[_check(check_id="shared")])
+    second = _delivery_requirement(checks=[_check(check_id="shared")])
+    assert validate_requirements([first, second]) is None
+
+
+def test_requirement_floor_rejects_empty_checks():
+    with pytest.raises(ValueError):
+        validate_requirements([Requirement(
+            requirement_id="product_photos",
+            title="Product photographs",
+            description="...",
+            owner="seller",
+            kind="other",
+            source="file",
+            accepted_formats=["image/jpeg"],
+            checks=[],
+        ), _delivery_requirement()])
+
+
+def test_requirement_floor_rejects_file_source_without_accepted_formats():
+    requirement = _requirement(accepted_formats=[])
+    with pytest.raises(ValueError):
+        validate_requirements([requirement, _delivery_requirement()])
+
+
+def test_requirement_floor_rejects_missing_owner():
+    requirement = _requirement(owner="")
+    with pytest.raises(ValueError):
+        validate_requirements([requirement, _delivery_requirement()])
+
+
+def test_requirement_floor_rejects_missing_expected_value():
+    requirement = _requirement(
+        checks=[_check(check_id="invoice_total", operator="eq", expected_value=None,
+                       ai_derived=False)]
+    )
+    with pytest.raises(ValueError):
+        validate_requirements([requirement, _delivery_requirement()])
+
+
+def test_requirement_floor_allows_missing_expected_value_when_exists():
+    requirement = _requirement(
+        checks=[_check(check_id="photo_integrity", operator="exists", expected_value=None,
+                       ai_derived=False)]
+    )
+    assert validate_requirements([requirement, _delivery_requirement()]) is None
+
+
+def test_requirement_floor_allows_missing_expected_value_when_ai_derived():
+    requirement = _requirement(
+        checks=[_check(check_id="invoice_total", operator="eq", expected_value=None,
+                       ai_derived=True)]
+    )
+    assert validate_requirements([requirement, _delivery_requirement()]) is None
+
+
+def test_requirement_floor_allows_falsy_expected_value():
+    requirement = _requirement(
+        checks=[_check(check_id="min_ram", operator="gte", expected_value=0,
+                       verification_method="deterministic")]
+    )
+    assert validate_requirements([requirement, _delivery_requirement()]) is None
+
+
+def test_requirement_floor_rejects_missing_delivery_confirmation():
+    with pytest.raises(ValueError):
+        validate_requirements([_requirement()])
+
+
+def test_requirement_floor_rejects_seller_owned_delivery_confirmation():
+    catalog = [_requirement(), _delivery_requirement(owner="seller")]
+    with pytest.raises(ValueError):
+        validate_requirements(catalog)
 
 
 def test_requirement_and_result_types_construct():
