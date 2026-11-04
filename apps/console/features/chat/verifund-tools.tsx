@@ -1009,19 +1009,23 @@ export function PayPalCheckoutCard({
             components={["paypal-payments"]}
             pageType="checkout"
           >
-            <PayPalOneTimePaymentButton
-              presentationMode="auto"
-              disabled={busy}
-              createOrder={async () => {
-                const { id } = await createOrderAction({
-                  transactionId: args.transaction_id,
-                });
-                return { orderId: id };
-              }}
-              onApprove={approve}
-              onCancel={() => decide({ status: "canceled", ...base() })}
-              onError={() => setPhase("fallback")}
-            />
+            <div className="w-full" style={{ width: "100%" }}>
+              <PayPalOneTimePaymentButton
+                presentationMode="auto"
+                disabled={busy}
+                className="w-full"
+                style={{ width: "100%" }}
+                createOrder={async () => {
+                  const { id } = await createOrderAction({
+                    transactionId: args.transaction_id,
+                  });
+                  return { orderId: id };
+                }}
+                onApprove={approve}
+                onCancel={() => decide({ status: "canceled", ...base() })}
+                onError={() => setPhase("fallback")}
+              />
+            </div>
           </PayPalProvider>
         )}
         {busy ? <p className="mm-approval-prompt">Confirming payment…</p> : null}
