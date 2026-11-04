@@ -328,7 +328,16 @@ def _offer_from_quote(
         unit_price_cents=quote.base_unit_price_cents,
         list_unit_price_cents=policy.list_unit_price_cents,
         warranty_addon_cents=quote.warranty_addon_cents,
-        attributes={"color": policy.color},
+        attributes={
+            "color": policy.product_color,
+            "color_name": policy.color,
+            "description": policy.product_description or policy.product_name,
+            "image_emoji": policy.image_emoji,
+            "condition": "new",
+            "category": policy.categories[0] if policy.categories else "",
+            "tag": policy.product_tag,
+            "specs": policy.product_description or policy.product_name,
+        },
     )
     return Offer(
         offer_id=str(uuid.uuid4()),
@@ -351,6 +360,7 @@ def _offer_from_quote(
             stock_confidence=quote.stock_confidence,
             split_shipment=quote.split_shipment,
         ),
+        binding_version=2,
         status=status,
         round=state.get("current_round", 1),
         rationale=decision.rationale,
