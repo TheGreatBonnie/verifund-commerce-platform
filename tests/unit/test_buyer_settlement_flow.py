@@ -11,6 +11,7 @@ from buyer_agent.settlement_flow import (
     settlement_enabled,
     start_funding,
 )
+from commerce_core.binding import binding_from_award, offer_hash
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
@@ -201,7 +202,6 @@ async def test_purchase_order_report_carries_settlement_fields():
     assert report.tracking_number == "TRK-1"
     assert report.total_cents == 123400
 
-from commerce_core.binding import binding_from_award, offer_hash
 
 ATTRIBUTES = {"color": "#eaf0fb", "image_emoji": "💻"}
 

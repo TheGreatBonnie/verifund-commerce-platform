@@ -86,13 +86,28 @@ def test_binding_from_award_matches_offer():
 
 def test_v2_binding_binds_attributes_and_version():
     offer = _v2_offer()
+    binding = canonical_offer_binding(offer)
+    assert binding["binding_version"] == 2
+    assert binding["line_items"][0]["attributes"] == {
+        "color": "#eaf0fb",
+        "image_emoji": "💻",
+    }
     assert offer_hash(binding_from_award(_award_from(offer, 2))) == offer_hash(
-        canonical_offer_binding(offer)
+        binding
     )
+    mutated = _award_from(offer, 2)
+    mutated["line_items"][0]["attributes"] = {
+        "color": "#000000",
+        "image_emoji": "💻",
+    }
+    assert offer_hash(binding_from_award(mutated)) != offer_hash(binding)
 
 
 def test_v1_verification_does_not_see_v2_attributes():
     offer = _v2_offer()
+    v1 = canonical_offer_binding(offer.model_copy(update={"binding_version": 1}))
+    assert "binding_version" not in v1
+    assert "attributes" not in v1["line_items"][0]
     assert offer_hash(binding_from_award(_award_from(offer, 1))) != offer_hash(
         canonical_offer_binding(offer)
     )

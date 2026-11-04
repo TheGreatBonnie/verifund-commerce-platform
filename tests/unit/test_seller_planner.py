@@ -1,5 +1,14 @@
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
 from commerce_core.contracts import CounterOffer
-from seller_agent.planner import ScriptedSellerPlanner, SellerDecisionContext
+from commerce_core.pricing import Quote
+from seller_agent.graph import _offer_from_quote
+from seller_agent.planner import (
+    ScriptedSellerPlanner,
+    SellerDecision,
+    SellerDecisionContext,
+)
 
 
 async def test_below_floor_target_holds_current_policy_price(
@@ -25,14 +34,6 @@ async def test_below_floor_target_holds_current_policy_price(
     assert decision.unit_price_cents == 26312
     assert decision.warranty_months == 24
     assert "floor" in decision.rationale
-
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-
-from commerce_core.pricing import Quote
-from seller_agent.graph import _offer_from_quote
-from seller_agent.planner import SellerDecision
-
 
 def test_for_product_carries_catalog_metadata(northwind_policy):
     policy = northwind_policy.for_product("MM-MACBOOK-AIR-M4-13")

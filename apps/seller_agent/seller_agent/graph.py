@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TypedDict
 
+from commerce_core.binding import BINDING_VERSION
 from commerce_core.contracts import (
     RFQ,
     AcceptOffer,
@@ -360,7 +361,7 @@ def _offer_from_quote(
             stock_confidence=quote.stock_confidence,
             split_shipment=quote.split_shipment,
         ),
-        binding_version=2,
+        binding_version=BINDING_VERSION,
         status=status,
         round=state.get("current_round", 1),
         rationale=decision.rationale,
