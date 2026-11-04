@@ -3020,7 +3020,7 @@ paypal-button {
   justify-content: space-between;
   gap: 8px;
   padding: 2px 0;
-  color: var(--muted);
+  color: var(--ink);
   font-size: 9.5px;
 }
 
