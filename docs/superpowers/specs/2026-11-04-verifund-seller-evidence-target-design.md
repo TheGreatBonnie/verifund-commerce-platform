@@ -85,6 +85,24 @@ Decision 34 tightens decision 8 (AI never emits `PASS`) to also forbid AI-derive
 Round 4 is what makes §3.1.1, §3.4, §3.6, §3.8, and §4 internally consistent; it does
 not change the prior decisions, it resolves the contradictions they left open.
 
+### Round 5 — post-analysis grill (2026-11-04)
+
+| # | Question | Decision |
+|---|---|---|
+| 35 | PayPal Tracking scope | Outbound only: register tracker post-capture at ship time (Orders v2 `track`, idempotent on `(capture_id, tracking_number)`, carrier enum with `OTHER` fallback); no Tracking v1, no verification/`PASS` path, no webhook/polling assumptions; ops/dispute visibility via tracker read |
+| 36 | Upload addressing | Legacy `kind` rejected with `422`; `requirement_id` is the only addressing key |
+| 37 | Zero-submission declaration | Rejected with `400`; a declaration requires at least one open-attempt submission |
+| 38 | Buyer token issuance | Ops-triggered (`POST /ops/transactions/{id}/issue-buyer-token`); automatic award-time issuance out of scope |
+| 39 | Invitation exchange | Ops-issued, single-use (`jti` revoked on exchange); returns `txn:read` + `evidence:write`; agreement routes gated to bearer tokens with ownership checks (seller/buyer/ops); HTML document route stays internal |
+| 40 | Dispute counter-evidence storage | Same `evidence` table, `purpose='dispute'` (default `requirement`); verification and rollup ignore dispute rows |
+| 41 | Execution mode | Subagent-driven implementation |
+
+Decision 35 supersedes the parts of §3.3 and §7 milestone E that treated PayPal Tracking
+as a carrier source with webhook/polling delivery status. PayPal Tracking does not
+export carrier scans; it is an outbound registration surface for funds release, seller
+protection, and buyer notifications. Carrier truth for the delivery requirement always
+comes from the `CarrierClient` adapter (aggregator or mock).
+
 ## 3. Target architecture
 
 ### 3.1 Requirement catalog comes from the stored agreement
@@ -223,17 +241,19 @@ Rollup:
 
 `VerificationProjection` gains `requirements: list[RequirementResult]`.
 
-`VerificationProjection` gains `requirements: list[RequirementResult]`.
-
 ### 3.3 Delivery is buyer-attested, carrier-corroborated
 
 1. Seller submits `shipment_manifest` and `invoice` (and any other seller-owned requirement).
 2. Carrier record is fetched via a `CarrierClient` adapter against the PO tracking number,
    with retry/backoff and an ops alert on outage; a carrier outage leaves the delivery
-   requirement `REVIEW` with a retry scheduled, not a permanent block. For PayPal-funded
-   orders the adapter may use PayPal Tracking (Orders v2 `track` or Tracking v1) as the
-   carrier source; EasyPost/Shippo remain the fallback for unsupported carriers or
-   non-PayPal funding. PayPal tracking status updates may arrive via webhook or polling.
+   requirement `REVIEW` with a retry scheduled, not a permanent block. PayPal Tracking
+   is **never** a delivery-verification source: the documented PayPal Tracking APIs are
+   outbound (the seller registers trackers post-capture via Orders v2
+   `POST /v2/checkout/orders/{id}/track`); they exist to unlock early funds release,
+   seller protection on item-not-received claims, and buyer notifications. PayPal
+   exposes no carrier scan feed or delivered webhook to merchants through these APIs,
+   so it cannot corroborate delivery. EasyPost/Shippo/mock is the carrier source;
+   PayPal Tracking integration (Milestone E) is a separate outbound sync.
 3. Buyer calls `CONFIRM_DELIVERY` (buyer bearer token, decision 31) with `confirmed_at`,
    which must be within ±`N` hours of the carrier's delivered event and not in the future;
    the server rejects an out-of-bounds value with `422 invalid_request` rather than
@@ -302,9 +322,6 @@ REMEDIATION_REQUIRED → CANCELED                  (buyer or seller cancels, pre
 - Declarations are recorded as an event plus a row in a new `requirement_declarations`
   table (`transaction_id`, `requirement_id`, `attempt`, `declared_at`, `actor`,
   `submission_ids`), so "latest declaration wins" is auditable and re-runnable.
-
-`REVIEW_REQUIRED` becomes reversible: add transitions back to `REMEDIATION_REQUIRED` and
-`VERIFICATION_PENDING` so ops can return a transaction to the seller after resolving review.
 
 `REVIEW_REQUIRED` becomes reversible: add transitions back to `REMEDIATION_REQUIRED` and
 `VERIFICATION_PENDING` so ops can return a transaction to the seller after resolving review.
@@ -449,7 +466,7 @@ contract agree:
 | Mock card | `requirement_id` | `kind` | `owner` | `source` | checks (illustrative) |
 |---|---|---|---|---|---|
 | Product photographs | `product_photos` | `other` | seller | file | `photo_integrity` (exists) |
-| Serial number photograph | `serial_number` | `other` | seller | file | `serial_readable` (exists), `serial_matches_device` (extraction → REVIEW) |
+| Serial number photograph | `serial` | `other` | seller | file | `serial_readable` (exists), `serial_matches_device` (extraction → REVIEW) |
 | Hardware diagnostic report | `hardware` | `other` | seller | file | `ram_gte_32gb` (gte), `storage_gte_1tb` (gte) |
 | Warranty documentation | `warranty` | `other` | seller | file | `warranty_gte_90_days` (gte) |
 | Shipping information | `shipping` | `shipment_manifest` | seller | reference (carrier + tracking) | `tracking_matches_po` (eq), `carrier_present` (exists) |
@@ -914,16 +931,30 @@ outcome. Milestone E is carrier-source-specific and can run in parallel with Mil
 
 **Milestone E — PayPal tracking integration:**
 
-14. PayPal tracking adapter — `PayPalTrackingClient` behind `CarrierClient`; Orders v2
-    `track` plus Tracking v1 fallback; carrier-code validation from PayPal's carrier list.
-15. PayPal tracking status flow — webhook handling with idempotency, polling fallback,
-    status mapping to `PASS`/`REVIEW`, tracker ID persistence, ops/console visibility.
+14. PayPal tracker sync (outbound) — `PayPalTrackingClient`: OAuth client-credentials
+    token handling, Orders v2 `POST /v2/checkout/orders/{id}/track` with `capture_id`,
+    `tracking_number`, `carrier` (validated against PayPal's carrier enum; `OTHER` +
+    `carrier_name_other` for unlisted or sandbox carriers), `items[]` from the award
+    line items, `notify_payer=true`, `invoice_id=agreement_id`. Idempotent on
+    `(capture_id, tracking_number)`; one call per parcel; tracker id
+    `{capture_id}-{tracking_number}` persisted on the transaction; sync is triggered
+    when the seller's `shipping` reference submission is accepted (post-capture),
+    independent of verification/rollup; retry/backoff with an ops alert on persistent
+    failure. No verification or rollup changes.
+15. PayPal tracker visibility — the persisted tracker id and last merchant-pushed status
+    (`SHIPPED | ON_HOLD | DELIVERED | CANCELLED`, via `GET /v1/shipping/trackers/{id}`)
+    are surfaced read-only in the ops transaction view and in the `dispute-decision`
+    context (item-not-received defense), refreshed for display by the reconciler;
+    tracker data never enters the release gate.
 
 
 ## 8. Remaining risks / assumptions
 
-- PayPal Tracking is carrier- and status-coarse; it complements but does not replace
-  buyer confirmation as the delivery trust anchor.
+- PayPal Tracking (as documented) is outbound-only for merchants; it complements but
+  cannot replace buyer confirmation as the delivery trust anchor — the carrier adapter
+  remains the corroborator. The outbound sync (Milestone E) is still high-value: funds
+  release and seller protection. If PayPal later documents a tracking-status webhook,
+  use it only to enrich ops visibility, never the release gate.
 - Carrier aggregator is a new external dependency with its own outage/retry semantics;
   scan-status gating makes evidence verification asynchronous.
 - Grandfathering means two code paths (settings-based vs terms-based) must coexist until
