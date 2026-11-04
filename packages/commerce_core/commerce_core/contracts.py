@@ -126,6 +126,7 @@ class Offer(CommerceModel):
     terms: OfferTerms = Field(default_factory=OfferTerms)
     status: OfferStatus = OfferStatus.PROPOSED
     round: int = Field(default=1, ge=1)
+    binding_version: int = Field(default=1, ge=1)
     rationale: str = ""
 
     @model_validator(mode="after")

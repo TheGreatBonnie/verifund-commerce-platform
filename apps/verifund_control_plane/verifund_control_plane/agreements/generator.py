@@ -39,6 +39,7 @@ def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:
             "unit_price_cents": li.unit_price_cents,
             "warranty_addon_cents": li.warranty_addon_cents,
             "line_total_cents": line_total,
+            "attributes": dict(li.attributes or {}),
         })
     if subtotal != award.amount_cents - award.shipping_cents - award.tax_cents - award.fees_cents:
         raise ValueError("invalid_terms")

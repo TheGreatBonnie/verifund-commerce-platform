@@ -132,6 +132,14 @@ class AwardLineItem(VerifundModel):
     quantity: int = Field(gt=0)
     unit_price_cents: int = Field(ge=0)
     warranty_addon_cents: int = Field(default=0, ge=0)
+    attributes: dict[str, str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_attributes(cls, data: Any) -> Any:
+        if isinstance(data, dict) and not data.get("attributes"):
+            return {**data, "attributes": {}}
+        return data
 
 
 def _normalize_numbers(value: Any) -> Any:
@@ -290,6 +298,7 @@ class AwardRequest(VerifundModel):
     request_id: str = Field(min_length=1)               # NEW
     buyer_display_name: str = Field(min_length=1)       # NEW
     seller_display_name: str = Field(min_length=1)      # NEW
+    binding_version: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def _totals_must_match(self) -> AwardRequest:

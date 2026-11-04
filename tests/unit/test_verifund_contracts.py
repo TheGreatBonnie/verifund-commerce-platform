@@ -69,6 +69,23 @@ def award_payload(**overrides):
     return payload
 
 
+def test_award_line_item_defaults_missing_attributes():
+    from verifund_contracts.models import AwardLineItem
+
+    item = AwardLineItem(
+        sku="SKU-1", name="Sensor", quantity=1, unit_price_cents=100
+    )
+    assert item.attributes == {}
+
+
+def test_award_accepts_a_legacy_payload_without_attributes():
+    payload = award_payload()
+    del payload["line_items"][0]["warranty_addon_cents"]
+    request = AwardRequest(**payload)
+    assert request.line_items[0].attributes == {}
+    assert request.binding_version == 1
+
+
 def test_award_rejects_non_matching_total():
     with pytest.raises(ValidationError):
         AwardRequest(**award_payload(amount_cents=123401))

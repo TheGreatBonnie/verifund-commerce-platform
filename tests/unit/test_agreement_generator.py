@@ -21,7 +21,8 @@ def _award():
         currency="USD", amount_cents=51600, shipping_cents=2500,
         tax_cents=3600, fees_cents=500, quantity=10,
         line_items=[AwardLineItem(sku="SKU-1", name="Sensor", quantity=10,
-                                 unit_price_cents=4200, warranty_addon_cents=300)],
+                                 unit_price_cents=4200, warranty_addon_cents=300,
+                                 attributes={"color": "blue", "condition": "new"})],
         delivery_days=5, warranty_months=12, returns_days=30,
         offer_round=2, offer_hash="a" * 64,
         offer_valid_until=datetime.now(UTC) + timedelta(hours=1),
@@ -39,6 +40,7 @@ def test_build_terms_totals():
     assert terms["totals"]["total_cents"] == 51600
     assert terms["totals"]["subtotal_cents"] == 45000
     assert terms["items"][0]["line_total_cents"] == 45000
+    assert terms["items"][0]["attributes"] == {"color": "blue", "condition": "new"}
 
 
 def test_validate_terms_rejects_bad_arithmetic():

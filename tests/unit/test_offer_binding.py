@@ -24,6 +24,41 @@ def _offer():
     )
 
 
+def _v2_offer():
+    offer = _offer()
+    return offer.model_copy(
+        update={
+            "binding_version": 2,
+            "line_items": [
+                offer.line_items[0].model_copy(
+                    update={"attributes": {"color": "#eaf0fb", "image_emoji": "💻"}}
+                )
+            ],
+        }
+    )
+
+
+def _award_from(offer, binding_version: int) -> dict:
+    return {
+        "offer_id": offer.offer_id,
+        "request_id": offer.request_id,
+        "seller_id": offer.seller_id,
+        "currency": "USD",
+        "offer_round": offer.round,
+        "offer_valid_until": offer.valid_until,
+        "line_items": [i.model_dump(mode="json") for i in offer.line_items],
+        "subtotal_cents": offer.subtotal_cents,
+        "shipping_cents": offer.shipping_cents,
+        "tax_cents": offer.tax_cents,
+        "fees_cents": offer.fees_cents,
+        "total_cents": offer.total_cents,
+        "delivery_days": offer.delivery_days,
+        "warranty_months": offer.warranty_months,
+        "returns_days": offer.returns_days,
+        "binding_version": binding_version,
+    }
+
+
 def test_binding_and_hash_are_deterministic():
     offer = _offer()
     binding = canonical_offer_binding(offer)
@@ -47,6 +82,20 @@ def test_binding_from_award_matches_offer():
         "warranty_months": 12, "returns_days": 30,
     })
     assert offer_hash(award_binding) == offer_hash(canonical_offer_binding(offer))
+
+
+def test_v2_binding_binds_attributes_and_version():
+    offer = _v2_offer()
+    assert offer_hash(binding_from_award(_award_from(offer, 2))) == offer_hash(
+        canonical_offer_binding(offer)
+    )
+
+
+def test_v1_verification_does_not_see_v2_attributes():
+    offer = _v2_offer()
+    assert offer_hash(binding_from_award(_award_from(offer, 1))) != offer_hash(
+        canonical_offer_binding(offer)
+    )
 
 
 def test_mutated_price_changes_hash():

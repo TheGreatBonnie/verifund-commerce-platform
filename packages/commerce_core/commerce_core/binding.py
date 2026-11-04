@@ -7,6 +7,12 @@ from typing import Any
 
 from commerce_core.contracts import Offer
 
+BINDING_VERSION = 2
+
+
+def _version_of(value: Any, fallback: int = 1) -> int:
+    return int(getattr(value, "binding_version", fallback) or fallback)
+
 
 def _canonical_json(value: Any) -> bytes:
     return json.dumps(
@@ -29,22 +35,26 @@ def _iso(value: datetime | str) -> str:
 
 
 def canonical_offer_binding(offer: Offer) -> dict[str, Any]:
-    return {
+    version = _version_of(offer)
+    line_items = []
+    for item in offer.line_items:
+        payload = {
+            "sku": item.sku,
+            "name": item.name,
+            "quantity": item.quantity,
+            "unit_price_cents": item.unit_price_cents,
+            "warranty_addon_cents": item.warranty_addon_cents,
+        }
+        if version >= 2:
+            payload["attributes"] = dict(item.attributes or {})
+        line_items.append(payload)
+    binding: dict[str, Any] = {
         "offer_id": offer.offer_id,
         "request_id": offer.request_id,
         "seller_id": offer.seller_id,
         "currency": offer.currency.value if hasattr(offer.currency, "value") else str(offer.currency),
         "round": offer.round,
-        "line_items": [
-            {
-                "sku": item.sku,
-                "name": item.name,
-                "quantity": item.quantity,
-                "unit_price_cents": item.unit_price_cents,
-                "warranty_addon_cents": item.warranty_addon_cents,
-            }
-            for item in offer.line_items
-        ],
+        "line_items": line_items,
         "subtotal_cents": offer.subtotal_cents,
         "shipping_cents": offer.shipping_cents,
         "tax_cents": offer.tax_cents,
@@ -55,26 +65,32 @@ def canonical_offer_binding(offer: Offer) -> dict[str, Any]:
         "returns_days": offer.returns_days,
         "offer_valid_until": _iso(offer.valid_until),
     }
+    if version >= 2:
+        binding["binding_version"] = version
+    return binding
 
 
 def binding_from_award(award: dict[str, Any]) -> dict[str, Any]:
-    line_items = [
-        {
+    version = int(award.get("binding_version") or 1)
+    line_items = []
+    for item in award["line_items"]:
+        payload = {
             "sku": item["sku"],
             "name": item["name"],
             "quantity": item["quantity"],
             "unit_price_cents": item["unit_price_cents"],
             "warranty_addon_cents": item.get("warranty_addon_cents", 0),
         }
-        for item in award["line_items"]
-    ]
+        if version >= 2:
+            payload["attributes"] = dict(item.get("attributes") or {})
+        line_items.append(payload)
     subtotal = award.get("subtotal_cents")
     if subtotal is None:
         subtotal = sum(
             (item["unit_price_cents"] + item["warranty_addon_cents"]) * item["quantity"]
             for item in line_items
         )
-    return {
+    binding = {
         "offer_id": award["offer_id"],
         "request_id": award["request_id"],
         "seller_id": award["seller_id"],
@@ -91,6 +107,9 @@ def binding_from_award(award: dict[str, Any]) -> dict[str, Any]:
         "returns_days": award["returns_days"],
         "offer_valid_until": _iso(award["offer_valid_until"]),
     }
+    if version >= 2:
+        binding["binding_version"] = version
+    return binding
 
 
 def offer_hash(binding: dict[str, Any]) -> str:

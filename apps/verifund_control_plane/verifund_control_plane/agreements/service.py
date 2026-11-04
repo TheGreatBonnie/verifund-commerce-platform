@@ -725,6 +725,7 @@ class AgreementService:
                 quantity=i.get("quantity", 1),
                 unit_price_cents=i.get("unit_price_cents", 0),
                 warranty_addon_cents=i.get("warranty_addon_cents", 0),
+                attributes=i.get("attributes") or {},
             )
             for i in items
         ]
@@ -769,7 +770,9 @@ class AgreementService:
             currency=totals.get("currency", "USD"),
             amount_cents=totals.get("total_cents", 0) or 1,
             quantity=quantity,
-            line_items=line_items if line_items else [AwardLineItem(sku="x", name="x", quantity=1, unit_price_cents=1)],
+            line_items=line_items
+            if line_items
+            else [AwardLineItem(sku="x", name="x", quantity=1, unit_price_cents=1, attributes={})],
             shipping_cents=totals.get("shipping_cents", 0),
             tax_cents=totals.get("tax_cents", 0),
             fees_cents=totals.get("fees_cents", 0),
