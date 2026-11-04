@@ -1383,6 +1383,7 @@ def agreement_mismatch_reason(agreement, state: Mapping[str, Any]) -> str | None
             "quantity": item["quantity"],
             "unit_price_cents": item["unit_price_cents"],
             "warranty_addon_cents": item.get("warranty_addon_cents", 0),
+            "attributes": item.get("attributes") or {},
         }
         for item in winner.get("line_items", [])
     ]
