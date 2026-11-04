@@ -1,0 +1,11 @@
+{
+  "test_mode": true,
+  "transaction_id": "VF-TEST-001",
+  "agreement_id": "AGR-TEST-001",
+  "requirement_id": "buyer_acceptance",
+  "submitted_by": "sandbox_buyer",
+  "decision": "ACCEPTED",
+  "inspection_note": "Sandbox fixture: sample laptop matches the fictional agreement requirements.",
+  "accepted_at": "2026-11-04T16:00:00Z",
+  "note": "Simulated buyer action. Do not treat as a real buyer acceptance."
+}

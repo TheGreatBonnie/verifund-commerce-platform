@@ -1,0 +1,12 @@
+{
+  "test_mode": true,
+  "transaction_id": "VF-TEST-001",
+  "requirement_id": "delivery_confirmation",
+  "source": "MOCK_CARRIER_ADAPTER",
+  "tracking_number": "TEST-TRACK-001",
+  "carrier": "VERIFUND_SANDBOX_CARRIER",
+  "status": "DELIVERED",
+  "delivered_at": "2026-11-04T14:30:00Z",
+  "recipient": "sandbox_buyer",
+  "verification_note": "Simulated carrier event for automated workflow testing; not a real delivery."
+}
