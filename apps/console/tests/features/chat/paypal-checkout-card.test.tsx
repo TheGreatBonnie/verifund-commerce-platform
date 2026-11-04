@@ -68,11 +68,11 @@ const ARGS = {
       ],
       totals: {
         currency: "USD",
-        subtotal_cents: 120000,
+        subtotal_cents: 336600,
         shipping_cents: 3400,
         tax_cents: 0,
         fees_cents: 0,
-        total_cents: 123400,
+        total_cents: 340000,
       },
       inspection: { period_hours: 48 },
     },
@@ -108,6 +108,37 @@ describe("PayPalCheckoutCard", () => {
     expect(screen.getByTestId("paypal-checkout")).toBeTruthy();
     expect(screen.getByText(/\$3,400\.00/)).toBeTruthy();
     expect(screen.getByText(/USD/)).toBeTruthy();
+  });
+
+  it("renders the agreement-derived product and the charged amount", () => {
+    setup();
+    expect(screen.getByTestId("checkout-product-summary")).toHaveTextContent(
+      "Nimbus NC-700 ANC Headset",
+    );
+    expect(screen.getByTestId("verifund-checkout-amount")).toHaveTextContent(
+      "$3,400.00",
+    );
+  });
+
+  it("flags a divergence between the agreement total and the charge", () => {
+    setup({
+      agreement: {
+        ...ARGS.agreement,
+        terms: {
+          ...ARGS.agreement.terms,
+          totals: {
+            ...ARGS.agreement.terms.totals,
+            total_cents: 340100,
+          },
+        },
+      },
+    });
+    expect(screen.getByTestId("checkout-amount-mismatch")).toHaveTextContent(
+      "$3,401.00",
+    );
+    expect(screen.getByTestId("verifund-checkout-amount")).toHaveTextContent(
+      "$3,400.00",
+    );
   });
 
   it("creates the order through the server action", async () => {
