@@ -809,6 +809,18 @@ export function PayPalCheckoutCard({
   >("ready");
   const [error, setError] = useState<string | null>(null);
   const busy = phase === "confirming";
+  const agreement = args.agreement as Record<string, any>;
+  const terms = agreementTerms(agreement);
+  const totals = (terms.totals ?? {}) as Record<string, any>;
+  const currency = String(totals.currency ?? args.currency ?? "USD");
+  const agreementId = String(agreement.agreement_id ?? "");
+  const agreementVersion = Number(agreement.agreement_version ?? 1);
+  const inspection = (terms.inspection ?? {}) as Record<string, any>;
+  const evidence = Array.isArray(terms.evidence_required)
+    ? terms.evidence_required
+    : [];
+  const agreementTotal = Number(totals.total_cents ?? args.amount_cents);
+  const amountMismatch = agreementTotal !== args.amount_cents;
 
   async function decide(decision: Record<string, unknown>) {
     await respond?.(decision);
@@ -864,53 +876,137 @@ export function PayPalCheckoutCard({
 
   return (
     <section className="mm-approval" data-testid="paypal-checkout">
-      <p className="mm-kicker">Verifund · PayPal checkout</p>
-      <p>{args.message}</p>
-      <p data-testid="verifund-checkout-amount">
-        {money(args.amount_cents, args.currency)} · {args.currency}
-      </p>
-      {phase === "fallback" ? (
+      <div className="mm-verifund-head">
         <div>
-          <p>PayPal is unavailable in this browser.</p>
-          <button
-            type="button"
-            className="mm-button"
-            onClick={() => decide({ status: "fallback", ...base() })}
-          >
-            Pay on PayPal&apos;s site
-          </button>
+          <p className="mm-kicker">Verifund checkout</p>
+          <h3>
+            <span>Secure checkout</span>
+          </h3>
         </div>
-      ) : (
-        <PayPalProvider
-          clientId={process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? ""}
-          environment={
-            process.env.NEXT_PUBLIC_PAYPAL_ENVIRONMENT === "production"
-              ? "production"
-              : "sandbox"
-          }
-          components={["paypal-payments"]}
-          pageType="checkout"
+        <span
+          className={`mm-status-pill${phase === "ready" ? " is-amber" : ""}`}
         >
-          <PayPalOneTimePaymentButton
-            presentationMode="auto"
-            disabled={busy}
-            createOrder={async () => {
-              const { id } = await createOrderAction({
-                transactionId: args.transaction_id,
-              });
-              return { orderId: id };
-            }}
-            onApprove={approve}
-            onCancel={() => decide({ status: "canceled", ...base() })}
-            onError={() => setPhase("fallback")}
-          />
-        </PayPalProvider>
-      )}
-      {busy ? <p>Confirming payment…</p> : null}
-      {phase === "error" && error ? <p role="alert">{error}</p> : null}
-      {args.expires_at ? (
-        <p className="mm-mono-note">Offer expires at {args.expires_at}</p>
-      ) : null}
+          <LockKeyhole size={11} />
+          {phase === "ready" ? "Secure payment" : "Payment confirmed"}
+        </span>
+      </div>
+
+      <p className="mm-approval-prompt">
+        Payment for agreement {agreementId} · v{agreementVersion}
+      </p>
+
+      <div data-testid="checkout-product-summary">
+        <ProductSummary agreement={agreement} />
+      </div>
+
+      <div className="mm-money" data-testid="checkout-order-summary">
+        <p className="mm-money-label">Order summary</p>
+        <div className="mm-money-row">
+          <span>Product price</span>
+          <strong>
+            {money(
+              Number(totals.subtotal_cents ?? args.amount_cents),
+              currency,
+            )}
+          </strong>
+        </div>
+        <div className="mm-money-row">
+          <span>Tracked shipping</span>
+          <strong>{money(Number(totals.shipping_cents ?? 0), currency)}</strong>
+        </div>
+        <div className="mm-money-row">
+          <span>Taxes</span>
+          <strong>{money(Number(totals.tax_cents ?? 0), currency)}</strong>
+        </div>
+        <div className="mm-money-total">
+          <span>Total payable</span>
+          <strong data-testid="verifund-checkout-amount">
+            {money(args.amount_cents, currency)} <em>{currency}</em>
+          </strong>
+        </div>
+        {amountMismatch ? (
+          <p className="mm-amount-warning" data-testid="checkout-amount-mismatch">
+            The agreement total is {money(agreementTotal, currency)}; the amount
+            being charged is {money(args.amount_cents, currency)}.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mm-trust" data-testid="checkout-trust-panel">
+        <p className="mm-trust-head">
+          <ShieldCheck size={14} />
+          <span>
+            Payment is processed through PayPal and recorded against agreement{" "}
+            {agreementId}. Fulfillment is evaluated against the agreed
+            verification conditions.
+          </span>
+        </p>
+        <div className="mm-trust-grid">
+          <span>
+            <Truck size={14} /> Tracked delivery
+          </span>
+          <span>
+            <Clock3 size={14} />
+            {inspection.period_hours ?? "—"}-hour inspection
+          </span>
+          <span>
+            <ShieldCheck size={14} /> {evidence.length} verification rules
+          </span>
+        </div>
+      </div>
+
+      <div className="mm-money">
+        <p className="mm-money-label">Payment method</p>
+        {phase === "fallback" ? (
+          <div>
+            <p className="mm-approval-prompt">
+              PayPal is unavailable in this browser.
+            </p>
+            <button
+              type="button"
+              className="mm-button"
+              onClick={() => decide({ status: "fallback", ...base() })}
+            >
+              Pay on PayPal&apos;s site
+            </button>
+          </div>
+        ) : (
+          <PayPalProvider
+            clientId={process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? ""}
+            environment={
+              process.env.NEXT_PUBLIC_PAYPAL_ENVIRONMENT === "production"
+                ? "production"
+                : "sandbox"
+            }
+            components={["paypal-payments"]}
+            pageType="checkout"
+          >
+            <PayPalOneTimePaymentButton
+              presentationMode="auto"
+              disabled={busy}
+              createOrder={async () => {
+                const { id } = await createOrderAction({
+                  transactionId: args.transaction_id,
+                });
+                return { orderId: id };
+              }}
+              onApprove={approve}
+              onCancel={() => decide({ status: "canceled", ...base() })}
+              onError={() => setPhase("fallback")}
+            />
+          </PayPalProvider>
+        )}
+        {busy ? <p className="mm-approval-prompt">Confirming payment…</p> : null}
+        {phase === "error" && error ? <p role="alert">{error}</p> : null}
+        {args.expires_at ? (
+          <p className="mm-mono-note">Offer expires at {args.expires_at}</p>
+        ) : null}
+      </div>
+
+      <p className="mm-approval-prompt">
+        <Info size={11} /> By continuing, you authorize payment for the
+        transaction described in the approved Verifund agreement.
+      </p>
     </section>
   );
 }
