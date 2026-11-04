@@ -61,7 +61,7 @@ const ARGS = {
           sku: "NC-700",
           name: "Nimbus NC-700 ANC Headset",
           quantity: 12,
-          unit_price_cents: 10000,
+          unit_price_cents: 28050,
           warranty_addon_cents: 0,
           attributes: { color: "#eef2ed", image_emoji: "🎧", condition: "new" },
         },
@@ -106,6 +106,7 @@ describe("PayPalCheckoutCard", () => {
   it("renders the server-authoritative amount", () => {
     setup();
     expect(screen.getByTestId("paypal-checkout")).toBeTruthy();
+    expect(screen.getByText("Secure payment")).toBeTruthy();
     expect(screen.getByText(/\$3,400\.00/)).toBeTruthy();
     expect(screen.getByText(/USD/)).toBeTruthy();
   });
@@ -115,9 +116,39 @@ describe("PayPalCheckoutCard", () => {
     expect(screen.getByTestId("checkout-product-summary")).toHaveTextContent(
       "Nimbus NC-700 ANC Headset",
     );
+    expect(screen.getByTestId("checkout-order-summary")).toHaveTextContent(
+      "Fees",
+    );
     expect(screen.getByTestId("verifund-checkout-amount")).toHaveTextContent(
       "$3,400.00",
     );
+  });
+
+  it("shows fees when the agreement includes them", () => {
+    setup({
+      agreement: {
+        ...ARGS.agreement,
+        terms: {
+          ...ARGS.agreement.terms,
+          items: [
+            {
+              ...ARGS.agreement.terms.items[0],
+              unit_price_cents: 25000,
+            },
+          ],
+          totals: {
+            ...ARGS.agreement.terms.totals,
+            subtotal_cents: 300000,
+            fees_cents: 36600,
+            total_cents: 340000,
+          },
+        },
+      },
+    });
+    const summary = screen.getByTestId("checkout-order-summary");
+    expect(summary).toHaveTextContent("$3,000.00");
+    expect(summary).toHaveTextContent("$366.00");
+    expect(screen.queryByTestId("checkout-amount-mismatch")).toBeNull();
   });
 
   it("flags a divergence between the agreement total and the charge", () => {
@@ -222,6 +253,7 @@ describe("PayPalCheckoutCard", () => {
     buttonProps.current.onError(new Error("sdk failed"));
 
     expect(await screen.findByText(/paypal is unavailable/i)).toBeTruthy();
+    expect(screen.getByText("PayPal unavailable")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /pay on paypal/i }));
 
     await waitFor(() => expect(respond).toHaveBeenCalledTimes(1));
@@ -229,6 +261,17 @@ describe("PayPalCheckoutCard", () => {
       status: "fallback",
       transaction_id: "vf_1",
     });
+  });
+
+  it("reports a failed capture without claiming success", async () => {
+    createOrderActionMock.mockResolvedValue({ id: "ORDER-1" });
+    captureOrderActionMock.mockRejectedValue(new Error("capture failed"));
+    setup();
+
+    fireEvent.click(screen.getByTestId("paypal-button"));
+
+    expect(await screen.findByText("capture failed")).toBeTruthy();
+    expect(screen.getByText("Payment not completed")).toBeTruthy();
   });
 
   it("disables the button while a request is in flight", async () => {

@@ -7,6 +7,7 @@ import {
   FundingApprovalCard,
   ReceiptCard,
   bilateralReviewStatus,
+  fundingApprovalArgsSchema,
   fundingDecision,
   releaseDecision,
   releaseGate,
@@ -95,6 +96,19 @@ describe("verifund chat tools", () => {
         }),
       ),
     ).toBe("mismatch");
+  });
+
+  it("accepts persisted funding payloads without line-item attributes", () => {
+    const args = fundingArgs();
+    const legacyLine = {
+      ...args.agreement.line_items[0],
+    } as Record<string, unknown>;
+    delete legacyLine.attributes;
+    const parsed = fundingApprovalArgsSchema.parse({
+      ...args,
+      agreement: { ...args.agreement, line_items: [legacyLine] },
+    });
+    expect(parsed.agreement.line_items[0].attributes).toEqual({});
   });
 
   it("labels every lifecycle checkpoint and terminal outcome", () => {

@@ -54,7 +54,7 @@ export const agreementSchema = z.object({
       quantity: z.number().int().positive(),
       unit_price_cents: z.number().int().positive(),
       warranty_addon_cents: z.number().int().nonnegative().default(0),
-      attributes: z.record(z.string()),
+      attributes: z.record(z.string()).default({}),
     }),
   ),
   shipping_cents: z.number().int().nonnegative(),
@@ -463,7 +463,7 @@ function ProductSummary({ agreement }: { agreement: any }) {
     agreement?.seller_id ??
     "Seller";
   const name = item.name ?? "Agreement item";
-  const quantity = agreement?.quantity ?? item.quantity ?? 1;
+  const quantity = item.quantity ?? agreement?.quantity ?? 1;
   const warranty = agreement?.warranty_months ?? terms.warranty_months;
   const returns = agreement?.returns_days ?? terms.returns_days;
   const inspectionHours =
@@ -809,10 +809,11 @@ export function PayPalCheckoutCard({
   >("ready");
   const [error, setError] = useState<string | null>(null);
   const busy = phase === "confirming";
-  const agreement = args.agreement as Record<string, any>;
+  const agreement = (args.agreement ?? {}) as Record<string, any>;
   const terms = agreementTerms(agreement);
   const totals = (terms.totals ?? {}) as Record<string, any>;
-  const currency = String(totals.currency ?? args.currency ?? "USD");
+  const chargeCurrency = String(args.currency ?? "USD");
+  const agreementCurrency = String(totals.currency ?? chargeCurrency);
   const agreementId = String(agreement.agreement_id ?? "");
   const agreementVersion = Number(agreement.agreement_version ?? 1);
   const inspection = (terms.inspection ?? {}) as Record<string, any>;
@@ -820,7 +821,15 @@ export function PayPalCheckoutCard({
     ? terms.evidence_required
     : [];
   const agreementTotal = Number(totals.total_cents ?? args.amount_cents);
-  const amountMismatch = agreementTotal !== args.amount_cents;
+  const currencyMismatch = agreementCurrency !== chargeCurrency;
+  const amountMismatch =
+    agreementTotal !== args.amount_cents || currencyMismatch;
+  const status = {
+    ready: { label: "Secure payment", className: " is-amber" },
+    confirming: { label: "Processing payment", className: " is-amber" },
+    fallback: { label: "PayPal unavailable", className: " is-muted" },
+    error: { label: "Payment not completed", className: " is-muted" },
+  }[phase];
 
   async function decide(decision: Record<string, unknown>) {
     await respond?.(decision);
@@ -883,11 +892,9 @@ export function PayPalCheckoutCard({
             <span>Secure checkout</span>
           </h3>
         </div>
-        <span
-          className={`mm-status-pill${phase === "ready" ? " is-amber" : ""}`}
-        >
+        <span className={`mm-status-pill${status.className}`}>
           <LockKeyhole size={11} />
-          {phase === "ready" ? "Secure payment" : "Payment confirmed"}
+          {status.label}
         </span>
       </div>
 
@@ -906,28 +913,49 @@ export function PayPalCheckoutCard({
           <strong>
             {money(
               Number(totals.subtotal_cents ?? args.amount_cents),
-              currency,
+              agreementCurrency,
             )}
           </strong>
         </div>
         <div className="mm-money-row">
           <span>Tracked shipping</span>
-          <strong>{money(Number(totals.shipping_cents ?? 0), currency)}</strong>
+          <strong>
+            {money(Number(totals.shipping_cents ?? 0), agreementCurrency)}
+          </strong>
         </div>
         <div className="mm-money-row">
           <span>Taxes</span>
-          <strong>{money(Number(totals.tax_cents ?? 0), currency)}</strong>
+          <strong>
+            {money(Number(totals.tax_cents ?? 0), agreementCurrency)}
+          </strong>
+        </div>
+        <div className="mm-money-row">
+          <span>Fees</span>
+          <strong>
+            {money(Number(totals.fees_cents ?? 0), agreementCurrency)}
+          </strong>
         </div>
         <div className="mm-money-total">
           <span>Total payable</span>
           <strong data-testid="verifund-checkout-amount">
-            {money(args.amount_cents, currency)} <em>{currency}</em>
+            {money(args.amount_cents, chargeCurrency)}{" "}
+            <em>{chargeCurrency}</em>
           </strong>
         </div>
         {amountMismatch ? (
           <p className="mm-amount-warning" data-testid="checkout-amount-mismatch">
-            The agreement total is {money(agreementTotal, currency)}; the amount
-            being charged is {money(args.amount_cents, currency)}.
+            {agreementTotal !== args.amount_cents ? (
+              <>
+                The agreement total is{" "}
+                {money(agreementTotal, agreementCurrency)}; the amount being
+                charged is {money(args.amount_cents, chargeCurrency)}.
+              </>
+            ) : (
+              <>
+                The agreement is denominated in {agreementCurrency}; the charge
+                is in {chargeCurrency}.
+              </>
+            )}
           </p>
         ) : null}
       </div>
