@@ -2,6 +2,17 @@
 
 import { useState } from "react";
 import {
+  BadgeCheck,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  FileCheck2,
+  Info,
+  LockKeyhole,
+  ShieldCheck,
+  Truck,
+} from "lucide-react";
+import {
   PayPalOneTimePaymentButton,
   PayPalProvider,
 } from "@paypal/react-paypal-js/sdk-v6";
@@ -392,6 +403,120 @@ function money(cents: number, currency: string) {
     style: "currency",
     currency,
   }).format(cents / 100);
+}
+
+const EVIDENCE_LABELS: Record<string, string> = {
+  shipment_manifest: "Shipment manifest",
+  delivery_confirmation: "Delivery confirmation",
+  invoice: "Invoice",
+  other: "Other evidence",
+};
+
+const REMEDY_LABELS: Record<string, string> = {
+  cancel_and_refund: "Cancel and full refund",
+  refund_or_replacement: "Refund or replacement",
+};
+
+function labelFor(map: Record<string, string>, value: unknown) {
+  const key = String(value ?? "");
+  return map[key] ?? key.replaceAll("_", " ");
+}
+
+function hexColor(value: unknown): string | null {
+  return typeof value === "string" &&
+    /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)
+    ? value
+    : null;
+}
+
+function agreementTerms(agreement: any): Record<string, any> {
+  const terms = agreement?.terms;
+  return terms && typeof terms === "object" ? terms : {};
+}
+
+function agreementItems(agreement: any): any[] {
+  const items = agreementTerms(agreement).items ?? agreement?.line_items ?? [];
+  return Array.isArray(items) ? items : [];
+}
+
+function formatStamp(value: unknown): string | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(date);
+}
+
+function ProductSummary({ agreement }: { agreement: any }) {
+  const items = agreementItems(agreement);
+  const item = items[0] ?? {};
+  const attrs = (item.attributes ?? {}) as Record<string, any>;
+  const terms = agreementTerms(agreement);
+  const sellerName =
+    terms?.parties?.seller?.display_name ??
+    agreement?.seller_id ??
+    "Seller";
+  const name = item.name ?? "Agreement item";
+  const quantity = agreement?.quantity ?? item.quantity ?? 1;
+  const warranty = agreement?.warranty_months ?? terms.warranty_months;
+  const returns = agreement?.returns_days ?? terms.returns_days;
+  const inspectionHours =
+    agreement?.inspection_period_hours ?? terms?.inspection?.period_hours;
+  const specs = String(attrs.specs ?? "")
+    .split("·")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const chips = [
+    attrs.condition,
+    ...specs,
+    warranty ? `${warranty}-month warranty` : null,
+    returns ? `${returns}-day returns` : null,
+    inspectionHours ? `${inspectionHours}-hour inspection` : null,
+  ].filter((chip): chip is string => Boolean(chip));
+  const visible = chips.slice(0, 4);
+  const overflow = chips.length - visible.length;
+  const tileColor = hexColor(attrs.color);
+
+  return (
+    <div className="mm-product" data-testid="product-summary">
+      <div
+        className="mm-product-tile"
+        style={tileColor ? { backgroundColor: tileColor } : undefined}
+      >
+        {attrs.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={String(attrs.image_url)} alt={String(name)} />
+        ) : (
+          <span aria-hidden="true">{attrs.image_emoji || "📦"}</span>
+        )}
+      </div>
+      <div className="mm-product-body">
+        <h4 className="mm-product-name">
+          {String(name)}
+          {items.length > 1 ? ` (+${items.length - 1} more)` : ""}
+        </h4>
+        <p className="mm-product-seller">
+          {String(sellerName)}
+          <BadgeCheck size={12} aria-label="Verified seller" />
+        </p>
+        <ul className="mm-product-chips">
+          {visible.map((chip, index) => (
+            <li key={`${chip}-${index}`}>{chip}</li>
+          ))}
+          {overflow > 0 ? <li>+{overflow} more</li> : null}
+        </ul>
+        <p className="mm-product-qty">
+          Quantity <strong>{String(quantity)}</strong>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function reviewLabel(prefix: string, review: ReviewDecision | null) {
