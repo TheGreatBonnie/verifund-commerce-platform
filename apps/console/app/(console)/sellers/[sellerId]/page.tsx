@@ -172,6 +172,24 @@ export default function SellerDetailPage() {
             ) : <p className="mm-seller-no-activity">No offers recorded yet.</p>}
           </Section>
 
+          <Section title="Settlements" eyebrow="Verifund">
+            {!dashboard ? <DashboardSectionState loading={dashboardQuery.isLoading} error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} /> : (dashboard.settlement ?? []).length ? (
+              <div className="mm-seller-table-scroll">
+                <table className="mm-seller-data-table">
+                  <thead><tr><th>Transaction</th><th>State</th><th>Amount</th><th>Evidence</th></tr></thead>
+                  <tbody>{(dashboard.settlement ?? []).map((item) => (
+                    <tr key={item.transaction_id}>
+                      <td className="mm-seller-mono">{shortId(item.transaction_id, 14)}</td>
+                      <td><span className="mm-seller-status-tag">{item.state}</span></td>
+                      <td>{item.amount_cents != null ? currency(item.amount_cents, item.currency ?? "USD") : "—"}</td>
+                      <td>{item.evidence ? `${item.evidence.received.length}/${item.evidence.required.length}` : "—"}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            ) : <p className="mm-seller-no-activity">No settlements recorded yet.</p>}
+          </Section>
+
           <Section title="Recent orders" eyebrow="Fulfillment">
             {!dashboard ? <DashboardSectionState loading={dashboardQuery.isLoading} error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} /> : dashboard.recent_orders.length ? (
               <div className="mm-seller-table-scroll">

@@ -1,4 +1,6 @@
-.PHONY: setup dev dev-scripted seed reset test lint e2e demo down
+.PHONY: setup dev dev-scripted seed reset test lint e2e demo down \
+	verifund-smoke verifund-e2e verifund-demo verifund-preflight \
+	verifund-sandbox-smoke
 
 setup:
 	uv lock
@@ -17,6 +19,7 @@ seed:
 
 reset:
 	rm -f data/*.db data/*.db-wal data/*.db-shm
+	rm -rf data/evidence
 
 test:
 	uv run pytest
@@ -30,6 +33,23 @@ e2e:
 
 demo:
 	uv run python scripts/run_demo.py
+
+
+verifund-smoke:
+	uv run python scripts/verifund_smoke.py
+
+verifund-e2e:
+	uv run python scripts/verifund_e2e.py
+
+verifund-demo:
+	uv run python scripts/run_demo.py --verifund fake
+
+verifund-preflight:
+	uv run python scripts/verifund_sandbox_preflight.py
+
+verifund-sandbox-smoke:
+	uv run python scripts/verifund_sandbox_smoke.py
+
 
 down:
 	uv run python scripts/dev.py stop

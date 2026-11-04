@@ -4,9 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowUpRight,
+  Handshake,
   Heart,
-  MessageCircle,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -52,7 +51,7 @@ export default function MarketplacePage() {
         if (sort === "Price: high to low") return second.unit_price_cents - first.unit_price_cents;
         return 0;
       });
-  }, [category, highlyRatedOnly, query, sort]);
+  }, [products, category, highlyRatedOnly, query, sort]);
 
   const startProductRun = (product: MarketplaceProduct) => {
     const brief = [
@@ -205,15 +204,13 @@ function MarketplaceProductCard({
           <span>{product.offers.length} seller{product.offers.length === 1 ? "" : "s"}</span>
         </div>
         <Button
-          type="button"
           variant="outline"
           size="sm"
-          className="mm-product-action mm-marketplace-product-action mm-button-signal"
+          className="mm-product-action mm-button-signal"
           onClick={onAskAgent}
-          leftIcon={<MessageCircle size={13} aria-hidden="true" />}
+          leftIcon={<Handshake size={13} aria-hidden="true" />}
         >
           Ask agent to negotiate
-          <ArrowUpRight size={12} aria-hidden="true" />
         </Button>
       </div>
     </article>

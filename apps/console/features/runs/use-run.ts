@@ -1,9 +1,9 @@
 "use client";
 
+import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchRun } from "@/lib/api";
-
-const TERMINAL = new Set(["ordered", "rejected", "failed", "order_failed", "no_award"]);
+import { isTerminalStage } from "@/lib/stages";
 
 export function useRun(runId: string) {
   const qc = useQueryClient();
@@ -12,14 +12,26 @@ export function useRun(runId: string) {
     queryFn: () => fetchRun(runId),
     enabled: !!runId,
     refetchInterval: (query) => {
-      const stage = query.state.data?.stage;
-      return stage && TERMINAL.has(stage) ? false : 2_000;
+      const data = query.state.data;
+      // A brand-new thread has no run row yet; stop polling until one exists
+      // to avoid hammering /api/runs with 404s.
+      if (!data || query.state.status === "error") {
+        return false;
+      }
+      if (isTerminalStage(data?.stage, Boolean(data?.settlement))) {
+        return false;
+      }
+      return data?.stage === "review_required" ? 10_000 : 2_000;
     },
   });
+  const refresh = useCallback(
+    () => qc.invalidateQueries({ queryKey: ["run", runId] }),
+    [qc, runId],
+  );
   return {
     run: q.data ?? null,
     isLoading: q.isLoading,
     error: q.error ? "Run unavailable" : null,
-    refresh: () => qc.invalidateQueries({ queryKey: ["run", runId] }),
+    refresh,
   };
 }

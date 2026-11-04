@@ -96,7 +96,16 @@ async def get_run(run_id: str, request: Request) -> dict:
     row = await trace.get_run(run_id) if trace is not None else None
     if row is None:
         raise HTTPException(status_code=404, detail="run not found")
-    return _run(row)
+    response = _run(row)
+    from buyer_agent.settlement_api import console_authorized, load_settlement_projection
+
+    if console_authorized(request):
+        projection = await load_settlement_projection(
+            request, run_id, refresh=False
+        )
+        if projection is not None:
+            response["settlement"] = projection
+    return response
 
 
 @router.get("/api/runs/{run_id}/trace")

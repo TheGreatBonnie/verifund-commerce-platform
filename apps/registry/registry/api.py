@@ -6,7 +6,11 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import httpx
-from commerce_core.cards import fetch_agent_card, validate_agent_card
+from commerce_core.cards import (
+    fetch_agent_card,
+    validate_agent_card,
+    validate_generic_agent_card,
+)
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from google.protobuf import json_format
@@ -26,6 +30,18 @@ class SellerCreate(BaseModel):
     seller_id: str | None = None
     card_url: str
     categories: list[str] = Field(min_length=1)
+
+
+class AgentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent_id: str | None = None
+    card_url: str
+
+
+class AgentDiscoverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    skill: str
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class DiscoverRequest(BaseModel):
@@ -54,6 +70,32 @@ def _seller_view(row: dict[str, Any], include_card: bool = False) -> dict[str, A
     if include_card:
         view["card_json"] = row["card_json"]
     return view
+
+
+def _agent_view(row: dict[str, Any], include_card: bool = False) -> dict[str, Any]:
+    view = {
+        "agent_id": row["agent_id"],
+        "name": row["name"],
+        "card_url": row["card_url"],
+        "skills": row["skills"],
+        "card_hash": row["card_hash"],
+        "last_seen_at": row["last_seen_at"],
+        "healthy": row["healthy"],
+        "last_error": row.get("last_error"),
+    }
+    if include_card:
+        view["card_json"] = row["card_json"]
+    return view
+
+
+async def _load_agent_card(card_url: str, settings: Settings):
+    card = await fetch_agent_card(
+        card_url, allowed_hosts=settings.allowed_card_hosts
+    )
+    errors = validate_generic_agent_card(card)
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+    return card
 
 
 async def _fetch_catalog(card_url: str) -> list[dict[str, Any]]:
@@ -236,5 +278,91 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         await store.replace_listings(seller_id, listings)
         return _seller_view(row, include_card=True)
+
+
+    @app.post("/v1/agents", status_code=201)
+    async def register_agent(
+        body: AgentCreate,
+        _: None = Depends(require_admin),
+    ) -> dict[str, Any]:
+        try:
+            card = await _load_agent_card(body.card_url, settings)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        agent_id = body.agent_id or _slug(card.name)
+        if not SELLER_ID_PATTERN.fullmatch(agent_id):
+            raise HTTPException(status_code=400, detail="invalid agent id")
+        payload = json_format.MessageToDict(card, preserving_proto_field_name=False)
+        row = await store.upsert_agent(
+            agent_id=agent_id,
+            name=card.name,
+            card_url=body.card_url,
+            skills=sorted(skill.id for skill in card.skills),
+            card_json=payload,
+            card_hash=canonical_card_hash(payload),
+            healthy=True,
+            error=None,
+        )
+        return _agent_view(row, include_card=True)
+
+    @app.get("/v1/agents")
+    async def list_agents(
+        _: None = Depends(require_admin),
+        skill: str | None = None,
+    ) -> dict[str, Any]:
+        rows = await store.list_agents(skill=skill)
+        return {"agents": [_agent_view(row) for row in rows]}
+
+    @app.get("/v1/agents/{agent_id}")
+    async def get_agent(
+        agent_id: str,
+        _: None = Depends(require_admin),
+    ) -> dict[str, Any]:
+        row = await store.get_agent(agent_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        return _agent_view(row, include_card=True)
+
+    @app.post("/v1/agents/{agent_id}/refresh")
+    async def refresh_agent(
+        agent_id: str,
+        _: None = Depends(require_admin),
+    ) -> dict[str, Any]:
+        row = await store.get_agent(agent_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        try:
+            card = await _load_agent_card(row["card_url"], settings)
+        except Exception as exc:
+            await store.mark_agent_health(agent_id, False, str(exc))
+            raise HTTPException(status_code=400, detail=f"agent card unavailable: {exc}") from exc
+        payload = json_format.MessageToDict(card, preserving_proto_field_name=False)
+        row = await store.upsert_agent(
+            agent_id=agent_id,
+            name=card.name,
+            card_url=row["card_url"],
+            skills=sorted(skill.id for skill in card.skills),
+            card_json=payload,
+            card_hash=canonical_card_hash(payload),
+            healthy=True,
+            error=None,
+        )
+        return _agent_view(row, include_card=True)
+
+    @app.post("/v1/agents/discover")
+    async def discover_agents(
+        body: AgentDiscoverRequest,
+        _: None = Depends(require_admin),
+    ) -> dict[str, Any]:
+        rows = await store.list_agents(skill=body.skill)
+        return {
+            "agents": [
+                _agent_view(row)
+                for row in rows
+                if row["healthy"]
+            ][: body.limit]
+        }
 
     return app

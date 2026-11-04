@@ -36,6 +36,8 @@ async def seller_runtime(tmp_path):
     from seller_agent.settings import Settings
 
     settings = Settings(
+        _env_file=None,
+        verifund_mode="off",
         service_name="Northwind Audio",
         host="127.0.0.1",
         port=9201,

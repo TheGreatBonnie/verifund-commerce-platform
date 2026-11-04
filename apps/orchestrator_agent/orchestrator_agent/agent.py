@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+from typing import Any, Literal, Optional
+
 from ag_ui_adk import AGUIToolset
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools import FunctionTool
+from google.adk.tools import FunctionTool, ToolContext
+from verifund_contracts import (
+    CheckoutDecision,
+    FundingApprovalDecision,
+    ReleaseApprovalDecision,
+)
 
 from orchestrator_agent.mediation import mediate_seller_call as _mediate_seller_call
 from orchestrator_agent.settings import Settings
-
+from orchestrator_agent.verifund import (
+    BuyerA2AAgents,
+    SellerA2AClient,
+    VerifundA2AClient,
+    VerifundLifecycle,
+    VerifundTaskHandle,
+)
 
 MARKETMESH_ORCHESTRATOR_INSTRUCTION = """
 # 1. Role and Mission
@@ -110,7 +123,77 @@ If the decision is rejected or otherwise not approved,
 do not proceed with the award. Follow the supported
 workflow for that decision; do not invent a new status.
 
-# 6. Result and Error Handling
+# 6. Verifund Settlement Lifecycle Protocol
+
+After the Buyer approves the award, follow this settlement
+protocol instead of the legacy order flow.
+
+- Call verifund_create_agreement only after the Buyer pauses
+  with agreement_create_required. Pass the exact run_id, the
+  original Buyer task and context, the flat award, the seller
+  card URL, and the seller ID. The tool mediates the Buyer
+  agreement review, the Seller agreement review, and the
+  Buyer's recorded Seller decision. Never call the Seller
+  directly and never invent a review.
+- After verifund_create_agreement, inspect status and
+  checkpoint before doing anything else.
+- If status is input_required and checkpoint is
+  buyer_approval_required and hitl.tool is exactly
+  request_verifund_agreement_approval:
+  1. Call request_verifund_agreement_approval with hitl.args
+     unchanged. Do not rewrite the review URL or drop its
+     query parameters; the full document remains available at
+     agreement_review.review_url.
+  2. Wait for the human decision from that HITL card. Do not
+     call request_verifund_funding_approval, verifund_fund,
+     or ask for a funding decision until the HITL resolves.
+  3. Do not synthesize, guess, or reuse HITL arguments.
+  4. Buyer approval happens through the HITL card, not via
+     free-form chat text.
+- Never render the funding HITL unless the latest tool result
+  has status approval_required and hitl.tool is exactly
+  request_verifund_funding_approval. Only then call that
+  frontend tool with hitl.args unchanged, and pass those exact
+  values to the frontend; do not reconstruct them from chat
+  text.
+- If the user says they approved the agreement, call
+  verifund_status with the exact task_id, context_id, and
+  run_id from the review tool result. If it now returns
+  approval_required with hitl.tool
+  request_verifund_funding_approval, render that HITL.
+- When the human funding decision returns, call verifund_fund
+  with the structured FundingApprovalDecision. Free-form chat
+  text never authorizes funding.
+- If hitl.tool is request_verifund_paypal_checkout, call that
+  frontend tool with hitl.args unchanged and wait for the card.
+  When the card returns, call verifund_checkout with the exact
+  status, transaction_id, idempotency_key, order_id, capture_id,
+  and projection from the card result. The verifund agent verifies
+  the settlement with the Buyer; never substitute or invent a
+  funded state. Never call verifund_evidence_review immediately
+  after the card; the checkout result already resumes the task.
+  Never call verifund_evidence_review while settlement is pending;
+  resume on the next status refresh instead.
+- After funding, call verifund_evidence_review with the same
+  task_id, context_id, run_id, and seller_card_url. It places
+  the purchase order with the Seller and polls funding and
+  evidence. Do not call the Seller or place the purchase order
+  yourself.
+- When hitl.tool is request_verifund_release_approval, call that
+  frontend tool with hitl.args unchanged, then call verifund_release
+  with the structured ReleaseApprovalDecision. A rejected release
+  is a manual-review outcome, not a success.
+- Call verifund_receipt after release when the receipt is not
+  already attached. Never claim a payout or receipt exists unless
+  the tool result confirms it.
+- Treat working, pending, input_required, failed, and malformed
+  results as non-success. Preserve the exact task_id, context_id,
+  run_id, agreement_hash, and transaction_id from the tool result.
+- Do not use the legacy funding, release, purchase-order, evidence,
+  or receipt steps outside this protocol; the Buyer graph ends at
+  the bilateral agreement.
+
+# 7. Result and Error Handling
 
 - If the Buyer or mediation result indicates complete,
   report the verified result.
@@ -127,7 +210,7 @@ workflow for that decision; do not invent a new status.
   fields, do not invent a successful outcome. Report the
   uncertainty and use the supported recovery procedure.
 
-# 7. Final Response
+# 8. Final Response
 
 Report outcomes based on confirmed system responses.
 Distinguish completed purchases from pending approvals,
@@ -147,8 +230,14 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
         seller_id: str | None = None,
         seller_task_id: str | None = None,
         seller_context_id: str | None = None,
+        settlement_secret_ref: dict | None = None,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Call a seller and resume the buyer's checkpoint with its response."""
+        thread_id = (
+            getattr(getattr(tool_context, "session", None), "id", None)
+            or buyer_task_id
+        )
         return await _mediate_seller_call(
             buyer_task_id=buyer_task_id,
             seller_card_url=seller_card_url,
@@ -156,10 +245,146 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             seller_request=seller_request,
             seller_id=seller_id,
             seller_task_id=seller_task_id,
-            seller_context_id=seller_context_id,
+            seller_context_id=seller_context_id or thread_id,
+            buyer_context_id=thread_id,
+            settlement_secret_ref=settlement_secret_ref,
+            buyer_internal_url=settings.buyer_internal_url,
+            buyer_internal_token=settings.buyer_internal_token,
+            buyer_internal_timeout_seconds=settings.buyer_internal_timeout_seconds,
         )
 
     return FunctionTool(mediate_seller_call)
+
+
+def build_verifund_lifecycle(settings: Settings) -> VerifundLifecycle:
+    return VerifundLifecycle(
+        verifund=VerifundA2AClient(
+            base_url=settings.verifund_agent_url,
+            token=settings.verifund_agent_a2a_token,
+        ),
+        buyer=BuyerA2AAgents(buyer_a2a_url=settings.buyer_a2a_url),
+        seller=SellerA2AClient(),
+        buyer_internal_url=settings.buyer_internal_url,
+        buyer_internal_token=settings.buyer_internal_token,
+        buyer_internal_timeout_seconds=(
+            settings.buyer_internal_timeout_seconds
+        ),
+    )
+
+
+def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
+    lifecycle = build_verifund_lifecycle(settings)
+
+    def handle(
+        task_id: str, context_id: str, run_id: str
+    ) -> VerifundTaskHandle:
+        return VerifundTaskHandle(task_id, context_id, run_id)
+
+    async def verifund_create_agreement(
+        run_id: str,
+        buyer_task_id: str,
+        buyer_context_id: str,
+        award: dict,
+        seller_card_url: str,
+        seller_id: str,
+    ) -> dict:
+        """Start the Verifund lifecycle and complete the bilateral review."""
+        return await lifecycle.start(
+            run_id=run_id,
+            award=award,
+            buyer_task_id=buyer_task_id,
+            buyer_context_id=buyer_context_id,
+            seller_card_url=seller_card_url,
+            seller_id=seller_id,
+            idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
+        )
+
+    async def verifund_status(
+        task_id: str, context_id: str, run_id: str
+    ) -> dict:
+        """Return the current Verifund checkpoint without advancing it."""
+        return await lifecycle.status(handle(task_id, context_id, run_id))
+
+    async def verifund_fund(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        decision: dict,
+    ) -> dict:
+        """Resume the funding checkpoint with a structured human decision."""
+        return await lifecycle.resume_funding(
+            handle(task_id, context_id, run_id),
+            FundingApprovalDecision.model_validate(decision),
+        )
+
+    async def verifund_checkout(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        status: Literal["completed", "canceled", "fallback"],
+        transaction_id: str,
+        idempotency_key: str,
+        # ADK's automatic function parser does not understand PEP 604 unions.
+        projection: Optional[dict[str, Any]] = None,  # noqa: UP045
+        order_id: Optional[str] = None,  # noqa: UP045
+        capture_id: Optional[str] = None,  # noqa: UP045
+    ) -> dict:
+        """Resume the checkout checkpoint with the embedded card result."""
+        decision = CheckoutDecision(
+            status=status,
+            transaction_id=transaction_id,
+            order_id=order_id or None,
+            capture_id=capture_id or None,
+            projection=projection or {},
+            idempotency_key=idempotency_key,
+        )
+        return await lifecycle.resume_checkout(
+            handle(task_id, context_id, run_id),
+            decision,
+        )
+
+    async def verifund_evidence_review(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        seller_card_url: str,
+    ) -> dict:
+        """Place the purchase order and poll funding, evidence, or release."""
+        return await lifecycle.advance(
+            handle(task_id, context_id, run_id),
+            seller_card_url=seller_card_url,
+        )
+
+    async def verifund_release(
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        decision: dict,
+    ) -> dict:
+        """Resume the release checkpoint with a structured human decision."""
+        return await lifecycle.resume_release(
+            handle(task_id, context_id, run_id),
+            ReleaseApprovalDecision.model_validate(decision),
+        )
+
+    async def verifund_receipt(
+        task_id: str, context_id: str, run_id: str, transaction_id: str
+    ) -> dict:
+        """Return the verified receipt after release."""
+        return await lifecycle.receipt(
+            handle(task_id, context_id, run_id),
+            transaction_id=transaction_id,
+        )
+
+    return [
+        FunctionTool(verifund_create_agreement),
+        FunctionTool(verifund_status),
+        FunctionTool(verifund_fund),
+        FunctionTool(verifund_checkout),
+        FunctionTool(verifund_evidence_review),
+        FunctionTool(verifund_release),
+        FunctionTool(verifund_receipt),
+    ]
 
 
 def build_agent(settings: Settings) -> LlmAgent:
@@ -169,9 +394,12 @@ def build_agent(settings: Settings) -> LlmAgent:
         api_key=settings.nebius_api_key,
         _skip_mcp_handler=True,
     )
+    tools = [_build_mediation_tool(settings), AGUIToolset()]
+    if settings.verifund_mode != "off":
+        tools.extend(_build_verifund_tools(settings))
     return LlmAgent(
         name="marketmesh_orchestrator",
         model=model,
-        tools=[_build_mediation_tool(settings), AGUIToolset()],
+        tools=tools,
         instruction=MARKETMESH_ORCHESTRATOR_INSTRUCTION,
     )

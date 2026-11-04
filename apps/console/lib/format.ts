@@ -73,25 +73,7 @@ export const offerExpiry = (validUntil?: string) => {
   return `Offer expires in ${hours} hr`;
 };
 
-export const stageLabel = (stage?: string) => {
-  const labels: Record<string, string> = {
-    new: "Brief",
-    brief_ready: "Brief parsed",
-    sellers_discovered: "Sellers discovered",
-    sourcing_planned: "RFQ composed",
-    negotiating: "Negotiating",
-    awaiting_approval: "Awaiting approval",
-    approved: "Approved",
-    rejected: "Rejected",
-    ordering: "Ordering",
-    ordered: "Ordered",
-    order_failed: "Order failed",
-    no_award: "No award",
-    failed: "Failed",
-    needs_clarification: "Brief needed",
-  };
-  return labels[stage ?? "new"] ?? "Brief";
-};
+export { stageLabel } from "./stages";
 
 export const offerStatus = (status?: string) => {
   const labels: Record<string, string> = {

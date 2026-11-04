@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TypedDict
 
+from commerce_core.binding import BINDING_VERSION
 from commerce_core.contracts import (
     RFQ,
     AcceptOffer,
@@ -328,7 +329,16 @@ def _offer_from_quote(
         unit_price_cents=quote.base_unit_price_cents,
         list_unit_price_cents=policy.list_unit_price_cents,
         warranty_addon_cents=quote.warranty_addon_cents,
-        attributes={"color": policy.color},
+        attributes={
+            "color": policy.product_color,
+            "color_name": policy.color,
+            "description": policy.product_description or policy.product_name,
+            "image_emoji": policy.image_emoji,
+            "condition": "new",
+            "category": policy.categories[0] if policy.categories else "",
+            "tag": policy.product_tag,
+            "specs": policy.product_description or policy.product_name,
+        },
     )
     return Offer(
         offer_id=str(uuid.uuid4()),
@@ -351,6 +361,7 @@ def _offer_from_quote(
             stock_confidence=quote.stock_confidence,
             split_shipment=quote.split_shipment,
         ),
+        binding_version=BINDING_VERSION,
         status=status,
         round=state.get("current_round", 1),
         rationale=decision.rationale,
@@ -427,6 +438,11 @@ async def accept_offer(state: SellerState, config: RunnableConfig) -> dict:
             raise CommerceProtocolError("offer belongs to another seller")
         if accepted.accepted_total_cents != previous.total_cents:
             raise CommerceProtocolError("accepted total does not match offer")
+        if service.settlement_enabled:
+            await service.validate_acceptance(
+                accepted,
+                token=config["configurable"].get("settlement_token"),
+            )
         updated = previous.model_copy(
             update={"status": OfferStatus.ACCEPTED}
         )
@@ -465,7 +481,18 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
         po = parse_payload(
             "purchase_order", state["incoming"], PurchaseOrderRequest
         )
-        created = await service.order_service.create_order(po)
+        validator = None
+        if service.settlement_enabled:
+            async def validator(request):
+                await service.validate_purchase_order(
+                    request,
+                    token=config["configurable"].get("settlement_token"),
+                )
+
+        created = await service.order_service.create_order(
+            po, settlement_validator=validator
+        )
+        await service.queue_evidence(created, po)
     except Exception as exc:  # noqa: BLE001
         code = getattr(exc, "code", CommerceErrorCode.INVALID_REQUEST)
         retryable = getattr(exc, "retryable", False)

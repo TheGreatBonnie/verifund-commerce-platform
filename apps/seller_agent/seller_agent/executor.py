@@ -38,7 +38,12 @@ class SellerExecutor(AgentExecutor):
     ) -> tuple[str, str]:
         task_id = context.task_id or str(uuid.uuid4())
         context_id = context.context_id or task_id
-        history = [context.message] if context.message is not None else []
+        message = context.message
+        history = (
+            [self.service.redact_message(message)]
+            if message is not None
+            else []
+        )
         await event_queue.enqueue_event(
             Task(
                 id=task_id,

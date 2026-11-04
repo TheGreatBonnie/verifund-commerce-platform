@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 
-import httpx
 import pytest
+from a2a.types.a2a_pb2 import Role, SendMessageRequest
 from buyer_agent.server import create_app
 from buyer_agent.settings import Settings
+from commerce_core.a2a_parts import make_message
+from commerce_core.cards import fetch_agent_card
 from langgraph.checkpoint.memory import MemorySaver
 
-from commerce_core.a2a_parts import make_message, first_envelope
-from commerce_core.cards import fetch_agent_card
-from a2a.types.a2a_pb2 import Role, SendMessageRequest
 from tests.support.a2a import make_client
 from tests.support.fake_buyer import FakeServices
 
@@ -69,7 +68,7 @@ async def test_gate_single_seller_call_round_trip(mediated_buyer_server, seller_
                 if p.HasField("text"):
                     try:
                         v = json.loads(p.text)
-                    except Exception:
+                    except Exception:  # noqa
                         continue
                     if isinstance(v, dict) and v.get("reason") == "seller_call":
                         seller_call = v

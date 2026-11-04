@@ -52,6 +52,27 @@ def validate_agent_card(card: AgentCard) -> list[str]:
     return errors
 
 
+def validate_generic_agent_card(card: AgentCard) -> list[str]:
+    errors: list[str] = []
+    if not card.name:
+        errors.append("missing name")
+    if not card.version:
+        errors.append("missing version")
+    if not any(
+        interface.protocol_binding == "JSONRPC"
+        and interface.protocol_version.startswith("1.")
+        for interface in card.supported_interfaces
+    ):
+        errors.append("missing JSONRPC A2A 1.x interface")
+    if not card.capabilities.streaming:
+        errors.append("streaming is required")
+    if not list(card.skills):
+        errors.append("missing at least one skill")
+    if "bearer" not in card.security_schemes:
+        errors.append("missing bearer security scheme")
+    return errors
+
+
 def card_commerce_metadata(card: AgentCard) -> dict[str, Any]:
     for extension in card.capabilities.extensions:
         if extension.uri == EXTENSION_URI:
@@ -66,6 +87,9 @@ DEFAULT_CARD_HOSTS = (
     "circuitforge",
     "aurora",
     "summit-tech",
+    "buyer",
+    "verifund-agent",
+    "host.docker.internal",
 )
 
 

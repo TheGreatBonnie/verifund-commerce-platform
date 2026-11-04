@@ -13,6 +13,7 @@ import { NegotiationFeed } from "./negotiation-feed";
 import { NegotiationSession } from "./negotiation-session";
 import { OfferMatrix } from "./offer-matrix";
 import { OrderPanel } from "./order-panel";
+import { TransactionRoom } from "./transaction-room";
 import { RegistryPanel } from "./registry-panel";
 import { SellerLane } from "./seller-lane";
 import type { BuyerState, RegistrySeller, TraceEvent } from "@/lib/types";
@@ -170,6 +171,20 @@ export function RunDetailWorkspace({
 
       <aside className="mm-negotiation-sidebar" aria-label="Order and escrow details">
         <OrderPanel state={state} />
+        {state.settlement ? (
+          <TransactionRoom
+            settlement={state.settlement}
+            receipt={null}
+            busy={false}
+            error={null}
+            onAdvance={() => {}}
+            onRelease={() => {}}
+            onReview={() => {}}
+            onCancel={() => {}}
+            onRefreshReceipt={() => {}}
+            evidenceUrl={(id) => `/api/runs/${encodeURIComponent(runId)}/settlement/evidence/${encodeURIComponent(id)}`}
+          />
+        ) : null}
         <EscrowGuide />
         <RegistryPanel
           sellers={registry}

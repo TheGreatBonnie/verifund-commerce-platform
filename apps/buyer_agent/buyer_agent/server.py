@@ -14,7 +14,7 @@ from commerce_core.db import configure_sqlite
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from buyer_agent import console_api
+from buyer_agent import console_api, settlement_api
 from buyer_agent.card import build_buyer_agent_card
 from buyer_agent.executor import BuyerExecutor
 from buyer_agent.graph import build_buyer_graph
@@ -75,6 +75,7 @@ def create_app(
         checkpointer=checkpointer,
         graph=graph,
     )
+    app.state.executor = executor
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=task_store,
@@ -104,5 +105,6 @@ def create_app(
         path="/agui",
     )
     app.include_router(console_api.router)
+    app.include_router(settlement_api.router)
 
     return app

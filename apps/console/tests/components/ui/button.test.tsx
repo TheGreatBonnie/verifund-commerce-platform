@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Button } from "./button";
+import { Button } from "@/components/ui/button";
 
 test("renders children and handles click", async () => {
   const onClick = vi.fn();

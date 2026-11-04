@@ -49,6 +49,14 @@ def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
             input_modes=["application/json"],
             output_modes=["application/json"],
         ),
+        AgentSkill(
+            id="commerce.agreement.review",
+            name="Review a Verifund agreement",
+            description="Validate a Verifund agreement against the stored offer.",
+            tags=["verifund", "agreement"],
+            input_modes=["application/json"],
+            output_modes=["application/json"],
+        ),
     ]
     return AgentCard(
         name=policy.name,

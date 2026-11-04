@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .env
+.env.local
 data/
 *.db
 *.db-wal
@@ -24,3 +25,10 @@ next-env.d.ts
 *.tsbuildinfo
 
 .agents/
+data/evidence/
+
+.coverage
+coverage.xml
+htmlcov/
+
+graphify-out/

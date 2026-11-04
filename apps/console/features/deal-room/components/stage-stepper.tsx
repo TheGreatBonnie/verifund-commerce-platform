@@ -21,9 +21,10 @@ const STAGE_INDEX: Record<string, number> = {
 
 type StageStepperProps = {
   stage?: string;
+  settlementState?: string;
 };
 
-export function StageStepper({ stage = "new" }: StageStepperProps) {
+export function StageStepper({ stage = "new", settlementState }: StageStepperProps) {
   const current = STAGE_INDEX[stage] ?? 0;
   const rejected = stage === "rejected" || stage === "no_award";
 

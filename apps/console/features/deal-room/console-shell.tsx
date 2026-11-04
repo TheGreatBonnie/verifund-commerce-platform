@@ -21,6 +21,7 @@ import { SellerLane } from "./components/seller-lane";
 import { StageStepper } from "./components/stage-stepper";
 import { fetchRegistry, fetchTrace } from "@/lib/api";
 import { useRun } from "@/features/runs/use-run";
+import { config } from "@/lib/config";
 import { money, scoreLabel, stageLabel } from "@/lib/format";
 import type {
   Award,
@@ -112,7 +113,7 @@ export function ConsoleShell() {
   });
   const { copilotkit } = useCopilotKit();
   const [buyerState, setBuyerState] = useState<BuyerState>({});
-  const { run: buyerRun } = useRun(routeRunId ?? "");
+  const { run: buyerRun, refresh: refreshRun } = useRun(routeRunId ?? "");
   useEffect(() => {
     let latest: BuyerState | null = null;
     for (const message of agent.messages ?? []) {
@@ -156,7 +157,15 @@ export function ConsoleShell() {
         latest = candidate;
       }
     }
-    if (latest) setBuyerState(latest);
+    if (latest) {
+      setBuyerState((current) => {
+        const merged = { ...current, ...latest };
+        if (latest.award && !latest.award.winner && current.award?.winner) {
+          merged.award = current.award;
+        }
+        return merged;
+      });
+    }
   }, [agent.messages]);
 
   // Resume a thread when arriving via /runs/[runId], and auto-start a pending brief.
@@ -174,7 +183,13 @@ export function ConsoleShell() {
       run_id: buyerRun.run_id ?? buyerState.run_id,
       stage: buyerRun.stage ?? buyerState.stage,
       mandate: (buyerRun.mandate as Mandate | null) ?? buyerState.mandate,
-      award: (buyerRun.award as Award | null) ?? buyerState.award,
+      award: (() => {
+        const runAward = (buyerRun.award as Award | null) ?? null;
+        const stateAward = buyerState.award ?? null;
+        if (runAward?.winner) return runAward;
+        if (stateAward?.winner) return stateAward;
+        return runAward ?? stateAward;
+      })(),
       order: (buyerRun.order as Order | null) ?? buyerState.order,
       error: buyerRun.error ?? buyerState.error,
     };
@@ -381,6 +396,8 @@ export function ConsoleShell() {
             onRunSample={() => void startRun(SAMPLE_BRIEF)}
             isRunning={isRunning}
             isReady={isReady}
+            verifundMode={config.verifundMode}
+            onVerifundAction={() => void refreshRun()}
           />
           {approvalElement ? (
             <div className="mm-chat-approval">{approvalElement}</div>
@@ -398,7 +415,7 @@ export function ConsoleShell() {
             </div>
           ) : null}
 
-          {award ? (
+          {award?.winner ? (
             <section className="mm-award-banner" aria-labelledby="award-title">
               <div className="mm-award-copy">
                 <p className="mm-kicker">
@@ -407,7 +424,7 @@ export function ConsoleShell() {
                     : "Recommended award"}
                 </p>
                 <h2 id="award-title">
-                  {award.winner.seller_name}
+                  {award?.winner?.seller_name ?? "the selected seller"}
                   <span className="mm-award-rule" aria-hidden="true" />
                   <span className="mm-award-price">
                     {money(award.winner.total_cents)}

@@ -38,10 +38,13 @@ dev = [
 [tool.uv.workspace]
 members = [
   "packages/commerce_core",
+  "packages/verifund_contracts",
   "apps/registry",
   "apps/seller_agent",
   "apps/buyer_agent",
   "apps/orchestrator_agent",
+  "apps/verifund_control_plane",
+  "apps/verifund_agent",
 ]
 
 [tool.uv]
@@ -49,12 +52,13 @@ package = false
 
 [tool.uv.sources]
 marketmesh-commerce-core = { workspace = true }
+verifund-contracts = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "--import-mode=importlib -q"
 
 [tool.ruff]
 line-length = 100
