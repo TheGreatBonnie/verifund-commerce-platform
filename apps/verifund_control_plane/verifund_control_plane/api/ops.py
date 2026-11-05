@@ -371,6 +371,47 @@ async def issue_invitation(
     return {"token": token}
 
 
+@router.post(
+    "/transactions/{transaction_id}/dispute-decision",
+    dependencies=[Depends(require_ops)],
+)
+async def dispute_decision(transaction_id: str, request: Request) -> dict[str, Any]:
+    body = await request.json()
+    return await _service(request).dispute_decision(
+        transaction_id,
+        decision=body.get("decision"),
+        remedy=body.get("remedy"),
+        reviewer=body.get("reviewer"),
+        actor=actor(request),
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/resolve-system-failure",
+    dependencies=[Depends(require_ops)],
+)
+async def resolve_system_failure(transaction_id: str, request: Request) -> dict[str, Any]:
+    body = await request.json()
+    return await _service(request).resolve_system_failure(
+        transaction_id,
+        resolution=body.get("resolution", "release"),
+        actor=actor(request),
+    )
+
+
+@router.post(
+    "/transactions/{transaction_id}/return-to-remediation",
+    dependencies=[Depends(require_ops)],
+)
+async def return_to_remediation(transaction_id: str, request: Request) -> dict[str, Any]:
+    body = await request.json()
+    return await _service(request).return_to_remediation(
+        transaction_id,
+        note=body.get("note", ""),
+        actor=actor(request),
+    )
+
+
 @router.get(
     "/transactions/{transaction_id}/receipt",
     dependencies=[Depends(require_ops)],

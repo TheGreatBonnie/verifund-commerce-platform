@@ -173,6 +173,18 @@ def _decode_cursor(value: str) -> dict[str, str] | None:
     return {"created_at": created_at, "id": row_id}
 
 
+
+def _dispute_projection(value: dict[str, Any] | None):
+    if not value:
+        return None
+    try:
+        return __import__(
+            "verifund_contracts.models", fromlist=["DisputeProjection"]
+        ).DisputeProjection(**value)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _verification_projection(value: dict[str, Any] | None) -> VerificationProjection | None:
     if not value:
         return None
@@ -355,6 +367,7 @@ class VerifundService:
             ),
             evidence=summary,
             verification=_verification_projection(record.verification),
+            dispute=_dispute_projection(record.dispute),
             payout=self._pick(
                 record.payout,
                 ("status", "batch_id", "item_id", "amount_cents", "updated_at"),
@@ -421,6 +434,7 @@ class VerifundService:
                 purchase_order=None,
                 evidence_summary=None,
                 verification=None,
+                dispute=None,
                 payout=None,
                 receipt=None,
                 deadlines={"funding": None, "evidence": None, "inspection": None},
@@ -1980,6 +1994,7 @@ class VerifundService:
             return {"transitioned": False, "state": record.state.value}
 
         dispute_block = {
+            "status": "open",
             "reason_code": reason_code,
             "requirement_ids": requirement_ids,
             "claim": claim,
@@ -3260,6 +3275,143 @@ class VerifundService:
                 new_state=TransactionState.REFUNDED,
                 changes={"refund": {"remedy": remedy, "at": self._iso(self._now())}},
                 audit=AuditInput(actor, "refunded", payload={"remedy": remedy}),
+            )
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
+    async def dispute_decision(
+        self,
+        transaction_id: str,
+        decision: str | None = None,
+        *,
+        remedy: str | None = None,
+        reviewer: str | None = None,
+        actor: str = "ops",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if decision is None:
+            decision = kwargs.get("decision")
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state != TransactionState.DISPUTE_OPEN:
+            raise VerifundError(
+                "invalid_state",
+                "transaction is not in dispute",
+                status_code=409,
+            )
+        decision = str(decision or "").lower()
+        if decision == "dismissed":
+            target = TransactionState.RELEASE_PERMITTED
+        elif decision == "upheld":
+            target = (
+                TransactionState.REFUNDED
+                if remedy == "refund"
+                else TransactionState.REMEDIATION_REQUIRED
+            )
+        elif decision == "settled":
+            target = TransactionState.RELEASE_PERMITTED
+        else:
+            raise VerifundError(
+                "invalid_request", "unknown dispute decision", status_code=422
+            )
+
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if target == TransactionState.REFUNDED:
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.REFUNDED,
+                    changes={"dispute": {**(current.dispute or {}), "decision": decision, "remedy": remedy}},
+                    audit=AuditInput(actor, "dispute_decision", payload={"decision": decision, "remedy": remedy}),
+                )
+            else:
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=target,
+                    changes={"dispute": {**(current.dispute or {}), "decision": decision, "remedy": remedy}},
+                    audit=AuditInput(actor, "dispute_decision", payload={"decision": decision, "remedy": remedy}),
+                )
+        if target == TransactionState.REFUNDED and remedy == "refund":
+            # Apply refund path if not already terminal.
+            pass
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
+    async def resolve_system_failure(
+        self,
+        transaction_id: str,
+        *,
+        resolution: str = "release",
+        actor: str = "ops",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        resolution = kwargs.get("resolution", resolution)
+        await self.repo.get_transaction(transaction_id)
+        if resolution == "release":
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.RELEASE_PERMITTED,
+                    changes={},
+                    audit=AuditInput(actor, "system_failure_resolved", payload={"resolution": "release"}),
+                )
+        elif resolution == "cancel":
+            await self.cancel(
+                transaction_id,
+                __import__("verifund_contracts.models", fromlist=["CancelRequest"]).CancelRequest(
+                    reason_code=__import__("verifund_contracts", fromlist=["CancelReason"]).CancelReason.MANUAL_FLAG
+                ),
+                actor=actor,
+                idempotency_key=f"resolve:{transaction_id}",
+            )
+        else:
+            raise VerifundError("invalid_request", "unknown resolution", status_code=422)
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
+    async def return_to_remediation(
+        self,
+        transaction_id: str,
+        *,
+        note: str,
+        actor: str = "ops",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if not note or not note.strip():
+            raise VerifundError(
+                "invalid_request", "note is required", status_code=400
+            )
+        record = await self.repo.get_transaction(transaction_id)
+        if record.state != TransactionState.REVIEW_REQUIRED:
+            raise VerifundError(
+                "invalid_state",
+                "return-to-remediation requires REVIEW_REQUIRED",
+                status_code=409,
+            )
+        deadlines = dict(record.deadlines or {})
+        deadlines["remediation"] = (self._now() + timedelta(hours=72)).isoformat()
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                expected_state=current.state,
+                new_state=TransactionState.REMEDIATION_REQUIRED,
+                changes={"deadlines": deadlines},
+                audit=AuditInput(actor, "ops.returned_to_remediation", note=note),
             )
         return (
             await self._projection_for(transaction_id, "buyer")

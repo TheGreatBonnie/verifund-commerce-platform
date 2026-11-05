@@ -903,6 +903,7 @@ class TransactionProjection(VerifundModel):
     purchase_order: PurchaseOrderProjection | None = None
     evidence: EvidenceSummary | None = None
     verification: VerificationProjection | None = None
+    dispute: DisputeProjection | None = None
     payout: PayoutProjection | None = None
     receipt_available: bool = False
     deadlines: dict[str, datetime | None]
