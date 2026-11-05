@@ -1928,6 +1928,85 @@ class VerifundService:
             "status": "recorded",
         }
 
+    async def open_dispute(
+        self,
+        transaction_id: str,
+        buyer_id: str | None = None,
+        requirement_ids: list[str] | None = None,
+        reason_code: str | None = None,
+        claim: str | None = None,
+        evidence: list[Any] | None = None,
+        *,
+        buyer: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if buyer_id is None:
+            buyer_id = buyer or kwargs.get("buyer_id") or kwargs.get("buyer")
+        requirement_ids = requirement_ids or kwargs.get("requirement_ids") or []
+        reason_code = reason_code or kwargs.get("reason_code")
+        claim = claim if claim is not None else kwargs.get("claim")
+        evidence = evidence if evidence is not None else kwargs.get("evidence") or []
+
+        record = await self.repo.get_transaction(transaction_id)
+        if record.buyer_id != buyer_id:
+            raise VerifundError(
+                "forbidden", "buyer does not own this transaction", status_code=403
+            )
+        if record.state not in {
+            TransactionState.VERIFICATION_PENDING,
+            TransactionState.RELEASE_PERMITTED,
+        }:
+            raise VerifundError(
+                "invalid_state",
+                "dispute cannot be opened in the current state",
+                status_code=409,
+            )
+
+        valid = bool(evidence) and bool(str(claim or "").strip())
+        if not valid:
+            async with self.repo.transaction() as conn:
+                await self.repo.audit(
+                    conn,
+                    transaction_id,
+                    AuditInput(
+                        f"buyer:{buyer_id}",
+                        "dispute_invalid",
+                        payload={
+                            "reason_code": reason_code,
+                            "requirement_ids": requirement_ids,
+                        },
+                    ),
+                )
+            return {"transitioned": False, "state": record.state.value}
+
+        dispute_block = {
+            "reason_code": reason_code,
+            "requirement_ids": requirement_ids,
+            "claim": claim,
+            "opened_at": self._iso(self._now()),
+            "escalation_rung": 1,
+            "action_required": "respond_to_dispute",
+        }
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                expected_state=current.state,
+                new_state=TransactionState.DISPUTE_OPEN,
+                changes={"dispute": dispute_block},
+                audit=AuditInput(
+                    f"buyer:{buyer_id}",
+                    "dispute_opened",
+                    payload={
+                        "reason_code": reason_code,
+                        "requirement_ids": requirement_ids,
+                    },
+                ),
+            )
+        return {"transitioned": True, "state": TransactionState.DISPUTE_OPEN.value}
+
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
         """Evaluate the worklist as submissions arrive.
 

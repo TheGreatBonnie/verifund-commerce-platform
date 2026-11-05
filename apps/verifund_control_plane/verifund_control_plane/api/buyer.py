@@ -76,9 +76,13 @@ async def accept(transaction_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/transactions/{transaction_id}/dispute")
 async def dispute(transaction_id: str, request: Request) -> dict[str, Any]:
-    await authenticate_buyer(request, transaction_id)
-    raise VerifundError(
-        "not_implemented",
-        "evidence-gated dispute opens in Task 18",
-        status_code=501,
+    claims = await authenticate_buyer(request, transaction_id)
+    body = await request.json()
+    return await _service(request).open_dispute(
+        transaction_id,
+        buyer_id=claims.buyer_id,
+        requirement_ids=body.get("requirement_ids") or [],
+        reason_code=body.get("reason_code"),
+        claim=body.get("claim"),
+        evidence=body.get("evidence") or [],
     )
