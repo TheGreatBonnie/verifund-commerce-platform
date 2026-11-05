@@ -66,11 +66,11 @@ async def confirm_delivery(
 
 @router.post("/transactions/{transaction_id}/accept")
 async def accept(transaction_id: str, request: Request) -> dict[str, Any]:
-    await authenticate_buyer(request, transaction_id)
-    raise VerifundError(
-        "not_implemented",
-        "early acceptance lands in Task 16",
-        status_code=501,
+    claims = await authenticate_buyer(request, transaction_id)
+    return await _service(request).buyer_accept(
+        transaction_id,
+        buyer_id=claims.buyer_id,
+        actor=f"buyer:{claims.buyer_id}",
     )
 
 

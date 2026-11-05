@@ -1315,7 +1315,10 @@ class VerifundService:
             return "none" if complete else "submit_evidence"
         if state == TransactionState.REVIEW_REQUIRED:
             return "replace_evidence"
-        # REMEDIATION_REQUIRED and DISPUTE_OPEN do not exist yet (Tasks 16/19).
+        if state == TransactionState.REMEDIATION_REQUIRED:
+            return "submit_evidence"
+        if state == TransactionState.DISPUTE_OPEN:
+            return "respond_to_dispute"
         return "none"
 
     async def _seller_transaction_summary(
@@ -3435,6 +3438,14 @@ class VerifundService:
         actor: str,
     ) -> dict[str, Any]:
         record = await self.repo.get_transaction(transaction_id)
+        if (record.dispute or {}).get("status") == "open" or (
+            record.state == TransactionState.DISPUTE_OPEN
+        ):
+            raise VerifundError(
+                "conflict",
+                "release is blocked while a dispute is open",
+                status_code=409,
+            )
         if record.state in {
             TransactionState.PAYOUT_PENDING,
             TransactionState.RELEASED,
@@ -3468,6 +3479,96 @@ class VerifundService:
                 "transaction is not ready for release",
                 status_code=409,
             )
+        return await self._start_payout(
+            transaction_id,
+            actor=actor,
+            events=[
+                EventInput(
+                    "release_authorized",
+                    {
+                        "released_by": request.released_by,
+                        "override": request.override,
+                    },
+                    actor,
+                ),
+                EventInput("payout_pending", {}, actor),
+            ],
+            audit=AuditInput(
+                actor,
+                "release_authorized",
+                note=request.note,
+                payload={"override": request.override},
+            ),
+        )
+
+    async def buyer_accept(
+        self,
+        transaction_id: str,
+        *,
+        buyer_id: str,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        """Early buyer acceptance (spec §3.6).
+
+        ACCEPT releases immediately and is final: the transaction moves from
+        `VERIFICATION_PENDING`/`RELEASE_PERMITTED` straight to `PAYOUT_PENDING`,
+        so a later dispute cannot be opened.
+        """
+        actor = actor or f"buyer:{buyer_id}"
+        record = await self.repo.get_transaction(transaction_id)
+        if record.buyer_id != buyer_id:
+            raise VerifundError(
+                "forbidden", "buyer does not own this transaction", status_code=403
+            )
+        if (record.dispute or {}).get("status") == "open":
+            raise VerifundError(
+                "conflict",
+                "acceptance is blocked while a dispute is open",
+                status_code=409,
+            )
+        if record.state in {
+            TransactionState.PAYOUT_PENDING,
+            TransactionState.RELEASED,
+        }:
+            return (
+                await self._projection_for(transaction_id, "buyer")
+            ).model_dump(mode="json")
+        if record.state not in {
+            TransactionState.VERIFICATION_PENDING,
+            TransactionState.RELEASE_PERMITTED,
+        }:
+            raise VerifundError(
+                "invalid_state",
+                "acceptance requires VERIFICATION_PENDING or RELEASE_PERMITTED",
+                status_code=409,
+            )
+        return await self._start_payout(
+            transaction_id,
+            actor=actor,
+            events=[
+                EventInput(
+                    "buyer_accepted",
+                    {"buyer_id": buyer_id, "final": True},
+                    actor,
+                ),
+                EventInput("payout_pending", {}, actor),
+            ],
+            audit=AuditInput(
+                actor,
+                "buyer_accepted",
+                payload={"buyer_id": buyer_id, "final": True},
+            ),
+        )
+
+    async def _start_payout(
+        self,
+        transaction_id: str,
+        *,
+        actor: str,
+        events: list[EventInput],
+        audit: AuditInput,
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
         funding = record.funding or {}
         if funding.get("status") != "captured" or not funding.get("capture_id"):
             raise VerifundError(
@@ -3509,23 +3610,8 @@ class VerifundService:
                 expected_state=current.state,
                 new_state=TransactionState.PAYOUT_PENDING,
                 changes={"payout": payout},
-                events=[
-                    EventInput(
-                        "release_authorized",
-                        {
-                            "released_by": request.released_by,
-                            "override": request.override,
-                        },
-                        actor,
-                    ),
-                    EventInput("payout_pending", {}, actor),
-                ],
-                audit=AuditInput(
-                    actor,
-                    "release_authorized",
-                    note=request.note,
-                    payload={"override": request.override},
-                ),
+                events=events,
+                audit=audit,
             )
             await self.repo.create_provider_operation(
                 conn,

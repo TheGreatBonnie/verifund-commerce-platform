@@ -72,9 +72,7 @@ ALLOWED_TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
             TransactionState.REVIEW_REQUIRED,
         }
     ),
-    TransactionState.RELEASED: frozenset(
-        {TransactionState.REVIEW_REQUIRED, TransactionState.DISPUTE_OPEN}
-    ),
+    TransactionState.RELEASED: frozenset({TransactionState.REVIEW_REQUIRED}),
     TransactionState.REVIEW_REQUIRED: frozenset(
         {
             TransactionState.RELEASE_PERMITTED,
@@ -102,11 +100,9 @@ ALLOWED_TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
     TransactionState.FAILED: frozenset({TransactionState.REVIEW_REQUIRED}),
 }
 
-NON_OVERRIDABLE_REASONS = {
-    ReviewReason.FUNDING_MISMATCH,
-    ReviewReason.LEDGER_INCOMPLETE,
-    ReviewReason.LATE_CAPTURE,
-}
+# Every verification failure is non-overridable. `MANUAL_FLAG` is the single
+# operator-created review reason and is the only one release may override.
+NON_OVERRIDABLE_REASONS = frozenset(ReviewReason) - {ReviewReason.MANUAL_FLAG}
 EVIDENCE_UPLOAD_STATES = {
     TransactionState.FUNDED,
     TransactionState.FULFILLMENT_PENDING,
@@ -310,6 +306,8 @@ def payout_ledger_entries(
 
 def allowed_actions(state: TransactionState, actor: str) -> list[str]:
     if actor == "seller":
+        if state == TransactionState.DISPUTE_OPEN:
+            return ["submit_dispute_evidence"]
         return ["upload_evidence"] if state in EVIDENCE_UPLOAD_STATES else []
     actions: dict[TransactionState, list[str]] = {
         TransactionState.AWARDED: [
@@ -348,7 +346,15 @@ def allowed_actions(state: TransactionState, actor: str) -> list[str]:
             "retry_payout",
             "cancel",
             "flag_review",
+            "return_to_remediation",
         ],
+        TransactionState.REMEDIATION_REQUIRED: [
+            "extend_deadline",
+            "flag_review",
+            "reissue_seller_token",
+        ],
+        TransactionState.DISPUTE_OPEN: ["dispute_decision", "flag_review"],
+        TransactionState.REFUNDED: [],
         TransactionState.RELEASED: ["receipt"],
         TransactionState.CANCELED: [],
         TransactionState.FAILED: [],

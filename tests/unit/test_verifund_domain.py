@@ -124,11 +124,11 @@ def test_ledger_entries_balance():
 
 
 def test_non_overridable_reasons_match_spec():
-    assert NON_OVERRIDABLE_REASONS == {
-        ReviewReason.FUNDING_MISMATCH,
-        ReviewReason.LEDGER_INCOMPLETE,
-        ReviewReason.LATE_CAPTURE,
+    assert NON_OVERRIDABLE_REASONS == frozenset(ReviewReason) - {
+        ReviewReason.MANUAL_FLAG
     }
+    assert ReviewReason.INVALID_EVIDENCE_HASH in NON_OVERRIDABLE_REASONS
+    assert ReviewReason.MANUAL_FLAG not in NON_OVERRIDABLE_REASONS
 
 
 def test_allowed_actions_are_actor_specific():
@@ -136,6 +136,14 @@ def test_allowed_actions_are_actor_specific():
     assert "release" not in allowed_actions(TransactionState.FUNDED, "seller")
     assert "release" in allowed_actions(TransactionState.RELEASE_PERMITTED, "buyer")
     assert "refund" not in allowed_actions(TransactionState.RELEASED, "buyer")
+    assert allowed_actions(TransactionState.REMEDIATION_REQUIRED, "buyer")
+    assert "dispute_decision" in allowed_actions(
+        TransactionState.DISPUTE_OPEN, "buyer"
+    )
+    assert allowed_actions(TransactionState.REFUNDED, "buyer") == []
+    assert "submit_dispute_evidence" in allowed_actions(
+        TransactionState.DISPUTE_OPEN, "seller"
+    )
 
 
 def test_stage_mapping():
