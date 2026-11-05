@@ -928,6 +928,7 @@ class SellerProjection(VerifundModel):
     seller_id: str
     amount_cents: int
     currency: str
+    agreement_id: str | None = None
     agreement_hash: str
     agreement_version: int
     quantity: int
@@ -937,6 +938,7 @@ class SellerProjection(VerifundModel):
     returns_days: int
     purchase_order: PurchaseOrderProjection | None = None
     evidence: EvidenceSummary | None = None
+    requirements: list[Requirement] = Field(default_factory=list)
     payout: PayoutProjection | None = None
     dispute: DisputeProjection | None = None
     deadlines: dict[str, datetime | None]

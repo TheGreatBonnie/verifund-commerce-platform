@@ -264,6 +264,91 @@ async def test_seller_events_unknown_transaction_returns_404(client):
     assert response.status_code in {403, 404}
 
 
+def seller_requirement_catalog() -> list[dict]:
+    return [
+        {
+            "requirement_id": "product_photos",
+            "title": "Product photographs",
+            "description": "Photos of the product before shipping.",
+            "owner": "seller",
+            "kind": "other",
+            "source": "file",
+            "accepted_formats": ["image/jpeg", "image/webp"],
+            "checks": [
+                {
+                    "check_id": "photo_integrity",
+                    "description": "At least one intact photo is present.",
+                    "operator": "exists",
+                    "verification_method": "deterministic",
+                    "ai_derived": False,
+                }
+            ],
+            "required": True,
+        },
+        {
+            "requirement_id": "delivery_confirmation",
+            "title": "Delivery confirmation",
+            "description": "System-generated from the carrier record.",
+            "owner": "system",
+            "kind": "delivery_confirmation",
+            "source": "reference",
+            "accepted_formats": [],
+            "checks": [
+                {
+                    "check_id": "carrier_and_buyer_agree",
+                    "description": "Carrier record and buyer confirmation agree.",
+                    "operator": "exists",
+                    "verification_method": "deterministic",
+                    "ai_derived": False,
+                }
+            ],
+            "required": True,
+        },
+    ]
+
+
+async def test_seller_projection_exposes_catalog_agreement_and_dispute(client):
+    body = await award(
+        client, award_payload(requirements=seller_requirement_catalog())
+    )
+    txid = body["transaction_id"]
+    repo = client._transport.app.state.repo
+    async with repo.transaction() as conn:
+        current = await repo.get_transaction(txid, conn)
+        await repo.update_transaction(
+            conn,
+            txid,
+            expected_version=current.version,
+            changes={
+                "dispute": {
+                    "status": "open",
+                    "reason_code": "not_as_described",
+                    "requirement_ids": ["product_photos"],
+                    "claim": "arrived damaged",
+                    "opened_at": NOW.isoformat(),
+                    "escalation_rung": 0,
+                }
+            },
+        )
+
+    response = await client.get(
+        f"/seller/transactions/{txid}", headers=seller_headers(body)
+    )
+    assert response.status_code == 200, response.text
+    projection = response.json()
+    assert projection["agreement_id"] == body["agreement"]["agreement_id"]
+    assert [item["requirement_id"] for item in projection["requirements"]] == [
+        "product_photos",
+        "delivery_confirmation",
+    ]
+    assert projection["requirements"][0]["accepted_formats"] == [
+        "image/jpeg",
+        "image/webp",
+    ]
+    assert projection["dispute"]["status"] == "open"
+    assert projection["dispute"]["claim"] == "arrived damaged"
+
+
 async def test_seller_agreement_cross_seller_returns_403(client):
     first = await award(client, award_for("run-1", "northwind-audio"))
     other = await award(client, award_for("run-2", "other-seller"))

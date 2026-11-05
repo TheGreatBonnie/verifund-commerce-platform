@@ -1245,6 +1245,11 @@ class VerifundService:
                 status_code=404,
             )
         agreement = await self.agreement_service.build_projection(agreement_record)
+        terms = await self._agreement_terms(transaction_id)
+        try:
+            catalog = project_requirements(terms)
+        except (ValidationError, ValueError):
+            catalog = []
         items = await self.repo.list_evidence(transaction_id)
         stored_requirements = _requirement_results_from_stored(
             (record.verification or {}).get("requirements")
@@ -1264,6 +1269,7 @@ class VerifundService:
             seller_id=record.seller_id,
             amount_cents=record.amount_cents,
             currency=record.currency,
+            agreement_id=record.agreement_id,
             agreement_hash=record.agreement_hash,
             agreement_version=record.agreement_version,
             quantity=agreement.quantity,
@@ -1280,7 +1286,9 @@ class VerifundService:
                 deadline=deadlines.get("evidence"),
                 items=items,
             ),
+            requirements=list(catalog),
             payout=_payout_projection(record.payout),
+            dispute=_dispute_projection(record.dispute),
             deadlines=deadlines,
             allowed_actions=allowed_actions(record.state, "seller"),
             updated_at=record.updated_at,
