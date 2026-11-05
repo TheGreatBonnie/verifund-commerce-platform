@@ -27,6 +27,7 @@ from verifund_contracts import (
     TransactionProjection,
     TransactionState,
 )
+from verifund_contracts.terms import policy_version_of, project_requirements
 
 from verifund_control_plane.domain import (
     EVIDENCE_UPLOAD_STATES,
@@ -52,6 +53,10 @@ from verifund_control_plane.settings import Settings
 from verifund_control_plane.tokens import LinkSigner, SellerTokenService
 
 Mutation = Callable[[Any], Awaitable[dict[str, Any]]]
+
+# Re-exported so the catalog projection is available on the service surface
+# (Task 6 interface) and shared with downstream verification (Tasks 7-8).
+__all__ = ["policy_version_of", "project_requirements"]
 
 
 class VerifundService:
