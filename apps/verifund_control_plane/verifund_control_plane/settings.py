@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     seller_token_ttl_hours: int = Field(
         default=72, validation_alias="VERIFUND_SELLER_TOKEN_TTL_HOURS"
     )
+    seller_token_ttl_minutes: int = Field(
+        default=60, validation_alias="VERIFUND_SELLER_TOKEN_TTL_MINUTES"
+    )
+    seller_rate_limit_per_minute: int = Field(
+        default=60, validation_alias="VERIFUND_SELLER_RATE_LIMIT_PER_MINUTE"
+    )
     checkout_link_ttl_minutes: int = Field(
         default=30, validation_alias="VERIFUND_CHECKOUT_LINK_TTL_MINUTES"
     )

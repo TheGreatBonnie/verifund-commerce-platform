@@ -3144,10 +3144,19 @@ class VerifundService:
     async def reissue_seller_token(
         self,
         transaction_id: str,
-        request: SellerTokenRequest,
+        request: SellerTokenRequest | None = None,
         *,
-        actor: str,
+        actor: str = "system",
+        **kwargs: Any,
     ) -> dict[str, Any]:
+        if request is None:
+            record = await self.repo.get_transaction(transaction_id)
+            request = SellerTokenRequest(
+                transaction_id=transaction_id,
+                run_id=record.run_id,
+                seller_id=record.seller_id,
+                purpose=kwargs.get("purpose", "version_bump"),
+            )
         record = await self.repo.get_transaction(transaction_id)
         if (
             record.run_id != request.run_id
