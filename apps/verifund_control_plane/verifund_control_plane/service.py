@@ -63,6 +63,7 @@ from verifund_control_plane.domain import (
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.paypal.port import CaptureResult, PaymentPort, PayoutResult
+from verifund_control_plane.paypal_tracking import PayPalTrackingClient
 from verifund_control_plane.policy import evaluate, matches_requirement
 from verifund_control_plane.receipts import ReceiptSigner, build_receipt_payload
 from verifund_control_plane.repository import (
@@ -185,6 +186,19 @@ def _dispute_projection(value: dict[str, Any] | None):
         return None
 
 
+def _tracker_projection(value: dict[str, Any] | None):
+    if not value or not value.get("tracker_id"):
+        return None
+    return __import__(
+        "verifund_contracts.models", fromlist=["TrackerProjection"]
+    ).TrackerProjection(
+        tracker_id=str(value["tracker_id"]),
+        last_status=value.get("last_status"),
+        status_source=value.get("status_source") or "merchant_push",
+        updated_at=value.get("updated_at"),
+    )
+
+
 def _verification_projection(value: dict[str, Any] | None) -> VerificationProjection | None:
     if not value:
         return None
@@ -234,6 +248,7 @@ class VerifundService:
         links: LinkSigner,
         receipts: ReceiptSigner,
         agreement_service: Any = None,
+        tracking: PayPalTrackingClient | None = None,
     ) -> None:
         self.repo = repo
         self.settings = settings
@@ -246,6 +261,7 @@ class VerifundService:
         self.links = links
         self.receipts = receipts
         self.agreement_service = agreement_service
+        self.tracking = tracking
 
     def _now(self) -> datetime:
         return self.clock()
@@ -372,6 +388,7 @@ class VerifundService:
                 record.payout,
                 ("status", "batch_id", "item_id", "amount_cents", "updated_at"),
             ),
+            tracker=_tracker_projection(record.tracker),
             receipt_available=record.receipt is not None,
             deadlines=deadlines,
             allowed_actions=allowed_actions(record.state, actor),
@@ -436,6 +453,7 @@ class VerifundService:
                 verification=None,
                 dispute=None,
                 payout=None,
+                tracker=None,
                 receipt=None,
                 deadlines={"funding": None, "evidence": None, "inspection": None},
                 last_error=None,
@@ -1194,6 +1212,13 @@ class VerifundService:
                     )
         if new_state == TransactionState.VERIFICATION_PENDING:
             await self.verify_if_ready(transaction_id, actor="system")
+        if is_reference and reference_type == "tracking" and reference:
+            await self.register_tracker(
+                transaction_id,
+                tracking_number=reference,
+                carrier=(record.purchase_order or {}).get("carrier"),
+                actor=actor,
+            )
         return EvidenceSubmission(
             submission_id=submission_id,
             attempt=open_attempt,
@@ -3057,6 +3082,13 @@ class VerifundService:
             body=body,
             operation=operation,
         )
+        if request.tracking_number:
+            await self.register_tracker(
+                transaction_id,
+                tracking_number=request.tracking_number,
+                carrier=request.carrier,
+                actor=actor,
+            )
         if result["state"] == TransactionState.VERIFICATION_PENDING.value:
             await self.verify_if_ready(transaction_id, actor=actor)
             return (
@@ -3635,6 +3667,148 @@ class VerifundService:
         return (
             await self._projection_for(transaction_id, "buyer")
         ).model_dump(mode="json")
+
+    async def _tracking_items(
+        self, record: TransactionRecord
+    ) -> list[dict[str, Any]]:
+        purchase_order = record.purchase_order or {}
+        items = [
+            {
+                "sku": str(item.get("sku") or ""),
+                "quantity": str(item.get("quantity") or 1),
+            }
+            for item in (purchase_order.get("line_items") or [])
+            if item.get("sku")
+        ]
+        if items:
+            return items
+        if self.agreement_service is not None:
+            with suppress(Exception):
+                agreement = await self.agreement_service.get_by_transaction(
+                    record.transaction_id
+                )
+                if agreement is not None:
+                    projection = await self.agreement_service.build_projection(
+                        agreement
+                    )
+                    return [
+                        {"sku": item.sku, "quantity": str(item.quantity)}
+                        for item in projection.line_items
+                    ]
+        return []
+
+    async def register_tracker(
+        self,
+        transaction_id: str,
+        *,
+        tracking_number: str,
+        carrier: str | None,
+        actor: str = "system",
+    ) -> dict[str, Any] | None:
+        """Register one post-capture tracker; best-effort and idempotent."""
+        if self.tracking is None or not tracking_number:
+            return None
+        record = await self.repo.get_transaction(transaction_id)
+        funding = record.funding or {}
+        capture_id = funding.get("capture_id")
+        if funding.get("status") != "captured" or not capture_id:
+            return None
+        existing = record.tracker or {}
+        if (
+            existing.get("tracker_id")
+            and existing.get("tracking_number") == tracking_number
+        ):
+            return existing
+        items = await self._tracking_items(record)
+        try:
+            tracker_id = await self.tracking.sync(
+                transaction_id=transaction_id,
+                capture_id=str(capture_id),
+                tracking_number=tracking_number,
+                carrier=carrier or "OTHER",
+                items=items,
+            )
+        except VerifundError as exc:
+            async with self.repo.transaction() as conn:
+                await self.repo.audit(
+                    conn,
+                    transaction_id,
+                    AuditInput(
+                        actor,
+                        "paypal.tracker_registration_failed",
+                        payload={
+                            "code": exc.code,
+                            "message": exc.message,
+                            "tracking_number": tracking_number,
+                        },
+                    ),
+                )
+            return None
+        block = {
+            "tracker_id": tracker_id,
+            "tracking_number": tracking_number,
+            "carrier": carrier or "OTHER",
+            "last_status": "SHIPPED",
+            "status_source": "merchant_push",
+            "updated_at": self._iso(self._now()),
+        }
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state in {
+                TransactionState.CANCELED,
+                TransactionState.FAILED,
+            }:
+                return None
+            await self.repo.update_transaction(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                changes={"tracker": block},
+                audit=AuditInput(
+                    actor,
+                    "paypal.tracker_registered",
+                    payload={"tracker_id": tracker_id},
+                ),
+            )
+        return block
+
+    async def refresh_tracker(
+        self, transaction_id: str
+    ) -> dict[str, Any] | None:
+        """Refresh persisted merchant-pushed tracker status; failures are non-fatal."""
+        record = await self.repo.get_transaction(transaction_id)
+        tracker = record.tracker or {}
+        tracker_id = tracker.get("tracker_id")
+        if self.tracking is None or not tracker_id:
+            return tracker or None
+        try:
+            refreshed = await self.tracking.fetch(str(tracker_id))
+        except Exception:  # noqa: BLE001 - tracker display refresh is best-effort
+            return tracker
+        if not refreshed:
+            return tracker
+        block = {
+            **tracker,
+            **refreshed,
+            "status_source": "merchant_push",
+            "updated_at": self._iso(self._now()),
+        }
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            await self.repo.update_transaction(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                changes={"tracker": block},
+            )
+        return block
+
+    async def dispute_decision_context(
+        self, transaction_id: str
+    ) -> dict[str, Any]:
+        """Read-only decision view: transaction projection plus tracker."""
+        projection = await self._projection_for(transaction_id, "buyer")
+        return projection.model_dump(mode="json")
 
     async def _execute_payout(
         self,

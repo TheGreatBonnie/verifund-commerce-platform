@@ -160,6 +160,7 @@ class TransactionRecord:
     verification: dict[str, Any] | None
     dispute: dict[str, Any] | None
     payout: dict[str, Any] | None
+    tracker: dict[str, Any] | None
     receipt: dict[str, Any] | None
     deadlines: dict[str, Any]
     last_error: dict[str, Any] | None

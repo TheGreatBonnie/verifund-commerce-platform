@@ -16,6 +16,10 @@ from verifund_control_plane.errors import VerifundError, verifund_error_handler
 from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.paypal.fake import FakePaymentPort
 from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort
+from verifund_control_plane.paypal_tracking import (
+    FakePayPalTracking,
+    PayPalTrackingHttpClient,
+)
 from verifund_control_plane.receipts import ReceiptSigner
 from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.repository import Repository
@@ -85,6 +89,15 @@ def create_app(
             scenario=settings.fake_payment_scenario,
             clock=now,
         )
+    if settings.is_sandbox:
+        tracking = PayPalTrackingHttpClient(
+            base_url=settings.paypal_api_base,
+            client_id=settings.paypal_client_id,
+            client_secret=settings.paypal_client_secret,
+            clock=now,
+        )
+    else:
+        tracking = FakePayPalTracking()
     async def _sync_transaction_pointer(
         conn, transaction_id: str, version: int, digest: str, at: datetime
     ) -> None:
@@ -123,6 +136,7 @@ def create_app(
         links=links,
         receipts=receipts,
         agreement_service=agreement_service,
+        tracking=tracking,
     )
     reconciler = Reconciler(
         repo=repo,
@@ -169,6 +183,7 @@ def create_app(
     app.state.link_signer = links
     app.state.payments = payments
     app.state.receipts = receipts
+    app.state.tracking = tracking
     app.state.reconciler = reconciler
     app.add_exception_handler(VerifundError, verifund_error_handler)
     app.include_router(health.router)

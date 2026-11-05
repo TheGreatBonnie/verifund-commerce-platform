@@ -37,6 +37,7 @@ def record() -> TransactionRecord:
         verification=None,
         dispute=None,
         payout=None,
+        tracker=None,
         receipt=None,
         deadlines={"funding": (NOW + timedelta(hours=24)).isoformat()},
         last_error=None,

@@ -59,6 +59,7 @@ def record() -> TransactionRecord:
         verification=None,
         dispute=None,
         payout=None,
+        tracker=None,
         receipt=None,
         deadlines={
             "evidence": (NOW + timedelta(hours=24)).isoformat(),

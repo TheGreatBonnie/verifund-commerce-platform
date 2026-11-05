@@ -39,6 +39,8 @@ class ReconcilerService(Protocol):
         idempotency_key: str | None,
     ) -> dict[str, Any]: ...
 
+    async def refresh_tracker(self, transaction_id: str) -> Any: ...
+
 
 class ReconcilerSettings(Protocol):
     @property
@@ -93,6 +95,7 @@ class Reconciler:
             "ledger_mismatches": 0,
             "provider_intents_started": 0,
             "provider_intents_recovered": 0,
+            "trackers_refreshed": 0,
         }
 
     async def run_once(self) -> dict[str, int]:
@@ -104,6 +107,7 @@ class Reconciler:
         try:
             await self._safe(stats, self._sweep_funding(stats))
             await self._safe(stats, self._sweep_payouts(stats))
+            await self._safe(stats, self._sweep_trackers(stats))
             await self._safe(stats, self._sweep_deadlines(stats))
             await self._safe(stats, self._sweep_scans(stats))
             await self._safe(stats, self._sweep_remediation(stats))
@@ -149,6 +153,19 @@ class Reconciler:
                 record.transaction_id, actor="reconciler"
             )
             stats["payouts_checked"] += 1
+
+    async def _sweep_trackers(self, stats: dict[str, int]) -> None:
+        if not hasattr(self.service, "refresh_tracker"):
+            return
+        for record in await self.repo.list_transactions():
+            if not (record.tracker or {}).get("tracker_id"):
+                continue
+            try:
+                await self.service.refresh_tracker(record.transaction_id)
+            except Exception:  # noqa: BLE001 - tracker refresh is best-effort
+                stats["errors"] += 1
+                continue
+            stats["trackers_refreshed"] += 1
 
     async def _sweep_deadlines(self, stats: dict[str, int]) -> None:
         for record in await self.repo.list_transactions(

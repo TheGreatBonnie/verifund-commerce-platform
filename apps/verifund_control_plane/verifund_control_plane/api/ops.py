@@ -371,6 +371,16 @@ async def issue_invitation(
     return {"token": token}
 
 
+@router.get(
+    "/transactions/{transaction_id}/dispute-context",
+    dependencies=[Depends(require_ops)],
+)
+async def dispute_context(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    return await _service(request).dispute_decision_context(transaction_id)
+
+
 @router.post(
     "/transactions/{transaction_id}/dispute-decision",
     dependencies=[Depends(require_ops)],

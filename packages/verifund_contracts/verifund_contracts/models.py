@@ -883,6 +883,15 @@ class EvidenceList(VerifundModel):
     items: list[EvidenceItem]
 
 
+class TrackerProjection(VerifundModel):
+    """Merchant-pushed PayPal tracker shown to ops and disputes only."""
+
+    tracker_id: str
+    last_status: str | None = None
+    status_source: str = "merchant_push"
+    updated_at: datetime | None = None
+
+
 class TransactionProjection(VerifundModel):
     transaction_id: str
     agreement_id: str | None = None   # NEW; written on award, read by funding binding
@@ -905,6 +914,7 @@ class TransactionProjection(VerifundModel):
     verification: VerificationProjection | None = None
     dispute: DisputeProjection | None = None
     payout: PayoutProjection | None = None
+    tracker: TrackerProjection | None = None
     receipt_available: bool = False
     deadlines: dict[str, datetime | None]
     allowed_actions: list[str] = Field(default_factory=list)

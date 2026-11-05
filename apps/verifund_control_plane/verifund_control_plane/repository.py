@@ -108,6 +108,7 @@ class Repository:
             Column("verification", JSON, nullable=True),
             Column("dispute", JSON, nullable=True),
             Column("payout", JSON, nullable=True),
+            Column("tracker", JSON, nullable=True),
             Column("receipt", JSON, nullable=True),
             Column("deadlines", JSON, nullable=False),
             Column("last_error", JSON, nullable=True),
@@ -343,6 +344,16 @@ class Repository:
         await configure_sqlite(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
+            # SQLite has no in-place migrations. Existing demo databases get
+            # new nullable columns through this idempotent ALTER.
+            columns = await conn.exec_driver_sql(
+                "PRAGMA table_info(transactions)"
+            )
+            names = {row[1] for row in columns}
+            if "tracker" not in names:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE transactions ADD COLUMN tracker JSON"
+                )
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
@@ -374,6 +385,7 @@ class Repository:
             verification=row.verification,
             dispute=row.dispute,
             payout=row.payout,
+            tracker=row.tracker,
             receipt=row.receipt,
             deadlines=row.deadlines,
             last_error=row.last_error,
@@ -554,6 +566,7 @@ class Repository:
                 evidence_summary=txn.evidence_summary,
                 verification=txn.verification,
                 payout=txn.payout,
+                tracker=txn.tracker,
                 receipt=txn.receipt,
                 deadlines=txn.deadlines,
                 last_error=txn.last_error,
