@@ -7,6 +7,7 @@ from verifund_contracts.models import (
     AwardRequest,
     EvidenceKind,
 )
+from verifund_contracts.terms import validate_requirements
 
 
 def _iso(value: datetime) -> str:
@@ -48,6 +49,10 @@ def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:
         for li in award.line_items
     ):
         raise ValueError("invalid_terms")
+    # Creation floors for the requirement catalog (spec §3.1.1). Enforced only
+    # when a catalog is authored; grandfathered awards carry none.
+    if award.requirements:
+        validate_requirements(list(award.requirements))
     return {
         "schema": "verifund.agreement.v1",
         "agreement_type": "goods",
@@ -80,6 +85,10 @@ def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:
             "period_hours": award.inspection_period_hours,
             "starts_on": award.inspection_starts_on,
         },
+        "requirements": [
+            r.model_dump(mode="json") for r in award.requirements
+        ],
+        # DEPRECATED mirror of `requirements`; retained for grandfathered callers.
         "evidence_required": [e.value for e in award.evidence_required],
         "remedies": award.remedies.model_dump(mode="json"),
         "dispute_window_hours": award.dispute_window_hours,

@@ -62,3 +62,89 @@ def test_apply_change_set_recomputes():
     new = apply_change_set(terms, cs)
     assert new["totals"]["shipping_cents"] == 1000
     assert new["totals"]["total_cents"] == 51600 - 2500 + 1000
+
+
+def _requirements():
+    from verifund_contracts import Requirement, RequirementCheck
+
+    return [
+        Requirement(
+            requirement_id="hardware",
+            title="Hardware diagnostic report",
+            description="Diagnostic report showing at least 32 GB of RAM.",
+            owner="seller",
+            kind="other",
+            source="file",
+            accepted_formats=["text/csv"],
+            checks=[
+                RequirementCheck(
+                    check_id="ram_gte_32gb",
+                    description="At least 32 GB of RAM.",
+                    expected_value=32,
+                    operator="gte",
+                    unit="GB",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="delivery_confirmation",
+            title="Delivery confirmation",
+            description="System-generated from carrier record and buyer confirmation.",
+            owner="system",
+            kind="delivery_confirmation",
+            source="reference",
+            checks=[
+                RequirementCheck(
+                    check_id="carrier_and_buyer_agree",
+                    description="Carrier record and buyer confirmation agree on delivery.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+    ]
+
+
+def test_generator_copies_requirements():
+    award = _award().model_copy(update={"requirements": _requirements()})
+    terms = build_terms(award, datetime.now(UTC))
+    assert [r["requirement_id"] for r in terms["requirements"]] == [
+        "hardware",
+        "delivery_confirmation",
+    ]
+    ram = terms["requirements"][0]["checks"][0]
+    assert ram["check_id"] == "ram_gte_32gb"
+    assert ram["operator"] == "gte"
+    validate_terms(terms, award)
+
+
+def test_generator_requirements_empty_for_grandfathered_callers():
+    terms = build_terms(_award(), datetime.now(UTC))
+    assert terms["requirements"] == []
+    # Deprecated mirror stays for legacy callers.
+    assert "delivery_confirmation" in terms["evidence_required"]
+
+
+def test_generator_rejects_floor_violating_catalog():
+    import pytest
+    from verifund_contracts import Requirement, RequirementCheck
+
+    bad = [
+        Requirement(
+            requirement_id="hardware",
+            title="Hardware diagnostic report",
+            description="No checks at all.",
+            owner="seller",
+            kind="other",
+            source="file",
+            accepted_formats=["text/csv"],
+            checks=[],
+            required=True,
+        )
+    ]
+    award = _award().model_copy(update={"requirements": bad})
+    with pytest.raises(ValueError):
+        build_terms(award, datetime.now(UTC))
