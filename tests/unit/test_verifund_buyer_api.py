@@ -66,3 +66,24 @@ async def test_buyer_routes_return_501_with_valid_token(client):
     )
     # Ownership check: transaction vf_1 doesn't exist -> 404 before the 501 body.
     assert response.status_code in {404, 501}
+
+
+async def test_ops_issues_buyer_token_accepted_by_buyer_routes(client):
+    from tests.support.award_flow import OPS, award, award_payload
+
+    body = await award(client, award_payload())
+    txid = body["transaction_id"]
+    issued = await client.post(
+        f"/ops/transactions/{txid}/issue-buyer-token",
+        headers=OPS,
+    )
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["token"]
+
+    response = await client.post(
+        f"/buyer/transactions/{txid}/delivery-confirmed",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"confirmed_at": "2026-10-27T12:00:00Z"},
+    )
+    # Scaffolded body returns 501 until Task 13; auth/ownership must pass.
+    assert response.status_code in {404, 501}

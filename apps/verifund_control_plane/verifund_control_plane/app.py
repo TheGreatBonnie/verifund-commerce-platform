@@ -110,6 +110,7 @@ def create_app(
         settings=settings,
         clock=now,
         tokens=tokens,
+        buyer_tokens=buyer_tokens,
         evidence_store=evidence_store,
         payments=payments,
         links=links,
@@ -164,6 +165,7 @@ def create_app(
     app.add_exception_handler(VerifundError, verifund_error_handler)
     app.include_router(health.router)
     app.include_router(ops.router)
+    app.include_router(ops.router, prefix="/ops")
     app.include_router(seller.router)
     app.include_router(buyer.router)
     app.include_router(checkout.router)

@@ -215,6 +215,7 @@ class VerifundService:
         settings: Settings,
         clock: Callable[[], datetime],
         tokens: SellerTokenService,
+        buyer_tokens: Any = None,
         evidence_store: EvidenceStore,
         payments: PaymentPort,
         links: LinkSigner,
@@ -225,6 +226,7 @@ class VerifundService:
         self.settings = settings
         self.clock = clock
         self.tokens = tokens
+        self.buyer_tokens = buyer_tokens
         self.evidence_store = evidence_store
         self.payments = payments
         self.links = links
@@ -1667,6 +1669,31 @@ class VerifundService:
             )
         rows = await self.repo.list_declarations(transaction_id, requirement_id)
         return sorted(rows, key=lambda row: row.get("attempt", 0), reverse=True)
+
+    async def issue_buyer_token(
+        self, transaction_id: str, *, actor: str
+    ) -> str:
+        record = await self.repo.get_transaction(transaction_id)
+        if self.buyer_tokens is None:
+            raise VerifundError(
+                "not_implemented", "buyer tokens are not configured", status_code=501
+            )
+        issued = self.buyer_tokens.issue(record.buyer_id, transaction_id)
+        async with self.repo.transaction() as conn:
+            await self.repo.save_buyer_token(
+                conn,
+                jti_hash=issued.jti_hash,
+                transaction_id=transaction_id,
+                buyer_id=record.buyer_id,
+                scopes=["txn:buy"],
+                expires_at=issued.expires_at,
+            )
+            await self.repo.audit(
+                conn,
+                transaction_id,
+                AuditInput(actor, "buyer_token_issued"),
+            )
+        return issued.token
 
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
         """Evaluate the worklist as submissions arrive.

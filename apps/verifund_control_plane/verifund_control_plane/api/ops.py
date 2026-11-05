@@ -345,6 +345,19 @@ async def revoke_seller_token(
     )
 
 
+@router.post(
+    "/transactions/{transaction_id}/issue-buyer-token",
+    dependencies=[Depends(require_ops)],
+)
+async def issue_buyer_token(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    token = await _service(request).issue_buyer_token(
+        transaction_id, actor=actor(request)
+    )
+    return {"token": token}
+
+
 @router.get(
     "/transactions/{transaction_id}/receipt",
     dependencies=[Depends(require_ops)],
