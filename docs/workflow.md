@@ -159,15 +159,26 @@ Rejection path (`cancel_losers`): all negotiations → `cancelled`, `stage = "re
 
 ### 5.2 Path B — Verifund settlement: award → agreement → funding → order → evidence → release → payout
 
-Triggered when `VERIFUND_MODE != off`. The Verifund control-plane state machine:
+Triggered when `VERIFUND_MODE != off`. The Verifund control-plane state machine
+(design spec §4):
 
 ```
-AWARDED → (PENDING_SELLER → PENDING_BUYER →) AGREED → FUNDING_PENDING → FUNDED → FULFILLMENT_PENDING
-  → VERIFICATION_PENDING → RELEASE_PERMITTED → PAYOUT_PENDING → RELEASED
+AWARDED → AGREED → FUNDING_PENDING → FUNDED → FULFILLMENT_PENDING
+  → VERIFICATION_PENDING → (REMEDIATION_REQUIRED ↔ VERIFICATION_PENDING)
+  → RELEASE_PERMITTED → PAYOUT_PENDING → RELEASED
+  → REVIEW_REQUIRED (any REVIEW; reversible to REMEDIATION/VERIFICATION)
+  → DISPUTE_OPEN (valid buyer dispute; exits only by reviewer decision or ladder cap)
+  → REFUNDED (terminal, after a successful refund)
 ```
 
-with `REVIEW_REQUIRED`, `CANCELED`, `FAILED` as exception/terminal states. Policy computes
-`RELEASE_PERMITTED`; a reviewer performs the audited release.
+with `VERIFICATION_PENDING → PAYOUT_PENDING` and `RELEASE_PERMITTED →
+PAYOUT_PENDING` on buyer `ACCEPT` (early acceptance, final), and
+`DISPUTE_OPEN → RELEASE_PERMITTED` (dismissed/settled), `DISPUTE_OPEN →
+REMEDIATION_REQUIRED` (upheld repair/replacement), `DISPUTE_OPEN → REFUNDED`
+(upheld refund). `CANCELED` and `FAILED` remain terminal. Policy computes
+`RELEASE_PERMITTED`; a reviewer performs the audited release, narrowed so
+only a `manual_flag` review reason is overridable (all verification failures
+are non-overridable).
 
 After the human award approval, the buyer graph produces the award decision and the bilateral
 agreement outcome, and the rest of the settlement lifecycle is owned by the Verifund agent through
@@ -196,11 +207,31 @@ the orchestrator. Agreement consent is split into three separate surfaces:
 5. **Fund** — `FUNDING_PENDING` until the payer completes the PayPal checkout; `verifund_evidence_review`
    waits for funding at `FUNDED`, then places the purchase order with the seller and reports it
    (`FULFILLMENT_PENDING`).
-6. **Evidence / verification** — control plane computes verification from seller fulfillment evidence;
-   partial evidence never releases; outcome `RELEASE_PERMITTED` or `REVIEW_REQUIRED`.
-7. **Release** — reviewer approves the audited release (or flags a manual review); payout → `RELEASED`
-   (or `REVIEW_REQUIRED` on payout failure).
-8. **Receipt** — fetch the signed receipt; stage `completed`.
+6. **Evidence / verification** — after `FULFILLMENT_PENDING`, the seller
+   submits requirement-addressed evidence from the seller workspace
+   (`/seller/*`, invitation exchange via
+   `POST /ops/transactions/{id}/issue-invitation` →
+   `/fulfillment/access/{token}`; tokens stay in an HttpOnly cookie). Each
+   upload carries `requirement_id`, optional `captured_at`, and either a
+   file (honoring `accepted_formats`) or — for `source=reference`
+   requirements (e.g. shipping) — a `reference` + `reference_type=tracking|url`.
+   Submissions accumulate per attempt; a seller declaration closes an attempt.
+   The control plane evaluates per requirement and rolls up; partial evidence
+   never releases. Outcome `RELEASE_PERMITTED`, `REMEDIATION_REQUIRED`
+   (fixable failure), or `REVIEW_REQUIRED` (extraction/human review).
+7. **Delivery, acceptance, and disputes** — the buyer confirms delivery
+   (`CONFIRM_DELIVERY`, bounded `confirmed_at`) and may `ACCEPT`
+   (early-final transition to `PAYOUT_PENDING`). A valid buyer dispute
+   (evidence-gated, artifact + claim required) opens `DISPUTE_OPEN` and
+   holds funds; the seller answers with counter-evidence
+   (`purpose=dispute`, ignored by rollup). Reviewer decisions dismiss,
+   uphold (remedy `REMEDIATION_REQUIRED` or first-class refund to
+   `REFUNDED`), or escalate; `resolve_system_failure` and
+   `return_to_remediation` cover ops recovery. Buyer token is ops-issued
+   (`txn:buy`, bound to `buyer_id` + `transaction_id`).
+8. **Release** — reviewer approves the audited release (only `manual_flag`
+   is overridable); payout → `RELEASED` (or `REVIEW_REQUIRED` on payout failure).
+9. **Receipt** — fetch the signed receipt; stage `completed`.
 
 The Verifund lifecycle task (`VerifundLifecycle`) owns funding, purchase order, evidence, release, and
 receipt steps; the buyer agent only produces the award decision and the bilateral agreement outcome.
@@ -293,6 +324,7 @@ sequenceDiagram
   participant Buyer
   participant Reg as Registry
   participant Seller as Seller(s)
+  participant SellerWS as Seller workspace (/seller/*)
   participant VF as Verifund CP
 
   Human->>Console: type brief / Run sample brief
@@ -340,12 +372,27 @@ sequenceDiagram
       Buyer->>VF: buyer approval (AGREED)
       Buyer->>VF: fund (FUNDING_PENDING → FUNDED, payer checkout)
       Buyer->>Seller: purchase order (FULFILLMENT_PENDING)
-      Seller->>VF: evidence (VERIFICATION_PENDING → RELEASE_PERMITTED)
+      Ops->>VF: issue invitation → seller workspace
+      SellerWS->>Seller: open /fulfillment/access/{token} (exchange server-side, HttpOnly token map)
+      SellerWS->>VF: requirement-addressed uploads (captured_at, reference artifacts)
+      VF->>VF: per-requirement rollup (RELEASE_PERMITTED / REMEDIATION_REQUIRED / REVIEW_REQUIRED)
+      Buyer->>VF: confirm delivery / accept / dispute (evidence-gated)
+      SellerWS->>VF: dispute counter-evidence (purpose=dispute)
       Human->>Console: approve release
       Console->>Buyer: release
       Buyer->>VF: payout (RELEASED)
       Buyer->>VF: get receipt
       Buyer->>Buyer: finalize (completed)
+    end
+  end
+  Buyer-->>Orch: status + order/receipt
+  Orch-->>Console: final response
+  Console-->>Human: summary
+```
+
+Seller workspace details (routes, invitation flow, status vocabulary) are in
+[`docs/seller-fulfillment-workspace.md`](seller-fulfillment-workspace.md).
+
     end
   end
   Buyer-->>Orch: status + order/receipt
