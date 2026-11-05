@@ -132,6 +132,7 @@ def test_projection_round_trip_has_no_extra_fields():
         purchase_order=None,
         evidence=None,
         verification=None,
+        dispute=None,
         payout=None,
         receipt_available=False,
         deadlines={"evidence": None, "inspection": None},

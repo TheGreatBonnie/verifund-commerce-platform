@@ -3413,6 +3413,7 @@ class VerifundService:
         deadlines["remediation"] = (self._now() + timedelta(hours=72)).isoformat()
         async with self.repo.transaction() as conn:
             current = await self.repo.get_transaction(transaction_id, conn)
+            await self.repo.revoke_seller_tokens(conn, transaction_id, self._now())
             await self.repo.transition(
                 conn,
                 transaction_id,

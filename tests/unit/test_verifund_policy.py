@@ -57,6 +57,7 @@ def record() -> TransactionRecord:
         },
         evidence_summary=None,
         verification=None,
+        dispute=None,
         payout=None,
         receipt=None,
         deadlines={

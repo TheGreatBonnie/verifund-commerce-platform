@@ -1,14 +1,41 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from verifund_contracts import EvidenceList
 
 from verifund_control_plane.errors import VerifundError
 
-router = APIRouter(prefix="/seller")
+
+async def _seller_rate_limit(request: Request) -> None:
+    settings = request.app.state.settings
+    limit = getattr(settings, "seller_rate_limit_per_minute", 0) or 0
+    if limit <= 0:
+        return
+    buckets = request.app.state.__dict__.setdefault("_seller_rate_limits", {})
+    header = request.headers.get("authorization", "")
+    key = "anonymous"
+    if header.startswith("Bearer "):
+        try:
+            claims = request.app.state.tokens.verify(
+                header.removeprefix("Bearer "), required_scope=None
+            )
+            key = claims.seller_id
+        except Exception:  # noqa: BLE001
+            key = header
+    now = time.time()
+    window_start = now - 60.0
+    bucket = [t for t in buckets.get(key, []) if t >= window_start]
+    if len(bucket) >= limit:
+        raise VerifundError("rate_limited", "rate limit exceeded", status_code=429)
+    bucket.append(now)
+    buckets[key] = bucket
+
+
+router = APIRouter(prefix="/seller", dependencies=[Depends(_seller_rate_limit)])
 
 
 def _service(request: Request):
