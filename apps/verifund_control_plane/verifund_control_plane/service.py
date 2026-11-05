@@ -1792,6 +1792,142 @@ class VerifundService:
             ],
         }
 
+    async def confirm_delivery(
+        self,
+        transaction_id: str,
+        buyer_id: str | None = None,
+        confirmed_at: Any = None,
+        *,
+        buyer: str | None = None,
+        condition: str | None = None,
+        photos: list[Any] | None = None,
+        carrier_event_at: Any = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if buyer_id is None:
+            buyer_id = buyer or kwargs.get("buyer_id") or kwargs.get("buyer")
+        if confirmed_at is None:
+            confirmed_at = kwargs.get("confirmed_at")
+        if isinstance(confirmed_at, str):
+            confirmed_at = datetime.fromisoformat(confirmed_at)
+        if confirmed_at is None:
+            confirmed_at = self._now()
+        if not isinstance(confirmed_at, datetime):
+            raise VerifundError(
+                "invalid_request", "confirmed_at must be a datetime", status_code=422
+            )
+        if carrier_event_at is not None and isinstance(carrier_event_at, str):
+            carrier_event_at = datetime.fromisoformat(carrier_event_at)
+
+        record = await self.repo.get_transaction(transaction_id)
+        if record.buyer_id != buyer_id:
+            raise VerifundError(
+                "forbidden", "buyer does not own this transaction", status_code=403
+            )
+        now = self._now()
+        if confirmed_at > now + timedelta(hours=1):
+            raise VerifundError(
+                "invalid_request",
+                "confirmed_at cannot be in the future",
+                status_code=422,
+            )
+        if carrier_event_at is not None and abs(
+            (confirmed_at - carrier_event_at).total_seconds()
+        ) > 24 * 3600:
+            raise VerifundError(
+                    "invalid_request",
+                    "confirmed_at is outside the carrier event window",
+                    status_code=422,
+                )
+
+        payload = json.dumps(
+            {
+                "buyer_id": buyer_id,
+                "confirmed_at": confirmed_at.isoformat(),
+                "condition": condition,
+                "photos": photos or [],
+                "origin": "system",
+                "attributed_to": buyer_id,
+            },
+            default=str,
+        )
+        item = await self.evidence_store.put(
+            transaction_id=transaction_id,
+            seller_id=record.seller_id,
+            kind=EvidenceKind.DELIVERY_CONFIRMATION.value,
+            media_type="application/json",
+            original_filename="delivery_confirmation.json",
+            data=payload.encode("utf-8"),
+            note="buyer-attested delivery confirmation",
+            captured_at=confirmed_at,
+        )
+
+        new_state = record.state
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            if current.state not in EVIDENCE_UPLOAD_STATES and current.state not in {
+                TransactionState.FULFILLMENT_PENDING,
+                TransactionState.VERIFICATION_PENDING,
+            }:
+                raise VerifundError(
+                        "invalid_state",
+                        "delivery confirmation is not allowed in the current state",
+                        status_code=409,
+                    )
+            open_attempt = await self.repo.open_attempt(
+                conn, transaction_id, "delivery_confirmation"
+            )
+            item = item.model_copy(
+                update={
+                    "requirement_id": "delivery_confirmation",
+                    "submission_attempt": open_attempt,
+                    "origin": "system",
+                    "attributed_to": buyer_id,
+                    "agreement_version": current.agreement_version,
+                    "artifact_type": "system",
+                    "scan_status": "clean",
+                }
+            )
+            stored, _created = await self.repo.add_evidence(
+                conn, transaction_id, record.seller_id, item, captured_at=confirmed_at
+            )
+            await self.repo.add_evidence_submission(
+                conn,
+                submission_id=f"sub_{uuid.uuid4().hex}",
+                transaction_id=transaction_id,
+                evidence_id=stored.evidence_id,
+                requirement_id="delivery_confirmation",
+                attempt=open_attempt,
+            )
+            if current.state == TransactionState.FULFILLMENT_PENDING:
+                updated = await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.VERIFICATION_PENDING,
+                    changes={},
+                    audit=AuditInput(
+                        f"buyer:{buyer_id}", "delivery_confirmed"
+                    ),
+                )
+                new_state = updated.state
+            else:
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={},
+                    audit=AuditInput(f"buyer:{buyer_id}", "delivery_confirmed"),
+                )
+        if new_state == TransactionState.VERIFICATION_PENDING:
+            await self.verify_if_ready(transaction_id, actor="system")
+        return {
+            "evidence_id": stored.evidence_id,
+            "requirement_id": "delivery_confirmation",
+            "status": "recorded",
+        }
+
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
         """Evaluate the worklist as submissions arrive.
 

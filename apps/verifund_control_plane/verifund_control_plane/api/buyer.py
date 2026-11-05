@@ -17,6 +17,10 @@ from verifund_control_plane.errors import VerifundError
 router = APIRouter(prefix="/buyer")
 
 
+def _service(request: Request):
+    return request.app.state.service
+
+
 async def authenticate_buyer(request: Request, transaction_id: str):
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):
@@ -47,11 +51,16 @@ async def authenticate_buyer(request: Request, transaction_id: str):
 async def confirm_delivery(
     transaction_id: str, request: Request
 ) -> dict[str, Any]:
-    await authenticate_buyer(request, transaction_id)
-    raise VerifundError(
-        "not_implemented",
-        "delivery confirmation lands in Task 13",
-        status_code=501,
+    claims = await authenticate_buyer(request, transaction_id)
+    body = await request.json()
+    confirmed_at = body.get("confirmed_at")
+    return await _service(request).confirm_delivery(
+        transaction_id,
+        buyer_id=claims.buyer_id,
+        confirmed_at=confirmed_at,
+        condition=body.get("condition"),
+        photos=body.get("photos"),
+        carrier_event_at=body.get("carrier_event_at"),
     )
 
 

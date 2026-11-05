@@ -85,5 +85,7 @@ async def test_ops_issues_buyer_token_accepted_by_buyer_routes(client):
         headers={"Authorization": f"Bearer {token}"},
         json={"confirmed_at": "2026-10-27T12:00:00Z"},
     )
-    # Scaffolded body returns 501 until Task 13; auth/ownership must pass.
-    assert response.status_code in {404, 501}
+    # Delivery confirmation is implemented in Task 13; an AWARDED transaction
+    # is not yet in fulfillment, so the state gate rejects with 409. Auth and
+    # ownership must have passed to reach this point.
+    assert response.status_code in {409}
