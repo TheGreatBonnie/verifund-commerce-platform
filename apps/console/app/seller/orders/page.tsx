@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { SellerPageHeader } from "@/components/seller/seller-page-header";
 import { TransactionStatusBadge } from "@/components/seller/seller-status-badge";
@@ -19,6 +20,7 @@ export default async function SellerOrdersPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await auth.protect();
   const query = await searchParams;
   const state =
     typeof query.state === "string" && query.state ? query.state : undefined;

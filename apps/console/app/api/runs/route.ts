@@ -1,6 +1,8 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextRequest } from "next/server";
 
 export async function GET(request: NextRequest) {
+  await auth.protect();
   const buyer = process.env.BUYER_API_URL ?? "http://127.0.0.1:9100";
   const limit = request.nextUrl.searchParams.get("limit") ?? "50";
   try {

@@ -1,4 +1,5 @@
 "use server";
+import { auth } from "@clerk/nextjs/server";
 
 import { controlPlaneJson } from "@/lib/control-plane-proxy";
 import { capturePayPalOrder, createPayPalOrder } from "@/lib/paypal";
@@ -47,6 +48,7 @@ function deadlinePassed(expiresAt?: string | null) {
 export async function createOrderAction(input: {
   transactionId: string;
 }): Promise<{ id: string }> {
+  await auth.protect();
   const session = await prepareFunding(input.transactionId);
   if (
     session.provider_order_id &&
@@ -73,6 +75,7 @@ export async function captureOrderAction(input: {
   transactionId: string;
   orderId: string;
 }) {
+  await auth.protect();
   const session = await prepareFunding(input.transactionId);
   const attempt = Math.max(session.order_attempt ?? 0, 1);
   const capture = await capturePayPalOrder(
@@ -93,6 +96,7 @@ export async function captureOrderAction(input: {
 export async function pollFundingAction(input: {
   transactionId: string;
 }): Promise<Projection> {
+  await auth.protect();
   return controlPlane<Projection>(
     `/transactions/${input.transactionId}/funding/refresh`,
     { method: "POST" },

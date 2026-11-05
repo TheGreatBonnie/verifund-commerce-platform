@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -22,6 +23,7 @@ export default async function FulfillmentActivityPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await auth.protect();
   const { id } = await params;
   const [projectionResult, eventsResult] = await Promise.all([
     loadSeller<SellerProjection>(

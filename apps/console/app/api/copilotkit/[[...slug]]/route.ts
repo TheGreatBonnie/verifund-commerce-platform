@@ -10,6 +10,7 @@ import type { RunAgentInput } from "@ag-ui/core";
 import { A2AClient } from "@a2a-js/sdk/client";
 import { handle } from "hono/vercel";
 import { createDefaultAgent } from "../../../agent";
+import { auth } from "@clerk/nextjs/server";
 import { singleTerminalStream } from "@/lib/single-terminal-stream";
 
 // Force dynamic rendering for the API route to avoid build-time fetching
@@ -390,11 +391,10 @@ const runtime = new CopilotRuntime({
             ? { wsUrl: process.env.INTELLIGENCE_GATEWAY_WS_URL }
             : {}),
         }),
-        // Demo stub — replace with your real auth-derived user identity before any
-        // multi-user deployment, or all users share one thread history. The id
-        // must correspond to a user that exists in CopilotKit Intelligence;
-        // an unknown id (like this literal) can make thread operations fail.
-        identifyUser: () => ({ id: "demo-user", name: "Demo User" }),
+        identifyUser: (async () => {
+          const { userId } = await auth.protect();
+          return { id: userId };
+        }) as never,
       }
     : { runner: new InMemoryAgentRunner() }),
   // --- /copilotkit:intelligence ---
@@ -405,7 +405,22 @@ const handler = createCopilotRuntimeHandler({
   basePath: "/api/copilotkit",
 });
 
-export const GET = handler;
-export const POST = handler;
-export const PATCH = handler;
-export const DELETE = handler;
+export async function GET(request: Request) {
+  await auth.protect();
+  return handler(request);
+}
+
+export async function POST(request: Request) {
+  await auth.protect();
+  return handler(request);
+}
+
+export async function PATCH(request: Request) {
+  await auth.protect();
+  return handler(request);
+}
+
+export async function DELETE(request: Request) {
+  await auth.protect();
+  return handler(request);
+}

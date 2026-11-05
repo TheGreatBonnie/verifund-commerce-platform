@@ -1,9 +1,11 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextRequest } from "next/server";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
 ) {
+  await auth.protect();
   const { runId } = await params;
   const after = request.nextUrl.searchParams.get("after_seq") ?? "0";
   try {

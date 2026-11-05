@@ -1,19 +1,24 @@
+import { auth } from "@clerk/nextjs/server";
 import type { NextRequest } from "next/server";
-import { controlPlaneJson } from "@/lib/control-plane-proxy";
+import { controlPlaneForUser } from "@/lib/control-plane";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  await auth.protect();
   const { id } = await params;
   const idempotencyKey =
     request.headers.get("idempotency-key") ?? crypto.randomUUID();
-  return controlPlaneJson(`/agreements/${encodeURIComponent(id)}/approval-token`, {
-    method: "POST",
-    headers: {
-      "Idempotency-Key": idempotencyKey,
-      "X-Actor-Id": request.headers.get("x-actor-id") ?? "demo-buyer",
-      "X-Actor-Type": request.headers.get("x-actor-type") ?? "buyer",
+  const response = await controlPlaneForUser(
+    `/agreements/${encodeURIComponent(id)}/approval-token`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
     },
+  );
+  return new Response(await response.text(), {
+    status: response.status,
+    headers: { "content-type": "application/json" },
   });
 }

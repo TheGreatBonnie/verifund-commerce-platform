@@ -1,27 +1,15 @@
+import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { AgreementDocument } from "@/features/agreements/AgreementDocument";
 import { AgreementSummary } from "@/features/agreements/AgreementSummary";
 import { VersionHistory } from "@/features/agreements/VersionHistory";
+import { controlPlaneForUser } from "@/lib/control-plane";
 import { AgreementDecisionPanel } from "./AgreementDecisionPanel";
-
-const CONTROL_PLANE =
-  process.env.VERIFUND_CONTROL_PLANE_URL ?? "http://127.0.0.1:9300";
-
-function actorHeaders() {
-  return {
-    "X-Actor-Id": "demo-buyer",
-    "X-Actor-Type": "buyer",
-  };
-}
 
 async function fetchAgreementServer(id: string): Promise<any | null> {
   try {
-    const response = await fetch(
-      `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}`,
-      {
-        cache: "no-store",
-        headers: actorHeaders(),
-      },
+    const response = await controlPlaneForUser(
+      `/agreements/${encodeURIComponent(id)}`,
     );
     if (!response.ok) return null;
     return await response.json();
@@ -32,12 +20,8 @@ async function fetchAgreementServer(id: string): Promise<any | null> {
 
 async function fetchAgreementVersionsServer(id: string): Promise<any[]> {
   try {
-    const response = await fetch(
-      `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}/versions`,
-      {
-        cache: "no-store",
-        headers: actorHeaders(),
-      },
+    const response = await controlPlaneForUser(
+      `/agreements/${encodeURIComponent(id)}/versions`,
     );
     if (!response.ok) return [];
     const body = await response.json();
@@ -54,6 +38,7 @@ export default async function AgreementReviewPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await auth.protect();
   const { id } = await params;
   const query = await searchParams;
   const agreement = await fetchAgreementServer(id);

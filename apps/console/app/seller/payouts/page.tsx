@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { Info } from "lucide-react";
 import { SellerPageHeader } from "@/components/seller/seller-page-header";
@@ -12,6 +13,7 @@ import type { SellerPayoutView } from "@/lib/seller-types";
 export const dynamic = "force-dynamic";
 
 export default async function SellerPayoutsPage() {
+  await auth.protect();
   const result = await loadSeller<SellerPayoutView>("/seller/payouts");
 
   if (!result.ok) {

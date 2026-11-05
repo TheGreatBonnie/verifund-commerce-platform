@@ -1,22 +1,11 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { AgreementSummary } from "@/features/agreements/AgreementSummary";
-
-const CONTROL_PLANE =
-  process.env.VERIFUND_CONTROL_PLANE_URL ?? "http://127.0.0.1:9300";
-
-function actorHeaders() {
-  return {
-    "X-Actor-Id": "demo-buyer",
-    "X-Actor-Type": "buyer",
-  };
-}
+import { controlPlaneForUser } from "@/lib/control-plane";
 
 async function fetchAgreementsServer(): Promise<any[]> {
   try {
-    const response = await fetch(`${CONTROL_PLANE}/agreements`, {
-      cache: "no-store",
-      headers: actorHeaders(),
-    });
+    const response = await controlPlaneForUser("/agreements");
     if (!response.ok) return [];
     const body = await response.json();
     return Array.isArray(body) ? body : [];
@@ -26,6 +15,7 @@ async function fetchAgreementsServer(): Promise<any[]> {
 }
 
 export default async function AgreementsPage() {
+  await auth.protect();
   const agreements = await fetchAgreementsServer();
 
   return (

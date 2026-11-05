@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { EvidenceProgress } from "@/components/seller/evidence-progress";
@@ -22,6 +23,7 @@ function countStates(
 }
 
 export default async function SellerDashboardPage() {
+  await auth.protect();
   const result = await loadSeller<SellerTransactionList>(
     "/seller/transactions?limit=50",
   );

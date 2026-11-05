@@ -5,7 +5,9 @@ const CONTROL_PLANE =
 
 export async function controlPlaneForUser(path: string, init: RequestInit = {}) {
   const { getToken, orgId } = await auth();
-  const token = await getToken({ organizationId: orgId ?? undefined });
+  const token = await (getToken as (opts: { organizationId?: string }) => Promise<string | null>)({
+    organizationId: orgId ?? undefined,
+  });
   if (!token) throw new Error("not signed in");
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${token}`);

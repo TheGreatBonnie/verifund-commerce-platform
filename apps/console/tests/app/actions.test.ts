@@ -1,11 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { controlPlaneJsonMock, createPayPalOrderMock, capturePayPalOrderMock } =
-  vi.hoisted(() => ({
-    controlPlaneJsonMock: vi.fn(),
-    createPayPalOrderMock: vi.fn(),
-    capturePayPalOrderMock: vi.fn(),
-  }));
+const {
+  controlPlaneJsonMock,
+  createPayPalOrderMock,
+  capturePayPalOrderMock,
+  protectMock,
+} = vi.hoisted(() => ({
+  controlPlaneJsonMock: vi.fn(),
+  createPayPalOrderMock: vi.fn(),
+  capturePayPalOrderMock: vi.fn(),
+  protectMock: vi.fn(),
+}));
+
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: Object.assign(vi.fn(), { protect: protectMock }),
+}));
 
 vi.mock("@/lib/control-plane-proxy", () => ({
   controlPlaneJson: controlPlaneJsonMock,
@@ -53,9 +62,10 @@ function routes(prepare: unknown = SESSION) {
 
 describe("checkout server actions", () => {
   beforeEach(() => {
-    controlPlaneJsonMock.mockReset();
-    createPayPalOrderMock.mockReset();
-    capturePayPalOrderMock.mockReset();
+    controlPlaneJsonMock.mockClear();
+    createPayPalOrderMock.mockClear();
+    capturePayPalOrderMock.mockClear();
+    protectMock.mockResolvedValue({ userId: "user_1" });
   });
 
   it("prepares, creates, and attaches the order before returning it", async () => {

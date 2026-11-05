@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
@@ -50,6 +51,7 @@ export default async function FulfillmentDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await auth.protect();
   const { id } = await params;
   const projectionResult = await loadSeller<SellerProjection>(
     `/seller/transactions/${encodeURIComponent(id)}`,

@@ -1,9 +1,11 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ sellerId: string }> },
 ) {
+  await auth.protect();
   const { sellerId } = await params;
   const buyer = process.env.BUYER_API_URL ?? "http://127.0.0.1:9100";
   const token = process.env.BUYER_CONSOLE_API_TOKEN ?? "dev-console";

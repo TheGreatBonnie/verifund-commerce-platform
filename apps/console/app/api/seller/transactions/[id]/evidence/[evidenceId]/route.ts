@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { SellerApiError, sellerRequest } from "@/lib/seller-api";
 
@@ -5,6 +6,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string; evidenceId: string }> },
 ) {
+  await auth.protect();
   const { id, evidenceId } = await params;
   try {
     const upstream = await sellerRequest(

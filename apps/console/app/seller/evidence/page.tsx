@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { SellerPageHeader } from "@/components/seller/seller-page-header";
 import { SellerStat, SellerStatGrid } from "@/components/seller/seller-stat";
@@ -15,6 +16,7 @@ export default async function SellerEvidencePage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await auth.protect();
   const query = await searchParams;
   const requirementId =
     typeof query.requirement_id === "string" && query.requirement_id

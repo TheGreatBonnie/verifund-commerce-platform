@@ -1,6 +1,8 @@
+import { auth } from "@clerk/nextjs/server";
 import { Panel } from "@/components/ui/panel";
 
-export default function HelpPage() {
+export default async function HelpPage() {
+  await auth.protect();
   return (
     <Panel title="Help" kicker="Guide">
       <article className="mm-help">
