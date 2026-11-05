@@ -25,6 +25,7 @@ dependencies = [
   "ag-ui-adk>=0.1,<1",
   "litellm>=1.84,<2",
   "svix>=1.40,<2",
+  "clerk-backend-api>=4,<5",
 ]
 
 [dependency-groups]
