@@ -221,6 +221,7 @@ class Repository:
             Column("last_error", String, nullable=True),
             Column("received_at", String, nullable=False),
             Column("processed_at", String, nullable=True),
+            Column("source", String, nullable=False, default="paypal"),
         )
         self.payout_items = Table(
             "payout_items",
@@ -306,10 +307,15 @@ class Repository:
             "audit_log",
             self.metadata,
             Column("audit_id", String, primary_key=True),
-            Column("transaction_id", String, nullable=False, index=True),
-            Column("actor", String, nullable=False),
+            Column("scope", String, nullable=False, default="transaction"),
+            Column("transaction_id", String, nullable=True, index=True),
+            Column("organization_id", String, nullable=True, index=True),
+            Column("actor_user_id", String, nullable=True),
+            Column("actor_type", String, nullable=False, default="user"),
+            Column("actor", String, nullable=True),
             Column("action", String, nullable=False),
-            Column("note", String, nullable=False),
+            Column("resource_id", String, nullable=True),
+            Column("note", String, nullable=True),
             Column("payload", JSON, nullable=False),
             Column("created_at", String, nullable=False),
         )
@@ -354,6 +360,32 @@ class Repository:
                 await conn.exec_driver_sql(
                     "ALTER TABLE transactions ADD COLUMN tracker JSON"
                 )
+            # webhook_events.source for existing DBs
+            wh_columns = await conn.exec_driver_sql(
+                "PRAGMA table_info(webhook_events)"
+            )
+            wh_names = {row[1] for row in wh_columns}
+            if "source" not in wh_names:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE webhook_events ADD COLUMN source TEXT NOT NULL DEFAULT 'paypal'"
+                )
+            # Rebuild audit_log to the scoped shape for existing DBs.
+            audit_columns = await conn.exec_driver_sql(
+                "PRAGMA table_info(audit_log)"
+            )
+            audit_names = {row[1] for row in audit_columns}
+            if "scope" not in audit_names:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE audit_log RENAME TO audit_log_old"
+                )
+                await conn.run_sync(self.audit_log.create)
+                await conn.exec_driver_sql(
+                    "INSERT INTO audit_log (audit_id, scope, transaction_id, organization_id,"
+                    " actor_user_id, actor_type, actor, action, resource_id, note, payload, created_at)"
+                    " SELECT audit_id, 'transaction', transaction_id, NULL, NULL, 'user',"
+                    " actor, action, NULL, note, payload, created_at FROM audit_log_old"
+                )
+                await conn.exec_driver_sql("DROP TABLE audit_log_old")
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
