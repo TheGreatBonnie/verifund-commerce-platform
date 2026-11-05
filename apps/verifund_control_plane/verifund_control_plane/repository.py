@@ -1169,6 +1169,53 @@ class Repository:
             rows = (await conn.execute(statement)).all()
         return [dict(row._mapping) for row in rows]
 
+    async def webhook_event_exists(self, source: str, event_id: str) -> bool:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.webhook_events).where(
+                        self.webhook_events.c.event_id == event_id,
+                        self.webhook_events.c.source == source,
+                    )
+                )
+            ).first()
+            return row is not None
+
+    async def record_webhook_event(
+        self,
+        *,
+        source: str = "paypal",
+        event_id: str,
+        event_type: str,
+        mode: str,
+        payload: dict[str, Any] | None,
+        payload_hash: str,
+        verified: bool,
+        status: str,
+        resource_id: str | None = None,
+    ) -> None:
+        statement = (
+            sqlite_insert(self.webhook_events)
+            .values(
+                event_id=event_id,
+                event_type=event_type,
+                resource_id=resource_id,
+                payload=payload or {},
+                payload_hash=payload_hash,
+                mode=mode,
+                verified=1 if verified else 0,
+                status=status,
+                attempts=0,
+                last_error=None,
+                received_at=_iso(datetime.now(UTC)),
+                processed_at=None,
+                source=source,
+            )
+            .on_conflict_do_nothing(index_elements=["event_id"])
+        )
+        async with self.engine.begin() as conn:
+            await conn.execute(statement)
+
     async def insert_webhook_event(
         self,
         conn: AsyncConnection,
@@ -1179,6 +1226,8 @@ class Repository:
         payload: dict[str, Any],
         mode: str,
         verified: bool,
+        *,
+        source: str = "paypal",
     ) -> bool:
         statement = (
             sqlite_insert(self.webhook_events)
@@ -1195,6 +1244,7 @@ class Repository:
                 last_error=None,
                 received_at=_iso(datetime.now(UTC)),
                 processed_at=None,
+                source=source,
             )
             .on_conflict_do_nothing(index_elements=["event_id"])
         )
@@ -1236,7 +1286,11 @@ class Repository:
         return dict(row._mapping)
 
     async def list_webhook_events(
-        self, *, status: str | None = None, limit: int = 100
+        self,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
         statement = (
             select(self.webhook_events)
@@ -1246,6 +1300,10 @@ class Repository:
         if status:
             statement = statement.where(
                 self.webhook_events.c.status == status
+            )
+        if source:
+            statement = statement.where(
+                self.webhook_events.c.source == source
             )
         async with self.engine.connect() as conn:
             rows = (await conn.execute(statement)).all()

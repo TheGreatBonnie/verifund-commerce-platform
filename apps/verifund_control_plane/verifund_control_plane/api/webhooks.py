@@ -1,16 +1,28 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 from typing import Any
 
 from fastapi import APIRouter, Request
+from svix.webhooks import Webhook, WebhookVerificationError
 
 from verifund_control_plane.domain import sha256_hex
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.paypal.webhooks import dispatch
+from verifund_control_plane.tenancy.sync import apply_clerk_event
 
 router = APIRouter()
+
+
+def verify_clerk_payload(secret: str, body: bytes, headers: dict[str, str]) -> dict:
+    try:
+        return Webhook(secret).verify(body, headers)
+    except WebhookVerificationError as exc:
+        raise VerifundError(
+            "unauthorized", "invalid webhook signature", status_code=401
+        ) from exc
 
 
 @router.post("/webhooks/paypal")
@@ -80,3 +92,36 @@ async def paypal_webhook(request: Request) -> dict[str, Any]:
         ) from exc
     await repo.mark_webhook_event(event_id, status)
     return {"status": status, "verified": verified}
+
+
+@router.post("/v1/webhooks/clerk")
+async def clerk_webhook(request: Request) -> dict[str, str]:
+    body = await request.body()
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    event_id = headers.get("svix-id")
+    if not event_id:
+        raise VerifundError(
+            "invalid_request", "svix-id is required", status_code=400
+        )
+    verifier = getattr(request.app.state, "clerk_verifier", None)
+    if verifier is not None:
+        event = verifier(body, headers)
+    else:
+        event = verify_clerk_payload(
+            request.app.state.settings.clerk_webhook_secret, body, headers
+        )
+    repo = request.app.state.repo
+    if await repo.webhook_event_exists("clerk", event_id):
+        return {"status": "duplicate"}
+    await repo.record_webhook_event(
+        source="clerk",
+        event_id=event_id,
+        event_type=event["type"],
+        mode="clerk",
+        payload=event,
+        payload_hash=hashlib.sha256(body).hexdigest(),
+        verified=True,
+        status="processed",
+    )
+    await apply_clerk_event(request.app.state.tenancy, event)
+    return {"status": "ok"}

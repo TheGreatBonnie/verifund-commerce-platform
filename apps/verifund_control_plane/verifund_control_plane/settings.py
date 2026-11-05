@@ -154,6 +154,11 @@ class Settings(BaseSettings):
         default="success", validation_alias="VERIFUND_FAKE_SCENARIO"
     )
     tenancy_enabled: bool = Field(default=False, validation_alias="VERIFUND_TENANCY_ENABLED")
+    clerk_webhook_secret: str = Field(
+        default="", validation_alias="CLERK_WEBHOOK_SIGNING_SECRET"
+    )
+    clerk_secret_key: str = Field(default="", validation_alias="CLERK_SECRET_KEY")
+    clerk_jwt_key: str = Field(default="", validation_alias="CLERK_JWT_KEY")
 
     @property
     def is_sandbox(self) -> bool:

@@ -24,6 +24,7 @@ dependencies = [
   "google-adk>=1.0,<2",
   "ag-ui-adk>=0.1,<1",
   "litellm>=1.84,<2",
+  "svix>=1.40,<2",
 ]
 
 [dependency-groups]
