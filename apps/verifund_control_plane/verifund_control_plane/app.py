@@ -10,7 +10,7 @@ from verifund_control_plane.agreements import routes as agreement_routes
 from verifund_control_plane.agreements.repository import AgreementRepository
 from verifund_control_plane.agreements.service import AgreementService
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
-from verifund_control_plane.api import checkout, health, ops, seller, webhooks
+from verifund_control_plane.api import buyer, checkout, health, ops, seller, webhooks
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
 from verifund_control_plane.evidence import EvidenceStore
@@ -21,7 +21,11 @@ from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.service import VerifundService
 from verifund_control_plane.settings import Settings
-from verifund_control_plane.tokens import LinkSigner, SellerTokenService
+from verifund_control_plane.tokens import (
+    BuyerTokenService,
+    LinkSigner,
+    SellerTokenService,
+)
 
 
 def create_app(
@@ -48,6 +52,11 @@ def create_app(
     tokens = SellerTokenService(
         settings.seller_token_secret,
         ttl_hours=settings.seller_token_ttl_hours,
+        clock=now,
+    )
+    buyer_tokens = BuyerTokenService(
+        settings.seller_token_secret,
+        ttl_hours=24,
         clock=now,
     )
     links = LinkSigner(
@@ -144,6 +153,7 @@ def create_app(
     app.state.agreement_tokens = agreement_tokens
     app.state.agreement_service = agreement_service
     app.state.tokens = tokens
+    app.state.buyer_tokens = buyer_tokens
     app.state.service = service
     app.state.evidence_store = evidence_store
     app.state.links = links
@@ -155,6 +165,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(ops.router)
     app.include_router(seller.router)
+    app.include_router(buyer.router)
     app.include_router(checkout.router)
     app.include_router(webhooks.router)
     app.include_router(agreement_routes.router)
