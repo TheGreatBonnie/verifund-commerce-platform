@@ -19,10 +19,13 @@ const LABELS: Record<string, string> = {
   funded: "Funded",
   fulfillment_pending: "Fulfillment pending",
   verification_pending: "Verification pending",
+  remediation_required: "Remediation required",
   release_permitted: "Release permitted",
   payout_pending: "Payout pending",
   released: "Released",
   review_required: "Review required",
+  dispute_open: "Dispute open",
+  refunded: "Refunded",
   canceled: "Canceled",
 };
 
@@ -36,6 +39,7 @@ export const LEGACY_TERMINAL_STAGES = new Set([
 
 export const SETTLEMENT_TERMINAL_STAGES = new Set([
   "released",
+  "refunded",
   "canceled",
   "failed",
   "rejected",
@@ -46,8 +50,10 @@ export const PAUSED_STAGES = new Set([
   "awaiting_approval",
   "funding_pending",
   "verification_pending",
+  "remediation_required",
   "release_permitted",
   "review_required",
+  "dispute_open",
 ]);
 
 export function stageLabel(stage?: string): string {
