@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 
+import pytest
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
+from verifund_control_plane.errors import VerifundError
 
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
 
@@ -28,3 +30,15 @@ def test_token_expires_with_agreement_window():
         agreement_expires_at=datetime(2026, 10, 30, 12, 5, tzinfo=UTC),
     )
     assert record.expires_at == datetime(2026, 10, 30, 12, 5, tzinfo=UTC)
+
+
+from verifund_control_plane.tokens import (
+    issue_buyer_token,
+    verify_buyer_token,
+)
+
+
+def test_buyer_token_scope_denied():
+    token = issue_buyer_token("buyer_1", "vf_1")
+    with pytest.raises(VerifundError):
+        verify_buyer_token(token, required_scope="txn:read")

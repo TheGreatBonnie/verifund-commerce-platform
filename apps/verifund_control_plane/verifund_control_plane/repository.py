@@ -256,6 +256,17 @@ class Repository:
             Column("revoked_at", String, nullable=True),
             Column("created_at", String, nullable=False),
         )
+        self.buyer_tokens = Table(
+            "buyer_tokens",
+            self.metadata,
+            Column("jti_hash", String, primary_key=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("buyer_id", String, nullable=False),
+            Column("scopes", JSON, nullable=False),
+            Column("expires_at", String, nullable=False),
+            Column("revoked_at", String, nullable=True),
+            Column("created_at", String, nullable=False),
+        )
         self.checkout_links = Table(
             "checkout_links",
             self.metadata,
@@ -1293,6 +1304,55 @@ class Repository:
                 "unauthorized", "seller token is not recognized", status_code=401
             )
         return dict(row._mapping)
+
+    async def save_buyer_token(
+        self,
+        conn: AsyncConnection,
+        *,
+        jti_hash: str,
+        transaction_id: str,
+        buyer_id: str,
+        scopes: list[str],
+        expires_at: datetime,
+    ) -> None:
+        await conn.execute(
+            self.buyer_tokens.insert().values(
+                jti_hash=jti_hash,
+                transaction_id=transaction_id,
+                buyer_id=buyer_id,
+                scopes=scopes,
+                expires_at=_iso(expires_at),
+                revoked_at=None,
+                created_at=_iso(datetime.now(UTC)),
+            )
+        )
+
+    async def get_buyer_token(self, jti_hash: str) -> dict[str, Any]:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.buyer_tokens).where(
+                        self.buyer_tokens.c.jti_hash == jti_hash
+                    )
+                )
+            ).first()
+        if row is None:
+            raise VerifundError(
+                "unauthorized", "buyer token is not recognized", status_code=401
+            )
+        return dict(row._mapping)
+
+    async def revoke_buyer_tokens(
+        self, conn: AsyncConnection, transaction_id: str, now: datetime
+    ) -> None:
+        await conn.execute(
+            self.buyer_tokens.update()
+            .where(
+                self.buyer_tokens.c.transaction_id == transaction_id,
+                self.buyer_tokens.c.revoked_at.is_(None),
+            )
+            .values(revoked_at=_iso(now))
+        )
 
     async def create_checkout_link(
         self,
