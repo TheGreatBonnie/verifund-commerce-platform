@@ -100,6 +100,30 @@ class TenancyRepository:
             Column("created_at", String, nullable=False),
             Column("updated_at", String, nullable=False),
         )
+        self.seller_onboarding = Table(
+            "seller_onboarding",
+            self.metadata,
+            Column("organization_id", String, primary_key=True),
+            Column("status", String, nullable=False),
+            Column("current_step", String, nullable=False),
+            Column("completed_steps", JSON, nullable=False),
+            Column("submitted_at", String),
+            Column("completed_at", String),
+            Column("updated_at", String, nullable=False),
+        )
+        self.seller_verifications = Table(
+            "seller_verifications",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=False, index=True),
+            Column("submitted_by", String, nullable=False),
+            Column("documents", JSON, nullable=False),
+            Column("status", String, nullable=False),
+            Column("reviewer_user_id", String),
+            Column("decision_note", String),
+            Column("decided_at", String),
+            Column("created_at", String, nullable=False),
+        )
 
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
@@ -660,3 +684,88 @@ class TenancyRepository:
                 continue
             out.append(d)
         return out
+
+    async def upsert_onboarding(
+        self, organization_id: str, status: str, current_step: str
+    ) -> dict:
+        existing = await self.get_onboarding(organization_id)
+        if existing:
+            async with self.engine.begin() as conn:
+                await conn.execute(
+                    self.seller_onboarding.update()
+                    .where(
+                        self.seller_onboarding.c.organization_id
+                        == organization_id
+                    )
+                    .values(
+                        status=status,
+                        current_step=current_step,
+                        updated_at=_now(),
+                    )
+                )
+            return await self.get_onboarding(organization_id)  # type: ignore[return-value]
+        row = {
+            "organization_id": organization_id,
+            "status": status,
+            "current_step": current_step,
+            "completed_steps": [],
+            "submitted_at": None,
+            "completed_at": None,
+            "updated_at": _now(),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.seller_onboarding.insert().values(**row))
+        return row
+
+    async def get_onboarding(self, organization_id: str) -> dict | None:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.seller_onboarding).where(
+                    self.seller_onboarding.c.organization_id == organization_id
+                )
+            )
+            row = result.first()
+            return dict(row._mapping) if row else None
+
+    async def create_verification(
+        self,
+        organization_id: str,
+        submitted_by: str,
+        documents: list | dict,
+    ) -> dict:
+        row = {
+            "id": _id(),
+            "organization_id": organization_id,
+            "submitted_by": submitted_by,
+            "documents": documents,
+            "status": "pending",
+            "reviewer_user_id": None,
+            "decision_note": None,
+            "decided_at": None,
+            "created_at": _now(),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.seller_verifications.insert().values(**row))
+        return row
+
+    async def decide_verification_row(
+        self,
+        organization_id: str,
+        status: str,
+        reviewer_user_id: str | None,
+        note: str | None,
+    ) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.seller_verifications.update()
+                .where(
+                    self.seller_verifications.c.organization_id == organization_id,
+                    self.seller_verifications.c.status == "pending",
+                )
+                .values(
+                    status=status,
+                    reviewer_user_id=reviewer_user_id,
+                    decision_note=note,
+                    decided_at=_now(),
+                )
+            )
