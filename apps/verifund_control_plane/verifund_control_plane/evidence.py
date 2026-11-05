@@ -20,6 +20,8 @@ ALLOWED_MEDIA_TYPES = {
     "image/png",
     "image/jpeg",
     "image/webp",
+    "video/webm",
+    "video/quicktime",
     "video/mp4",
 }
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
