@@ -250,6 +250,32 @@ async def list_declarations(
     return {"items": items}
 
 
+@router.post(
+    "/transactions/{transaction_id}/dispute-evidence", status_code=201
+)
+async def upload_dispute_evidence(
+    transaction_id: str,
+    request: Request,
+    file: UploadFile = File(...),  # noqa: B008
+    note: str | None = Form(None),
+    captured_at: datetime | None = Form(None),  # noqa: B008
+    agreement_version: int | None = Form(None),
+) -> dict[str, Any]:
+    claims = await authenticate(request, transaction_id, "evidence:write")
+    data = await file.read(request.app.state.settings.max_evidence_bytes + 1)
+    return await _service(request).add_dispute_evidence(
+        transaction_id,
+        seller_id=claims.seller_id,
+        agreement_hash=claims.agreement_hash,
+        media_type=file.content_type,
+        original_filename=file.filename,
+        data=data,
+        note=note,
+        captured_at=captured_at,
+        actor=f"seller:{claims.seller_id}",
+    )
+
+
 @router.get("/transactions/{transaction_id}/evidence/{evidence_id}")
 async def download_evidence(
     transaction_id: str, evidence_id: str, request: Request

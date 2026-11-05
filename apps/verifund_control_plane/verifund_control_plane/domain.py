@@ -162,6 +162,7 @@ class TransactionRecord:
     purchase_order: dict[str, Any] | None
     evidence_summary: dict[str, Any] | None
     verification: dict[str, Any] | None
+    dispute: dict[str, Any] | None
     payout: dict[str, Any] | None
     receipt: dict[str, Any] | None
     deadlines: dict[str, Any]

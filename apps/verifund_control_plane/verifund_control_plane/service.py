@@ -2007,6 +2007,71 @@ class VerifundService:
             )
         return {"transitioned": True, "state": TransactionState.DISPUTE_OPEN.value}
 
+    async def add_dispute_evidence(
+        self,
+        transaction_id: str,
+        *,
+        seller_id: str,
+        agreement_hash: str,
+        media_type: str | None,
+        original_filename: str | None,
+        data: bytes | None,
+        note: str | None = None,
+        captured_at: datetime | None = None,
+        actor: str,
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        if record.agreement_hash != agreement_hash:
+            raise VerifundError(
+                "hash_mismatch", "seller token hash is stale", status_code=409
+            )
+        if record.state != TransactionState.DISPUTE_OPEN:
+            raise VerifundError(
+                "invalid_state",
+                "dispute evidence is only allowed while a dispute is open",
+                status_code=409,
+            )
+        if data is None:
+            raise VerifundError(
+                "invalid_request", "dispute evidence requires a file", status_code=422
+            )
+        item = await self.evidence_store.put(
+            transaction_id=transaction_id,
+            seller_id=seller_id,
+            kind=EvidenceKind.OTHER.value,
+            media_type=(media_type or "application/octet-stream").lower(),
+            original_filename=original_filename or "dispute_evidence",
+            data=data,
+            note=note,
+            captured_at=captured_at,
+        )
+        item = item.model_copy(
+            update={
+                "requirement_id": None,
+                "origin": "seller",
+                "attributed_to": seller_id,
+                "agreement_version": record.agreement_version,
+                "artifact_type": "file",
+                "scan_status": "clean",
+                "purpose": "dispute",
+            }
+        )
+        async with self.repo.transaction() as conn:
+            await self.repo.get_transaction(transaction_id, conn)
+            stored, _created = await self.repo.add_evidence(
+                conn, transaction_id, seller_id, item, captured_at=captured_at
+            )
+            await self.repo.audit(
+                conn,
+                transaction_id,
+                AuditInput(actor, "dispute_evidence_received"),
+            )
+        return stored.model_dump(mode="json")
+
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
         """Evaluate the worklist as submissions arrive.
 

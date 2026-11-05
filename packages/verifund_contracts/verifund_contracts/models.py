@@ -803,6 +803,7 @@ class EvidenceItem(VerifundModel):
     note: str | None = None
     origin: str | None = None  # seller | buyer | carrier | system
     attributed_to: str | None = None
+    purpose: str = "requirement"  # requirement | dispute
     captured_at: datetime | None = None
     scan_status: str | None = None  # pending | clean | rejected
     agreement_version: int | None = None
