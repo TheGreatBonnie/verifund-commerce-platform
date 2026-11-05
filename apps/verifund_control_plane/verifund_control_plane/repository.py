@@ -17,6 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     select,
+    tuple_,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -396,6 +397,103 @@ class Repository:
         async with self.engine.connect() as conn:
             rows = (await conn.execute(statement)).all()
         return [self._record(row) for row in rows]
+
+    async def list_transactions_keyset(
+        self,
+        seller_id: str,
+        *,
+        state: str | None = None,
+        created_before: str | None = None,
+        id_before: str | None = None,
+        limit: int = 50,
+    ) -> list[TransactionRecord]:
+        statement = select(self.transactions).where(
+            self.transactions.c.seller_id == seller_id
+        )
+        if state:
+            statement = statement.where(self.transactions.c.state == state)
+        if created_before is not None and id_before is not None:
+            statement = statement.where(
+                tuple_(
+                    self.transactions.c.created_at, self.transactions.c.transaction_id
+                )
+                < tuple_(created_before, id_before)
+            )
+        statement = statement.order_by(
+            self.transactions.c.created_at.desc(),
+            self.transactions.c.transaction_id.desc(),
+        ).limit(max(1, min(limit, 200)))
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [self._record(row) for row in rows]
+
+    async def counts_by_state(self, seller_id: str) -> dict[str, int]:
+        statement = (
+            select(self.transactions.c.state, func.count())
+            .where(self.transactions.c.seller_id == seller_id)
+            .group_by(self.transactions.c.state)
+        )
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return {str(state): int(count) for state, count in rows}
+
+    async def list_evidence_for_transactions(
+        self, transaction_ids: list[str]
+    ) -> list[tuple[str, EvidenceItem]]:
+        """Tagged list of (transaction_id, item) pairs; one query."""
+        if not transaction_ids:
+            return []
+        statement = select(self.evidence).where(
+            self.evidence.c.transaction_id.in_(transaction_ids)
+        )
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [(row.transaction_id, self._evidence(row)) for row in rows]
+
+    async def list_evidence_keyset(
+        self,
+        seller_id: str,
+        *,
+        kind: str | None = None,
+        requirement_id: str | None = None,
+        created_before: str | None = None,
+        id_before: str | None = None,
+        limit: int = 50,
+    ) -> list[tuple[str, EvidenceItem]]:
+        """Keyset page of (transaction_id, item) pairs, most recent first."""
+        statement = select(self.evidence).where(
+            self.evidence.c.seller_id == seller_id
+        )
+        if kind:
+            statement = statement.where(self.evidence.c.kind == kind)
+        if requirement_id:
+            statement = statement.where(
+                self.evidence.c.requirement_id == requirement_id
+            )
+        if created_before is not None and id_before is not None:
+            statement = statement.where(
+                tuple_(self.evidence.c.created_at, self.evidence.c.evidence_id)
+                < tuple_(created_before, id_before)
+            )
+        statement = statement.order_by(
+            self.evidence.c.created_at.desc(),
+            self.evidence.c.evidence_id.desc(),
+        ).limit(max(1, min(limit, 200)))
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [(row.transaction_id, self._evidence(row)) for row in rows]
+
+    async def transactions_for_evidence(
+        self, transaction_ids: list[str]
+    ) -> dict[str, TransactionRecord]:
+        if not transaction_ids:
+            return {}
+        statement = select(self.transactions).where(
+            self.transactions.c.transaction_id.in_(transaction_ids)
+        )
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return {row.transaction_id: self._record(row) for row in rows}
 
     async def insert_transaction(
         self,

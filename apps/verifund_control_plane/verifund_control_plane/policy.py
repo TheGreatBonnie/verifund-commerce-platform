@@ -320,7 +320,7 @@ def _observed_display(value: Any) -> str | int | float | None:
     return str(value)
 
 
-def _matches(requirement: Requirement, item: EvidenceItem) -> bool:
+def matches_requirement(requirement: Requirement, item: EvidenceItem) -> bool:
     if _purpose(item) != "requirement":
         return False
     if item.requirement_id == requirement.requirement_id:
@@ -450,7 +450,7 @@ def catalog_fulfilled(terms: dict[str, Any] | None, items: list[EvidenceItem]) -
     for requirement in catalog:
         if not (requirement.required and requirement.owner == "seller"):
             continue
-        if not any(_matches(requirement, item) for item in items):
+        if not any(matches_requirement(requirement, item) for item in items):
             return False
     return True
 
@@ -504,7 +504,7 @@ def evaluate(
         matched = [
             item
             for item in verified_items
-            if _matches(requirement, item) and item.sha256 not in invalid_sha
+            if matches_requirement(requirement, item) and item.sha256 not in invalid_sha
         ]
         usable, pending_scan = _evaluation_items(requirement, matched)
         if gate_declarations:

@@ -929,6 +929,92 @@ class SellerProjection(VerifundModel):
     updated_at: datetime
 
 
+class SellerLineItem(VerifundModel):
+    sku: str
+    name: str
+    quantity: int
+
+
+class SellerEvidenceCount(VerifundModel):
+    submitted: int = 0
+    required: int = 0
+    complete: bool = False
+    received_kinds: list[str] = Field(default_factory=list)
+
+
+class SellerPayoutStatus(VerifundModel):
+    status: str  # pending | paid | failed | none
+    amount_cents: int
+    updated_at: datetime | None = None
+
+
+class SellerTransactionSummary(VerifundModel):
+    transaction_id: str
+    run_id: str
+    state: TransactionState
+    agreement_id: str | None = None
+    agreement_version: int
+    amount_cents: int
+    currency: str
+    quantity: int
+    line_items: list[SellerLineItem] = Field(default_factory=list)
+    delivery_days: int
+    warranty_months: int
+    returns_days: int
+    deadlines: dict[str, datetime | None] = Field(default_factory=dict)
+    evidence: SellerEvidenceCount = Field(default_factory=SellerEvidenceCount)
+    allowed_actions: list[str] = Field(default_factory=list)
+    next_action: str = "none"
+    payout: SellerPayoutStatus | None = None
+    updated_at: datetime
+
+
+class SellerTransactionList(VerifundModel):
+    items: list[SellerTransactionSummary]
+    counts_by_state: dict[str, int] = Field(default_factory=dict)
+    next_cursor: str | None = None
+
+
+class SellerEvidenceEntry(VerifundModel):
+    evidence_id: str
+    transaction_id: str
+    requirement_id: str | None = None
+    kind: str
+    media_type: str
+    size_bytes: int
+    original_filename: str
+    note: str | None = None
+    captured_at: datetime | None = None
+    created_at: datetime
+    scan_status: str | None = None
+    transaction_state: TransactionState
+    verification: dict[str, Any] | None = None
+
+
+class SellerEvidenceLibrary(VerifundModel):
+    items: list[SellerEvidenceEntry]
+    next_cursor: str | None = None
+
+
+class SellerPayoutEntry(VerifundModel):
+    transaction_id: str
+    amount_cents: int
+    currency: str
+    state: TransactionState
+    payout: SellerPayoutStatus | None = None
+
+
+class SellerPayoutTotals(VerifundModel):
+    pending_cents: int = 0
+    paid_cents: int = 0
+    failed_cents: int = 0
+
+
+class SellerPayoutView(VerifundModel):
+    transactions: list[SellerPayoutEntry]
+    totals: SellerPayoutTotals
+
+
 class ReceiptPayload(VerifundModel):
     receipt_version: int = 1
     transaction_id: str

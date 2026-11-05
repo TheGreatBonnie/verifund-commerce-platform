@@ -43,6 +43,92 @@ async def authenticate(request: Request, transaction_id: str, scope: str):
     return claims
 
 
+async def authenticate_seller(request: Request):
+    """Seller-scoped authentication for the list endpoints.
+
+    Same chain as the per-transaction routes (signature, expiry, revocation,
+    seller binding) but not pinned to one transaction; rows are scoped to
+    `claims.seller_id` in SQL.
+    """
+    header = request.headers.get("authorization", "")
+    if not header.startswith("Bearer "):
+        raise VerifundError("unauthorized", "seller token is required", status_code=401)
+    claims = request.app.state.tokens.verify(
+        header.removeprefix("Bearer "), required_scope="txn:read"
+    )
+    stored = await request.app.state.repo.get_seller_token(claims.jti_hash)
+    if stored.get("revoked_at"):
+        raise VerifundError(
+            "unauthorized", "seller token has been revoked", status_code=401
+        )
+    if stored["seller_id"] != claims.seller_id:
+        raise VerifundError("unauthorized", "seller token mismatch", status_code=401)
+    return claims
+
+
+@router.get("/transactions")
+async def list_seller_transactions(
+    request: Request,
+    state: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    seller_id: str | None = None,
+) -> dict[str, Any]:
+    if seller_id is not None:
+        raise VerifundError(
+            "invalid_request",
+            "seller_id is not an allowed filter",
+            status_code=400,
+        )
+    claims = await authenticate_seller(request)
+    return (
+        await _service(request).list_seller_transactions(
+            claims.seller_id, state=state, limit=limit, cursor=cursor
+        )
+    ).model_dump(mode="json")
+
+
+@router.get("/evidence")
+async def list_seller_evidence(
+    request: Request,
+    kind: str | None = None,
+    requirement_id: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    seller_id: str | None = None,
+) -> dict[str, Any]:
+    if seller_id is not None:
+        raise VerifundError(
+            "invalid_request",
+            "seller_id is not an allowed filter",
+            status_code=400,
+        )
+    claims = await authenticate_seller(request)
+    return (
+        await _service(request).list_seller_evidence(
+            claims.seller_id, kind=kind, requirement_id=requirement_id,
+            limit=limit, cursor=cursor,
+        )
+    ).model_dump(mode="json")
+
+
+@router.get("/payouts")
+async def list_seller_payouts(
+    request: Request,
+    seller_id: str | None = None,
+) -> dict[str, Any]:
+    if seller_id is not None:
+        raise VerifundError(
+            "invalid_request",
+            "seller_id is not an allowed filter",
+            status_code=400,
+        )
+    claims = await authenticate_seller(request)
+    return (
+        await _service(request).list_seller_payouts(claims.seller_id)
+    ).model_dump(mode="json")
+
+
 @router.get("/transactions/{transaction_id}")
 async def get_seller_transaction(transaction_id: str, request: Request) -> dict[str, Any]:
     claims = await authenticate(request, transaction_id, "txn:read")

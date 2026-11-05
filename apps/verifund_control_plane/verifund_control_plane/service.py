@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -20,15 +23,27 @@ from verifund_contracts import (
     FlagReviewRequest,
     FundRequest,
     FundResponse,
+    PayoutProjection,
     PurchaseOrderReport,
     ReceiptResponse,
     RejectRequest,
     ReleaseRequest,
     RequirementResult,
+    RequirementStatus,
     ReviewReason,
+    SellerEvidenceCount,
+    SellerEvidenceEntry,
+    SellerEvidenceLibrary,
+    SellerLineItem,
+    SellerPayoutEntry,
+    SellerPayoutStatus,
+    SellerPayoutTotals,
+    SellerPayoutView,
     SellerProjection,
     SellerTokenRequest,
     SellerTokenResponse,
+    SellerTransactionList,
+    SellerTransactionSummary,
     TransactionProjection,
     TransactionState,
     VerificationProjection,
@@ -48,7 +63,7 @@ from verifund_control_plane.domain import (
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.paypal.port import CaptureResult, PaymentPort, PayoutResult
-from verifund_control_plane.policy import catalog_fulfilled, evaluate
+from verifund_control_plane.policy import evaluate, matches_requirement
 from verifund_control_plane.receipts import ReceiptSigner, build_receipt_payload
 from verifund_control_plane.repository import (
     AuditInput,
@@ -87,6 +102,75 @@ _VERIFICATION_FIELDS = {
     "requirements",
     "rollup",
 }
+
+
+_PAID_PAYOUT_STATUSES = {"SUCCESS", "SUCCEEDED", "PAID", "COMPLETED"}
+_FAILED_PAYOUT_STATUSES = {"FAILED", "DENIED", "CANCELED", "CREATE_FAILED"}
+
+
+def _payout_status(raw: Any) -> str:
+    value = str(raw or "").upper()
+    if value in _PAID_PAYOUT_STATUSES:
+        return "paid"
+    if value in _FAILED_PAYOUT_STATUSES:
+        return "failed"
+    return "pending"
+
+
+def _payout_summary(record: TransactionRecord) -> SellerPayoutStatus | None:
+    payout = record.payout or None
+    if not payout:
+        return None
+    try:
+        amount = int(payout.get("amount_cents") or record.amount_cents)
+    except (TypeError, ValueError):
+        amount = record.amount_cents
+    raw_updated = payout.get("updated_at")
+    updated = datetime.fromisoformat(raw_updated) if isinstance(raw_updated, str) else raw_updated
+    return SellerPayoutStatus(
+        status=_payout_status(payout.get("status")),
+        amount_cents=amount,
+        updated_at=updated if isinstance(updated, datetime) else None,
+    )
+
+
+def _payout_projection(value: dict[str, Any] | None) -> PayoutProjection | None:
+    if not value:
+        return None
+    filtered = {
+        key: value[key]
+        for key in ("status", "batch_id", "item_id", "amount_cents", "updated_at")
+        if key in value
+    }
+    try:
+        return PayoutProjection.model_validate(filtered)
+    except ValidationError:
+        return None
+
+
+def _encode_cursor(created_at_iso: str, row_id: str) -> str:
+    raw = json.dumps(
+        {"created_at": created_at_iso, "id": row_id}, separators=(",", ":")
+    ).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_cursor(value: str) -> dict[str, str] | None:
+    padding = "=" * (-len(value) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(value + padding))
+    except (ValueError, binascii.Error):
+        return None
+    if not isinstance(data, dict):
+        return None
+    created_at, row_id = data.get("created_at"), data.get("id")
+    if not isinstance(created_at, str) or not isinstance(row_id, str):
+        return None
+    try:
+        datetime.fromisoformat(created_at)
+    except ValueError:
+        return None
+    return {"created_at": created_at, "id": row_id}
 
 
 def _verification_projection(value: dict[str, Any] | None) -> VerificationProjection | None:
@@ -1153,18 +1237,292 @@ class VerifundService:
                 deadline=deadlines.get("evidence"),
                 items=items,
             ),
+            payout=_payout_projection(record.payout),
             deadlines=deadlines,
             allowed_actions=allowed_actions(record.state, "seller"),
             updated_at=record.updated_at,
         )
 
+    @staticmethod
+    def _evidence_count(
+        record: TransactionRecord, items: list[EvidenceItem], terms: dict[str, Any]
+    ) -> SellerEvidenceCount:
+        try:
+            catalog = project_requirements(terms or {})
+        except (ValidationError, ValueError):
+            catalog = []
+        required_ids = {
+            requirement.requirement_id
+            for requirement in catalog
+            if requirement.owner == "seller" and requirement.required
+        }
+        required = len(required_ids)
+        stored = _requirement_results_from_stored(
+            (record.verification or {}).get("requirements")
+        )
+        if stored:
+            submitted_results = [
+                result
+                for result in stored
+                if result.requirement_id in required_ids
+                and result.status != RequirementStatus.NOT_SUBMITTED
+            ]
+            submitted = len(submitted_results)
+            received_kinds = sorted({result.kind for result in submitted_results})
+        else:
+            submitted = 0
+            received_kinds = []
+            for requirement in catalog:
+                if requirement.requirement_id not in required_ids:
+                    continue
+                if any(matches_requirement(requirement, item) for item in items):
+                    submitted += 1
+                    received_kinds.append(requirement.kind)
+            received_kinds = sorted(set(received_kinds))
+        return SellerEvidenceCount(
+            submitted=submitted,
+            required=required,
+            complete=required > 0 and submitted == required,
+            received_kinds=received_kinds,
+        )
+
+    @staticmethod
+    def _next_action(state: TransactionState, complete: bool) -> str:
+        if state in {
+            TransactionState.FUNDED,
+            TransactionState.FULFILLMENT_PENDING,
+        }:
+            return "submit_evidence"
+        if state == TransactionState.VERIFICATION_PENDING:
+            return "none" if complete else "submit_evidence"
+        if state == TransactionState.REVIEW_REQUIRED:
+            return "replace_evidence"
+        # REMEDIATION_REQUIRED and DISPUTE_OPEN do not exist yet (Tasks 16/19).
+        return "none"
+
+    async def _seller_transaction_summary(
+        self,
+        record: TransactionRecord,
+        items: list[EvidenceItem],
+        terms: dict[str, Any],
+    ) -> SellerTransactionSummary:
+        agreement_id = record.agreement_id
+        line_items: list[SellerLineItem] = []
+        quantity = 0
+        delivery_days = 0
+        warranty_months = 0
+        returns_days = 0
+        with suppress(Exception):  # agreement projection is best-effort for the list
+            agreement = await self.agreement_service.get_by_transaction(
+                record.transaction_id
+            )
+            if agreement is not None:
+                projection = await self.agreement_service.build_projection(agreement)
+                line_items = [
+                    SellerLineItem(sku=item.sku, name=item.name, quantity=item.quantity)
+                    for item in projection.line_items
+                ]
+                quantity = projection.quantity
+                delivery_days = projection.delivery_days
+                warranty_months = projection.warranty_months
+                returns_days = projection.returns_days
+        deadlines = {
+            key: (
+                datetime.fromisoformat(value)
+                if isinstance(value, str)
+                else value
+            )
+            for key, value in (record.deadlines or {}).items()
+        }
+        evidence = self._evidence_count(record, items, terms)
+        return SellerTransactionSummary(
+            transaction_id=record.transaction_id,
+            run_id=record.run_id,
+            state=record.state,
+            agreement_id=agreement_id,
+            agreement_version=record.agreement_version,
+            amount_cents=record.amount_cents,
+            currency=record.currency,
+            quantity=quantity,
+            line_items=line_items,
+            delivery_days=delivery_days,
+            warranty_months=warranty_months,
+            returns_days=returns_days,
+            deadlines=deadlines,
+            evidence=evidence,
+            allowed_actions=allowed_actions(record.state, "seller"),
+            next_action=self._next_action(record.state, evidence.complete),
+            payout=_payout_summary(record),
+            updated_at=record.updated_at,
+        )
+
+    async def list_seller_transactions(
+        self,
+        seller_id: str,
+        *,
+        state: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> SellerTransactionList:
+        if state is not None:
+            try:
+                TransactionState(state)
+            except ValueError:
+                raise VerifundError(
+                    "invalid_request", f"unknown state: {state}", status_code=400
+                ) from None
+        if not 1 <= limit <= 200:
+            raise VerifundError(
+                "invalid_request", "limit must be between 1 and 200", status_code=400
+            )
+        parsed = _decode_cursor(cursor) if cursor else None
+        if cursor and parsed is None:
+            raise VerifundError(
+                "invalid_request", "invalid cursor", status_code=400
+            )
+        rows = await self.repo.list_transactions_keyset(
+            seller_id,
+            state=state,
+            created_before=parsed["created_at"] if parsed else None,
+            id_before=parsed["id"] if parsed else None,
+            limit=limit,
+        )
+        batch = await self.repo.list_evidence_for_transactions(
+            [record.transaction_id for record in rows]
+        )
+        items_by_txn: dict[str, list[EvidenceItem]] = {}
+        for txn_id, item in batch:
+            items_by_txn.setdefault(txn_id, []).append(item)
+        items = []
+        for record in rows:
+            terms = await self._agreement_terms(record.transaction_id)
+            items.append(
+                await self._seller_transaction_summary(
+                    record, items_by_txn.get(record.transaction_id, []), terms
+                )
+            )
+        next_cursor = None
+        if len(rows) == limit and rows:
+            last = rows[-1]
+            next_cursor = _encode_cursor(self._iso(last.created_at), last.transaction_id)
+        counts = await self.repo.counts_by_state(seller_id)
+        return SellerTransactionList(
+            items=items, counts_by_state=counts, next_cursor=next_cursor
+        )
+
+    async def list_seller_evidence(
+        self,
+        seller_id: str,
+        *,
+        kind: str | None,
+        requirement_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> SellerEvidenceLibrary:
+        if not 1 <= limit <= 200:
+            raise VerifundError(
+                "invalid_request", "limit must be between 1 and 200", status_code=400
+            )
+        parsed = _decode_cursor(cursor) if cursor else None
+        if cursor and parsed is None:
+            raise VerifundError(
+                "invalid_request", "invalid cursor", status_code=400
+            )
+        rows = await self.repo.list_evidence_keyset(
+            seller_id,
+            kind=kind,
+            requirement_id=requirement_id,
+            created_before=parsed["created_at"] if parsed else None,
+            id_before=parsed["id"] if parsed else None,
+            limit=limit,
+        )
+        states = await self.repo.transactions_for_evidence(
+            list({txn_id for txn_id, _ in rows})
+        )
+        items = []
+        for txn_id, item in rows:
+            record = states.get(txn_id)
+            if record is None:
+                # Evidence rows always reference a transaction; skip orphans.
+                continue
+            verification = record.verification
+            items.append(
+                SellerEvidenceEntry(
+                    evidence_id=item.evidence_id,
+                    transaction_id=txn_id,
+                    requirement_id=item.requirement_id,
+                    kind=item.kind,
+                    media_type=item.media_type,
+                    size_bytes=item.size_bytes,
+                    original_filename=item.original_filename,
+                    note=item.note,
+                    captured_at=item.captured_at,
+                    created_at=item.created_at,
+                    scan_status=item.scan_status,
+                    transaction_state=record.state,
+                    verification=(
+                        {
+                            "status": verification.get("status"),
+                            "reasons": verification.get("reasons") or [],
+                            "checked_at": verification.get("checked_at"),
+                        }
+                        if verification
+                        else None
+                    ),
+                )
+            )
+        next_cursor = None
+        if len(rows) == limit and rows:
+            last = rows[-1]
+            next_cursor = _encode_cursor(self._iso(last.created_at), last.evidence_id)
+        return SellerEvidenceLibrary(items=items, next_cursor=next_cursor)
+
+    async def list_seller_payouts(self, seller_id: str) -> SellerPayoutView:
+        rows = await self.repo.list_transactions(seller_id=seller_id, limit=500)
+        transactions = []
+        pending_cents = paid_cents = failed_cents = 0
+        for record in rows:
+            payout = _payout_summary(record)
+            transactions.append(
+                SellerPayoutEntry(
+                    transaction_id=record.transaction_id,
+                    amount_cents=record.amount_cents,
+                    currency=record.currency,
+                    state=record.state,
+                    payout=payout,
+                )
+            )
+            if payout is None:
+                continue
+            if payout.status == "paid":
+                paid_cents += payout.amount_cents
+            elif payout.status == "failed":
+                failed_cents += payout.amount_cents
+            else:
+                pending_cents += payout.amount_cents
+        return SellerPayoutView(
+            transactions=transactions,
+            totals=SellerPayoutTotals(
+                pending_cents=pending_cents,
+                paid_cents=paid_cents,
+                failed_cents=failed_cents,
+            ),
+        )
+
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
+        """Evaluate the worklist as submissions arrive.
+
+        The target design evaluates per requirement and keeps
+        `VERIFICATION_PENDING` with a mix of `PASS`/`NOT_SUBMITTED`/`PENDING_SCAN`
+        (spec §3.9.4), so verification runs on every submission instead of
+        waiting for the whole catalog. Declarations (Task 10b) and scan
+        settlement (Task 20a) re-enter through the same path.
+        """
         record = await self.repo.get_transaction(transaction_id)
         if record.state != TransactionState.VERIFICATION_PENDING:
             return
         items = await self.repo.list_evidence(transaction_id)
-        terms = await self._agreement_terms(transaction_id)
-        if not catalog_fulfilled(terms, items):
+        if not items:
             return
         await self.verify(transaction_id, actor=actor)
 

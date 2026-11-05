@@ -58,20 +58,24 @@ def award_payload(**overrides: Any) -> dict:
 
 
 async def award(client: httpx.AsyncClient, payload: dict | None = None) -> dict:
+    body = payload or award_payload()
     response = await client.post(
         "/awards",
-        json=payload or award_payload(),
-        headers={**OPS, "idempotency-key": "award:run-1:offer-1"},
+        json=body,
+        headers={
+            **OPS,
+            "idempotency-key": f"award:{body['run_id']}:{body['offer_id']}",
+        },
     )
     assert response.status_code == 201, response.text
     return response.json()
 
 
-async def accept(client: httpx.AsyncClient, award_body: dict) -> None:
+async def accept(client: httpx.AsyncClient, award_body: dict, *, seller_id: str = "northwind-audio") -> None:
     response = await client.post(
         f"/transactions/{award_body['transaction_id']}/accept",
         json={
-            "seller_id": "northwind-audio",
+            "seller_id": seller_id,
             "agreement_hash": award_body["agreement_hash"],
             "accepted_total_cents": 123400,
             "seller_task_id": "task-1",
@@ -82,9 +86,10 @@ async def accept(client: httpx.AsyncClient, award_body: dict) -> None:
     )
     assert response.status_code == 200, response.text
     agr_id = award_body["agreement"]["agreement_id"]
+    key = award_body["agreement_hash"][:16]
     token_resp = await client.post(
         f"/agreements/{agr_id}/approval-token",
-        headers={**OPS, "idempotency-key": "tok:run-1"},
+        headers={**OPS, "idempotency-key": f"tok:{key}"},
     )
     token = token_resp.json()["token"]
     await client.post(
@@ -94,9 +99,9 @@ async def accept(client: httpx.AsyncClient, award_body: dict) -> None:
             "agreement_hash": award_body["agreement_hash"],
             "decision": "APPROVE",
             "note": "",
-            "idempotency_key": "bd:run-1",
+            "idempotency_key": f"bd:{key}",
         },
-        headers={**OPS, "idempotency-key": "bd:run-1", "X-Approval-Token": token},
+        headers={**OPS, "idempotency-key": f"bd:{key}", "X-Approval-Token": token},
     )
 
 
