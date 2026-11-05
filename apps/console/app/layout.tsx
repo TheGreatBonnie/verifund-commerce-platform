@@ -1,3 +1,4 @@
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
 import {
   Instrument_Serif,
@@ -44,7 +45,7 @@ export default function RootLayout({
       <body
         className={`${plusJakartaSans.variable} ${splineSansMono.variable} ${instrumentSerif.variable} antialiased`}
       >
-        {children}
+        <ClerkProvider>{children}</ClerkProvider>
       </body>
     </html>
   );
