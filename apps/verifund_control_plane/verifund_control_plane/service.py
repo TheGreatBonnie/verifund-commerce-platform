@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from pydantic import ValidationError
 from verifund_contracts import (
     AcceptRequest,
     ApproveRequest,
@@ -20,12 +22,14 @@ from verifund_contracts import (
     ReceiptResponse,
     RejectRequest,
     ReleaseRequest,
+    RequirementResult,
     ReviewReason,
     SellerProjection,
     SellerTokenRequest,
     SellerTokenResponse,
     TransactionProjection,
     TransactionState,
+    VerificationProjection,
 )
 from verifund_contracts.terms import policy_version_of, project_requirements
 
@@ -42,7 +46,7 @@ from verifund_control_plane.domain import (
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.paypal.port import CaptureResult, PaymentPort, PayoutResult
-from verifund_control_plane.policy import evaluate
+from verifund_control_plane.policy import catalog_fulfilled, evaluate
 from verifund_control_plane.receipts import ReceiptSigner, build_receipt_payload
 from verifund_control_plane.repository import (
     AuditInput,
@@ -54,9 +58,67 @@ from verifund_control_plane.tokens import LinkSigner, SellerTokenService
 
 Mutation = Callable[[Any], Awaitable[dict[str, Any]]]
 
+
 # Re-exported so the catalog projection is available on the service surface
 # (Task 6 interface) and shared with downstream verification (Tasks 7-8).
 __all__ = ["policy_version_of", "project_requirements"]
+
+
+def _requirement_results_from_stored(value: Any) -> list[RequirementResult]:
+    """Rebuild slim per-requirement results persisted on the verification dict."""
+    if not isinstance(value, list):
+        return []
+    results: list[RequirementResult] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        with suppress(ValidationError):  # skip unreadable entries from older rows
+            results.append(RequirementResult.model_validate(entry))
+    return results
+
+
+_VERIFICATION_FIELDS = {
+    "status",
+    "reasons",
+    "checked_at",
+    "override_allowed",
+    "requirements",
+    "rollup",
+}
+
+
+def _verification_projection(value: dict[str, Any] | None) -> VerificationProjection | None:
+    if not value:
+        return None
+    # Stored rows predate `requirements`/`rollup` or carry legacy keys; keep
+    # only fields the projection declares so old rows keep loading.
+    filtered = {key: value[key] for key in _VERIFICATION_FIELDS if key in value}
+    try:
+        return VerificationProjection.model_validate(filtered)
+    except ValidationError:
+        fallback = {
+            key: filtered[key]
+            for key in ("status", "reasons", "checked_at", "override_allowed")
+            if key in filtered
+        }
+        if "status" not in fallback:
+            return None
+        return VerificationProjection.model_validate(fallback)
+
+
+def _slim_requirement_results(results: tuple[RequirementResult, ...]) -> list[dict[str, Any]]:
+    """Persist per-requirement results without the submission payloads.
+
+    `EvidenceSummary.items` already carries the full evidence log; dropping
+    `submissions` keeps the transactions row lean while round-tripping every
+    client-visible field of `RequirementResult`.
+    """
+    slim: list[dict[str, Any]] = []
+    for result in results:
+        data = result.model_dump(mode="json")
+        data.pop("submissions", None)
+        slim.append(data)
+    return slim
 
 
 class VerifundService:
@@ -145,8 +207,11 @@ class VerifundService:
             )
             for key, value in (record.deadlines or {}).items()
         }
+        stored_requirements = _requirement_results_from_stored(
+            (record.verification or {}).get("requirements")
+        )
         summary = EvidenceSummary(
-            requirements=[],  # per-requirement results land with the catalog rollup (Task 8)
+            requirements=stored_requirements,
             deadline=deadlines.get("evidence"),
             items=evidence_items,
         )
@@ -199,10 +264,7 @@ class VerifundService:
                 ("seller_order_id", "tracking_number", "carrier", "eta"),
             ),
             evidence=summary,
-            verification=self._pick(
-                record.verification,
-                ("status", "reasons", "checked_at", "override_allowed"),
-            ),
+            verification=_verification_projection(record.verification),
             payout=self._pick(
                 record.payout,
                 ("status", "batch_id", "item_id", "amount_cents", "updated_at"),
@@ -219,6 +281,12 @@ class VerifundService:
         record = await self.repo.get_transaction(transaction_id)
         items = await self.repo.list_evidence(transaction_id)
         return await self._projection(record, actor, items=items)
+
+    async def _agreement_terms(self, transaction_id: str) -> dict[str, Any]:
+        agreement = await self.agreement_service.get_by_transaction(transaction_id)
+        current = getattr(agreement, "current_version_record", None) if agreement else None
+        terms = getattr(current, "terms", None)
+        return dict(terms or {})
 
     async def award(
         self, request: AwardRequest, *, actor: str, idempotency_key: str | None
@@ -922,6 +990,9 @@ class VerifundService:
             )
         agreement = await self.agreement_service.build_projection(agreement_record)
         items = await self.repo.list_evidence(transaction_id)
+        stored_requirements = _requirement_results_from_stored(
+            (record.verification or {}).get("requirements")
+        )
         deadlines = {
             key: (
                 datetime.fromisoformat(value)
@@ -949,7 +1020,7 @@ class VerifundService:
                 ("seller_order_id", "tracking_number", "carrier", "eta"),
             ),
             evidence=EvidenceSummary(
-                requirements=[],  # per-requirement results land with the catalog rollup (Task 8)
+                requirements=stored_requirements,
                 deadline=deadlines.get("evidence"),
                 items=items,
             ),
@@ -963,8 +1034,8 @@ class VerifundService:
         if record.state != TransactionState.VERIFICATION_PENDING:
             return
         items = await self.repo.list_evidence(transaction_id)
-        received = {item.kind for item in items}
-        if not {"shipment_manifest", "delivery_confirmation"}.issubset(received):
+        terms = await self._agreement_terms(transaction_id)
+        if not catalog_fulfilled(terms, items):
             return
         await self.verify(transaction_id, actor=actor)
 
@@ -1001,6 +1072,7 @@ class VerifundService:
                 "invalid_state", "transaction is not awaiting verification", status_code=409
             )
         balances = await self.repo.ledger_balances(transaction_id)
+        terms = await self._agreement_terms(transaction_id)
         result = evaluate(
             record,
             items,
@@ -1008,50 +1080,39 @@ class VerifundService:
             self._now(),
             inspection_window_hours=self.settings.inspection_window_hours,
             ledger_balances=balances,
+            terms=terms,
+            declarations=None,
         )
-        if result.waiting:
-            deadline = result.inspection_deadline or (
-                self._now()
-                + timedelta(hours=self.settings.inspection_window_hours)
-            )
-            async with self.repo.transaction() as conn:
-                current = await self.repo.get_transaction(transaction_id, conn)
-                await self.repo.update_transaction(
-                    conn,
-                    transaction_id,
-                    expected_version=current.version,
-                    changes={
+        slim_requirements = _slim_requirement_results(result.requirements)
+        if result.pending:
+            if result.reasons or result.inspection_deadline is not None:
+                async with self.repo.transaction() as conn:
+                    current = await self.repo.get_transaction(transaction_id, conn)
+                    changes: dict[str, Any] = {
                         "verification": {
                             "status": "pending",
                             "reasons": [reason.value for reason in result.reasons],
+                            "rollup": result.rollup,
                             "checked_at": self._iso(self._now()),
                             "override_allowed": False,
+                            "requirements": slim_requirements,
                         },
-                        "deadlines": {
+                    }
+                    if result.inspection_deadline is not None:
+                        changes["deadlines"] = {
                             **(current.deadlines or {}),
-                            "inspection": self._iso(deadline),
-                        },
-                    },
-                )
-            return (
-                await self._projection_for(transaction_id, "buyer")
-            ).model_dump(mode="json")
-        deadline = None
-        raw_deadline = (record.deadlines or {}).get("evidence")
-        if raw_deadline:
-            try:
-                deadline = datetime.fromisoformat(
-                    str(raw_deadline)
-                )
-            except ValueError:
-                deadline = None
-        if not result.evidence_complete and deadline is not None and self._now() <= deadline:
+                            "inspection": self._iso(result.inspection_deadline),
+                        }
+                    await self.repo.update_transaction(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        changes=changes,
+                    )
             return (
                 await self._projection_for(transaction_id, "buyer")
             ).model_dump(mode="json")
         reasons = list(result.reasons)
-        if not result.evidence_complete and deadline is not None and self._now() > deadline:
-            reasons.append(ReviewReason.EVIDENCE_DEADLINE_MISSED)
         if result.passed:
             async with self.repo.transaction() as conn:
                 current = await self.repo.get_transaction(transaction_id, conn)
@@ -1065,8 +1126,10 @@ class VerifundService:
                         "verification": {
                             "status": "passed",
                             "reasons": [],
+                            "rollup": result.rollup,
                             "checked_at": self._iso(self._now()),
                             "override_allowed": False,
+                            "requirements": slim_requirements,
                         }
                     },
                     events=[
@@ -1078,6 +1141,9 @@ class VerifundService:
             return (
                 await self._projection(updated, "buyer", items=items)
             ).model_dump(mode="json")
+        # An objective FAIL rollup maps to REMEDIATION_REQUIRED in the target
+        # design; the state lands with the state-machine task (Task 16), so the
+        # failure path routes to REVIEW_REQUIRED until then.
         async with self.repo.transaction() as conn:
             current = await self.repo.get_transaction(transaction_id, conn)
             updated = await self.repo.transition(
@@ -1090,8 +1156,10 @@ class VerifundService:
                     "verification": {
                         "status": "failed",
                         "reasons": [reason.value for reason in reasons],
+                        "rollup": result.rollup,
                         "checked_at": self._iso(self._now()),
                         "override_allowed": result.override_allowed,
+                        "requirements": slim_requirements,
                     }
                 },
                 events=[

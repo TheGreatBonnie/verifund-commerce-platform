@@ -81,7 +81,6 @@ NON_OVERRIDABLE_REASONS = {
     ReviewReason.LEDGER_INCOMPLETE,
     ReviewReason.LATE_CAPTURE,
 }
-REQUIRED_EVIDENCE = ("shipment_manifest", "delivery_confirmation")
 EVIDENCE_UPLOAD_STATES = {
     TransactionState.FUNDED,
     TransactionState.FULFILLMENT_PENDING,

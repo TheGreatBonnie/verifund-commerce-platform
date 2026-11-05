@@ -121,6 +121,7 @@ class ReviewReason(StrEnum):
     LEDGER_INCOMPLETE = "ledger_incomplete"
     MANUAL_FLAG = "manual_flag"
     LATE_CAPTURE = "late_capture"
+    EXTRACTION_UNAVAILABLE = "extraction_unavailable"
 
 
 class VerifundErrorCode(StrEnum):
@@ -833,6 +834,7 @@ class VerificationProjection(VerifundModel):
     checked_at: datetime | None = None
     override_allowed: bool = False
     requirements: list[RequirementResult] = Field(default_factory=list)
+    rollup: str | None = None
 
 
 class PayoutProjection(VerifundModel):

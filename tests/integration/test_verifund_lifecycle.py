@@ -42,6 +42,7 @@ def award_payload() -> dict:
         "warranty_months": 24,
         "returns_days": 30,
         "offer_round": 1,
+        "inspection_period_hours": 24,
         "offer_valid_until": (NOW + timedelta(hours=1)).isoformat().replace(
             "+00:00", "Z"
         ),
@@ -229,9 +230,23 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
     }
     uploaded = await upload(api, award_body, "delivery_confirmation", delivery)
     assert uploaded.status_code == 201, uploaded.text
+
+    invoice = {
+        "invoice_id": "INV-1",
+        "seller_id": "northwind-audio",
+        "total_cents": 123400,
+        "currency": "USD",
+        "line_items": [{"sku": "NC-700", "quantity": 12, "unit_price_cents": 10000}],
+    }
+    uploaded = await upload(api, award_body, "invoice", invoice)
+    assert uploaded.status_code == 201, uploaded.text
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
     assert state["state"] == "RELEASE_PERMITTED"
     assert state["verification"]["status"] == "passed"
+    requirement_ids = [r["requirement_id"] for r in state["verification"]["requirements"]]
+    assert requirement_ids == ["shipment_manifest", "delivery_confirmation", "invoice"]
+    assert [r["requirement_id"] for r in state["evidence"]["requirements"]] == requirement_ids
+    assert all(r["status"] == "pass" for r in state["verification"]["requirements"])
 
     released = await api.post(
         f"/transactions/{txid}/release",
@@ -252,7 +267,7 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
     assert body["verified"] is True
     assert body["payload"]["transaction_id"] == txid
     assert body["payload"]["payout_item_id"] == f"item_{txid}"
-    assert len(body["payload"]["evidence_hashes"]) == 2
+    assert len(body["payload"]["evidence_hashes"]) == 3
 
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
     assert state["receipt_available"] is True
