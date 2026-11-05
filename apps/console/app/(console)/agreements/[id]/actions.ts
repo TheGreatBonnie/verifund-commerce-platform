@@ -1,7 +1,8 @@
 "use server";
 
-const CONTROL_PLANE =
-  process.env.VERIFUND_CONTROL_PLANE_URL ?? "http://127.0.0.1:9300";
+import { auth } from "@clerk/nextjs/server";
+import { controlPlaneForUser } from "@/lib/control-plane";
+
 const ORCHESTRATOR =
   process.env.ORCHESTRATOR_URL ??
   process.env.ORCHESTRATOR_AGUI_URL ??
@@ -22,29 +23,6 @@ export type AgreementDecisionResult = {
   resumeError?: string;
 };
 
-function actorHeaders(actorId = "demo-buyer") {
-  return {
-    "X-Actor-Id": actorId,
-    "X-Actor-Type": "buyer",
-  };
-}
-
-async function resolveBuyerId(id: string): Promise<string> {
-  try {
-    const response = await fetch(
-      `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}`,
-      { cache: "no-store", headers: actorHeaders() },
-    );
-    if (!response.ok) return "demo-buyer";
-    const body = (await response.json()) as { buyer_id?: unknown };
-    return typeof body.buyer_id === "string" && body.buyer_id
-      ? body.buyer_id
-      : "demo-buyer";
-  } catch {
-    return "demo-buyer";
-  }
-}
-
 async function recordDecision(
   id: string,
   version: number,
@@ -53,25 +31,19 @@ async function recordDecision(
   note: string,
   idempotencyKey: string,
 ): Promise<AgreementDecisionResult> {
-  const buyerId = await resolveBuyerId(id);
-  const tokenRes = await fetch(
-    `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}/approval-token`,
-    {
-      method: "POST",
-      headers: { ...actorHeaders(buyerId), "Idempotency-Key": idempotencyKey },
-      cache: "no-store",
-    },
+  const tokenRes = await controlPlaneForUser(
+    `/agreements/${encodeURIComponent(id)}/approval-token`,
+    { method: "POST", headers: { "Idempotency-Key": idempotencyKey } },
   );
   if (!tokenRes.ok) {
     return { error: "token_failed", decisionRecorded: false };
   }
   const tokenBody = (await tokenRes.json()) as { token: string };
-  const decisionRes = await fetch(
-    `${CONTROL_PLANE}/agreements/${encodeURIComponent(id)}/buyer-decision`,
+  const decisionRes = await controlPlaneForUser(
+    `/agreements/${encodeURIComponent(id)}/buyer-decision`,
     {
       method: "POST",
       headers: {
-        ...actorHeaders(buyerId),
         "content-type": "application/json",
         "Idempotency-Key": idempotencyKey,
         "X-Approval-Token": tokenBody.token,
@@ -83,7 +55,6 @@ async function recordDecision(
         note,
         idempotency_key: idempotencyKey,
       }),
-      cache: "no-store",
     },
   );
   if (!decisionRes.ok) {
@@ -184,6 +155,7 @@ export async function approveAgreement(
   idempotencyKey: string,
   handle?: ResumeHandle | null,
 ) {
+  await auth.protect();
   return decide(id, version, hash, "APPROVE", note, idempotencyKey, handle);
 }
 
@@ -195,6 +167,7 @@ export async function rejectAgreement(
   idempotencyKey: string,
   handle?: ResumeHandle | null,
 ) {
+  await auth.protect();
   return decide(id, version, hash, "REJECT", note, idempotencyKey, handle);
 }
 
@@ -206,6 +179,7 @@ export async function requestChangesAgreement(
   idempotencyKey: string,
   handle?: ResumeHandle | null,
 ) {
+  await auth.protect();
   return decide(
     id,
     version,
@@ -229,6 +203,7 @@ export async function resumeAgreement(
   idempotencyKey: string,
   handle?: ResumeHandle | null,
 ) {
+  await auth.protect();
   return resumeOrchestrator(
     version,
     hash,

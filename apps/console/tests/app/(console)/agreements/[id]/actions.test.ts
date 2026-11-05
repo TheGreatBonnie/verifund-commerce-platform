@@ -1,5 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { controlPlaneForUserMock, protectMock } = vi.hoisted(() => ({
+  controlPlaneForUserMock: vi.fn(),
+  protectMock: vi.fn(),
+}));
+
+vi.mock("@/lib/control-plane", () => ({
+  controlPlaneForUser: controlPlaneForUserMock,
+}));
+
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: Object.assign(vi.fn(), { protect: protectMock }),
+}));
+
 import {
   approveAgreement,
   rejectAgreement,
@@ -22,26 +35,24 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response;
 }
 
-function fetchMock() {
-  return vi.mocked(fetch);
-}
-
 describe("agreement review actions", () => {
   beforeEach(() => {
+    controlPlaneForUserMock.mockClear();
+    protectMock.mockClear();
     vi.stubGlobal("fetch", vi.fn());
+    protectMock.mockResolvedValue({ userId: "user_1" });
   });
 
   it("resumes the orchestrator with the exact decision after approval", async () => {
-    fetchMock()
-      .mockResolvedValueOnce(jsonResponse({ buyer_id: "demo-buyer" }))
+    controlPlaneForUserMock
       .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "AGREED", version: 1 }))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          status: "approval_required",
-          checkpoint: "funding_approval_required",
-        }),
-      );
+      .mockResolvedValueOnce(jsonResponse({ status: "AGREED", version: 1 }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        status: "approval_required",
+        checkpoint: "funding_approval_required",
+      }),
+    );
 
     const result = await approveAgreement(
       "agr_1",
@@ -59,8 +70,10 @@ describe("agreement review actions", () => {
         checkpoint: "funding_approval_required",
       },
     });
-    expect(fetchMock()).toHaveBeenCalledTimes(4);
-    const [url, init] = fetchMock().mock.calls[3];
+    expect(controlPlaneForUserMock).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(protectMock).toHaveBeenCalled();
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(String(url)).toMatch(/\/verifund\/resume-agreement$/);
     expect(init).toMatchObject({ method: "POST" });
     expect(JSON.parse(String(init?.body))).toEqual({
@@ -77,17 +90,13 @@ describe("agreement review actions", () => {
     });
   });
 
-  it("issues the approval token as the agreement's buyer", async () => {
-    fetchMock()
-      .mockResolvedValueOnce(jsonResponse({ buyer_id: "buyer-001" }))
+  it("forwards the Clerk session token without actor headers", async () => {
+    controlPlaneForUserMock
       .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "AGREED", version: 1 }))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          status: "approval_required",
-          checkpoint: "funding_approval_required",
-        }),
-      );
+      .mockResolvedValueOnce(jsonResponse({ status: "AGREED", version: 1 }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({ status: "approval_required" }),
+    );
 
     const result = await approveAgreement(
       "agr_1",
@@ -99,23 +108,22 @@ describe("agreement review actions", () => {
     );
 
     expect(result).toMatchObject({ decisionRecorded: true });
-    const tokenCall = fetchMock().mock.calls.find(([url]) =>
+    const tokenCall = controlPlaneForUserMock.mock.calls.find(([url]) =>
       String(url).endsWith("/approval-token"),
     );
     expect(tokenCall).toBeDefined();
     const headers = tokenCall?.[1]?.headers as Record<string, string>;
-    expect(headers["X-Actor-Id"]).toBe("buyer-001");
-    expect(headers["X-Actor-Type"]).toBe("buyer");
+    expect(headers["X-Actor-Id"]).toBeUndefined();
+    expect(headers["Idempotency-Key"]).toBe("buyer-decision:vf_1:1");
   });
 
   it("keeps the recorded decision when the orchestrator resume fails", async () => {
-    fetchMock()
-      .mockResolvedValueOnce(jsonResponse({ buyer_id: "demo-buyer" }))
+    controlPlaneForUserMock
       .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "REJECTED", version: 1 }))
-      .mockResolvedValueOnce(
-        jsonResponse({ detail: "agreement is not agreed" }, 409),
-      );
+      .mockResolvedValueOnce(jsonResponse({ status: "REJECTED", version: 1 }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({ detail: "agreement is not agreed" }, 409),
+    );
 
     const result = await rejectAgreement(
       "agr_1",
@@ -133,8 +141,7 @@ describe("agreement review actions", () => {
   });
 
   it("does not pretend to resume when the review link has no handle", async () => {
-    fetchMock()
-      .mockResolvedValueOnce(jsonResponse({ buyer_id: "demo-buyer" }))
+    controlPlaneForUserMock
       .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
       .mockResolvedValueOnce(jsonResponse({ status: "CHANGES_REQUESTED", version: 1 }));
 
@@ -151,6 +158,7 @@ describe("agreement review actions", () => {
       decisionRecorded: true,
       resumeError: "missing_handle",
     });
-    expect(fetchMock()).toHaveBeenCalledTimes(3);
+    expect(controlPlaneForUserMock).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
