@@ -216,6 +216,7 @@ class VerifundService:
         clock: Callable[[], datetime],
         tokens: SellerTokenService,
         buyer_tokens: Any = None,
+        invitation_tokens: Any = None,
         evidence_store: EvidenceStore,
         payments: PaymentPort,
         links: LinkSigner,
@@ -227,6 +228,7 @@ class VerifundService:
         self.clock = clock
         self.tokens = tokens
         self.buyer_tokens = buyer_tokens
+        self.invitation_tokens = invitation_tokens
         self.evidence_store = evidence_store
         self.payments = payments
         self.links = links
@@ -1694,6 +1696,101 @@ class VerifundService:
                 AuditInput(actor, "buyer_token_issued"),
             )
         return issued.token
+
+    async def issue_invitation(
+        self, transaction_id: str, *, actor: str
+    ) -> str:
+        record = await self.repo.get_transaction(transaction_id)
+        if self.invitation_tokens is None:
+            raise VerifundError(
+                "not_implemented",
+                "invitation tokens are not configured",
+                status_code=501,
+            )
+        issued = self.invitation_tokens.issue(record.seller_id, transaction_id)
+        async with self.repo.transaction() as conn:
+            await self.repo.save_invitation_token(
+                conn,
+                jti_hash=issued.jti_hash,
+                transaction_id=transaction_id,
+                seller_id=record.seller_id,
+                scopes=["txn:read", "evidence:write"],
+                expires_at=issued.expires_at,
+            )
+            await self.repo.audit(
+                conn,
+                transaction_id,
+                AuditInput(actor, "invitation_issued"),
+            )
+        return issued.token
+
+    async def exchange_invitation(self, token: str) -> dict[str, Any]:
+        if self.invitation_tokens is None or self.tokens is None:
+            raise VerifundError(
+                "not_implemented",
+                "invitation exchange is not configured",
+                status_code=501,
+            )
+        claims = self.invitation_tokens.verify(token)
+        stored = await self.repo.get_invitation_token(claims.jti_hash)
+        if stored.get("revoked_at") or stored.get("used_at"):
+            raise VerifundError(
+                "token_used", "invitation has already been used", status_code=409
+            )
+        expires_at = datetime.fromisoformat(stored["expires_at"])
+        if expires_at <= self._now():
+            raise VerifundError(
+                "token_expired", "invitation has expired", status_code=401
+            )
+        if stored["seller_id"] != claims.seller_id:
+            raise VerifundError(
+                "forbidden", "invitation does not match this seller", status_code=403
+            )
+        record = await self.repo.get_transaction(claims.txn)
+        if record.seller_id != claims.seller_id:
+            raise VerifundError(
+                "forbidden", "invitation does not match this transaction", status_code=403
+            )
+
+        issued = self.tokens.issue(
+            claims.txn, record.seller_id, record.agreement_hash,
+            scopes=("txn:read", "evidence:write"),
+        )
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(claims.txn, conn)
+            if current.version != record.version:
+                raise VerifundError(
+                    "conflict", "transaction changed; retry", status_code=409
+                )
+            await self.repo.save_seller_token(
+                conn,
+                issued.jti_hash,
+                claims.txn,
+                record.seller_id,
+                record.agreement_hash,
+                ["txn:read", "evidence:write"],
+                issued.expires_at,
+            )
+            await self.repo.mark_invitation_used(
+                conn, claims.jti_hash, self._now()
+            )
+            await self.repo.audit(
+                conn,
+                claims.txn,
+                AuditInput(
+                    f"seller:{record.seller_id}",
+                    "invitation_exchanged",
+                ),
+            )
+        return {
+            "token": issued.token,
+            "expires_at": issued.expires_at.isoformat().replace("+00:00", "Z"),
+            "allowed_actions": [
+                "submit_evidence",
+                "replace_evidence",
+                "respond_to_dispute",
+            ],
+        }
 
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
         """Evaluate the worklist as submissions arrive.

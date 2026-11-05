@@ -358,6 +358,19 @@ async def issue_buyer_token(
     return {"token": token}
 
 
+@router.post(
+    "/transactions/{transaction_id}/issue-invitation",
+    dependencies=[Depends(require_ops)],
+)
+async def issue_invitation(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    token = await _service(request).issue_invitation(
+        transaction_id, actor=actor(request)
+    )
+    return {"token": token}
+
+
 @router.get(
     "/transactions/{transaction_id}/receipt",
     dependencies=[Depends(require_ops)],

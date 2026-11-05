@@ -356,3 +356,107 @@ def verify_buyer_token(
     token: str, *, required_scope: str | None = None
 ) -> BuyerClaims:
     return _default_buyer_service().verify(token, required_scope=required_scope)
+
+
+@dataclass(frozen=True)
+class InvitationClaims:
+    txn: str
+    seller_id: str
+    scopes: tuple[str, ...]
+    jti: str
+    jti_hash: str
+    issued_at: datetime
+    expires_at: datetime
+
+
+class InvitationTokenService:
+    """Short-lived, ops-issued invitation exchanged once for a seller bearer
+    token. Carries transaction_id + seller_id only (no agreement hash)."""
+
+    def __init__(
+        self,
+        secret: str,
+        *,
+        ttl_minutes: int = 60,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._secret = secret.encode("utf-8")
+        self._ttl = timedelta(minutes=ttl_minutes)
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def issue(
+        self,
+        seller_id: str,
+        transaction_id: str,
+        *,
+        scopes: tuple[str, ...] | list[str] = ("txn:read", "evidence:write"),
+    ) -> IssuedToken:
+        now = self._clock()
+        expires = now + self._ttl
+        jti = secrets.token_urlsafe(24)
+        claims = {
+            "typ": "invitation",
+            "txn": transaction_id,
+            "seller_id": seller_id,
+            "scope": list(scopes),
+            "iat": int(now.timestamp()),
+            "exp": int(expires.timestamp()),
+            "jti": jti,
+        }
+        body = _b64url(canonical_json(claims))
+        signature = _b64url(
+            hmac.new(self._secret, body.encode("ascii"), hashlib.sha256).digest()
+        )
+        return IssuedToken(
+            token=f"v1.{body}.{signature}",
+            jti=jti,
+            jti_hash=sha256_hex(jti.encode("utf-8")),
+            expires_at=expires,
+        )
+
+    def verify(
+        self, token: str, *, required_scope: str | None = None
+    ) -> InvitationClaims:
+        try:
+            version, body, signature = token.split(".")
+            if version != "v1":
+                raise ValueError("unsupported token version")
+            expected = _b64url(
+                hmac.new(
+                    self._secret,
+                    body.encode("ascii"),
+                    hashlib.sha256,
+                ).digest()
+            )
+            if not hmac.compare_digest(signature, expected):
+                raise ValueError("bad signature")
+            claims: dict[str, Any] = json.loads(_unb64url(body))
+            if claims.get("typ") != "invitation":
+                raise ValueError("wrong token type")
+            issued_at = datetime.fromtimestamp(int(claims["iat"]), tz=UTC)
+            expires_at = datetime.fromtimestamp(int(claims["exp"]), tz=UTC)
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise VerifundError(
+                "unauthorized", "invitation token is invalid", status_code=401
+            ) from exc
+        if expires_at <= self._clock():
+            raise VerifundError(
+                "token_expired", "invitation token has expired", status_code=401
+            )
+        scopes = tuple(claims.get("scope", ()))
+        if required_scope is not None and required_scope not in scopes:
+            raise VerifundError(
+                "token_scope_denied",
+                "invitation token scope denied",
+                status_code=403,
+            )
+        jti = str(claims["jti"])
+        return InvitationClaims(
+            txn=str(claims["txn"]),
+            seller_id=str(claims["seller_id"]),
+            scopes=scopes,
+            jti=jti,
+            jti_hash=sha256_hex(jti.encode("utf-8")),
+            issued_at=issued_at,
+            expires_at=expires_at,
+        )

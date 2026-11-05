@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import secrets
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import HTMLResponse
@@ -63,6 +64,48 @@ def _seller_claims(request: Request, token: str):
     return request.app.state.tokens.verify(token, required_scope="txn:read")
 
 
+def _authorize_agreement_read(request: Request, agreement) -> None:
+    """Gate agreement reads behind seller/buyer/ops auth (Task 12b).
+
+    X-Actor-Id style headers never authorize these routes.
+    """
+    provided = request.headers.get("authorization", "")
+    settings = request.app.state.settings
+    if provided.startswith("Bearer "):
+        raw = provided.removeprefix("Bearer ")
+        if secrets.compare_digest(raw, settings.ops_token):
+            return
+        # seller token
+        try:
+            claims = request.app.state.tokens.verify(raw, required_scope="txn:read")
+        except VerifundError:
+            claims = None
+        if claims is not None and (
+            claims.txn == agreement.transaction_id
+            and claims.seller_id == agreement.seller_id
+        ):
+            return
+        # buyer token
+        try:
+            buyer_claims = request.app.state.buyer_tokens.verify(raw, required_scope="txn:buy")
+        except Exception:  # noqa: BLE001
+            buyer_claims = None
+        if buyer_claims is not None:
+            stored = None
+            try:
+                stored = request.app.state.repo.get_buyer_token(buyer_claims.jti_hash)
+            except Exception:  # noqa: BLE001
+                stored = None
+            if (
+                stored is not None
+                and not stored.get("revoked_at")
+                and buyer_claims.buyer_id == agreement.buyer_id
+                and buyer_claims.txn == agreement.transaction_id
+            ):
+                return
+    raise VerifundError("unauthorized", "agreement read requires authentication", status_code=401)
+
+
 async def _view(svc: AgreementService, agreement) -> dict:
     return await svc.build_view(agreement)
 
@@ -74,7 +117,17 @@ async def list_agreements(request: Request, transaction_id: str | None = None):
         agreement = await svc.get_by_transaction(transaction_id)
         if agreement is None:
             return []
+        _authorize_agreement_read(request, agreement)
         return [await _view(svc, agreement)]
+    # listing all agreements requires ops auth
+    provided = request.headers.get("authorization", "")
+    if not (
+        provided.startswith("Bearer ")
+        and secrets.compare_digest(
+            provided.removeprefix("Bearer "), request.app.state.settings.ops_token
+        )
+    ):
+        raise VerifundError("unauthorized", "agreement list requires ops auth", status_code=401)
     agreements = await svc.list()
     views = []
     for agreement in agreements:
@@ -89,6 +142,7 @@ async def get_agreement(agreement_id: str, request: Request):
     agreement = await svc.get(agreement_id)
     if agreement is None:
         _raise(AgreementError("not_found", "agreement not found", agreement_id=agreement_id))
+    _authorize_agreement_read(request, agreement)
     return await _view(svc, agreement)
 
 
