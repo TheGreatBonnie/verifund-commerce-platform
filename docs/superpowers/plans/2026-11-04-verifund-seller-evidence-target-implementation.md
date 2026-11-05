@@ -1,6 +1,6 @@
 # Verifund Seller Evidence — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement the requirement-driven, buyer-anchored seller evidence flow defined by the target design spec, replacing the hardcoded two-requirement, seller-self-certified flow.
 
@@ -75,7 +75,7 @@
 **Interfaces:**
 - Produces: `Requirement`, `RequirementCheck`, `RequirementStatus`, `RequirementResult`, `RequirementCheckResult`, updated `EvidenceItem`, `EvidenceSummary`, `VerificationProjection`, `AwardRequest`, `SellerProjection`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 from verifund_contracts import Requirement, RequirementCheck, RequirementResult, RequirementStatus
@@ -110,12 +110,12 @@ def test_requirement_and_result_types_construct():
     assert req.requirement_id == result.requirement_id
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_contracts.py -q`
 Expected: FAIL with missing names.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Add to `models.py`:
 
@@ -191,12 +191,12 @@ class EvidenceItem(VerifundModel):
 
 Replace `EvidenceSummary.required/received/complete` with `requirements: list[RequirementResult]`. Add `requirements` to `VerificationProjection`. Add `requirements: list[Requirement]` to `AwardRequest` with `evidence_required` retained as deprecated mirror. Add `not_as_described` to `RemedyTerms` and `REPAIR_OR_REPLACEMENT` to `RemedyPolicy`. Add `payout` and a `dispute` block to `SellerProjection` if missing (`dispute` carries `status`, `reason_code`, `requirement_ids`, `claim`, `opened_at`, `escalation_rung`; surfaced only in `DISPUTE_OPEN` so the seller can read the buyer's claim and respond). Reasons on `RequirementResult`/`RequirementCheckResult` are `ReviewReason`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/unit/test_verifund_contracts.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/verifund_contracts/verifund_contracts/models.py tests/unit/test_verifund_contracts.py
@@ -213,7 +213,7 @@ git commit -m "feat(contracts): add requirement catalog and result types"
 - Consumes: `Requirement`, `RequirementCheck`.
 - Produces: validation function `validate_requirements(requirements)`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_requirement_floor_rejects_empty_checks():
@@ -221,12 +221,12 @@ def test_requirement_floor_rejects_empty_checks():
         validate_requirements([Requirement(..., checks=[])])
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_contracts.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement floors**
+- [x] **Step 3: Implement floors**
 
 Implement `validate_requirements` enforcing:
 - non-empty list;
@@ -238,12 +238,12 @@ Implement `validate_requirements` enforcing:
 - `expected_value` present when `operator != "exists"` and not AI-derived;
 - exactly one system-owned `delivery_confirmation` requirement.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_contracts.py tests/unit/test_agreement_generator.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/verifund_contracts/verifund_contracts/terms.py
@@ -259,7 +259,7 @@ git commit -m "feat(terms): enforce requirement catalog floors"
 **Interfaces:**
 - Produces: `AwardRequest.requirements` including `product_photos`, `serial`, `hardware`, `warranty`, `shipping`, `delivery_confirmation`, `invoice`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_buyer_authors_seven_requirements():
@@ -268,21 +268,21 @@ def test_buyer_authors_seven_requirements():
     assert ids == ["product_photos", "serial", "hardware", "warranty", "shipping", "delivery_confirmation", "invoice"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_buyer_settlement_flow.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `evidence_required` authoring with `requirements=[...]` per §3.9.2. Keep `evidence_required` as deprecated mirror derived from requirement ids for grandfathered callers.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_buyer_settlement_flow.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/buyer_agent/buyer_agent/settlement_flow.py
@@ -299,7 +299,7 @@ git commit -m "feat(buyer-agent): author requirement catalog"
 - Consumes: `Requirement`.
 - Produces: validation error on unsatisfiable requirement.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_seller_rejects_unobservable_eq_requirement():
@@ -307,21 +307,21 @@ def test_seller_rejects_unobservable_eq_requirement():
         validate_mandate(requirements_with_unobservable_eq)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_seller_mandate.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Validate every requirement and check against the seller mandate before acceptance. Remove self-certified delivery handling (`settlement.py:25-60`).
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_seller_mandate.py tests/unit/test_seller_settlement.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/seller_agent/seller_agent/settlement.py
@@ -337,7 +337,7 @@ git commit -m "feat(seller-agent): validate requirement mandate"
 **Interfaces:**
 - Produces: `terms.requirements[]` from `AwardRequest.requirements[]`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_generator_copies_requirements():
@@ -345,21 +345,21 @@ def test_generator_copies_requirements():
     assert [r.requirement_id for r in terms.requirements] == [...]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_agreement_generator.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `evidence_required` copy at `generator.py:83` with requirements copy. Keep deprecated mirror.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_agreement_generator.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/agreements/generator.py
@@ -375,7 +375,7 @@ git commit -m "feat(agreements): copy requirements into terms"
 **Interfaces:**
 - Produces: `project_requirements(agreement)` returning catalog for legacy agreements.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_grandfathered_agreement_projects_evidence_required():
@@ -383,21 +383,21 @@ def test_grandfathered_agreement_projects_evidence_required():
     assert [r.requirement_id for r in catalog] == legacy_agreement.terms.evidence_required
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_grandfathering.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Project `evidence_required` into `Requirement` entries at read time for `policy_version == 1`. Store `policy_version` on agreement.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_grandfathering.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py
@@ -414,7 +414,7 @@ git commit -m "feat(service): grandfather legacy agreements into catalog"
 **Interfaces:**
 - Consumes: stored agreement terms.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_evaluate_uses_agreement_requirements():
@@ -422,21 +422,21 @@ def test_evaluate_uses_agreement_requirements():
     assert [r.requirement_id for r in result.requirements] == [r.requirement_id for r in agreement_with_custom_requirements.terms.requirements]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Delete `REQUIRED_EVIDENCE` usage. `evaluate()` takes `AgreementVersion` terms and returns `list[RequirementResult]` plus rollup.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py tests/unit/test_verifund_reconciler.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/domain.py apps/verifund_control_plane/verifund_control_plane/policy.py
@@ -453,7 +453,7 @@ git commit -m "feat(policy): evaluate against agreement catalog"
 **Interfaces:**
 - Produces: `evaluate() -> (list[RequirementResult], rollup_state)`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_review_wins_over_fail():
@@ -461,12 +461,12 @@ def test_review_wins_over_fail():
     assert rollup(results) == "REVIEW_REQUIRED"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Implement per-check deterministic comparators. AI-derived checks contribute `REVIEW`. System-owned misses contribute `REVIEW`, not `REMEDIATION_REQUIRED`. Rollup:
 - any `REVIEW` → `REVIEW_REQUIRED`;
@@ -475,12 +475,12 @@ Implement per-check deterministic comparators. AI-derived checks contribute `REV
 - seller-owned `NOT_SUBMITTED` before deadline stays pending;
 - seller-owned miss at/after deadline → `REMEDIATION_REQUIRED` with `EVIDENCE_DEADLINE_MISSED`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py tests/unit/test_verifund_reconciler.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/policy.py apps/verifund_control_plane/verifund_control_plane/service.py
@@ -496,7 +496,7 @@ git commit -m "feat(verification): per-requirement rollup"
 **Interfaces:**
 - Produces: `add_evidence_submission`, `list_submissions`, `add_declaration`, `list_declarations`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_declaration_records_attempt(repo):
@@ -506,21 +506,21 @@ async def test_declaration_records_attempt(repo):
     assert rows[0]["attempt"] == 1
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_repository_aux.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `evidence_submissions` and `requirement_declarations` tables to `create_schema`. Evidence table gains `requirement_id`, `submission_attempt` (int; the open attempt the submission belongs to, distinct from the declaration's closing `attempt`), `origin`, `attributed_to`, `artifact_type`, `reference`, `agreement_version`, `scan_status`. Keep `UniqueConstraint(transaction_id, sha256)` for blob dedupe.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_repository_aux.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/repository.py
@@ -541,7 +541,7 @@ git commit -m "feat(repo): submission attempts and declarations"
 
 **Decision (locked 2026-11-04):** legacy `kind` is rejected with `422` naming `requirement_id` — no mirror. `source` mismatch (file vs reference) is also `422`. `required=false` requirements are uploadable.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_upload_addressed_by_requirement_id_returns_receipt():
@@ -557,21 +557,21 @@ async def test_upload_addressed_by_requirement_id_returns_receipt():
     assert body["submission_id"] and body["receipt_id"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_upload.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `kind` is no longer the addressing key. The route requires `requirement_id` and a file **or** a reference artifact (`reference` string + `reference_type=tracking|url`) for `source=reference` requirements; `captured_at` stays accepted and is surfaced on `EvidenceItem`. Validate against the catalog: requirement must exist on the agreement in effect, `owner == "seller"`, `required` when enforcement is on; reject `source=file` + reference-only submissions and vice versa with `422 invalid_request`. Derive `kind` from the requirement (`requirement.kind`). Create the `evidence` blob row (dedupe by `transaction_id, sha256`) **and** an `evidence_submissions` attempt row in one transaction; store `agreement_version` on the evidence row; reject an agreement-version mismatch with `409`. Malware scan stays asynchronous: new items get `scan_status=pending`. Response is the receipt. For a new submission after a declaration, bump `submission_attempt` and reset `declared_at`/`declared_by` on the `RequirementResult` projection. Console back-compat (`kind`) is out of scope — the console is not wired until Milestone D.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_upload.py tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/api/seller.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/evidence.py packages/verifund_contracts/verifund_contracts/models.py
@@ -588,7 +588,7 @@ git commit -m "feat(seller-api): requirement-addressed evidence upload"
 **Interfaces:**
 - Produces: `GET /seller/transactions`, `GET /seller/evidence`, `GET /seller/payouts`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_seller_list_scoped_by_token():
@@ -600,21 +600,21 @@ async def test_seller_list_scoped_by_token():
     assert all(item["state"] for item in items)  # enum values, never display strings
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_seller_reads.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Implement keyset paging, `counts_by_state`, batched evidence counts, `payout` on `SellerProjection`, `requirement_id` filter on evidence, `captured_at` and `scan_status` on entries. Reject `seller_id` query param.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_seller_reads.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/api/seller.py
@@ -631,7 +631,7 @@ git commit -m "feat(seller-api): scoped read coverage"
 **Interfaces:**
 - Produces: `GET /seller/transactions/{id}/events`, `GET /seller/agreements/{id}`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_seller_can_read_events_and_agreement():
@@ -641,21 +641,21 @@ async def test_seller_can_read_events_and_agreement():
     assert agreement.json()["terms"]["requirements"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_seller_reads.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Expose seller-visible events for a transaction and an agreement read including terms/requirements. Enforce seller ownership and token scope.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_seller_reads.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/api/seller.py
@@ -674,7 +674,7 @@ git commit -m "feat(seller-api): events and agreement reads"
 
 **Decisions (locked 2026-11-04):** declaring with zero open-attempt submissions is rejected with `400`. Declaration after a `FAIL` on the requirement is allowed and starts a new attempt.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_declare_completes_requirement_and_records_attempt():
@@ -694,21 +694,21 @@ async def test_declare_completes_requirement_and_records_attempt():
     assert [row["attempt"] for row in trail.json()["items"]] == [1]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_declarations.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `declare` gathers the currently open-attempt submission ids for `(transaction_id, requirement_id)`, writes a `requirement_declarations` row (`attempt = len(existing) + 1`, `actor=seller:{seller_id}`, `submission_ids`), flips the requirement's `declared_at`/`declared_by` on the projection, and re-runs verification. Verification treats a declared requirement as `PASS` only when every submitted file is valid; otherwise `FAIL` (seller-remediable). An undeclared cumulative requirement stays `NOT_SUBMITTED`/in-progress. A submission after declaration opens a new attempt and resets the declaration. `declarations` returns the audit trail (`attempt`, `declared_at`, `actor`, `submission_ids`), newest first. Reject declaring with zero open-attempt submissions (`400`). Enforce seller ownership and `evidence:write` scope like the other seller routes; `403` cross-seller, `404` unknown transaction.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_declarations.py tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/api/seller.py apps/verifund_control_plane/verifund_control_plane/service.py
@@ -729,7 +729,7 @@ git commit -m "feat(seller-api): requirement declaration endpoints"
 **Interfaces:**
 - Produces: `issue_buyer_token(buyer_id, transaction_id, scopes=("txn:buy",))`, `verify_buyer_token`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_buyer_token_scope_denied():
@@ -738,21 +738,21 @@ def test_buyer_token_scope_denied():
         verify_buyer_token(token, required_scope="txn:read")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_agreement_tokens.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Reuse `SellerTokenService` machinery with `actor_type="buyer"` and `buyer_tokens` table. Bind to `buyer_id` and `transaction_id`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_agreement_tokens.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/tokens.py apps/verifund_control_plane/verifund_control_plane/repository.py
@@ -769,7 +769,7 @@ git commit -m "feat(auth): buyer bearer token"
 **Interfaces:**
 - Produces: `POST /buyer/transactions/{id}/delivery-confirmed`, `/accept`, `/dispute`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_buyer_delivery_requires_token():
@@ -777,21 +777,21 @@ async def test_buyer_delivery_requires_token():
     assert response.status_code == 401
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_buyer_api.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Register buyer router. Enforce buyer bearer token and ownership. Add request models.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_buyer_api.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/api/buyer.py
@@ -811,7 +811,7 @@ git commit -m "feat(buyer-api): buyer routes"
 
 **Decision (locked 2026-11-04):** ops-triggered only (`POST /ops/transactions/{id}/issue-buyer-token`), mirroring `reissue-seller-token`. Automatic award-time issuance is out of scope; no self-serve or `X-Actor-Id`-authenticated issuance.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_ops_issues_buyer_token_accepted_by_buyer_routes():
@@ -825,21 +825,21 @@ async def test_ops_issues_buyer_token_accepted_by_buyer_routes():
     assert response.status_code in {200, 201, 422}  # 422 only if bound checks reject the clock value
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_agreement_tokens.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Ops-authenticated issuance; token returned once and never logged. Record `buyer_id` on the `buyer_tokens` row. Document the hand-off channel to the buyer console (demo: shown to the ops user). Rate-limit issuance; audit `buyer_token.issued`. Do not reuse the seller token service's agreement-hash claim — buyer tokens carry `transaction_id` + `buyer_id` only.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_agreement_tokens.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/api/ops.py apps/verifund_control_plane/verifund_control_plane/service.py
@@ -860,7 +860,7 @@ git commit -m "feat(auth): ops-issued buyer tokens"
 
 **Decisions (locked 2026-11-04):** ops issues the invitation (never the award path); exchange is single-use (`jti` revoked on exchange); exchange returns `txn:read` + `evidence:write` (no `txn:buy`); agreement routes require a bearer token with ownership checks (seller: own transaction; buyer: own transaction; ops: all); the internal HTML/document route stays out of the public surface; `X-Actor-Id`-style header trust must not authorize these routes.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_invitation_exchange_is_single_use():
@@ -874,21 +874,21 @@ async def test_invitation_exchange_is_single_use():
     assert second.status_code in {401, 409}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_invitation_exchange.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create an `invitation` purpose in the token service: single transaction, bound `seller_id`, short TTL, single-use enforced by revoking the `jti` on exchange. Exchange validates signature, expiry, revocation, that the bound seller owns the transaction, and returns a standard seller bearer token with the agreed scope set plus an allowed-actions list (`submit_evidence`, `replace_evidence`, `respond_to_dispute` as applicable). Rate-limit exchange; audit `invitation.exchanged`. Gate `GET /agreements` and `GET /agreements/{id}` behind seller/buyer/ops auth per the open decision, and point the workspace's "View agreement" at the seller-scoped `GET /seller/agreements/{id}` instead. The unauthenticated agreement HTML/document route stays internal-only.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_invitation_exchange.py tests/unit/test_agreement_generator.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/tokens.py apps/verifund_control_plane/verifund_control_plane/repository.py apps/verifund_control_plane/verifund_control_plane/api/fulfillment.py apps/verifund_control_plane/verifund_control_plane/agreements/routes.py
@@ -905,7 +905,7 @@ git commit -m "feat(access): invitation exchange and gated agreement reads"
 **Interfaces:**
 - Produces: `confirm_delivery(transaction_id, buyer_id, confirmed_at, condition, photos)`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_confirmed_at_out_of_bounds_rejected():
@@ -913,21 +913,21 @@ async def test_confirmed_at_out_of_bounds_rejected():
         await service.confirm_delivery("vf_1", "buyer_1", future_timestamp)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Validate `confirmed_at` within ±N hours of carrier event and not in future. Create system-generated, buyer-attributed `delivery_confirmation` evidence (`origin=system`, `attributed_to=buyer`). Start inspection clock at `min(buyer, carrier)` when both agree.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/evidence.py
@@ -943,7 +943,7 @@ git commit -m "feat(delivery): buyer-attested carrier-corroborated"
 **Interfaces:**
 - Produces: `CarrierClient.fetch(tracking_number) -> CarrierRecord`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_carrier_outage_returns_review_not_block():
@@ -952,21 +952,21 @@ async def test_carrier_outage_returns_review_not_block():
     assert record.status == "unknown"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_carrier.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Define the `CarrierClient` protocol and a fake/in-memory implementation with retry/backoff and an ops alert on outage; a carrier outage leaves the delivery requirement `REVIEW` with a retry scheduled, never a permanent block and never `FAIL`. Real aggregator adapters (EasyPost/Shippo/PayPal Tracking) land behind the same protocol in Milestone E — do not implement PayPal Tracking in this task.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_carrier.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/carrier.py
@@ -983,7 +983,7 @@ git commit -m "feat(carrier): aggregator adapter with retry"
 **Interfaces:**
 - Produces: `run_deemed_acceptance()`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_reconciler_releases_on_deemed_acceptance():
@@ -992,21 +992,21 @@ async def test_reconciler_releases_on_deemed_acceptance():
     assert transaction.state == "RELEASED"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Use `max(inspection, dispute)` from agreement. Release only if all requirements `PASS` and no dispute. Run verification on `RELEASE_PERMITTED` transactions inside the dispute window so disputes can be opened. Implement `extend_deadline`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/reconciler.py apps/verifund_control_plane/verifund_control_plane/service.py
@@ -1022,28 +1022,28 @@ git commit -m "feat(acceptance): deemed acceptance release path"
 **Interfaces:**
 - Produces: transitions for `REMEDIATION_REQUIRED`, `DISPUTE_OPEN`, `REFUNDED`, `ACCEPT`, `CONFIRM_DELIVERY`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 def test_accept_is_final():
     assert "DISPUTE_OPEN" not in allowed_transitions("PAYOUT_PENDING", "buyer")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add states, transitions, upload permissions, stage mapping. `ACCEPT` moves `VERIFICATION_PENDING`/`RELEASE_PERMITTED` → `PAYOUT_PENDING` and is final. `CONFIRM_DELIVERY` records delivery without state change.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/domain.py
@@ -1064,7 +1064,7 @@ git commit -m "feat(state): buyer anchor and dispute transitions"
 **Interfaces:**
 - Produces: `refund(transaction_id, remedy) -> REFUNDED`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_refund_moves_to_refunded():
@@ -1072,21 +1072,21 @@ async def test_refund_moves_to_refunded():
     assert transaction.state == "REFUNDED"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_fake_payments.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 PayPal refund call, ledger reversal (double-entry against the capture), idempotency keyed on transaction + remedy, refund webhook handling, terminal `REFUNDED`. This task delivers the path itself, tested directly via `service.refund(...)`; Task 19 wires it from the `dispute-decision` flow (`upheld` + refund remedy). Until this ships, captured-fund cancellation stays forbidden.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_fake_payments.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/repository.py
@@ -1103,7 +1103,7 @@ git commit -m "feat(refunds): first-class refund path"
 **Interfaces:**
 - Produces: `open_dispute(transaction_id, buyer_id, requirement_ids, reason_code, claim, evidence)`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_dispute_without_artifact_rejected_no_transition():
@@ -1112,21 +1112,21 @@ async def test_dispute_without_artifact_rejected_no_transition():
     assert transaction.state != "DISPUTE_OPEN"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Validity rules from §3.8: artifact intake, binding to transaction and agreement version, evaluable claim. Valid dispute opens `DISPUTE_OPEN` from `VERIFICATION_PENDING` or `RELEASE_PERMITTED`. Invalid dispute is audit event, no transition, one retry inside dispute window.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/api/buyer.py
@@ -1147,7 +1147,7 @@ git commit -m "feat(dispute): evidence-gated opening"
 
 **Decision (locked 2026-11-04):** dispute artifacts reuse `evidence` with `purpose='dispute'` (ignored by verification and rollup); no separate table.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_dispute_counter_evidence_never_satisfies_requirement():
@@ -1164,21 +1164,21 @@ async def test_dispute_counter_evidence_never_satisfies_requirement():
     assert hardware.attempt is not None  # unchanged by dispute artifact
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_dispute_counter_evidence.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `purpose` defaults to `requirement`; dispute submissions carry `purpose='dispute'` plus the open dispute id; intake rules (allowlist, size, SHA-256, transaction + agreement-version binding) are identical to requirement uploads. The endpoint is permitted only while `DISPUTE_OPEN`, is never read by verification or rollup, and never starts/closes a requirement attempt. The seller projection gains the `dispute` block (claim, `reason_code`, `requirement_ids`, `opened_at`, `escalation_rung`, `action_required='respond_to_dispute'`) so the workspace can render what is expected next. Add `respond_to_dispute` to `next_action` derivation.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_dispute_counter_evidence.py tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/api/seller.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/evidence.py apps/verifund_control_plane/verifund_control_plane/repository.py
@@ -1195,7 +1195,7 @@ git commit -m "feat(dispute): seller counter-evidence surface"
 **Interfaces:**
 - Produces: `dispute_decision(...)`, `resolve_system_failure(...)`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_dismissed_dispute_returns_to_release_permitted():
@@ -1203,21 +1203,21 @@ async def test_dismissed_dispute_returns_to_release_permitted():
     assert transaction.state == "RELEASE_PERMITTED"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `dispute-decision` records decision, remedy, reviewer. `dismissed` returns to release/verification; `upheld` applies remedy and moves to `REFUNDED` or `REMEDIATION_REQUIRED`; `settled` records split. `resolve-system-failure` releases or cancels system-owned failures.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/api/ops.py apps/verifund_control_plane/verifund_control_plane/service.py
@@ -1235,7 +1235,7 @@ git commit -m "feat(ops): dispute decisions and system failure resolution"
 **Interfaces:**
 - Produces: `release()` accepting `RELEASE_PERMITTED` and `REVIEW_REQUIRED` only (409 while a dispute is open); `return-to-remediation` endpoint; expanded `NON_OVERRIDABLE_REASONS`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 def test_release_refused_during_open_dispute():
@@ -1250,21 +1250,21 @@ def test_non_verification_failure_not_overridable():
     assert ReviewReason.MANUAL_FLAG not in NON_OVERRIDABLE_REASONS
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_ops_narrowing.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `NON_OVERRIDABLE_REASONS` expands to every verification failure reason except `MANUAL_FLAG` (inspection-window overshoot and future-delivery reasons remain overridable only via `extend_deadline`, never via `release`). `release()` rejects any source state other than `RELEASE_PERMITTED`/`REVIEW_REQUIRED` and refuses unconditionally during an open dispute. `extend_deadline` is the only way to move an evidence deadline. `POST /ops/transactions/{id}/return-to-remediation` moves `REVIEW_REQUIRED → REMEDIATION_REQUIRED` with a mandatory note and re-arms the remediation deadline (default 72h), replacing the removed "override a missed deadline" capability. Audit `ops.returned_to_remediation`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_ops_narrowing.py tests/unit/test_verifund_agent_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/domain.py apps/verifund_control_plane/verifund_control_plane/api/ops.py
@@ -1281,7 +1281,7 @@ git commit -m "feat(ops): narrow release and non-overridable reasons"
 **Interfaces:**
 - Produces: `extend_deadline`, remediation sweep.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_remediation_deadline_miss_moves_to_review():
@@ -1290,21 +1290,21 @@ async def test_remediation_deadline_miss_moves_to_review():
     assert transaction.state == "REVIEW_REQUIRED"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Remediation deadline defaults to 72h, extendable. Sweeper covers `VERIFICATION_PENDING` and `REMEDIATION_REQUIRED`. System-owned misses route to `REVIEW`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/reconciler.py apps/verifund_control_plane/verifund_control_plane/service.py
@@ -1322,7 +1322,7 @@ git commit -m "feat(remediation): deadlines and sweeper"
 **Interfaces:**
 - Produces: reconciler sweep that settles `scan_status=pending` (calls the scan provider; marks `clean` or `rejected`) and re-runs verification for affected transactions; pending items older than `settings.scan_pending_timeout_minutes` (default 60) route the transaction to `REVIEW_REQUIRED` with `PENDING_SCAN_TIMEOUT`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_pending_scan_timeout_routes_to_review():
@@ -1336,21 +1336,21 @@ async def test_scan_completion_triggers_reverification():
     assert transaction.verification is not None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 The reconciler already owns deadline sweeps; extend it with a scan-settlement sweep. A `rejected` scan result counts as an invalid file at declaration time (seller-remediable `FAIL`, never `REVIEW` and never AI-derived). A `clean` result flips `scan_status`, then verification is re-run; AI-derived `FAIL` still forbidden, so a clean scan whose extraction looks wrong produces `REVIEW`. Scan provider is behind a `ScannerPort` protocol (fake in tests; real provider selected via settings). If the provider is unavailable, leave items `pending` and alert ops — do not fail the requirement.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/reconciler.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/domain.py
@@ -1367,7 +1367,7 @@ git commit -m "feat(verification): scan settlement and re-verification sweep"
 **Interfaces:**
 - Produces: `ObjectStore.put/get/signed_url`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_evidence_intake_accepts_webp_and_csv():
@@ -1375,21 +1375,21 @@ async def test_evidence_intake_accepts_webp_and_csv():
     assert item.scan_status == "pending"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_repository_aux.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Private object store adapter with SSE, malware scanning status, retention/legal hold, short-lived signed URLs. Keep SHA-256 content addressing. Expand intake allowlist to `image/webp`, video types, `text/csv`, and `artifact_type=reference`. Add `captured_at` to returned `EvidenceItem`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_repository_aux.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/evidence.py apps/verifund_control_plane/verifund_control_plane/storage.py
@@ -1406,7 +1406,7 @@ git commit -m "feat(storage): object store and intake allowlist"
 **Interfaces:**
 - Produces: `reissue_seller_token(transaction_id)`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_version_bump_reissues_seller_token():
@@ -1414,21 +1414,21 @@ async def test_version_bump_reissues_seller_token():
     assert latest_seller_token_jti != previous_jti
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_agreement_tokens.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Reissue seller tokens on `sync_transaction_pointer` or document invalidation. Add ops endpoint.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_agreement_tokens.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/api/ops.py
@@ -1446,7 +1446,7 @@ git commit -m "feat(tokens): reissue on agreement version bump"
 **Interfaces:**
 - Produces: short-TTL enforcement, per-seller rate limiting, remediation-triggered token rotation, log-redaction guarantee.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 async def test_rate_limit_blocks_burst():
@@ -1465,21 +1465,21 @@ def test_remediation_rotation_revokes_old_token():
     assert await repo.is_token_revoked(old_jti)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_seller_token_controls.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Short TTL for seller tokens via `settings.seller_token_ttl_minutes` (default 60 for demo; revocation already supported). Per-seller fixed-window rate limiter on seller routes (429 + `rate_limited` code). On any transition into `REMEDIATION_REQUIRED`, revoke the transaction's active seller tokens and reissue via the Task 22 path (rotation on remediation) so a token captured before remediation is useless. Verify the request logger redacts `Authorization` values (add a redaction filter if missing). Upload/claim notifications remain out of scope — no notification channel exists yet; note in the demo runbook instead. No buyer-token changes here.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_seller_token_controls.py tests/unit/test_agreement_tokens.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/tokens.py apps/verifund_control_plane/verifund_control_plane/repository.py apps/verifund_control_plane/verifund_control_plane/settings.py
@@ -1507,16 +1507,16 @@ git commit -m "feat(security): seller token compensating controls"
 **Interfaces:**
 - Consumes: seller bearer token, scoped endpoints.
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 Mirror prototype routes under `/seller/*`. Each page fetches real scoped endpoints; no mock data. Store seller token from invitation exchange and attach as Bearer.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run: `cd apps/console && pnpm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/console
@@ -1532,16 +1532,16 @@ git commit -m "feat(console): seller app shell and routes"
 **Interfaces:**
 - Consumes: backend transaction state + requirement status.
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 Replace two vocabularies with one enum plus transaction-state → label map from §3.9.4. Add `REMEDIATION_REQUIRED`, `DISPUTE_OPEN`, `REFUNDED`. No `REJECTED` evidence badge.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run: `cd apps/console && pnpm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/console
@@ -1557,16 +1557,16 @@ git commit -m "feat(console): single status vocabulary"
 **Interfaces:**
 - Consumes: `accepted_formats`, `source`.
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 Collect `captured_at`; provide reference/URL input when `source=reference`; render formats from `accepted_formats`; include `image/webp`, video, `text/csv`.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run: `cd apps/console && pnpm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/console
@@ -1582,16 +1582,16 @@ git commit -m "feat(console): reference artifacts and captured_at"
 **Interfaces:**
 - Consumes: `POST /fulfillment/access/{token}` (produced by **Task 12b**).
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 Wire invitation exchange (produced by Task 12b): the access screen makes the server call and stores the returned seller token as Bearer; "Continue to demo workspace" is not the production flow. Gate the agreement routes is a backend concern (Task 12b) — this task only consumes the seller-scoped `GET /seller/agreements/{id}` for the "View agreement" action and the agreement summary card.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run: `cd apps/console && pnpm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/console
@@ -1607,11 +1607,11 @@ git commit -m "feat(console): invitation exchange and gated agreement"
 **Interfaces:**
 - Produces: documentation only.
 
-- [ ] **Step 1: Verify mock ids/formats mirrored**
+- [x] **Step 1: Verify mock ids/formats mirrored**
 
 Check `product_photos`, `serial`, `hardware`, `warranty`, `shipping`, `delivery_confirmation`, `invoice` and formats include `image/webp`, video, `text/csv`.
 
-- [ ] **Step 2: Commit documentation if needed**
+- [x] **Step 2: Commit documentation if needed**
 
 ```bash
 git add docs/superpowers/specs/2026-11-04-verifund-seller-evidence-target-design.md
@@ -1636,7 +1636,7 @@ git commit -m "docs: align mock and contract ids"
 
 Outbound only (locked 2026-11-04) — no `PASS`/`FAIL`, no webhook handling, no Tracking v1, no verification/rollup reads. Carrier is validated against PayPal's carrier enum with `OTHER` + `carrier_name_other` fallback (sandbox: `OTHER` / `Verifund Sandbox Carrier` per `verifund-test-laptop-evidence/paypal-tracking-evidence.json`). Delivery evidence stays exclusively with the `CarrierClient` adapter.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_tracker_sync_is_idempotent():
@@ -1649,21 +1649,21 @@ async def test_tracker_sync_is_idempotent():
     assert first == second == "8MC585209K746392H-TEST-TRACK-001"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_paypal_tracking.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 OAuth client-credentials token handling; Orders v2 `POST /v2/checkout/orders/{id}/track` with `capture_id`, `tracking_number`, `carrier`, `items[]` derived from award line items, `notify_payer=true`, `invoice_id=agreement_id`. One call per parcel. Tracker id `{capture_id}-{tracking_number}` persisted on the transaction record. Sync is triggered from the shipping-reference acceptance path (post-capture), entirely outside verification/rollup. Retry/backoff with an ops alert on persistent failure; `paypal.tracker_registered` audit event; tokens never logged. PayPal's documented API exports no carrier scans or delivered webhook — do not build one.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_paypal_tracking.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/paypal_tracking.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/repository.py
@@ -1683,7 +1683,7 @@ git commit -m "feat(paypal): outbound tracker sync on ship"
 
 Read-only display over the outbound sync of Task 28. Tracker data never enters verification, rollup, `REMEDIATION_REQUIRED` routing, or the release gate.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 async def test_dispute_context_includes_tracker():
@@ -1692,21 +1692,21 @@ async def test_dispute_context_includes_tracker():
     assert context["tracker"]["tracker_id"] == "8MC585209K746392H-TEST-TRACK-001"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Refresh the persisted tracker id with `GET /v1/shipping/trackers/{transaction_id}-{tracking_number}` (the documented read-back for what was last registered); surface it in the ops transaction view and in the `dispute-decision` payload, where `non_delivery`/`late_delivery` reason codes benefit most (item-not-received defense). Statuses are merchant-pushed values (`SHIPPED | ON_HOLD | DELIVERED | CANCELLED`) and are always rendered with a `merchant_push` source label. Reconciler refreshes opportunistically; refresh failure is non-fatal. No path from tracker state to verification or `DISPUTE_OPEN` outcomes; ops still decides disputes.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `uv run pytest tests/unit/test_verifund_reconciler.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/reconciler.py apps/verifund_control_plane/verifund_control_plane/api/ops.py

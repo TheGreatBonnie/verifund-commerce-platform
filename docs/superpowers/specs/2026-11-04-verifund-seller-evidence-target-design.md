@@ -534,6 +534,11 @@ rejection for disputes (§3.8). Do not add a sixth badge.
 
 #### 3.9.5 What must change
 
+**Implemented (2026-11-05, Tasks 23–27).** All prototype changes below and
+backend additions 1–7 are shipped in the console; only settings (item 9 below)
+remains deferred. The status vocabulary lives in `lib/seller-status.ts` and
+`lib/stages.ts`; uploaded formats render from `accepted_formats`.
+
 **Prototype changes (the contract is right, the mock invents):**
 
 1. Replace `initialRequirements` with `SellerProjection.requirements[]`; the five ids become
@@ -574,15 +579,15 @@ rejection for disputes (§3.8). Do not add a sixth badge.
 
 **Still deferred:**
 
-8. Seller event/activity feed (needs a seller-scoped event read; `GET /transactions/{id}/events`
-   stays ops-only for now).
 9. Settings (channels, notifications).
 
-**Format reconciliation.** The mock advertises `WEBP`, `MP4`, `Tracking number`, and `URL`.
-Intake (`evidence.py:15`) accepts only `json`, `txt`, `pdf`, `png`, `jpeg`, and only as a
-multipart file. Required change: add `image/webp` and video types to the allowlist, and add
-`artifact_type=reference` so a tracking number or URL is a first-class submission rather
-than a file pretending to be one.
+Seller event/activity feed (former item 8) is implemented: `GET /seller/transactions/{id}/events`
+returns the chronological timeline rendered at `/seller/fulfillment/{id}/activity`.
+
+**Format reconciliation (implemented).** The mock advertises `WEBP`, `MP4`, `Tracking number`, and `URL`.
+Intake now accepts `image/webp` and video types (`video/mp4`, `video/quicktime`, `video/webm`) plus
+`text/csv` in the allowlist (`evidence.py:15-26`), and `artifact_type=reference` makes a tracking
+number or URL a first-class submission rather than a file pretending to be one.
 
 ### 3.10 Seller-scoped read coverage
 
@@ -668,9 +673,9 @@ source.
 |---|---|
 | `state`, `agreement_id`, `agreement_version`, `amount_cents`, `deadlines` | `TransactionRecord` |
 | `line_items`, `quantity`, `delivery_days`, `warranty_months`, `returns_days` | `AgreementProjection` via `build_projection` |
-| `evidence.submitted` / `.required` / `.complete` | realized `REQUIRED_EVIDENCE` kinds (`domain.py:84`) until §3.1.1 lands |
-| `allowed_actions` | `allowed_actions(state, "seller")` (`domain.py:265-267`) |
-| `next_action` | derived from `allowed_actions`; `submit_evidence` is the only value reachable before §3.5/§3.8 |
+| `evidence.submitted` / `.required` / `.complete` | per-requirement `RequirementResult` statuses from `project_requirements(terms)` (§3.1.1, landed) |
+| `allowed_actions` | `allowed_actions(state, "seller")` |
+| `next_action` | derived from state + completeness (`submit_evidence`, `replace_evidence` in `REVIEW_REQUIRED`, `respond_to_dispute` in `DISPUTE_OPEN`, else `none`) |
 | `payout` | `record.payout` (already used by the buyer projection) |
 | evidence rows | `evidence` table, which already carries `seller_id` (`repository.py:136`) |
 | `requirement_id`, `origin`, `attributed_to`, `agreement_version`, `scan_status` | new columns on `evidence` (§6); `captured_at` already exists but is not yet in `EvidenceItem` |
@@ -699,13 +704,11 @@ page, because the dashboard labels are counts of work, not previews of a page.
 
 #### 3.10.5 Field life cycle
 
-These fields are defined so they do not need a breaking change when the requirement model
-lands:
+These fields were defined so they did not need a breaking change when the requirement model
+landed:
 
-- `evidence.submitted` / `.required` count requirement results once §3.2 exists; until then
-  they count evidence kinds. No percentage is returned in either case.
-- `next_action` gains `replace_evidence` when `REMEDIATION_REQUIRED` exists (§3.5) and
-  `respond_to_dispute` when `DISPUTE_OPEN` exists (§3.8). Adding enum members is additive.
+- `evidence.submitted` / `.required` count requirement results (§3.2, landed). No percentage is returned in either case.
+- `next_action` carries `replace_evidence` in `REVIEW_REQUIRED` and `respond_to_dispute` in `DISPUTE_OPEN`. Adding enum members was additive.
 - `payout.status` keeps the payout states distinct from payment capture; the payouts screen
   must not derive a release from `funding.status`.
 
@@ -725,14 +728,11 @@ so it is decided deliberately rather than discovered at implementation time.
 
 #### 3.10.7 Sequencing
 
-Independent of steps 1–11 except for contract types. Recommended after step 5
-(per-requirement verification), because `evidence.submitted/required` and `next_action` are
-then written once against requirement results instead of against `REQUIRED_EVIDENCE`. It is
-not blocked by step 5: the kind-based counts are correct today, just shorter-lived.
+Implemented (Tasks 10, 10a, 23). `evidence.submitted/required` and `next_action` are
+written against requirement results (§3.2, landed), as recommended.
 
 #### 3.10.8 Non-goals
 
-- Event/activity feed for sellers — stays ops-only in this milestone.
 - Settings, messaging channels, notification preferences — no contract.
 - Search across transactions beyond the `state` filter.
 - Requirement-level progress on these list screens; that arrives with §3.2 and is consumed by
@@ -977,11 +977,11 @@ outcome. Milestone E is carrier-source-specific and can run in parallel with Mil
 - Evidence-gated disputes reject buyers who hold no artifact. The single retry limits the
   harm, but a subjective complaint still has no path; that gap is deliberate and should be
   stated in the buyer-facing terms.
-- The prototype's list screens (dashboard, orders, fulfillment, evidence library, payouts)
-  have no seller-scoped read endpoints today: only ops has `GET /transactions`, and
-  `SellerProjection` carries no payout block. §3.10 specifies the three endpoints, but until
-  they ship the prototype must stay mock-fed there; the workspace is the only screen whose
-  data source changes in the workspace milestone.
+- ~~The prototype's list screens (dashboard, orders, fulfillment, evidence library, payouts)
+  have no seller-scoped read endpoints today~~ — Implemented in §3.10 (`GET /seller/transactions`,
+  `GET /seller/evidence`, `GET /seller/payouts`, plus `SellerProjection.payout`); see
+  `api/seller.py`. The workspace is the only screen whose
+  data source changed in the workspace milestone.
 - §3.10 removes buyer identity from the seller list, which the prototype shows in the
   workspace header. If buyer names are required for the demo, that is a deliberate exposure
   decision to record before implementation, not a field to add silently.
