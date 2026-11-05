@@ -803,6 +803,9 @@ class EvidenceItem(VerifundModel):
     captured_at: datetime | None = None
     scan_status: str | None = None  # pending | clean | rejected
     agreement_version: int | None = None
+    artifact_type: str | None = None  # file | reference
+    reference: str | None = None  # reference payload, e.g. a tracking number
+    submission_attempt: int | None = None  # the open attempt the upload belongs to
     created_at: datetime
 
 

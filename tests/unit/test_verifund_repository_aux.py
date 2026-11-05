@@ -45,6 +45,67 @@ async def test_evidence_dedupes_by_transaction_and_sha(repo):
     assert len(await repo.list_evidence("vf_1")) == 1
 
 
+async def test_declaration_records_attempt(repo):
+    async with repo.transaction() as conn:
+        await repo.add_declaration(
+            conn, "vf_1", "hardware", 1, actor="seller", submission_ids=["sub_1"]
+        )
+    rows = await repo.list_declarations("vf_1", "hardware")
+    assert rows[0]["attempt"] == 1
+
+
+async def test_submissions_and_declarations_round_trip(repo):
+    item = evidence("c" * 64).model_copy(
+        update={
+            "requirement_id": "hardware",
+            "scan_status": "pending",
+            "artifact_type": "file",
+            "origin": "seller",
+            "attributed_to": "seller",
+            "agreement_version": 2,
+            "submission_attempt": 1,
+        }
+    )
+    async with repo.transaction() as conn:
+        assert await repo.open_attempt(conn, "vf_1", "hardware") == 1
+        stored, created = await repo.add_evidence(
+            conn, "vf_1", "northwind-audio", item, captured_at=NOW
+        )
+        assert created
+        submission = await repo.add_evidence_submission(
+            conn,
+            submission_id="sub_1",
+            transaction_id="vf_1",
+            evidence_id=stored.evidence_id,
+            requirement_id="hardware",
+            attempt=1,
+        )
+        assert submission["submission_id"] == "sub_1"
+        await repo.add_declaration(
+            conn, "vf_1", "hardware", 1, actor="seller", submission_ids=["sub_1"]
+        )
+        assert await repo.open_attempt(conn, "vf_1", "hardware") == 2
+
+    submissions = await repo.list_submissions("vf_1", "hardware")
+    assert [row["submission_id"] for row in submissions] == ["sub_1"]
+    assert submissions[0]["attempt"] == 1
+    assert submissions[0]["requirement_id"] == "hardware"
+
+    declarations = await repo.list_declarations("vf_1", "hardware")
+    assert len(declarations) == 1
+    assert declarations[0]["attempt"] == 1
+    assert declarations[0]["submission_ids"] == ["sub_1"]
+    assert declarations[0]["actor"] == "seller"
+
+    items = await repo.list_evidence("vf_1")
+    assert items[0].requirement_id == "hardware"
+    assert items[0].scan_status == "pending"
+    assert items[0].artifact_type == "file"
+    assert items[0].agreement_version == 2
+    assert items[0].submission_attempt == 1
+    assert items[0].captured_at == NOW
+
+
 async def test_webhook_event_dedupe(repo):
     async with repo.transaction() as conn:
         assert await repo.insert_webhook_event(

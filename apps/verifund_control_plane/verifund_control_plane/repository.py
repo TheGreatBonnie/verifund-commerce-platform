@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    func,
     select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -35,6 +36,12 @@ def _iso(value: datetime) -> str:
 def _dt(value: str | None) -> datetime:
     if not value:
         raise ValueError("missing timestamp")
+    return datetime.fromisoformat(value)
+
+
+def _dt_optional(value: str | None) -> datetime | None:
+    if not value:
+        return None
     return datetime.fromisoformat(value)
 
 
@@ -142,7 +149,42 @@ class Repository:
             Column("note", String, nullable=True),
             Column("captured_at", String, nullable=True),
             Column("created_at", String, nullable=False),
+            Column("requirement_id", String, nullable=True),
+            Column("submission_attempt", Integer, nullable=True),
+            Column("origin", String, nullable=True),
+            Column("attributed_to", String, nullable=True),
+            Column("artifact_type", String, nullable=True),
+            Column("reference", String, nullable=True),
+            Column("agreement_version", Integer, nullable=True),
+            Column("scan_status", String, nullable=True),
             UniqueConstraint("transaction_id", "sha256", name="uq_evidence_txn_sha"),
+        )
+        self.evidence_submissions = Table(
+            "evidence_submissions",
+            self.metadata,
+            Column("submission_id", String, primary_key=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("evidence_id", String, nullable=False, index=True),
+            Column("requirement_id", String, nullable=False),
+            Column("attempt", Integer, nullable=False),
+            Column("created_at", String, nullable=False),
+        )
+        self.requirement_declarations = Table(
+            "requirement_declarations",
+            self.metadata,
+            Column("declaration_id", String, primary_key=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("requirement_id", String, nullable=False),
+            Column("attempt", Integer, nullable=False),
+            Column("actor", String, nullable=False),
+            Column("submission_ids", JSON, nullable=False),
+            Column("declared_at", String, nullable=False),
+            UniqueConstraint(
+                "transaction_id",
+                "requirement_id",
+                "attempt",
+                name="uq_declaration_txn_req_attempt",
+            ),
         )
         self.provider_operations = Table(
             "provider_operations",
@@ -668,6 +710,14 @@ class Repository:
                 note=item.note,
                 captured_at=_iso(captured_at) if captured_at else None,
                 created_at=_iso(item.created_at),
+                requirement_id=item.requirement_id,
+                submission_attempt=item.submission_attempt,
+                origin=item.origin,
+                attributed_to=item.attributed_to,
+                artifact_type=item.artifact_type,
+                reference=item.reference,
+                agreement_version=item.agreement_version,
+                scan_status=item.scan_status,
             )
             .on_conflict_do_nothing(index_elements=["transaction_id", "sha256"])
         )
@@ -703,12 +753,21 @@ class Repository:
     def _evidence(self, row: Any) -> EvidenceItem:
         return EvidenceItem(
             evidence_id=row.evidence_id,
+            requirement_id=row.requirement_id,
             kind=row.kind,
             sha256=row.sha256,
             media_type=row.media_type,
             size_bytes=row.size_bytes,
             original_filename=row.original_filename,
             note=row.note,
+            origin=row.origin,
+            attributed_to=row.attributed_to,
+            captured_at=_dt_optional(row.captured_at),
+            scan_status=row.scan_status,
+            agreement_version=row.agreement_version,
+            artifact_type=row.artifact_type,
+            reference=row.reference,
+            submission_attempt=row.submission_attempt,
             created_at=_dt(row.created_at),
         )
 
@@ -736,6 +795,124 @@ class Repository:
                 "not_found", "evidence not found", status_code=404
             )
         return self._evidence(row)
+
+    async def open_attempt(
+        self, conn: AsyncConnection, transaction_id: str, requirement_id: str
+    ) -> int:
+        """The 1-based attempt number the next upload belongs to.
+
+        The attempt is the count of prior declarations for the requirement
+        plus one; a declaration closes its attempt.
+        """
+        row = (
+            await conn.execute(
+                select(func.max(self.requirement_declarations.c.attempt)).where(
+                    self.requirement_declarations.c.transaction_id == transaction_id,
+                    self.requirement_declarations.c.requirement_id == requirement_id,
+                )
+            )
+        ).scalar_one_or_none()
+        return int(row or 0) + 1
+
+    async def add_evidence_submission(
+        self,
+        conn: AsyncConnection,
+        *,
+        submission_id: str,
+        transaction_id: str,
+        evidence_id: str,
+        requirement_id: str,
+        attempt: int,
+        created_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        now = created_at or datetime.now(UTC)
+        await conn.execute(
+            self.evidence_submissions.insert().values(
+                submission_id=submission_id,
+                transaction_id=transaction_id,
+                evidence_id=evidence_id,
+                requirement_id=requirement_id,
+                attempt=attempt,
+                created_at=_iso(now),
+            )
+        )
+        return {
+            "submission_id": submission_id,
+            "transaction_id": transaction_id,
+            "evidence_id": evidence_id,
+            "requirement_id": requirement_id,
+            "attempt": attempt,
+            "created_at": _iso(now),
+        }
+
+    async def list_submissions(
+        self,
+        transaction_id: str,
+        requirement_id: str | None = None,
+        attempt: int | None = None,
+    ) -> list[dict[str, Any]]:
+        statement = select(self.evidence_submissions).where(
+            self.evidence_submissions.c.transaction_id == transaction_id
+        )
+        if requirement_id is not None:
+            statement = statement.where(
+                self.evidence_submissions.c.requirement_id == requirement_id
+            )
+        if attempt is not None:
+            statement = statement.where(self.evidence_submissions.c.attempt == attempt)
+        statement = statement.order_by(self.evidence_submissions.c.created_at)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).mappings().all()
+        return [dict(row) for row in rows]
+
+    async def add_declaration(
+        self,
+        conn: AsyncConnection,
+        transaction_id: str,
+        requirement_id: str,
+        attempt: int,
+        *,
+        actor: str,
+        submission_ids: list[str],
+        declared_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        now = declared_at or datetime.now(UTC)
+        declaration_id = f"decl_{uuid.uuid4().hex}"
+        await conn.execute(
+            self.requirement_declarations.insert().values(
+                declaration_id=declaration_id,
+                transaction_id=transaction_id,
+                requirement_id=requirement_id,
+                attempt=attempt,
+                actor=actor,
+                submission_ids=list(submission_ids),
+                declared_at=_iso(now),
+            )
+        )
+        return {
+            "declaration_id": declaration_id,
+            "transaction_id": transaction_id,
+            "requirement_id": requirement_id,
+            "attempt": attempt,
+            "actor": actor,
+            "submission_ids": list(submission_ids),
+            "declared_at": _iso(now),
+        }
+
+    async def list_declarations(
+        self, transaction_id: str, requirement_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        statement = select(self.requirement_declarations).where(
+            self.requirement_declarations.c.transaction_id == transaction_id
+        )
+        if requirement_id is not None:
+            statement = statement.where(
+                self.requirement_declarations.c.requirement_id == requirement_id
+            )
+        statement = statement.order_by(self.requirement_declarations.c.attempt)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).mappings().all()
+        return [dict(row) for row in rows]
 
     async def create_provider_operation(
         self,
