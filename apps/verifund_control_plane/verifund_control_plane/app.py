@@ -24,6 +24,7 @@ from verifund_control_plane.receipts import ReceiptSigner
 from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.service import VerifundService
+from verifund_control_plane.tenancy.repository import TenancyRepository
 from verifund_control_plane.settings import Settings
 from verifund_control_plane.tokens import (
     BuyerTokenService,
@@ -43,6 +44,7 @@ def create_app(
     now = clock or (lambda: datetime.now(UTC))
     engine = create_engine(settings.database_url)
     repo = Repository(engine)
+    tenancy = TenancyRepository(engine)
     agreement_repo = AgreementRepository(engine)
     agreement_tokens = ApprovalTokenService(
         settings.link_secret, ttl_minutes=settings.approval_token_ttl_minutes, clock=now,
@@ -150,6 +152,8 @@ def create_app(
         await configure_sqlite(engine)
         if hasattr(app.state, "repo"):
             await app.state.repo.create_schema()
+        if hasattr(app.state, "tenancy"):
+            await app.state.tenancy.create_schema()
         if hasattr(app.state, "agreement_repo"):
             async with engine.begin() as _c:
                 await app.state.agreement_repo.create_schema(_c)
@@ -171,6 +175,7 @@ def create_app(
     app.state.engine = engine
     app.state.clock = now
     app.state.repo = repo
+    app.state.tenancy = tenancy
     app.state.agreement_repo = agreement_repo
     app.state.agreement_tokens = agreement_tokens
     app.state.agreement_service = agreement_service

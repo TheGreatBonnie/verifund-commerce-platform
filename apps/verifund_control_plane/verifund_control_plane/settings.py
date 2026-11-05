@@ -153,6 +153,7 @@ class Settings(BaseSettings):
     fake_payment_scenario: str = Field(
         default="success", validation_alias="VERIFUND_FAKE_SCENARIO"
     )
+    tenancy_enabled: bool = Field(default=False, validation_alias="VERIFUND_TENANCY_ENABLED")
 
     @property
     def is_sandbox(self) -> bool:
