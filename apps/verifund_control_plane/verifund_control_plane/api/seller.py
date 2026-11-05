@@ -67,26 +67,49 @@ async def list_evidence(transaction_id: str, request: Request) -> dict[str, Any]
 async def upload_evidence(
     transaction_id: str,
     request: Request,
-    kind: str = Form(...),
-    file: UploadFile = File(...),  # noqa: B008
+    requirement_id: str | None = Form(None),
+    kind: str | None = Form(None),
+    file: UploadFile | None = File(None),  # noqa: B008
+    reference: str | None = Form(None),
+    reference_type: str | None = Form(None),
+    agreement_version: int | None = Form(None),
     note: str | None = Form(None),
     captured_at: datetime | None = Form(None),  # noqa: B008
 ) -> dict[str, Any]:
     claims = await authenticate(request, transaction_id, "evidence:write")
-    data = await file.read(request.app.state.settings.max_evidence_bytes + 1)
-    item = await _service(request).add_evidence(
+    if kind is not None:
+        raise VerifundError(
+            "invalid_request",
+            "kind is deprecated; evidence uploads are addressed by requirement_id",
+            status_code=422,
+        )
+    if requirement_id is None:
+        raise VerifundError(
+            "invalid_request",
+            "requirement_id is required",
+            status_code=422,
+        )
+    data = (
+        await file.read(request.app.state.settings.max_evidence_bytes + 1)
+        if file is not None
+        else None
+    )
+    receipt = await _service(request).add_evidence(
         transaction_id,
         seller_id=claims.seller_id,
         agreement_hash=claims.agreement_hash,
-        kind=kind,
-        media_type=file.content_type or "application/octet-stream",
-        original_filename=file.filename or "evidence",
+        requirement_id=requirement_id,
+        reference=reference,
+        reference_type=reference_type,
+        media_type=file.content_type if file is not None else None,
+        original_filename=file.filename if file is not None else None,
         data=data,
         note=note,
         captured_at=captured_at,
+        agreement_version=agreement_version,
         actor=f"seller:{claims.seller_id}",
     )
-    return item.model_dump(mode="json")
+    return receipt.model_dump(mode="json")
 
 
 @router.get("/transactions/{transaction_id}/evidence/{evidence_id}")

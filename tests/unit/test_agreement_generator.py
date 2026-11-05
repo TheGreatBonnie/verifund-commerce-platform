@@ -130,7 +130,7 @@ def test_generator_requirements_empty_for_grandfathered_callers():
 
 def test_generator_rejects_floor_violating_catalog():
     import pytest
-    from verifund_contracts import Requirement, RequirementCheck
+    from verifund_contracts import Requirement
 
     bad = [
         Requirement(

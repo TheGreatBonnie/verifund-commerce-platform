@@ -15,9 +15,12 @@ from verifund_control_plane.errors import VerifundError
 ALLOWED_MEDIA_TYPES = {
     "application/json",
     "text/plain",
+    "text/csv",
     "application/pdf",
     "image/png",
     "image/jpeg",
+    "image/webp",
+    "video/mp4",
 }
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 

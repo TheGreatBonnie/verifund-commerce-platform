@@ -14,6 +14,8 @@ from verifund_contracts import (
     BuyerAgreementReviewRequest,
     CancelRequest,
     EvidenceItem,
+    EvidenceKind,
+    EvidenceSubmission,
     EvidenceSummary,
     FlagReviewRequest,
     FundRequest,
@@ -888,14 +890,17 @@ class VerifundService:
         *,
         seller_id: str,
         agreement_hash: str,
-        kind: str,
-        media_type: str,
-        original_filename: str,
-        data: bytes,
+        requirement_id: str,
+        reference: str | None,
+        reference_type: str | None,
+        media_type: str | None,
+        original_filename: str | None,
+        data: bytes | None,
         note: str | None,
         captured_at: datetime | None,
+        agreement_version: int | None,
         actor: str,
-    ) -> EvidenceItem:
+    ) -> EvidenceSubmission:
         record = await self.repo.get_transaction(transaction_id)
         if record.seller_id != seller_id:
             raise VerifundError(
@@ -911,16 +916,108 @@ class VerifundService:
                 "evidence cannot be uploaded in the current state",
                 status_code=409,
             )
+        # Validate against the requirement catalog in effect for this agreement.
+        terms = await self._agreement_terms(transaction_id)
+        try:
+            catalog = project_requirements(terms)
+        except (ValidationError, ValueError):
+            raise VerifundError(
+                "invalid_request",
+                "agreement requirements are invalid",
+                status_code=422,
+            ) from None
+        requirement = next(
+            (entry for entry in catalog if entry.requirement_id == requirement_id),
+            None,
+        )
+        if requirement is None:
+            raise VerifundError(
+                "invalid_request",
+                f"unknown requirement_id for this agreement: {requirement_id}",
+                status_code=422,
+            )
+        if requirement.owner != "seller":
+            raise VerifundError(
+                "invalid_request",
+                f"requirement {requirement_id} is not seller-owned",
+                status_code=422,
+            )
+        # A submission against a superseded agreement version is rejected so a
+        # stale seller client can never satisfy the current catalog.
+        if agreement_version is not None and agreement_version != record.agreement_version:
+            raise VerifundError(
+                "hash_mismatch",
+                "agreement version does not match the current terms",
+                status_code=409,
+            )
+
+        is_reference = requirement.source == "reference"
+        if is_reference:
+            if reference is None or reference_type not in {"tracking", "url"}:
+                raise VerifundError(
+                    "invalid_request",
+                    f"{requirement_id} expects a reference artifact "
+                    "(reference, reference_type=tracking|url)",
+                    status_code=422,
+                )
+            if data is not None:
+                raise VerifundError(
+                    "invalid_request",
+                    f"{requirement_id} expects a reference, not a file",
+                    status_code=422,
+                )
+            artifact_type = "reference"
+            payload = reference.encode("utf-8")
+            resolved_media_type = "text/plain"
+            resolved_filename = f"{requirement_id}.reference.txt"
+        else:
+            if data is None:
+                raise VerifundError(
+                    "invalid_request",
+                    f"{requirement_id} expects a file upload",
+                    status_code=422,
+                )
+            if reference is not None:
+                raise VerifundError(
+                    "invalid_request",
+                    f"{requirement_id} expects a file, not a reference",
+                    status_code=422,
+                )
+            artifact_type = "file"
+            payload = data
+            resolved_media_type = (media_type or "application/octet-stream").lower()
+            resolved_filename = original_filename or "evidence"
+            if (
+                requirement.accepted_formats
+                and resolved_media_type not in requirement.accepted_formats
+            ):
+                raise VerifundError(
+                    "unsupported_media_type",
+                    f"media type {resolved_media_type} is not accepted for "
+                    f"{requirement_id}; accepted: {', '.join(requirement.accepted_formats)}",
+                    status_code=415,
+                )
+
+        # `kind` stays in the legacy EvidenceKind vocabulary for the store's
+        # validation; anything else is stored as `other`. The catalog addresses
+        # artifacts by requirement_id, so `kind` is display metadata only.
+        try:
+            store_kind = EvidenceKind(requirement.kind).value
+        except ValueError:
+            store_kind = EvidenceKind.OTHER.value
+
         item = await self.evidence_store.put(
             transaction_id=transaction_id,
             seller_id=seller_id,
-            kind=kind,
-            media_type=media_type,
-            original_filename=original_filename,
-            data=data,
+            kind=store_kind,
+            media_type=resolved_media_type,
+            original_filename=resolved_filename,
+            data=payload,
             note=note,
             captured_at=captured_at,
         )
+        scan_status = "clean" if is_reference else "pending"
+
         new_state = record.state
         async with self.repo.transaction() as conn:
             current = await self.repo.get_transaction(transaction_id, conn)
@@ -930,6 +1027,19 @@ class VerifundService:
                     "evidence cannot be uploaded in the current state",
                     status_code=409,
                 )
+            open_attempt = await self.repo.open_attempt(conn, transaction_id, requirement_id)
+            item = item.model_copy(
+                update={
+                    "requirement_id": requirement_id,
+                    "submission_attempt": open_attempt,
+                    "origin": "seller",
+                    "attributed_to": seller_id,
+                    "agreement_version": current.agreement_version,
+                    "artifact_type": artifact_type,
+                    "reference": reference if is_reference else None,
+                    "scan_status": scan_status,
+                }
+            )
             stored, created = await self.repo.add_evidence(
                 conn,
                 transaction_id,
@@ -937,41 +1047,60 @@ class VerifundService:
                 item,
                 captured_at=captured_at,
             )
-            if not created:
-                return stored
-            event = EventInput(
-                "evidence_received",
-                {
-                    "evidence_id": stored.evidence_id,
-                    "kind": stored.kind,
-                    "sha256": stored.sha256,
-                },
-                actor,
+            submission_id = f"sub_{uuid.uuid4().hex}"
+            await self.repo.add_evidence_submission(
+                conn,
+                submission_id=submission_id,
+                transaction_id=transaction_id,
+                evidence_id=stored.evidence_id,
+                requirement_id=requirement_id,
+                attempt=open_attempt,
             )
-            if current.state == TransactionState.FULFILLMENT_PENDING:
-                updated = await self.repo.transition(
-                    conn,
-                    transaction_id,
-                    expected_version=current.version,
-                    expected_state=current.state,
-                    new_state=TransactionState.VERIFICATION_PENDING,
-                    changes={},
-                    events=[event],
-                    audit=AuditInput(actor, "evidence_received"),
+            if created:
+                event = EventInput(
+                    "evidence_received",
+                    {
+                        "evidence_id": stored.evidence_id,
+                        "kind": stored.kind,
+                        "sha256": stored.sha256,
+                        "requirement_id": requirement_id,
+                        "submission_id": submission_id,
+                        "attempt": open_attempt,
+                    },
+                    actor,
                 )
-                new_state = updated.state
-            else:
-                await self.repo.update_transaction(
-                    conn,
-                    transaction_id,
-                    expected_version=current.version,
-                    changes={},
-                    events=[event],
-                    audit=AuditInput(actor, "evidence_received"),
-                )
+                if current.state == TransactionState.FULFILLMENT_PENDING:
+                    updated = await self.repo.transition(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        expected_state=current.state,
+                        new_state=TransactionState.VERIFICATION_PENDING,
+                        changes={},
+                        events=[event],
+                        audit=AuditInput(actor, "evidence_received"),
+                    )
+                    new_state = updated.state
+                else:
+                    await self.repo.update_transaction(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        changes={},
+                        events=[event],
+                        audit=AuditInput(actor, "evidence_received"),
+                    )
         if new_state == TransactionState.VERIFICATION_PENDING:
             await self.verify_if_ready(transaction_id, actor="system")
-        return stored
+        return EvidenceSubmission(
+            submission_id=submission_id,
+            attempt=open_attempt,
+            evidence_id=stored.evidence_id,
+            requirement_id=requirement_id,
+            receipt_id=f"rcpt_{stored.sha256[:32]}",
+            artifact_type=artifact_type,
+            scan_status=scan_status,
+        )
 
     async def seller_projection(
         self, transaction_id: str, *, seller_id: str

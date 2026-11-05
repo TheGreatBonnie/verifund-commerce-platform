@@ -809,6 +809,22 @@ class EvidenceItem(VerifundModel):
     created_at: datetime
 
 
+class EvidenceSubmission(VerifundModel):
+    """Typed receipt for a requirement-addressed upload (Task 9a).
+
+    `receipt_id` derives from the content hash of the submission (stable for
+    identical bytes); `submission_id` is the per-upload attempt record.
+    """
+
+    submission_id: str
+    attempt: int
+    evidence_id: str
+    requirement_id: str
+    receipt_id: str
+    artifact_type: str  # file | reference
+    scan_status: str  # pending | clean
+
+
 class RequirementResult(VerifundModel):
     requirement_id: str
     kind: str

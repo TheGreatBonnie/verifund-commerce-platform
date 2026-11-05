@@ -359,6 +359,20 @@ def _evaluation_items(
     return usable, pending
 
 
+def _declaration_covers(declaration: dict[str, Any] | None, open_attempt: int) -> bool:
+    """A declaration only counts when it closes the latest submission attempt.
+
+    Submissions arriving after a declaration belong to a fresh attempt, so
+    the requirement goes back to in-progress until it is declared again.
+    """
+    if declaration is None or open_attempt <= 0:
+        return False
+    try:
+        return int(declaration.get("attempt") or 0) == open_attempt
+    except (TypeError, ValueError):
+        return False
+
+
 def _latest_declaration(
     declarations: list[dict[str, Any]] | None, requirement_id: str
 ) -> dict[str, Any] | None:
@@ -493,11 +507,14 @@ def evaluate(
             if _matches(requirement, item) and item.sha256 not in invalid_sha
         ]
         usable, pending_scan = _evaluation_items(requirement, matched)
-        declaration = (
-            _latest_declaration(declarations, requirement.requirement_id)
-            if gate_declarations
-            else None
-        )
+        if gate_declarations:
+            open_attempt = max(
+                (getattr(item, "submission_attempt", None) or 0) for item in matched
+            ) if matched else 0
+            candidate = _latest_declaration(declarations, requirement.requirement_id)
+            declaration = candidate if _declaration_covers(candidate, open_attempt) else None
+        else:
+            declaration = None
 
         artifacts = [_load(store, item) for item in usable]
         reference_item = next(

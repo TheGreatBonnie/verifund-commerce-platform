@@ -98,7 +98,7 @@ async def test_seller_cannot_upload_before_funding(api):
     response = await api.post(
         f"/seller/transactions/{award_body['transaction_id']}/evidence",
         headers={"authorization": f"Bearer {award_body['seller_token']}"},
-        data={"kind": "shipment_manifest"},
+        data={"requirement_id": "shipment_manifest"},
         files={"file": ("manifest.json", b'{"tracking_number":"TRK-1"}', "application/json")},
     )
     assert response.status_code == 409

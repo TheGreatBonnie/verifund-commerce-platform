@@ -1,54 +1,24 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
-from urllib.parse import urlsplit
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
-from commerce_core.binding import binding_from_award, offer_hash
+from sqlalchemy import update
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
 
-NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
-OPS = {"authorization": "Bearer dev-verifund-ops", "x-verifund-actor": "buyer-agent"}
-
-
-def award_payload() -> dict:
-    payload = {
-        "run_id": "run-1",
-        "buyer_id": "demo-buyer",
-        "seller_id": "northwind-audio",
-        "offer_id": "offer-1",
-        "request_id": "rfq-1",
-        "buyer_display_name": "Demo Buyer",
-        "seller_display_name": "Northwind Audio",
-        "currency": "USD",
-        "amount_cents": 123400,
-        "shipping_cents": 3400,
-        "tax_cents": 0,
-        "fees_cents": 0,
-        "quantity": 12,
-        "line_items": [
-            {
-                "sku": "NC-700",
-                "name": "Nimbus NC-700 ANC Headset",
-                "quantity": 12,
-                "unit_price_cents": 10000,
-                "warranty_addon_cents": 0,
-            }
-        ],
-        "delivery_days": 7,
-        "warranty_months": 24,
-        "returns_days": 30,
-        "offer_round": 1,
-        "inspection_period_hours": 24,
-        "offer_valid_until": (NOW + timedelta(hours=1)).isoformat().replace(
-            "+00:00", "Z"
-        ),
-    }
-    payload["offer_hash"] = offer_hash(binding_from_award(payload))
-    return payload
+from tests.support.award_flow import (
+    NOW,
+    OPS,
+    accept,
+    approve,
+    award,
+    fund_and_capture,
+    purchase_order,
+    upload_json,
+)
 
 
 @pytest.fixture
@@ -68,129 +38,53 @@ async def api(tmp_path):
             yield client
 
 
-async def award(client) -> dict:
-    response = await client.post(
-        "/awards",
-        json=award_payload(),
-        headers={**OPS, "idempotency-key": "award:run-1:offer-1"},
+async def settle_scans_and_verify(api, transaction_id: str) -> None:
+    """Stand-in for the scan-settlement sweep (Milestone D, Task 20a): flip
+    pending scans to clean and re-run verification."""
+    app = api._transport.app
+    repo = app.state.repo
+    async with repo.transaction() as conn:
+        await conn.execute(
+            update(repo.evidence)
+            .where(repo.evidence.c.transaction_id == transaction_id)
+            .values(scan_status="clean")
+        )
+    await app.state.service.verify(transaction_id, actor="system")
+
+
+async def seed_system_delivery(api, award_body: dict, delivered_at: datetime) -> None:
+    """Stand-in for CONFIRM_DELIVERY (Milestone B, Task 13): the control plane
+    normally creates this record from the buyer/carrier attestation. Until it
+    lands, seed the same system-generated, buyer-attributed artifact directly."""
+    app = api._transport.app
+    service = app.state.service
+    repo = app.state.repo
+    payload = json.dumps(
+        {"delivered_at": delivered_at.isoformat(), "recipient": "Demo Buyer"}
+    ).encode()
+    item = await service.evidence_store.put(
+        transaction_id=award_body["transaction_id"],
+        seller_id="northwind-audio",
+        kind="delivery_confirmation",
+        media_type="application/json",
+        original_filename="delivery.json",
+        data=payload,
+        note=None,
+        captured_at=None,
     )
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
-async def accept(client, award_body: dict) -> None:
-    response = await client.post(
-        f"/transactions/{award_body['transaction_id']}/accept",
-        json={
-            "seller_id": "northwind-audio",
-            "agreement_hash": award_body["agreement_hash"],
-            "accepted_total_cents": 123400,
-            "seller_task_id": "task-1",
-            "accepted_at": NOW.isoformat(),
+    item = item.model_copy(
+        update={
+            "requirement_id": "delivery_confirmation",
+            "origin": "system",
+            "attributed_to": "demo-buyer",
+            "scan_status": "clean",
             "agreement_version": award_body["agreement_version"],
-        },
-        headers=OPS,
+        }
     )
-    assert response.status_code == 200, response.text
-    # buyer approval via agreement token
-    agr_id = award_body["agreement"]["agreement_id"]
-    token_resp = await client.post(
-        f"/agreements/{agr_id}/approval-token",
-        headers={**OPS, "idempotency-key": "tok:run-1"},
-    )
-    token = token_resp.json()["token"]
-    await client.post(
-        f"/agreements/{agr_id}/buyer-decision",
-        json={
-            "agreement_version": award_body["agreement_version"],
-            "agreement_hash": award_body["agreement_hash"],
-            "decision": "APPROVE",
-            "note": "",
-            "idempotency_key": "bd:run-1",
-        },
-        headers={**OPS, "idempotency-key": "bd:run-1", "X-Approval-Token": token},
-    )
-
-
-async def approve(client, award_body: dict) -> None:
-    response = await client.post(
-        f"/transactions/{award_body['transaction_id']}/approve",
-        json={
-            "approval_id": "apr-1",
-            "approved_by": "demo-reviewer",
-            "approved_at": NOW.isoformat(),
-            "note": "approved",
-            "agreement_hash": award_body["agreement_hash"],
-            "agreement_version": award_body["agreement_version"],
-        },
-        headers=OPS,
-    )
-    assert response.status_code == 200, response.text
-
-
-async def fund_and_capture(client, award_body: dict) -> None:
-    txid = award_body["transaction_id"]
-    funded = await client.post(
-        f"/transactions/{txid}/fund",
-        json={
-            "agreement_hash": award_body["agreement_hash"],
-            "agreement_version": award_body["agreement_version"],
-            "return_url": "http://127.0.0.1:3000/runs/run-1",
-            "cancel_url": "http://127.0.0.1:3000/runs/run-1",
-        },
-        headers={**OPS, "idempotency-key": f"fund:{txid}"},
-    )
-    assert funded.status_code == 200, funded.text
-    checkout_url = funded.json()["checkout_url"]
-    path = urlsplit(checkout_url).path
-    page = await client.get(path)
-    assert page.status_code == 200
-    approved = await client.post(
-        path, data={"action": "approve"}, follow_redirects=False
-    )
-    assert approved.status_code == 303
-
-
-def purchase_order(award_body: dict) -> dict:
-    return {
-        "agreement_hash": award_body["agreement_hash"],
-        "seller_order_id": "MM-1",
-        "offer_id": "offer-1",
-        "quantity": 12,
-        "total_cents": 123400,
-        "currency": "USD",
-        "tracking_number": "TRK-1",
-        "carrier": "Northwind Logistics",
-        "reserved_at": NOW.isoformat(),
-        "eta": (NOW + timedelta(days=7)).isoformat(),
-        "line_items": [
-            {
-                "sku": "NC-700",
-                "quantity": 12,
-                "unit_price_cents": 10000,
-                "warranty_addon_cents": 0,
-            }
-        ],
-    }
-
-
-async def upload(
-    client, award_body: dict, kind: str, payload: dict
-) -> httpx.Response:
-    return await client.post(
-        f"/seller/transactions/{award_body['transaction_id']}/evidence",
-        headers={
-            "authorization": f"Bearer {award_body['seller_token']}"
-        },
-        data={"kind": kind},
-        files={
-            "file": (
-                f"{kind}.json",
-                json.dumps(payload).encode(),
-                "application/json",
-            )
-        },
-    )
+    async with repo.transaction() as conn:
+        await repo.add_evidence(
+            conn, award_body["transaction_id"], "northwind-audio", item
+        )
 
 
 async def test_fake_lifecycle_reaches_released_with_receipt(api):
@@ -219,17 +113,21 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
         "agreement_hash": award_body["agreement_hash"],
         "line_items": [{"sku": "NC-700", "quantity": 12}],
     }
-    uploaded = await upload(api, award_body, "shipment_manifest", manifest)
+    uploaded = await upload_json(api, award_body, "shipment_manifest", manifest)
     assert uploaded.status_code == 201, uploaded.text
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
     assert state["state"] == "VERIFICATION_PENDING"
 
-    delivery = {
-        "delivered_at": (NOW - timedelta(hours=30)).isoformat(),
-        "recipient": "Demo Buyer",
-    }
-    uploaded = await upload(api, award_body, "delivery_confirmation", delivery)
-    assert uploaded.status_code == 201, uploaded.text
+    # The delivery confirmation is system-owned: the seller token cannot
+    # create it (Task 9a); the control plane does (stand-in for Task 13).
+    rejected = await upload_json(
+        api,
+        award_body,
+        "delivery_confirmation",
+        {"delivered_at": (NOW - timedelta(hours=30)).isoformat()},
+    )
+    assert rejected.status_code == 422, rejected.text
+    await seed_system_delivery(api, award_body, NOW - timedelta(hours=30))
 
     invoice = {
         "invoice_id": "INV-1",
@@ -238,8 +136,10 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
         "currency": "USD",
         "line_items": [{"sku": "NC-700", "quantity": 12, "unit_price_cents": 10000}],
     }
-    uploaded = await upload(api, award_body, "invoice", invoice)
+    uploaded = await upload_json(api, award_body, "invoice", invoice)
     assert uploaded.status_code == 201, uploaded.text
+    # Scans settle asynchronously in production (Task 20a); settle here.
+    await settle_scans_and_verify(api, txid)
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
     assert state["state"] == "RELEASE_PERMITTED"
     assert state["verification"]["status"] == "passed"
