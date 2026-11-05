@@ -120,7 +120,27 @@ a run (metadata + trace) even after the browser thread is gone.
 For the complete end-to-end flow (from "Ask agent to negotiate" through seller payout and
 receipt), see [`docs/workflow.md`](docs/workflow.md).
 
-## Verifund settlement (always on)
+### Order evidence (seller workspace)
+
+- Evidence is addressed by **`requirement_id`** (legacy `kind` is rejected);
+  the catalog (design spec §3.1.1: `product_photos`, `serial`, `hardware`,
+  `warranty`, `shipping`, `delivery_confirmation`, `invoice`) is authored
+  by the buyer agent, copied into agreement terms, and projected back to
+  the seller as `SellerProjection.requirements[]`.
+- Uploads collect `requirement_id` and optional `captured_at`; file
+  uploads honor `accepted_formats` (`image/jpeg/png/webp`, video
+  `mp4/quicktime/webm`, `text/csv`, `text/plain`, `application/pdf/json`),
+  and `source=reference` requirements take a tracking number / URL
+  (`reference` + `reference_type=tracking|url`) instead of a file.
+- Submissions accumulate per attempt; a seller declaration closes an
+  attempt, and a later submission starts the next. Dispute
+  counter-evidence is stored with `purpose=dispute` and never feeds
+  verification or rollup.
+- The single seller status vocabulary lives in
+  `apps/console/lib/seller-status.ts` (state -> label map, spec §3.9.4);
+  there is deliberately no `REJECTED` evidence badge.
+
+### Verifund settlement (always on)
 
 `VERIFUND_MODE` selects the settlement behavior (default: `sandbox`):
 
@@ -151,6 +171,15 @@ See [`docs/verifund-paypal-sandbox.md`](docs/verifund-paypal-sandbox.md) for the
 account, webhook, tunnel, and payout setup, and
 [`docs/superpowers/specs/2026-10-27-verifund-control-plane-design.md`](docs/superpowers/specs/2026-10-27-verifund-control-plane-design.md)
 for the design.
+
+### Seller fulfillment workspace
+
+The seller-facing workspace lives under `/seller/*` and is fully
+documented in [`docs/seller-fulfillment-workspace.md`](docs/seller-fulfillment-workspace.md):
+invitation exchange (`POST /ops/transactions/{id}/issue-invitation` →
+`/fulfillment/access/{token}`, token stored in an HttpOnly cookie),
+scoped read endpoints, requirement-addressed uploads, and the single
+status vocabulary. `docs/console.md` covers the console's buyer routes.
 
 ## Conversation history
 
