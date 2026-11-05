@@ -19,6 +19,7 @@
     "@ag-ui/a2a-middleware": "^0.0.6",
     "@ag-ui/client": "1.0.2",
     "@ag-ui/core": "1.0.2",
+    "@clerk/nextjs": "^7.9.25",
     "@copilotkit/react-core": "1.79.0",
     "@copilotkit/runtime": "1.79.0",
     "@paypal/paypal-server-sdk": "2.5.0",
