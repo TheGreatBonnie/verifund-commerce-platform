@@ -85,6 +85,7 @@ class Reconciler:
             "deadlines_checked": 0,
             "deadline_reviews": 0,
             "stale_release_permitted": 0,
+            "deemed_released": 0,
             "webhooks_retried": 0,
             "receipts_backfilled": 0,
             "ledger_mismatches": 0,
@@ -103,6 +104,7 @@ class Reconciler:
             await self._safe(stats, self._sweep_payouts(stats))
             await self._safe(stats, self._sweep_deadlines(stats))
             await self._safe(stats, self._sweep_release_permitted(stats))
+            await self._safe(stats, self._sweep_deemed_acceptance(stats))
             await self._safe(stats, self._sweep_webhooks(stats))
             await self._safe(stats, self._sweep_receipts(stats))
             await self._safe(stats, self._sweep_ledger(stats))
@@ -164,6 +166,57 @@ class Reconciler:
         ):
             if record.updated_at.astimezone(UTC) < cutoff:
                 stats["stale_release_permitted"] += 1
+
+    async def _sweep_deemed_acceptance(self, stats: dict[str, int]) -> None:
+        if not hasattr(self.service, "release") or not hasattr(
+            self.service, "_agreement_terms"
+        ):
+            return
+        from verifund_contracts import ReleaseRequest
+
+        now = self._now()
+        for record in await self.repo.list_transactions(state="RELEASE_PERMITTED"):
+            verification = record.verification or {}
+            requirements = verification.get("requirements") or []
+            if requirements and not all(
+                (req.get("status") == "pass") for req in requirements
+            ):
+                continue
+            deadlines = record.deadlines or {}
+            inspection_raw = deadlines.get("inspection")
+            if inspection_raw is None:
+                inspection_raw = verification.get("inspection_deadline")
+            try:
+                inspection = (
+                    datetime.fromisoformat(str(inspection_raw))
+                    if inspection_raw is not None
+                    else now
+                )
+            except (TypeError, ValueError):
+                inspection = now
+            dispute_hours = 0
+            try:
+                terms = await self.service._agreement_terms(record.transaction_id)
+                if isinstance(terms, dict):
+                    dispute_hours = int(
+                        terms.get("dispute_window_hours") or 0
+                    )
+            except Exception:  # noqa: BLE001
+                dispute_hours = 0
+            deadline = inspection + timedelta(hours=dispute_hours)
+            if now < deadline:
+                continue
+            try:
+                await self.service.release(
+                    record.transaction_id,
+                    ReleaseRequest(
+                        released_by="reconciler", note="deemed acceptance", override=False
+                    ),
+                    actor="reconciler",
+                )
+                stats["deemed_released"] += 1
+            except Exception:  # noqa: BLE001
+                stats["errors"] += 1
 
     async def _sweep_webhooks(self, stats: dict[str, int]) -> None:
         seen: set[str] = set()

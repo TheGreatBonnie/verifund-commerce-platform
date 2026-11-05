@@ -3054,6 +3054,47 @@ class VerifundService:
                 AuditInput(actor, "seller_token_revoked"),
             )
         return {"revoked": True}
+    async def extend_deadline(
+        self,
+        transaction_id: str,
+        *,
+        hours: int | None = None,
+        deadline: Any = None,
+        actor: str = "system",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if hours is None:
+            hours = kwargs.get("hours") or kwargs.get("additional_hours") or 0
+        record = await self.repo.get_transaction(transaction_id)
+        deadlines = dict(record.deadlines or {})
+        now = self._now()
+        current_raw = deadlines.get("inspection")
+        try:
+            current = (
+                datetime.fromisoformat(str(current_raw)) if current_raw is not None else now
+            )
+        except (TypeError, ValueError):
+            current = now
+        if deadline is not None:
+            if isinstance(deadline, str):
+                new_deadline = datetime.fromisoformat(deadline)
+            else:
+                new_deadline = deadline
+        else:
+            new_deadline = current + timedelta(hours=int(hours or 0))
+        deadlines["inspection"] = new_deadline.isoformat()
+        async with self.repo.transaction() as conn:
+            await self.repo.update_transaction(
+                conn,
+                transaction_id,
+                expected_version=record.version,
+                changes={"deadlines": deadlines},
+                audit=AuditInput(actor, "deadline_extended"),
+            )
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
     async def release(
         self,
         transaction_id: str,
