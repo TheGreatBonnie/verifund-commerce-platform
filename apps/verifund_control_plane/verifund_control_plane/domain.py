@@ -51,10 +51,19 @@ ALLOWED_TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
         {TransactionState.VERIFICATION_PENDING, TransactionState.REVIEW_REQUIRED}
     ),
     TransactionState.VERIFICATION_PENDING: frozenset(
-        {TransactionState.RELEASE_PERMITTED, TransactionState.REVIEW_REQUIRED}
+        {
+            TransactionState.RELEASE_PERMITTED,
+            TransactionState.REVIEW_REQUIRED,
+            TransactionState.REMEDIATION_REQUIRED,
+            TransactionState.DISPUTE_OPEN,
+        }
     ),
     TransactionState.RELEASE_PERMITTED: frozenset(
-        {TransactionState.PAYOUT_PENDING, TransactionState.REVIEW_REQUIRED}
+        {
+            TransactionState.PAYOUT_PENDING,
+            TransactionState.REVIEW_REQUIRED,
+            TransactionState.DISPUTE_OPEN,
+        }
     ),
     TransactionState.PAYOUT_PENDING: frozenset(
         {
@@ -63,7 +72,9 @@ ALLOWED_TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
             TransactionState.REVIEW_REQUIRED,
         }
     ),
-    TransactionState.RELEASED: frozenset({TransactionState.REVIEW_REQUIRED}),
+    TransactionState.RELEASED: frozenset(
+        {TransactionState.REVIEW_REQUIRED, TransactionState.DISPUTE_OPEN}
+    ),
     TransactionState.REVIEW_REQUIRED: frozenset(
         {
             TransactionState.RELEASE_PERMITTED,
@@ -72,6 +83,21 @@ ALLOWED_TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
             TransactionState.CANCELED,
         }
     ),
+    TransactionState.REMEDIATION_REQUIRED: frozenset(
+        {
+            TransactionState.VERIFICATION_PENDING,
+            TransactionState.REVIEW_REQUIRED,
+            TransactionState.CANCELED,
+        }
+    ),
+    TransactionState.DISPUTE_OPEN: frozenset(
+        {
+            TransactionState.RELEASED,
+            TransactionState.REFUNDED,
+            TransactionState.REVIEW_REQUIRED,
+        }
+    ),
+    TransactionState.REFUNDED: frozenset({TransactionState.REVIEW_REQUIRED}),
     TransactionState.CANCELED: frozenset({TransactionState.REVIEW_REQUIRED}),
     TransactionState.FAILED: frozenset({TransactionState.REVIEW_REQUIRED}),
 }
@@ -85,6 +111,7 @@ EVIDENCE_UPLOAD_STATES = {
     TransactionState.FUNDED,
     TransactionState.FULFILLMENT_PENDING,
     TransactionState.VERIFICATION_PENDING,
+    TransactionState.REMEDIATION_REQUIRED,
 }
 CAPTURELESS_CANCEL_STATES = {
     TransactionState.AWARDED,
@@ -104,6 +131,9 @@ STAGE_BY_STATE: dict[TransactionState, str] = {
     TransactionState.PAYOUT_PENDING: "payout_pending",
     TransactionState.RELEASED: "released",
     TransactionState.REVIEW_REQUIRED: "review_required",
+    TransactionState.REMEDIATION_REQUIRED: "remediation_required",
+    TransactionState.DISPUTE_OPEN: "dispute_open",
+    TransactionState.REFUNDED: "refunded",
     TransactionState.CANCELED: "canceled",
     TransactionState.FAILED: "failed",
 }
@@ -147,6 +177,20 @@ def assert_transition(current: TransactionState, target: TransactionState) -> No
             f"cannot transition from {current.value} to {target.value}",
             status_code=409,
         )
+
+
+def allowed_transitions(state: Any, actor: str | None = None) -> list[str]:
+    """Return the state values reachable from ``state``.
+
+    ``actor`` is accepted for API compatibility with the target state-machine
+    contract; reachability is governed by ``ALLOWED_TRANSITIONS``.
+    """
+    if isinstance(state, str):
+        try:
+            state = TransactionState(state)
+        except ValueError:
+            return []
+    return sorted(target.value for target in ALLOWED_TRANSITIONS.get(state, frozenset()))
 
 
 def canonical_json(value: Any) -> bytes:
