@@ -60,12 +60,14 @@ class Reconciler:
         settings: ReconcilerSettings,
         clock: Callable[[], datetime],
         webhook_dispatch: Callable[[Any, dict[str, Any]], Awaitable[str]] | None = None,
+        scanner: Any = None,
     ) -> None:
         self.repo = repo
         self.service = service
         self.settings = settings
         self.clock = clock
         self.webhook_dispatch = webhook_dispatch or default_dispatch
+        self.scanner = scanner if scanner is not None else FakeScanner()
         self._task: asyncio.Task | None = None
 
     def _now(self) -> datetime:
@@ -103,6 +105,8 @@ class Reconciler:
             await self._safe(stats, self._sweep_funding(stats))
             await self._safe(stats, self._sweep_payouts(stats))
             await self._safe(stats, self._sweep_deadlines(stats))
+            await self._safe(stats, self._sweep_scans(stats))
+            await self._safe(stats, self._sweep_remediation(stats))
             await self._safe(stats, self._sweep_release_permitted(stats))
             await self._safe(stats, self._sweep_deemed_acceptance(stats))
             await self._safe(stats, self._sweep_webhooks(stats))
@@ -156,6 +160,97 @@ class Reconciler:
             stats["deadlines_checked"] += 1
             if projection.get("state") == "REVIEW_REQUIRED":
                 stats["deadline_reviews"] += 1
+
+    async def _sweep_remediation(self, stats: dict[str, int]) -> None:
+        from verifund_contracts import TransactionState
+
+        from verifund_control_plane.repository import AuditInput
+
+        now = self._now()
+        for record in await self.repo.list_transactions(state="REMEDIATION_REQUIRED"):
+            deadlines = record.deadlines or {}
+            raw = deadlines.get("remediation") or deadlines.get("inspection")
+            if raw is None:
+                continue
+            try:
+                deadline = datetime.fromisoformat(str(raw))
+            except (TypeError, ValueError):
+                continue
+            if now < deadline:
+                continue
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(record.transaction_id, conn)
+                if current.state != TransactionState.REMEDIATION_REQUIRED:
+                    continue
+                await self.repo.transition(
+                    conn,
+                    record.transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.REVIEW_REQUIRED,
+                    changes={},
+                    audit=AuditInput("reconciler", "remediation_deadline_missed"),
+                )
+            stats["deadline_reviews"] += 1
+
+    async def _sweep_scans(self, stats: dict[str, int]) -> None:
+        if not hasattr(self.service, "verify") or not hasattr(
+            self.repo, "update_evidence_scan_status"
+        ):
+            return
+        from verifund_contracts import TransactionState
+
+        from verifund_control_plane.repository import AuditInput
+
+        now = self._now()
+        timeout = timedelta(
+            minutes=getattr(self.settings, "scan_pending_timeout_minutes", 60)
+        )
+        for record in await self.repo.list_transactions(state="VERIFICATION_PENDING"):
+            items = await self.repo.list_evidence(record.transaction_id)
+            pending = [i for i in items if getattr(i, "scan_status", None) == "pending"]
+            if not pending:
+                continue
+            changed = False
+            for item in pending:
+                created = getattr(item, "created_at", None)
+                try:
+                    created_dt = (
+                        created if isinstance(created, datetime) else datetime.fromisoformat(str(created))
+                    )
+                except (TypeError, ValueError):
+                    created_dt = now
+                if now - created_dt.astimezone(UTC) > timeout:
+                    async with self.repo.transaction() as conn:
+                        current = await self.repo.get_transaction(record.transaction_id, conn)
+                        if current.state == TransactionState.VERIFICATION_PENDING:
+                            await self.repo.transition(
+                                conn,
+                                record.transaction_id,
+                                expected_version=current.version,
+                                expected_state=current.state,
+                                new_state=TransactionState.REVIEW_REQUIRED,
+                                changes={},
+                                audit=AuditInput("reconciler", "pending_scan_timeout"),
+                            )
+                    stats["deadline_reviews"] += 1
+                    changed = False
+                    break
+                try:
+                    result = await self.scanner.scan(item)
+                except Exception:  # noqa: BLE001, S112
+                    continue
+                if result in {"clean", "rejected"}:
+                    async with self.repo.transaction() as conn:
+                        await self.repo.update_evidence_scan_status(
+                            conn, item.evidence_id, result
+                        )
+                    changed = True
+            if changed:
+                try:
+                    await self.service.verify(record.transaction_id, actor="reconciler")
+                except Exception:  # noqa: BLE001
+                    stats["errors"] += 1
 
     async def _sweep_release_permitted(self, stats: dict[str, int]) -> None:
         cutoff = self._now() - timedelta(
@@ -360,3 +455,9 @@ class Reconciler:
         except asyncio.CancelledError:
             pass
         self._task = None
+
+class FakeScanner:
+    """Default scan provider: marks every pending item clean."""
+
+    async def scan(self, item: Any) -> str:
+        return "clean"

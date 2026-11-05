@@ -1430,6 +1430,15 @@ class Repository:
             .values(revoked_at=_iso(now))
         )
 
+    async def update_evidence_scan_status(
+        self, conn: AsyncConnection, evidence_id: str, status: str
+    ) -> None:
+        await conn.execute(
+            self.evidence.update()
+            .where(self.evidence.c.evidence_id == evidence_id)
+            .values(scan_status=status)
+        )
+
     async def create_checkout_link(
         self,
         conn: AsyncConnection,

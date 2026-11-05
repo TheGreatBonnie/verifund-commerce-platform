@@ -137,6 +137,9 @@ class Settings(BaseSettings):
     reconciler_interval_seconds: int = Field(
         default=30, validation_alias="VERIFUND_RECONCILER_INTERVAL_SECONDS"
     )
+    scan_pending_timeout_minutes: int = Field(
+        default=60, validation_alias="VERIFUND_SCAN_PENDING_TIMEOUT_MINUTES"
+    )
     fake_webhook_secret: str = Field(
         default="dev-verifund-fake-webhook",
         validation_alias="VERIFUND_FAKE_WEBHOOK_SECRET",
