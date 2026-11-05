@@ -10,6 +10,11 @@
       "type": "remote",
       "url": "https://mcp.copilotkit.ai/mcp",
       "enabled": true
+    },
+    "clerk": {
+      "type": "remote",
+      "url": "https://mcp.clerk.com/mcp",
+      "enabled": true
     }
   },
   "plugin": ["superpowers@git+https://github.com/obra/superpowers.git"]
