@@ -221,6 +221,35 @@ async def upload_evidence(
     return receipt.model_dump(mode="json")
 
 
+@router.post(
+    "/transactions/{transaction_id}/requirements/{requirement_id}/declare",
+    status_code=200,
+)
+async def declare_requirement(
+    transaction_id: str, requirement_id: str, request: Request
+) -> dict[str, Any]:
+    claims = await authenticate(request, transaction_id, "evidence:write")
+    return await _service(request).declare_requirement(
+        transaction_id,
+        requirement_id,
+        seller_id=claims.seller_id,
+        actor=f"seller:{claims.seller_id}",
+    )
+
+
+@router.get(
+    "/transactions/{transaction_id}/requirements/{requirement_id}/declarations"
+)
+async def list_declarations(
+    transaction_id: str, requirement_id: str, request: Request
+) -> dict[str, Any]:
+    claims = await authenticate(request, transaction_id, "txn:read")
+    items = await _service(request).list_declarations(
+        transaction_id, requirement_id, seller_id=claims.seller_id
+    )
+    return {"items": items}
+
+
 @router.get("/transactions/{transaction_id}/evidence/{evidence_id}")
 async def download_evidence(
     transaction_id: str, evidence_id: str, request: Request

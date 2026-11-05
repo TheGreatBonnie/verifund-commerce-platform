@@ -1568,6 +1568,106 @@ class VerifundService:
         }
         return view
 
+    async def declare_requirement(
+        self,
+        transaction_id: str,
+        requirement_id: str,
+        *,
+        seller_id: str,
+        actor: str,
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        if record.state == TransactionState.FUNDED:
+            raise VerifundError(
+                "invalid_state",
+                "declarations require fulfillment to have started",
+                status_code=409,
+            )
+        if record.state == TransactionState.FULFILLMENT_PENDING:
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                if current.state == TransactionState.FULFILLMENT_PENDING:
+                    await self.repo.transition(
+                        conn,
+                        transaction_id,
+                        expected_version=current.version,
+                        expected_state=TransactionState.FULFILLMENT_PENDING,
+                        new_state=TransactionState.VERIFICATION_PENDING,
+                        changes={},
+                        audit=AuditInput(actor, "verification_started"),
+                    )
+            record = await self.repo.get_transaction(transaction_id)
+        if record.state not in {
+            TransactionState.VERIFICATION_PENDING,
+            TransactionState.REMEDIATION_REQUIRED,
+        }:
+            raise VerifundError(
+                "invalid_state",
+                "declarations are only allowed while verification is open",
+                status_code=409,
+            )
+        terms = await self._agreement_terms(transaction_id)
+        catalog = project_requirements(terms)
+        requirement = next(
+            (item for item in catalog if item.requirement_id == requirement_id), None
+        )
+        if requirement is None or requirement.owner != "seller":
+            raise VerifundError(
+                "invalid_request",
+                f"unknown seller requirement: {requirement_id}",
+                status_code=422,
+            )
+
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            open_att = await self.repo.open_attempt(
+                conn, transaction_id, requirement_id
+            )
+
+        submissions = await self.repo.list_submissions(
+            transaction_id, requirement_id, attempt=open_att
+        )
+        submission_ids = [row["submission_id"] for row in submissions]
+        if not submission_ids:
+            raise VerifundError(
+                "invalid_request",
+                "declaration requires at least one open-attempt submission",
+                status_code=400,
+            )
+
+        async with self.repo.transaction() as conn:
+            declaration = await self.repo.add_declaration(
+                conn,
+                transaction_id,
+                requirement_id,
+                open_att,
+                actor=actor,
+                submission_ids=submission_ids,
+            )
+
+        declaration_rows = await self.repo.list_declarations(transaction_id)
+        await self.verify(
+            transaction_id,
+            actor=actor,
+            declarations=[dict(row) for row in declaration_rows],
+        )
+        return declaration
+
+    async def list_declarations(
+        self, transaction_id: str, requirement_id: str, *, seller_id: str
+    ) -> list[dict[str, Any]]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        rows = await self.repo.list_declarations(transaction_id, requirement_id)
+        return sorted(rows, key=lambda row: row.get("attempt", 0), reverse=True)
+
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
         """Evaluate the worklist as submissions arrive.
 
@@ -1585,7 +1685,7 @@ class VerifundService:
             return
         await self.verify(transaction_id, actor=actor)
 
-    async def verify(self, transaction_id: str, *, actor: str) -> dict[str, Any]:
+    async def verify(self, transaction_id: str, *, actor: str, declarations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         record = await self.repo.get_transaction(transaction_id)
         if record.state in {
             TransactionState.RELEASE_PERMITTED,
@@ -1627,7 +1727,7 @@ class VerifundService:
             inspection_window_hours=self.settings.inspection_window_hours,
             ledger_balances=balances,
             terms=terms,
-            declarations=None,
+            declarations=declarations,
         )
         slim_requirements = _slim_requirement_results(result.requirements)
         if result.pending:
