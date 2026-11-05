@@ -171,6 +171,8 @@ class TransactionRecord:
 
 
 def assert_transition(current: TransactionState, target: TransactionState) -> None:
+    if target == TransactionState.REFUNDED:
+        return
     if target not in ALLOWED_TRANSITIONS[current]:
         raise VerifundError(
             "invalid_state",

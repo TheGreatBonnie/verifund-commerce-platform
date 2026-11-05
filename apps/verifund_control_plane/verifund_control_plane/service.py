@@ -3095,6 +3095,32 @@ class VerifundService:
             await self._projection_for(transaction_id, "buyer")
         ).model_dump(mode="json")
 
+    async def refund(
+        self,
+        transaction_id: str,
+        remedy: str | None = None,
+        *,
+        actor: str = "system",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if remedy is None:
+            remedy = kwargs.get("remedy") or kwargs.get("reason") or "refund"
+        await self.repo.get_transaction(transaction_id)
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            await self.repo.transition(
+                conn,
+                transaction_id,
+                expected_version=current.version,
+                expected_state=current.state,
+                new_state=TransactionState.REFUNDED,
+                changes={"refund": {"remedy": remedy, "at": self._iso(self._now())}},
+                audit=AuditInput(actor, "refunded", payload={"remedy": remedy}),
+            )
+        return (
+            await self._projection_for(transaction_id, "buyer")
+        ).model_dump(mode="json")
+
     async def release(
         self,
         transaction_id: str,
