@@ -683,7 +683,7 @@ class Repository:
         )
 
     async def events(
-        self, transaction_id: str, *, after_seq: int = 0
+        self, transaction_id: str, *, after_seq: int = 0, limit: int | None = None
     ) -> list[dict[str, Any]]:
         statement = (
             select(self.transaction_events)
@@ -691,6 +691,8 @@ class Repository:
             .where(self.transaction_events.c.seq > after_seq)
             .order_by(self.transaction_events.c.seq)
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         async with self.engine.connect() as conn:
             rows = (await conn.execute(statement)).all()
         return [

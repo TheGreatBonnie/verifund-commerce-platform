@@ -1509,6 +1509,65 @@ class VerifundService:
             ),
         )
 
+    async def seller_events(
+        self,
+        transaction_id: str,
+        *,
+        seller_id: str,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        if not 1 <= limit <= 200:
+            raise VerifundError(
+                "invalid_request", "limit must be between 1 and 200", status_code=400
+            )
+        after_seq = 0
+        if cursor is not None:
+            try:
+                after_seq = int(cursor)
+            except (TypeError, ValueError):
+                raise VerifundError(
+                    "invalid_request", "invalid cursor", status_code=400
+                ) from None
+        rows = await self.repo.events(
+            transaction_id, after_seq=after_seq, limit=limit + 1
+        )
+        has_more = len(rows) > limit
+        items = rows[:limit]
+        next_cursor = str(items[-1]["seq"]) if (has_more and items) else None
+        return {"items": items, "next_cursor": next_cursor}
+
+    async def seller_agreement(
+        self, agreement_id: str, *, seller_id: str
+    ) -> dict[str, Any]:
+        agreement = await self.agreement_service.get(agreement_id)
+        if agreement is None:
+            raise VerifundError(
+                "not_found", "agreement not found", status_code=404
+            )
+        if agreement.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this agreement", status_code=403
+            )
+        view = await self.agreement_service.build_view(agreement)
+        terms = await self.agreement_service.current_terms(agreement)
+        try:
+            requirements = project_requirements(terms)
+        except (ValidationError, ValueError):
+            requirements = []
+        view["terms"] = {
+            **terms,
+            "requirements": [
+                requirement.model_dump(mode="json") for requirement in requirements
+            ],
+        }
+        return view
+
     async def verify_if_ready(self, transaction_id: str, *, actor: str) -> None:
         """Evaluate the worklist as submissions arrive.
 

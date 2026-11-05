@@ -705,6 +705,25 @@ class AgreementService:
             review_url=f"/agreements/{agreement.agreement_id}",
         ).model_dump(mode="json")
 
+    async def current_terms(self, agreement) -> dict[str, Any]:
+        """Stored terms of the agreement's current version.
+
+        Used by seller-facing agreement reads (§3.10.2) and by
+        grandfathering/projection helpers. Returns an empty dict when the
+        agreement has no current version instead of raising.
+        """
+        cur = agreement.current_version_record
+        if cur is None:
+            try:
+                cur = await self.repo.get_version(
+                    agreement.agreement_id, agreement.current_version
+                )
+            except Exception:  # noqa: BLE001
+                cur = None
+        if cur is None:
+            return {}
+        return dict(cur.terms or {})
+
     async def build_projection(self, agreement) -> AgreementProjection:
         cur = agreement.current_version_record
         if cur is None:

@@ -231,3 +231,66 @@ async def test_seller_payouts_view_maps_statuses_and_scopes(client):
         f"/seller/transactions/{paid['transaction_id']}", headers=seller_headers(paid)
     )
     assert projection.json()["payout"]["status"] == "SUCCESS"
+
+
+async def test_seller_can_read_events_and_agreement(client):
+    body = await award(client, award_for("run-1", "northwind-audio"))
+    headers = seller_headers(body)
+
+    events = await client.get(
+        f"/seller/transactions/{body['transaction_id']}/events", headers=headers
+    )
+    assert events.status_code == 200, events.text
+    payload = events.json()
+    assert "items" in payload
+    assert payload["items"]  # award created at least one event
+    assert all("seq" in entry and "type" in entry for entry in payload["items"])
+
+    agreement_id = body["agreement"]["agreement_id"]
+    agreement = await client.get(
+        f"/seller/agreements/{agreement_id}", headers=headers
+    )
+    assert agreement.status_code == 200, agreement.text
+    body_json = agreement.json()
+    assert body_json["terms"]["requirements"]
+
+
+async def test_seller_events_unknown_transaction_returns_404(client):
+    body = await award(client, award_for("run-1", "northwind-audio"))
+    headers = seller_headers(body)
+    response = await client.get(
+        "/seller/transactions/vf_does_not_exist/events", headers=headers
+    )
+    assert response.status_code in {403, 404}
+
+
+async def test_seller_agreement_cross_seller_returns_403(client):
+    first = await award(client, award_for("run-1", "northwind-audio"))
+    other = await award(client, award_for("run-2", "other-seller"))
+    agreement_id = first["agreement"]["agreement_id"]
+    headers = seller_headers(other)
+    response = await client.get(
+        f"/seller/agreements/{agreement_id}", headers=headers
+    )
+    assert response.status_code in {403, 404}
+
+
+async def test_seller_events_pagination_round_trips(client):
+    body = await funded_transaction(client, "run-1", "northwind-audio")
+    headers = seller_headers(body)
+    # produce a few events by uploading evidence
+    await upload_file(
+        client,
+        body,
+        "shipment_manifest",
+        data=b'{"tracking_number":"TRK-1","carrier":"Northwind Logistics"}',
+        filename="manifest.json",
+        media_type="application/json",
+    )
+    first = await client.get(
+        f"/seller/transactions/{body['transaction_id']}/events?limit=2",
+        headers=headers,
+    )
+    assert first.status_code == 200
+    page = first.json()
+    assert len(page["items"]) <= 2

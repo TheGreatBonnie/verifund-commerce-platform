@@ -129,6 +129,29 @@ async def list_seller_payouts(
     ).model_dump(mode="json")
 
 
+@router.get("/transactions/{transaction_id}/events")
+async def seller_transaction_events(
+    transaction_id: str,
+    request: Request,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    claims = await authenticate(request, transaction_id, "txn:read")
+    return await _service(request).seller_events(
+        transaction_id, seller_id=claims.seller_id, limit=limit, cursor=cursor
+    )
+
+
+@router.get("/agreements/{agreement_id}")
+async def seller_agreement(
+    agreement_id: str, request: Request
+) -> dict[str, Any]:
+    claims = await authenticate_seller(request)
+    return await _service(request).seller_agreement(
+        agreement_id, seller_id=claims.seller_id
+    )
+
+
 @router.get("/transactions/{transaction_id}")
 async def get_seller_transaction(transaction_id: str, request: Request) -> dict[str, Any]:
     claims = await authenticate(request, transaction_id, "txn:read")
