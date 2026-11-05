@@ -157,6 +157,16 @@ def create_app(
         if hasattr(app.state, "agreement_repo"):
             async with engine.begin() as _c:
                 await app.state.agreement_repo.create_schema(_c)
+        if settings.tenancy_enabled and hasattr(app.state, "tenancy"):
+            from sqlalchemy import select as _select
+
+            from verifund_control_plane.tenancy.backfill import backfill_tenancy
+
+            async with engine.connect() as _conn:
+                res = await _conn.execute(_select(app.state.tenancy.organizations))
+                empty = res.first() is None
+            if empty:
+                await backfill_tenancy(app.state.repo, app.state.tenancy)
         if (
             hasattr(app.state, "reconciler")
             and settings.mode != "off"

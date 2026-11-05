@@ -89,6 +89,8 @@ class Repository:
             Column("run_id", String, nullable=False, index=True),
             Column("buyer_id", String, nullable=False),
             Column("seller_id", String, nullable=False, index=True),
+            Column("buyer_organization_id", String, nullable=True, index=True),
+            Column("seller_organization_id", String, nullable=True, index=True),
             Column("offer_id", String, nullable=False),
             Column("state", String, nullable=False, index=True),
             Column("version", Integer, nullable=False),
