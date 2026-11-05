@@ -58,6 +58,9 @@ def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:
         "agreement_type": "goods",
         "terms_version": 1,
         "platform_terms_version": "v1",
+        # 2 = catalog-based (requirement_id-addressed evidence, rollup).
+        # Missing key => grandfathered policy_version 1.
+        "policy_version": 2,
         "parties": {
             "buyer": {"id": award.buyer_id, "display_name": award.buyer_display_name},
             "seller": {"id": award.seller_id, "display_name": award.seller_display_name},

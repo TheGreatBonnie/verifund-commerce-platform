@@ -3,7 +3,87 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from verifund_contracts.models import AwardRequest, Requirement
+from verifund_contracts.models import AwardRequest, Requirement, RequirementCheck
+
+
+def policy_version_of(terms: dict[str, Any]) -> int:
+    """The stored policy version for agreement terms; missing means legacy."""
+    try:
+        return int(terms.get("policy_version") or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+_LEGACY_FILE_FORMATS = [
+    "application/json",
+    "application/pdf",
+    "text/csv",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+]
+
+
+def _legacy_requirement(requirement_id: str) -> Requirement:
+    if requirement_id == "delivery_confirmation":
+        return Requirement(
+            requirement_id="delivery_confirmation",
+            title="Delivery confirmation",
+            description=(
+                "Legacy requirement projected from `evidence_required`; delivery "
+                "is system-sourced (carrier record plus buyer confirmation)."
+            ),
+            owner="system",
+            kind="delivery_confirmation",
+            source="reference",
+            checks=[
+                RequirementCheck(
+                    check_id="carrier_and_buyer_agree",
+                    description="Carrier record and buyer confirmation agree on delivery.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        )
+    return Requirement(
+        requirement_id=requirement_id,
+        title=requirement_id.replace("_", " ").title(),
+        description=(
+            f"Legacy requirement projected from `evidence_required` "
+            f"({requirement_id})."
+        ),
+        owner="seller",
+        kind=requirement_id,
+        source="file",
+        accepted_formats=list(_LEGACY_FILE_FORMATS),
+        checks=[
+            RequirementCheck(
+                check_id=f"{requirement_id}_present",
+                description=f"{requirement_id} evidence is present and legible.",
+                operator="exists",
+                verification_method="deterministic",
+            ),
+        ],
+        required=True,
+    )
+
+
+def project_requirements(terms: dict[str, Any]) -> list[Requirement]:
+    """Project the requirement catalog from stored agreement terms.
+
+    Agreements authored with the catalog carry ``requirements[]`` (copied from
+    ``AwardRequest.requirements`` by the generator). Grandfathered
+    (``policy_version`` 1) agreements are projected at read time from their
+    legacy ``evidence_required`` list, so an agreement that included
+    ``invoice`` keeps that entry. Never raises for a well-formed terms dict;
+    malformed catalog entries surface as ``ValidationError`` for the caller to
+    treat as an invalid agreement.
+    """
+    raw = terms.get("requirements") or []
+    if raw:
+        return [Requirement.model_validate(item) for item in raw]
+    return [_legacy_requirement(str(kind)) for kind in terms.get("evidence_required") or []]
 
 
 def validate_requirements(requirements: list[Requirement]) -> None:
