@@ -5,12 +5,7 @@ from datetime import UTC, datetime
 import httpx
 import respx
 from commerce_core.contracts import Fulfillment, OfferLineItem, Order, OrderStatus
-from seller_agent.settlement import (
-    SellerSettlementClient,
-    build_delivery_confirmation,
-    build_shipment_manifest,
-    encode_payload,
-)
+from seller_agent.settlement import SellerSettlementClient, encode_payload
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
@@ -77,26 +72,6 @@ async def test_upload_evidence_posts_multipart_without_leaking_the_token():
     await client.close()
 
 
-def test_shipment_manifest_matches_the_order_and_agreement():
-    payload = build_shipment_manifest(
-        order(),
-        transaction_id="vf_1",
-        agreement_hash="a" * 64,
-        now=NOW,
-    )
-    assert payload["tracking_number"] == "TRK-1"
-    assert payload["carrier"] == "Northwind Logistics"
-    assert payload["seller_id"] == "northwind-audio"
-    assert payload["agreement_hash"] == "a" * 64
-    assert payload["line_items"] == [{"sku": "NC-700", "quantity": 2}]
-    assert payload["shipped_at"] < NOW.isoformat()
-
-
-def test_delivery_confirmation_is_in_the_past_and_encodes_stably():
-    payload = build_delivery_confirmation(
-        order(), transaction_id="vf_1", now=NOW
-    )
-    assert payload["delivered_at"] < NOW.isoformat()
-    assert payload["recipient"] == "Demo Buyer"
-    encoded = encode_payload(payload)
-    assert encoded == encode_payload(dict(reversed(list(payload.items()))))
+def test_encode_payload_is_key_order_stable():
+    payload = {"b": 2, "a": 1}
+    assert encode_payload(payload) == encode_payload(dict(reversed(list(payload.items()))))

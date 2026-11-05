@@ -35,18 +35,6 @@ async def store(tmp_path):
     await engine.dispose()
 
 
-class FakeOutbox:
-    def __init__(self) -> None:
-        self.items: list[dict] = []
-        self.fail = False
-
-    async def enqueue(self, **kwargs):
-        if self.fail:
-            raise RuntimeError("outbox unavailable")
-        self.items.append(kwargs)
-        return True
-
-
 class FakeSettlement:
     def __init__(
         self, projection: dict | None = None, error: Exception | None = None
@@ -132,58 +120,14 @@ def projection(**overrides):
     return value
 
 
-def build(store, policy, *, outbox=None, settlement=None, auto=True):
+def build(store, policy, *, settlement=None):
     return SellerService(
         store=store,
         policy=policy,
         planner=ScriptedSellerPlanner(),
         settlement=settlement,
         settlement_enabled=True,
-        evidence_outbox=outbox,
-        auto_evidence=auto,
     )
-
-
-async def test_queue_evidence_enqueues_manifest_and_delivery(
-    store, northwind_policy
-):
-    outbox = FakeOutbox()
-    service = build(store, northwind_policy, outbox=outbox)
-
-    count = await service.queue_evidence(order(), purchase_order())
-
-    assert count == 2
-    kinds = [item["kind"] for item in outbox.items]
-    assert kinds == ["shipment_manifest", "delivery_confirmation"]
-    assert all(item["transaction_id"] == "vf_1" for item in outbox.items)
-    manifest = outbox.items[0]
-    assert manifest["filename"] == "shipment-manifest.json"
-    assert b"TRK-1" in manifest["content"]
-    assert manifest["captured_at"] == json.loads(
-        manifest["content"]
-    )["shipped_at"]
-
-
-async def test_queue_evidence_is_skipped_when_auto_evidence_is_off(
-    store, northwind_policy
-):
-    outbox = FakeOutbox()
-    service = build(
-        store, northwind_policy, outbox=outbox, auto=False
-    )
-
-    assert await service.queue_evidence(order(), purchase_order()) == 0
-    assert outbox.items == []
-
-
-async def test_queue_evidence_does_not_fail_the_order_when_storage_is_down(
-    store, northwind_policy
-):
-    outbox = FakeOutbox()
-    outbox.fail = True
-    service = build(store, northwind_policy, outbox=outbox)
-
-    assert await service.queue_evidence(order(), purchase_order()) == 0
 
 
 async def test_settlement_status_omits_tokens_and_reports_state(

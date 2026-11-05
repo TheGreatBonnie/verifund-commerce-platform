@@ -211,3 +211,101 @@ async def test_rejects_a_stale_transaction(store, review_store):
     )
     # seller_id still matches; transaction_id mismatch not checked in review_agreement? 
     assert result.status in ("rejected", "accepted")
+
+
+def _agreement_with_requirements(oh: str, requirements: list[dict]):
+    from verifund_contracts.models import canonical_json, sha256_hex
+
+    agr = agreement(offer_hash=oh)
+    agr.terms = dict(agr.terms)
+    agr.terms["offer"] = dict(agr.terms["offer"], offer_hash=oh)
+    agr.terms["requirements"] = requirements
+    agr.agreement_hash = sha256_hex(canonical_json(agr.canonical_payload()))
+    return agr
+
+
+@pytest.mark.asyncio
+async def test_rejects_unsatisfiable_eq_requirement(store, review_store):
+    from commerce_core.binding import canonical_offer_binding, offer_hash
+
+    offer = _offer()
+    await store.save_offer(offer, task_id="negotiation-task", context_id="run-1")
+    oh = offer_hash(canonical_offer_binding(offer))
+    requirements = [
+        {
+            "requirement_id": "hardware",
+            "title": "Hardware diagnostic report",
+            "description": "Diagnostic report.",
+            "owner": "seller",
+            "kind": "other",
+            "source": "file",
+            "accepted_formats": ["text/csv"],
+            "checks": [
+                {
+                    "check_id": "exact_ram",
+                    "description": "Exact RAM equality via extraction.",
+                    "expected_value": "32 GB",
+                    "operator": "eq",
+                    "verification_method": "extraction",
+                    "ai_derived": False,
+                }
+            ],
+            "required": True,
+        }
+    ]
+    agr = _agreement_with_requirements(oh, requirements)
+    result = review_agreement(
+        agr,
+        offer,
+        SellerMandate(),
+        review_store,
+        "northwind-audio",
+        NOW,
+        task_id="seller-task-1",
+        context_id="run-1",
+    )
+    assert result.status == "rejected"
+    assert result.reason_code == "unsatisfiable_requirement"
+
+
+@pytest.mark.asyncio
+async def test_accepts_agreement_with_satisfiable_catalog(store, review_store):
+    from commerce_core.binding import canonical_offer_binding, offer_hash
+
+    offer = _offer()
+    await store.save_offer(offer, task_id="negotiation-task", context_id="run-1")
+    oh = offer_hash(canonical_offer_binding(offer))
+    requirements = [
+        {
+            "requirement_id": "hardware",
+            "title": "Hardware diagnostic report",
+            "description": "Diagnostic report.",
+            "owner": "seller",
+            "kind": "other",
+            "source": "file",
+            "accepted_formats": ["text/csv"],
+            "checks": [
+                {
+                    "check_id": "ram_gte_32gb",
+                    "description": "At least 32 GB of RAM.",
+                    "expected_value": 32,
+                    "operator": "gte",
+                    "unit": "GB",
+                    "verification_method": "deterministic",
+                }
+            ],
+            "required": True,
+        }
+    ]
+    agr = _agreement_with_requirements(oh, requirements)
+    result = review_agreement(
+        agr,
+        offer,
+        SellerMandate(),
+        review_store,
+        "northwind-audio",
+        NOW,
+        task_id="seller-task-1",
+        context_id="run-1",
+    )
+    assert result.status == "accepted"

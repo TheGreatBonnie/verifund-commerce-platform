@@ -5,16 +5,19 @@ from datetime import datetime
 from typing import Any
 
 from commerce_core.binding import canonical_offer_binding, offer_hash
+from pydantic import ValidationError
 from verifund_contracts import (
     AgreementReviewDecision,
     AgreementReviewResult,
     ChangeRequestEnvelope,
+    Requirement,
 )
 from verifund_contracts.models import canonical_json, sha256_hex
 from verifund_contracts.terms import apply_change_set
 
 from seller_agent.agreement_store import SellerAgreementReviewStore
 from seller_agent.mandate import SellerMandate
+from seller_agent.settlement import validate_mandate
 
 
 def recompute_offer_hash(offer) -> str | None:
@@ -177,6 +180,18 @@ def review_agreement(projection, offer, mandate: SellerMandate,
         return _result(projection, AgreementReviewDecision.OPERATOR_REQUIRED,
                        "outside_mandate" if mandate.auto_accept else "auto_accept_disabled",
                        now, task_id, context_id, offer_hash=computed_offer_hash)
+    # 5a. requirement catalog is satisfiable by this seller
+    raw_requirements = terms.get("requirements") or []
+    if raw_requirements:
+        try:
+            catalog = [
+                Requirement.model_validate(item) for item in raw_requirements
+            ]
+            validate_mandate(catalog)
+        except (ValidationError, ValueError, TypeError):
+            return _result(projection, AgreementReviewDecision.REJECTED,
+                           "unsatisfiable_requirement", now, task_id, context_id,
+                           offer_hash=computed_offer_hash)
     # 6. accept
     store.record(projection, computed_offer_hash, decision="ACCEPTED",
                  now=now, task_id=task_id, context_id=context_id)

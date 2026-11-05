@@ -492,7 +492,8 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
         created = await service.order_service.create_order(
             po, settlement_validator=validator
         )
-        await service.queue_evidence(created, po)
+        # No auto-enqueued evidence: the seller cannot self-certify delivery
+        # and reference evidence is submitted against the catalog.
     except Exception as exc:  # noqa: BLE001
         code = getattr(exc, "code", CommerceErrorCode.INVALID_REQUEST)
         retryable = getattr(exc, "retryable", False)

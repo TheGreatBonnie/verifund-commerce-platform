@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from commerce_core.contracts import Order
+from verifund_contracts import Requirement
 
 
 class SettlementError(Exception):
@@ -18,45 +17,57 @@ class SettlementError(Exception):
         self.status_code = status_code
 
 
-def _iso(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+def validate_mandate(
+    requirements: list[Requirement],
+) -> None:
+    """Validate the buyer-authored requirement catalog against the seller mandate.
 
+    Raises ``ValueError`` when a seller-owned requirement can never reach a
+    settled outcome. The floor-undetectable case (spec §8 risk note) is
+    ``operator=eq`` on an unobservable value. The catalog types checks by
+    ``verification_method`` and ``ai_derived``; extraction is fuzzy, so an
+    exact literal comparison flagged as *not* AI-derived is treated by the
+    pipeline as a deterministic compare against OCR/AI output — it can never
+    settle cleanly and pins the requirement in perpetual remediation. That
+    combination is rejected here, as is any check whose
+    ``verification_method`` has no evaluator.
 
-def build_shipment_manifest(
-    order: Order,
-    *,
-    transaction_id: str,
-    agreement_hash: str,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    now = now or datetime.now(UTC)
-    return {
-        "transaction_id": transaction_id,
-        "seller_id": order.seller_id,
-        "agreement_hash": agreement_hash,
-        "tracking_number": order.tracking_number,
-        "carrier": order.fulfillment.carrier,
-        "shipped_at": _iso(now - timedelta(hours=2)),
-        "line_items": [
-            {"sku": item.sku, "quantity": item.quantity}
-            for item in order.line_items
-        ],
-    }
-
-
-def build_delivery_confirmation(
-    order: Order,
-    *,
-    transaction_id: str,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    now = now or datetime.now(UTC)
-    return {
-        "transaction_id": transaction_id,
-        "tracking_number": order.tracking_number,
-        "delivered_at": _iso(now - timedelta(hours=1)),
-        "recipient": "Demo Buyer",
-    }
+    Allowed: deterministic checks; AI-derived extraction checks (these roll up
+    as REVIEW for a human, which the mandate tolerates); agreement-derived
+    checks (``ai_derived`` with no literal ``expected_value``); and tolerant
+    operators (``gte``/``lte``/``contains``) and ``exists``.
+    """
+    known_methods = {"deterministic", "extraction"}
+    problems: list[str] = []
+    for req in requirements:
+        if getattr(req, "owner", "seller") != "seller":
+            # The mandate covers what the seller must produce; system- and
+            # buyer-owned requirements are not the seller's to satisfy.
+            continue
+        for check in req.checks:
+            method = check.verification_method
+            label = f"{req.requirement_id}.{check.check_id}"
+            if method not in known_methods:
+                problems.append(
+                    f"{label}: no evaluator for verification_method {method!r}"
+                )
+                continue
+            if (
+                check.operator == "eq"
+                and method == "extraction"
+                and not check.ai_derived
+                and check.expected_value is not None
+            ):
+                problems.append(
+                    f"{label}: operator=eq on an unobservable value "
+                    f"(expected_value={check.expected_value!r} via extraction); "
+                    "the seller cannot satisfy it"
+                )
+    if problems:
+        raise ValueError(
+            "unsatisfiable requirement(s) in the agreement catalog: "
+            + "; ".join(problems)
+        )
 
 
 def encode_payload(payload: dict[str, Any]) -> bytes:
