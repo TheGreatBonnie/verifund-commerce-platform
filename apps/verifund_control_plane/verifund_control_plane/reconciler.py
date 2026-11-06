@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from verifund_control_plane.paypal.webhooks import dispatch as default_dispatch
+from verifund_control_plane.tenancy.identity import SYSTEM_IDENTITY
 
 
 class ReconcilerService(Protocol):
@@ -179,6 +180,7 @@ class Reconciler:
                             scope="system",
                             organization_id=seller_org_id,
                             transaction_id=record.transaction_id,
+                            actor_user_id=SYSTEM_IDENTITY.user_id,
                             actor_type="system",
                             action="payout_hold_seller_suspended",
                             resource_id=record.transaction_id,

@@ -869,10 +869,33 @@ class Repository:
     async def audit(
         self, conn: AsyncConnection, transaction_id: str, audit: AuditInput
     ) -> None:
+        scope = "transaction"
+        actor_type = "user"
+        actor_user_id: str | None = None
+        organization_id: str | None = None
+        if audit.actor in {"system", "reconciler"}:
+            from verifund_control_plane.tenancy.identity import SYSTEM_IDENTITY
+
+            scope = "system"
+            actor_type = "system"
+            actor_user_id = SYSTEM_IDENTITY.user_id
+            row = (
+                await conn.execute(
+                    select(self.transactions).where(
+                        self.transactions.c.transaction_id == transaction_id
+                    )
+                )
+            ).first()
+            if row is not None:
+                organization_id = getattr(row, "seller_organization_id", None)
         await conn.execute(
             self.audit_log.insert().values(
                 audit_id=f"aud_{uuid.uuid4().hex}",
+                scope=scope,
                 transaction_id=transaction_id,
+                organization_id=organization_id,
+                actor_user_id=actor_user_id,
+                actor_type=actor_type,
                 actor=audit.actor,
                 action=audit.action,
                 note=audit.note,
