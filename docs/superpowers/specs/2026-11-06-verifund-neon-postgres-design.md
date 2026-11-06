@@ -12,6 +12,15 @@ Related code: `apps/verifund_control_plane`, `apps/buyer_agent`, `apps/seller_ag
 `apps/registry`, `apps/verifund_agent`, `apps/orchestrator_agent`,
 `packages/commerce_core`, `tests`.
 
+> **2026-11-06 status note (SQLite-first seller milestone):** the shared seller
+> agent runtime is being built on SQLite before Neon. Until the Neon milestone
+> lands, §5 (seller RLS), §7.3 (one database per seller) and §8's seller
+> migration iteration language are **not binding** for `apps/seller_agent`.
+> Seller isolation is implemented as a shared `sellers.db` with
+> application-enforced organization scoping (see
+> `docs/superpowers/specs/2026-11-06-single-shared-a2a-endpoint-design.md`).
+> The Neon milestone must re-decide per-seller DBs vs shared DB + RLS.
+
 ## 1. Purpose
 
 Move every Verifund service from SQLite to Neon PostgreSQL. The target is a
