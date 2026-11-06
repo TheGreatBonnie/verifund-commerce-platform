@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, PrivateAttr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_SECRETS = {
@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", extra="ignore", populate_by_name=True, case_sensitive=False
     )
+
+    _clerk_directory = PrivateAttr(default=None)
 
     mode: Literal["off", "fake", "sandbox"] = Field(
         default="sandbox", validation_alias="VERIFUND_MODE"

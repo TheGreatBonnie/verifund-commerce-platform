@@ -42,6 +42,12 @@ def create_app(
 ) -> FastAPI:
     settings = settings or Settings()
     settings.validate_for_mode()
+    if getattr(settings, "_clerk_directory", None) is None:
+        from verifund_control_plane.tenancy.clerk import ClerkBackendDirectory
+
+        settings._clerk_directory = ClerkBackendDirectory(  # type: ignore[attr-defined]
+            settings.clerk_secret_key
+        )
     now = clock or (lambda: datetime.now(UTC))
     engine = create_engine(settings.database_url)
     repo = Repository(engine)

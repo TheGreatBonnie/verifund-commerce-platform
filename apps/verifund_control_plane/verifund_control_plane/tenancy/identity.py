@@ -37,32 +37,61 @@ def _identity(
 
 
 async def resolve_identity(store, payload: dict, settings, directory=None) -> Identity:
-    # DB-only path for M2-T12. M2-T13 replaces this with lazy Clerk sync;
-    # the signature does not change.
-    clerk_user_id = payload["sub"]
-    user = await store.get_user_by_clerk_id(clerk_user_id)
+    if directory is None:
+        directory = getattr(settings, "clerk_directory", None)
+    if directory is None:
+        directory = getattr(settings, "_clerk_directory", None)
+    user = await store.get_user_by_clerk_id(payload["sub"])
     if user is None:
-        email = payload.get("email") or f"{clerk_user_id}@clerk.local"
-        user = await store.upsert_user(clerk_user_id, email, payload.get("name"))
+        if directory is None:
+            email = payload.get("email") or f"{payload['sub']}@clerk.local"
+            user = await store.upsert_user(payload["sub"], email, payload.get("name"))
+        else:
+            remote = await directory.user(payload["sub"])
+            if remote is None:
+                raise VerifundError("unauthorized", "unknown user", status_code=401)
+            user = await store.upsert_user(
+                remote["id"], remote.get("email"), remote.get("name")
+            )
 
     clerk_org_id = payload.get("org_id")
-    if clerk_org_id:
-        org = await store.get_organization_by_clerk_id(clerk_org_id)
-        membership = await store.get_membership(org["id"], user["id"]) if org else None
-        if org is None or membership is None:
+    if not clerk_org_id:
+        org = await store.ensure_personal_organization(user["id"])
+        return _identity(
+            user, org, "org:buyer", settings, await store.is_platform_admin(user["id"])
+        )
+
+    org = await store.get_organization_by_clerk_id(clerk_org_id)
+    if org is None:
+        if directory is None:
             raise VerifundError(
                 "forbidden", "organization membership required", status_code=403
             )
-        role = membership.get("role") or payload.get("org_role") or "org:member"
-    else:
-        org = await store.ensure_personal_organization(user["id"])
-        role = "org:buyer"
-
+        remote_org = await directory.organization(clerk_org_id)
+        if remote_org is None:
+            raise VerifundError("forbidden", "unknown organization", status_code=403)
+        org = await store.upsert_organization(
+            remote_org["id"], remote_org["name"], remote_org.get("slug")
+        )
+    membership = await store.get_membership(org["id"], user["id"])
+    if membership is None or membership["status"] != "active":
+        if directory is None:
+            raise VerifundError(
+                "forbidden", "organization membership required", status_code=403
+            )
+        remote = await directory.membership(clerk_org_id, payload["sub"])
+        if remote is None:
+            raise VerifundError("forbidden", "not a member", status_code=403)
+        # upsert_membership_from_clerk needs local user+org; both exist now
+        membership = await store.upsert_membership_from_clerk(remote)
+        if membership is None:
+            raise VerifundError("forbidden", "not a member", status_code=403)
     if org["status"] != "active":
-        raise VerifundError("forbidden", "organization is not active", status_code=403)
-
+        raise VerifundError(
+            "forbidden", "organization is not active", status_code=403
+        )
     return _identity(
-        user, org, role, settings, await store.is_platform_admin(user["id"])
+        user, org, membership["role"], settings, await store.is_platform_admin(user["id"])
     )
 
 
