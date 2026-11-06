@@ -70,12 +70,13 @@ SHARED_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS task_ownership_org ON task_ownership (organization_id)",
     """CREATE TABLE IF NOT EXISTS offers (
         organization_id TEXT NOT NULL,
-        offer_id TEXT PRIMARY KEY,
+        offer_id TEXT NOT NULL,
         task_id TEXT NOT NULL,
         context_id TEXT NOT NULL,
         seller_id TEXT NOT NULL,
         offer_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (organization_id, offer_id)
     )""",
     """CREATE TABLE IF NOT EXISTS orders (
         organization_id TEXT NOT NULL,

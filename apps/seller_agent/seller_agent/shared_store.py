@@ -10,7 +10,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from commerce_core.pricing import SellerPolicy, SellerCatalogProduct
+from commerce_core.contracts import Offer
 from seller_agent.mandate import SellerMandate
+from seller_agent.store import Stock
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -356,10 +358,71 @@ class OrgScopedStore:
             tagline=snapshot.tagline,
             categories=sorted({(p.get("category") or "general") for p in products})
             or ["general"],
+            sku=(first.get("sku") or "unknown"),
+            product_name=(first.get("name") or "Product"),
+            product_description=(first.get("description") or ""),
+            image_emoji=(first.get("image_emoji") or "📦"),
+            product_tag=(first.get("tag") or ""),
+            product_color=(first.get("color") or "#eef2ed"),
+            color=(first.get("color_name") or "black"),
             **defaults,
             products=catalog,
             mandate=None,
         )
+
+    async def get_stock(self, sku: str) -> Stock:
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT p.stock_on_hand AS ph, i.on_hand AS oh, "
+                "       i.incoming AS inc, i.incoming_days AS ind "
+                "FROM products p LEFT JOIN inventory i "
+                "  ON i.organization_id = p.organization_id AND i.sku = p.sku "
+                "WHERE p.organization_id = :o AND p.sku = :s"),
+                {"o": self.organization_id, "s": sku})).first()
+        if row is None:
+            return Stock(0, 0, None)
+        on_hand = row.oh if row.oh is not None else (row.ph or 0)
+        incoming = row.inc if row.inc is not None else 0
+        return Stock(on_hand=int(on_hand), incoming=int(incoming),
+                     incoming_days=row.ind)
+
+    async def save_offer(self, offer: Offer, *, task_id: str,
+                         context_id: str) -> None:
+        payload = offer.model_dump(mode="json")
+        created = datetime.now(UTC).isoformat()
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                """INSERT INTO offers
+                       (organization_id, offer_id, task_id, context_id, seller_id,
+                        offer_json, created_at)
+                   VALUES (:o, :oid, :tid, :cid, :sid, :json, :now)
+                   ON CONFLICT(organization_id, offer_id) DO UPDATE SET
+                       offer_json=excluded.offer_json"""
+            ), {"o": self.organization_id, "oid": offer.offer_id,
+                "tid": task_id, "cid": context_id,
+                "sid": offer.seller_id, "json": json.dumps(payload),
+                "now": created})
+
+    async def get_offer(self, offer_id: str):
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT offer_json FROM offers "
+                "WHERE organization_id = :o AND offer_id = :oid"),
+                {"o": self.organization_id, "oid": offer_id})).first()
+        if row is None:
+            return None
+        return Offer.model_validate(json.loads(row.offer_json))
+
+    async def get_latest_offer(self, task_id: str):
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT offer_json FROM offers "
+                "WHERE organization_id = :o AND task_id = :tid"
+                " ORDER BY created_at DESC LIMIT 1"),
+                {"o": self.organization_id, "tid": task_id})).first()
+        if row is None:
+            return None
+        return Offer.model_validate(json.loads(row.offer_json))
 
     async def load_mandate(self) -> SellerMandate:
         return SellerMandate()

@@ -16,6 +16,18 @@ class Settings(BaseSettings):
         default=9201,
         validation_alias=AliasChoices("SELLER_PORT", "PORT"),
     )
+    config_source: Literal["file", "shared"] = Field(
+        default="file",
+        validation_alias=AliasChoices("SELLER_CONFIG_SOURCE"),
+    )
+    shared_db_url: str = Field(
+        default="sqlite+aiosqlite:///./data/sellers.db",
+        validation_alias=AliasChoices("SELLER_SHARED_DB_URL"),
+    )
+    internal_api_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SELLER_INTERNAL_TOKEN"),
+    )
     profile_path: Path = Path(
         "apps/seller_agent/seller_agent/profiles/northwind.yaml"
     )
