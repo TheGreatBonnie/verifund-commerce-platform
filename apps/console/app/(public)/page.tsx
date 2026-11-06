@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -85,7 +86,8 @@ const capabilities = [
 
 export default function Home() {
   const router = useRouter();
-  const { runs } = useRuns();
+  const { isSignedIn } = useAuth();
+  const { runs } = useRuns({ enabled: isSignedIn === true });
   const recent = runs.slice(0, 3);
 
   const catalogQuery = useQuery({
@@ -315,7 +317,8 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mm-dashboard-section" aria-labelledby="activity-title">
+      {isSignedIn === true ? (
+        <section className="mm-dashboard-section" aria-labelledby="activity-title">
         <header className="mm-section-head mm-dashboard-section-head">
           <div>
             <p className="mm-kicker">Your marketplace</p>
@@ -347,7 +350,8 @@ export default function Home() {
             ))}
           </div>
         )}
-      </section>
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -1,6 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
 export async function GET() {
-  await auth.protect();
   const registry = process.env.REGISTRY_URL ?? "http://127.0.0.1:9105";
   try {
     const response = await fetch(`${registry}/v1/sellers`, {

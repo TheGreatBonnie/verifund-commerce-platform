@@ -1,11 +1,12 @@
 "use client";
 
 import { ReactNode } from "react";
-import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+import { OrganizationSwitcher, UserButton, Show, SignInButton, SignUpButton } from "@clerk/nextjs";
 import { CopilotProvider, threadsEnabled } from "@/providers/copilot-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SkipLink } from "@/components/layout/skip-link";
+import { Button } from "@/components/ui/button";
 
 export function ConsoleLayout({
   children,
@@ -28,12 +29,26 @@ export function ConsoleLayout({
                 title={userId ?? undefined}
                 style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "8px 16px", borderBottom: "1px solid var(--rule)" }}
               >
-                <OrganizationSwitcher
-                  afterCreateOrganizationUrl="/"
-                  afterSelectOrganizationUrl="/"
-                  hidePersonal={false}
-                />
-                <UserButton />
+                <Show when="signed-out">
+                  <SignInButton mode="modal">
+                    <Button variant="outline" size="sm">
+                      Sign in
+                    </Button>
+                  </SignInButton>
+                  <SignUpButton mode="modal">
+                    <Button size="sm">
+                      Sign up
+                    </Button>
+                  </SignUpButton>
+                </Show>
+                <Show when="signed-in">
+                  <OrganizationSwitcher
+                    afterCreateOrganizationUrl="/"
+                    afterSelectOrganizationUrl="/"
+                    hidePersonal={false}
+                  />
+                  <UserButton />
+                </Show>
               </header>
               <main id="main-content" className="mm-console-main">
                 {children}

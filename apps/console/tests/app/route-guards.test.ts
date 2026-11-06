@@ -3,10 +3,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const APP = path.resolve(__dirname, "../../app");
+// Deliberately public: the showcase catalog and the healthy-seller
+// projection are readable without a session. Everything else stays protected.
 const PUBLIC = new Set([
   "sign-in/[[...sign-in]]/page.tsx",
   "sign-up/[[...sign-up]]/page.tsx",
   "api/webhooks/clerk/route.ts",
+  "api/marketplace/products/route.ts",
+  "api/registry/sellers/route.ts",
   "fulfillment/access/[token]/page.tsx",
   "fulfillment/access/[token]/actions.ts",
 ]);

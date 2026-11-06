@@ -1,8 +1,6 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function GET(request: NextRequest) {
-  await auth.protect();
   const buyer = process.env.BUYER_API_URL ?? "http://127.0.0.1:9100";
   const token = process.env.BUYER_CONSOLE_API_TOKEN ?? "dev-console";
   const target = new URL("/api/marketplace/products", buyer);

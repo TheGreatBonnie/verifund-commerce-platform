@@ -5,9 +5,9 @@ import { fetchRuns } from "@/lib/api";
 
 const TERMINAL = new Set(["ordered", "rejected", "failed", "order_failed", "no_award"]);
 
-export function useRuns() {
+export function useRuns({ enabled = true }: { enabled?: boolean } = {}) {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["runs"], queryFn: () => fetchRuns(50), staleTime: 5_000 });
+  const q = useQuery({ queryKey: ["runs"], queryFn: () => fetchRuns(50), staleTime: 5_000, enabled });
   return {
     runs: q.data ?? [],
     isLoading: q.isLoading,
