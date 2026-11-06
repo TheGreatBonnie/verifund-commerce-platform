@@ -124,6 +124,48 @@ class TenancyRepository:
             Column("decided_at", String),
             Column("created_at", String, nullable=False),
         )
+        self.agents = Table(
+            "agents",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=False, index=True),
+            Column("name", String, nullable=False),
+            Column("status", String, nullable=False),
+            Column("policy_ref", String, nullable=False),
+            Column("policy_version", String, nullable=False),
+            Column("policy_hash", String, nullable=False),
+            Column("card_hash", String),
+            Column("policy_drift", String, nullable=False, default="0"),
+            Column("created_by", String),
+            Column("created_at", String, nullable=False),
+            Column("updated_at", String, nullable=False),
+            Column("activated_at", String),
+            Column("revoked_at", String),
+        )
+        self.agent_credentials = Table(
+            "agent_credentials",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=False, index=True),
+            Column("agent_id", String, nullable=False, index=True),
+            Column("token_hash", String, nullable=False, unique=True),
+            Column("scopes", JSON, nullable=False),
+            Column("status", String, nullable=False),
+            Column("expires_at", String),
+            Column("created_at", String, nullable=False),
+        )
+        self.agent_test_runs = Table(
+            "agent_test_runs",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("agent_id", String, nullable=False, index=True),
+            Column("organization_id", String, nullable=False, index=True),
+            Column("policy_hash", String, nullable=False),
+            Column("card_hash", String, nullable=False),
+            Column("checks", JSON, nullable=False),
+            Column("passed", String, nullable=False),
+            Column("created_at", String, nullable=False),
+        )
 
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
@@ -768,4 +810,175 @@ class TenancyRepository:
                     decision_note=note,
                     decided_at=_now(),
                 )
+            )
+
+    async def create_agent(
+        self,
+        *,
+        organization_id: str,
+        name: str,
+        created_by: str | None,
+        policy_ref: str,
+        policy_version: str,
+        policy_hash: str,
+        card_hash: str | None = None,
+    ) -> dict:
+        row = {
+            "id": _id(),
+            "organization_id": organization_id,
+            "name": name,
+            "status": "draft",
+            "policy_ref": policy_ref,
+            "policy_version": policy_version,
+            "policy_hash": policy_hash,
+            "card_hash": card_hash,
+            "policy_drift": "0",
+            "created_by": created_by,
+            "created_at": _now(),
+            "updated_at": _now(),
+            "activated_at": None,
+            "revoked_at": None,
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.agents.insert().values(**row))
+        return row
+
+    async def get_agent(self, agent_id: str) -> dict | None:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.agents).where(self.agents.c.id == agent_id)
+                )
+            ).first()
+            return dict(row._mapping) if row else None
+
+    async def list_agents(self, organization_id: str | None = None) -> list[dict]:
+        stmt = select(self.agents)
+        if organization_id:
+            stmt = stmt.where(self.agents.c.organization_id == organization_id)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+            return [dict(r._mapping) for r in rows]
+
+    async def set_agent_status(self, agent_id: str, status: str) -> None:
+        values: dict = {"status": status, "updated_at": _now()}
+        if status == "active":
+            values["activated_at"] = _now()
+        if status == "revoked":
+            values["revoked_at"] = _now()
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.agents.update()
+                .where(self.agents.c.id == agent_id)
+                .values(**values)
+            )
+
+    async def set_policy_hash(
+        self, agent_id: str, policy_hash: str, policy_version: str | None = None
+    ) -> None:
+        values: dict = {"policy_hash": policy_hash, "updated_at": _now()}
+        if policy_version is not None:
+            values["policy_version"] = policy_version
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.agents.update()
+                .where(self.agents.c.id == agent_id)
+                .values(**values)
+            )
+
+    async def set_policy_drift(self, agent_id: str, drift: bool) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.agents.update()
+                .where(self.agents.c.id == agent_id)
+                .values(policy_drift="1" if drift else "0", updated_at=_now())
+            )
+
+    async def create_test_run(
+        self,
+        agent_id: str,
+        organization_id: str,
+        *,
+        policy_hash: str,
+        card_hash: str,
+        checks: list,
+        passed: bool,
+    ) -> dict:
+        row = {
+            "id": _id(),
+            "agent_id": agent_id,
+            "organization_id": organization_id,
+            "policy_hash": policy_hash,
+            "card_hash": card_hash,
+            "checks": checks,
+            "passed": "1" if passed else "0",
+            "created_at": _now(),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.agent_test_runs.insert().values(**row))
+        return row
+
+    async def latest_passing_test(
+        self, agent_id: str, policy_hash: str, card_hash: str
+    ) -> dict | None:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.agent_test_runs)
+                    .where(
+                        self.agent_test_runs.c.agent_id == agent_id,
+                        self.agent_test_runs.c.policy_hash == policy_hash,
+                        self.agent_test_runs.c.card_hash == card_hash,
+                        self.agent_test_runs.c.passed == "1",
+                    )
+                    .order_by(self.agent_test_runs.c.created_at.desc())
+                )
+            ).all()
+            return dict(rows[0]._mapping) if rows else None
+
+    async def create_credential(
+        self, organization_id: str, agent_id: str, token_hash: str, scopes: list
+    ) -> dict:
+        row = {
+            "id": _id(),
+            "organization_id": organization_id,
+            "agent_id": agent_id,
+            "token_hash": token_hash,
+            "scopes": scopes,
+            "status": "active",
+            "expires_at": None,
+            "created_at": _now(),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.agent_credentials.insert().values(**row))
+        return row
+
+    async def get_credential_by_hash(self, token_hash: str) -> dict | None:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.agent_credentials).where(
+                        self.agent_credentials.c.token_hash == token_hash
+                    )
+                )
+            ).first()
+            return dict(row._mapping) if row else None
+
+    async def list_credentials(self, agent_id: str) -> list[dict]:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.agent_credentials).where(
+                        self.agent_credentials.c.agent_id == agent_id
+                    )
+                )
+            ).all()
+            return [dict(r._mapping) for r in rows]
+
+    async def revoke_credential(self, credential_id: str) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.agent_credentials.update()
+                .where(self.agent_credentials.c.id == credential_id)
+                .values(status="revoked")
             )
