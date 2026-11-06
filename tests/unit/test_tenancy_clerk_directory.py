@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from clerk_backend_api import models
-
 from verifund_control_plane.tenancy.clerk import ClerkBackendDirectory
 
 
