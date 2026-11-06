@@ -58,6 +58,10 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     ),
 }
 
+# Seller-agent credential scopes. `fulfillment:assist` is read+draft only and
+# must never map to a mutation endpoint.
+SELLER_AGENT_SCOPES = frozenset({"a2a:call", "fulfillment:assist"})
+
 ACTION_PERMISSIONS: dict[tuple[str, str], str] = {
     ("buyer", "read"): "org:transactions:read",
     ("seller", "read"): "org:transactions:read",
