@@ -30,12 +30,20 @@ class SellerCreate(BaseModel):
     seller_id: str | None = None
     card_url: str
     categories: list[str] = Field(min_length=1)
+    organization_id: str | None = None
+    verified: bool = True
+    card_json: dict[str, Any] | None = None
 
 
 class AgentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     agent_id: str | None = None
     card_url: str
+    name: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    card_json: dict[str, Any] | None = None
+    organization_id: str | None = None
+    published: bool = True
 
 
 class AgentDiscoverRequest(BaseModel):
@@ -50,6 +58,17 @@ class DiscoverRequest(BaseModel):
     required_extension: str
     limit: int = Field(default=20, ge=1, le=100)
     product_sku: str | None = None
+
+
+def assert_card_url_owned(seller_id: str, card_url: str) -> None:
+    if f"/{seller_id}/a2a" not in card_url and f"/{seller_id}/" not in card_url:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "card_url_not_owned",
+                "message": "card url does not match seller id",
+            },
+        )
 
 
 def _slug(value: str) -> str:
@@ -150,7 +169,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, exc: HTTPException) -> JSONResponse:
-        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+        return JSONResponse(
+            {"error": exc.detail, "detail": exc.detail}, status_code=exc.status_code
+        )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -171,36 +192,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body: SellerCreate,
         _: None = Depends(require_admin),
     ) -> dict[str, Any]:
-        try:
-            card = await fetch_agent_card(
-                body.card_url, allowed_hosts=settings.allowed_card_hosts
+        seller_id = body.seller_id or ""
+        if seller_id:
+            assert_card_url_owned(seller_id, body.card_url)
+        if body.card_json is not None:
+            if not seller_id:
+                raise HTTPException(status_code=400, detail="invalid seller_id")
+            card_json = body.card_json
+            name = card_json.get("name", seller_id)
+            listings: list[dict[str, Any]] = []
+        else:
+            try:
+                card = await fetch_agent_card(
+                    body.card_url, allowed_hosts=settings.allowed_card_hosts
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            errors = validate_agent_card(card)
+            if errors:
+                raise HTTPException(status_code=400, detail="; ".join(errors))
+            seller_id = body.seller_id or _slug(card.name)
+            if not SELLER_ID_PATTERN.fullmatch(seller_id):
+                raise HTTPException(status_code=400, detail="invalid seller_id")
+            card_json = json_format.MessageToDict(
+                card, preserving_proto_field_name=False
             )
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        errors = validate_agent_card(card)
-        if errors:
-            raise HTTPException(status_code=400, detail="; ".join(errors))
-        seller_id = body.seller_id or _slug(card.name)
-        if not SELLER_ID_PATTERN.fullmatch(seller_id):
-            raise HTTPException(status_code=400, detail="invalid seller_id")
-        card_json = json_format.MessageToDict(
-            card, preserving_proto_field_name=False
-        )
-        try:
-            listings = await _fetch_catalog(body.card_url)
-        except (httpx.HTTPError, TypeError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=f"seller catalog unavailable: {exc}") from exc
+            name = card.name
+            try:
+                listings = await _fetch_catalog(body.card_url)
+            except (httpx.HTTPError, TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"seller catalog unavailable: {exc}") from exc
         row = await store.upsert(
             seller_id=seller_id,
-            name=card.name,
+            name=name,
             card_url=body.card_url,
             categories=body.categories,
             card_json=card_json,
             card_hash=canonical_card_hash(card_json),
             healthy=True,
             error=None,
+            organization_id=body.organization_id,
+            verified=body.verified,
         )
-        await store.replace_listings(seller_id, listings)
+        if listings:
+            await store.replace_listings(seller_id, listings)
         return _seller_view(row, include_card=True)
 
     @app.get("/v1/sellers")
@@ -285,6 +320,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body: AgentCreate,
         _: None = Depends(require_admin),
     ) -> dict[str, Any]:
+        if body.card_json is not None:
+            agent_id = body.agent_id or ""
+            if not SELLER_ID_PATTERN.fullmatch(agent_id):
+                raise HTTPException(status_code=400, detail="invalid agent id")
+            payload = body.card_json
+            name = body.name or payload.get("name", agent_id)
+            skills = body.skills or payload.get("skills", [])
+            row = await store.upsert_agent(
+                agent_id=agent_id,
+                name=name,
+                card_url=body.card_url,
+                skills=skills,
+                card_json=payload,
+                card_hash=canonical_card_hash(payload),
+                healthy=True,
+                error=None,
+                organization_id=body.organization_id,
+                published=body.published,
+            )
+            return _agent_view(row, include_card=True)
         try:
             card = await _load_agent_card(body.card_url, settings)
         except HTTPException:
@@ -304,6 +359,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             card_hash=canonical_card_hash(payload),
             healthy=True,
             error=None,
+            organization_id=body.organization_id,
+            published=body.published,
         )
         return _agent_view(row, include_card=True)
 
@@ -312,8 +369,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _: None = Depends(require_admin),
         skill: str | None = None,
     ) -> dict[str, Any]:
-        rows = await store.list_agents(skill=skill)
-        return {"agents": [_agent_view(row) for row in rows]}
+        rows = await store.list_agents(skill=skill, published_only=True)
+        return {
+            "agents": [_agent_view(row) for row in rows],
+            "items": [_agent_view(row) for row in rows],
+        }
 
     @app.get("/v1/agents/{agent_id}")
     async def get_agent(
@@ -356,7 +416,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body: AgentDiscoverRequest,
         _: None = Depends(require_admin),
     ) -> dict[str, Any]:
-        rows = await store.list_agents(skill=body.skill)
+        rows = await store.list_agents(skill=body.skill, published_only=True)
         return {
             "agents": [
                 _agent_view(row)

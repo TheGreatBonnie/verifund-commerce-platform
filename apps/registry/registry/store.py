@@ -37,6 +37,8 @@ class RegistryStore:
             Column("last_seen_at", String, nullable=False),
             Column("healthy", Boolean, nullable=False, default=True),
             Column("last_error", String, nullable=True),
+            Column("organization_id", String, nullable=True),
+            Column("verified", Boolean, nullable=False, default=True),
         )
         self.listings = Table(
             "seller_listings",
@@ -59,6 +61,8 @@ class RegistryStore:
             Column("last_seen_at", String, nullable=False),
             Column("healthy", Boolean, nullable=False, default=True),
             Column("last_error", String, nullable=True),
+            Column("organization_id", String, nullable=True),
+            Column("published", Boolean, nullable=False, default=False),
         )
 
     async def create_schema(self) -> None:
@@ -77,6 +81,8 @@ class RegistryStore:
         card_hash: str,
         healthy: bool,
         error: str | None,
+        organization_id: str | None = None,
+        verified: bool = True,
     ) -> dict[str, Any]:
         now = datetime.now(UTC).isoformat()
         values = {
@@ -89,6 +95,8 @@ class RegistryStore:
             "last_seen_at": now,
             "healthy": healthy,
             "last_error": error,
+            "organization_id": organization_id,
+            "verified": verified,
         }
         statement = sqlite_insert(self.sellers).values(**values)
         statement = statement.on_conflict_do_update(
@@ -202,6 +210,8 @@ class RegistryStore:
                 )
                 listing_sellers = {row.seller_id for row in rows}
         for seller in await self.list_sellers():
+            if not seller.get("verified", True):
+                continue
             if not product_sku and category not in seller["categories"]:
                 continue
             if listing_sellers is not None and seller["seller_id"] not in listing_sellers:
@@ -241,6 +251,8 @@ class RegistryStore:
         card_hash: str,
         healthy: bool,
         error: str | None,
+        organization_id: str | None = None,
+        published: bool = False,
     ) -> dict[str, Any]:
         now = datetime.now(UTC).isoformat()
         values = {
@@ -253,6 +265,8 @@ class RegistryStore:
             "last_seen_at": now,
             "healthy": healthy,
             "last_error": error,
+            "organization_id": organization_id,
+            "published": published,
         }
         statement = sqlite_insert(self.agents).values(**values)
         statement = statement.on_conflict_do_update(
@@ -263,11 +277,14 @@ class RegistryStore:
             await conn.execute(statement)
         return values
 
-    async def list_agents(self, skill: str | None = None) -> list[dict[str, Any]]:
+    async def list_agents(
+        self, skill: str | None = None, *, published_only: bool = False
+    ) -> list[dict[str, Any]]:
         async with self.engine.connect() as conn:
-            result = await conn.execute(
-                select(self.agents).order_by(self.agents.c.agent_id)
-            )
+            stmt = select(self.agents).order_by(self.agents.c.agent_id)
+            if published_only:
+                stmt = stmt.where(self.agents.c.published.is_(True))
+            result = await conn.execute(stmt)
             rows = [dict(row._mapping) for row in result]
         if skill:
             rows = [row for row in rows if skill in (row.get("skills") or [])]
