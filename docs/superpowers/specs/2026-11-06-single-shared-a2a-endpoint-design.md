@@ -580,7 +580,9 @@ catalog-import slice (B.6) with their control-plane endpoints
 `POST /v1/seller/catalog/import`), the console screens and portal reuse
 (O10), the `/internal/agent-configs` and `/internal/catalog/import` runtime
 endpoints, the `seller_configs` read path in request handling, and
-`products`/`inventory` provisioning — a minimal shared-runtime slice
+`products`/`inventory` provisioning — hot-path reads must construct the
+`SellerPolicy` from `products` + `seller_configs`, never by parsing YAML per
+request (flagged 2026-11-06) — a minimal shared-runtime slice
 **layered on the single-endpoint design in this same document**. The cutover
 (registry flip of the four demo sellers, container retirement) stays in
 that milestone's §10; `profile`/`verification` UI steps and credential
