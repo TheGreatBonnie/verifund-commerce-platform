@@ -1,3 +1,4 @@
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const hoisted = vi.hoisted(() => {
@@ -5,12 +6,9 @@ const hoisted = vi.hoisted(() => {
   const authFn = vi.fn();
   const auth = Object.assign(authFn, { protect: authProtect });
   const currentUser = vi.fn();
-  const getOrganizationMembershipList = vi.fn();
-  const createOrganization = vi.fn();
   const updateUserMetadata = vi.fn();
   const clerkClientFn = vi.fn(async () => ({
-    users: { getOrganizationMembershipList, updateUserMetadata },
-    organizations: { createOrganization },
+    users: { updateUserMetadata },
   }));
   const redirect = vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -20,8 +18,6 @@ const hoisted = vi.hoisted(() => {
     authFn,
     authProtect,
     currentUser,
-    getOrganizationMembershipList,
-    createOrganization,
     updateUserMetadata,
     clerkClientFn,
     redirect,
@@ -35,6 +31,10 @@ vi.mock("@clerk/nextjs/server", () => ({
 }));
 
 vi.mock("next/navigation", () => ({ redirect: hoisted.redirect }));
+
+vi.mock("@/app/post-auth/seller-activator", () => ({
+  SellerActivator: () => <div data-testid="seller-activator" />,
+}));
 
 import PostAuthPage from "@/app/post-auth/page";
 
@@ -53,8 +53,6 @@ beforeEach(() => {
   hoisted.authProtect.mockReset().mockResolvedValue({ userId: "user_1" });
   hoisted.authFn.mockReset().mockResolvedValue({ userId: "user_1" });
   hoisted.currentUser.mockReset();
-  hoisted.getOrganizationMembershipList.mockReset();
-  hoisted.createOrganization.mockReset();
   hoisted.redirect.mockClear();
 });
 
@@ -65,7 +63,7 @@ describe("PostAuthPage", () => {
     expect(hoisted.redirect).toHaveBeenCalledWith("/");
   });
 
-  it("promotes an unsafeMetadata hint to publicMetadata, then routes", async () => {
+  it("promotes an unsafeMetadata hint to publicMetadata, then routes buyers home", async () => {
     hoisted.currentUser.mockResolvedValue(
       makeUser({ publicMetadata: {}, unsafeMetadata: { role: "buyer" } }),
     );
@@ -79,22 +77,17 @@ describe("PostAuthPage", () => {
     expect(hoisted.redirect).toHaveBeenCalledWith("/choose-role");
   });
 
-  it("routes sellers with an org to /seller/onboarding", async () => {
+  it("renders the seller activator for sellers (no server-side org creation)", async () => {
     hoisted.currentUser.mockResolvedValue(makeUser({ publicMetadata: { role: "seller" } }));
-    hoisted.getOrganizationMembershipList.mockResolvedValue({ data: [{ id: "mem_1" }] });
-    await expect(PostAuthPage()).rejects.toThrow("REDIRECT:/seller/onboarding");
-    expect(hoisted.createOrganization).not.toHaveBeenCalled();
+    render(await PostAuthPage());
+    expect(screen.getByTestId("seller-activator")).toBeInTheDocument();
+    expect(hoisted.redirect).not.toHaveBeenCalled();
   });
 
-  it("creates a business org for sellers without one, then routes to onboarding", async () => {
-    hoisted.currentUser.mockResolvedValue(
-      makeUser({ publicMetadata: { role: "seller" }, firstName: "Ada" }),
-    );
-    hoisted.getOrganizationMembershipList.mockResolvedValue({ data: [] });
-    await expect(PostAuthPage()).rejects.toThrow("REDIRECT:/seller/onboarding");
-    expect(hoisted.createOrganization).toHaveBeenCalledWith({
-      name: "Ada's business",
-      createdBy: "user_1",
-    });
+  it("redirects to /sign-in when unauthenticated", async () => {
+    hoisted.authProtect.mockRejectedValue(new Error("unauthenticated"));
+    hoisted.authFn.mockResolvedValue({ userId: null });
+    await expect(PostAuthPage()).rejects.toThrow("REDIRECT:/sign-in");
+    expect(hoisted.redirect).toHaveBeenCalledWith("/sign-in");
   });
 });
