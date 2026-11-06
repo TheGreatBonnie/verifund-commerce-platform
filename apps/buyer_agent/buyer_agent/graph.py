@@ -53,6 +53,14 @@ from buyer_agent.planner import (
 from buyer_agent.settlement_flow import build_award_request, settlement_enabled
 
 
+def thread_id(organization_id: str, run_id: str) -> str:
+    return f"{organization_id}:{run_id}"
+
+
+def memory_namespace(organization_id: str, agent_id: str) -> tuple[str, ...]:
+    return ("tenants", organization_id, "agents", agent_id, "memory")
+
+
 def merge_negotiations(
     left: list[dict], right: list[dict]
 ) -> list[dict]:
@@ -163,7 +171,7 @@ def fallback_rfq_message(mandate: Mandate) -> str:
 
 
 async def interpret_brief(state: BuyerState, config: dict) -> dict:
-    run_id = config["configurable"]["thread_id"]
+    run_id = config["configurable"]["thread_id"].split(":", 1)[-1]
     messages = state.get("messages", [])
     human = next(
         (

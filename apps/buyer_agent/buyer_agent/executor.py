@@ -18,8 +18,14 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from verifund_contracts import AgreementProjection
 
+from verifund_control_plane.errors import VerifundError
+
 from buyer_agent.approval import normalize_approval
-from buyer_agent.graph import build_buyer_graph
+from buyer_agent.graph import (
+    build_buyer_graph,
+    memory_namespace,
+    thread_id as _thread_id,
+)
 from buyer_agent.planner import select_buyer_planner
 from buyer_agent.review import (
     parse_review_envelope,
@@ -27,6 +33,12 @@ from buyer_agent.review import (
     seller_resume_value,
 )
 from buyer_agent.settings import Settings
+
+# Re-exported so callers can build tenant-prefixed checkpoint ids without
+# importing the graph module.
+thread_id = _thread_id
+
+__all__ = ["BuyerExecutor", "thread_id", "memory_namespace"]
 
 
 class BuyerExecutor(AgentExecutor):
@@ -50,6 +62,21 @@ class BuyerExecutor(AgentExecutor):
             checkpointer=checkpointer,
             planner=self.planner,
         )
+
+    async def resume(self, run_id: str, *, organization_id: str) -> dict:
+        trace = getattr(self.services, "trace", None)
+        record = await trace.get_run(run_id) if trace is not None else None
+        if record is None:
+            raise VerifundError("not_found", "run not found", status_code=404)
+        if record.get("organization_id") != organization_id:
+            raise VerifundError("not_found", "run not found", status_code=404)
+        return {
+            "configurable": {
+                "thread_id": thread_id(organization_id, run_id),
+                "organization_id": organization_id,
+                "services": self.services,
+            }
+        }
 
     def _message_text(self, message: Any) -> str:
         if message is None:
@@ -244,9 +271,16 @@ class BuyerExecutor(AgentExecutor):
             )
         )
 
+        organization_id = payload.get("organization_id")
+        checkpoint_thread = (
+            _thread_id(organization_id, thread_id)
+            if organization_id
+            else thread_id
+        )
         config = {
             "configurable": {
-                "thread_id": thread_id,
+                "thread_id": checkpoint_thread,
+                "organization_id": organization_id,
                 "services": self.services,
                 "planner": self.planner,
             }
