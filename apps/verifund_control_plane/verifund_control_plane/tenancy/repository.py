@@ -845,9 +845,10 @@ class TenancyRepository:
         policy_version: str,
         policy_hash: str,
         card_hash: str | None = None,
+        agent_id: str | None = None,
     ) -> dict:
         row = {
-            "id": _id(),
+            "id": agent_id if agent_id else _id(),
             "organization_id": organization_id,
             "name": name,
             "status": "draft",
@@ -954,6 +955,17 @@ class TenancyRepository:
                         self.agent_test_runs.c.card_hash == card_hash,
                         self.agent_test_runs.c.passed == "1",
                     )
+                    .order_by(self.agent_test_runs.c.created_at.desc())
+                )
+            ).all()
+            return dict(rows[0]._mapping) if rows else None
+
+    async def latest_test_run(self, agent_id: str) -> dict | None:
+        async with self.engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(self.agent_test_runs)
+                    .where(self.agent_test_runs.c.agent_id == agent_id)
                     .order_by(self.agent_test_runs.c.created_at.desc())
                 )
             ).all()

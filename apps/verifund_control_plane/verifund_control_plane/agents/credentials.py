@@ -17,6 +17,14 @@ async def issue_credential(store, organization_id, agent_id, scopes) -> str:
     return token
 
 
+async def revoke_credential_by_raw(store, organization_id, raw_token: str) -> bool:
+    row = await store.get_credential_by_hash(_hash(raw_token))
+    if row is None or row["organization_id"] != organization_id:
+        return False
+    await store.revoke_credential(row["id"])
+    return True
+
+
 async def verify_credential(store, token) -> dict:
     row = await store.get_credential_by_hash(_hash(token))
     if row is None or row["status"] != "active":
