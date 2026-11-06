@@ -226,6 +226,10 @@ per-seller `.db` files are **not** imported (Q32) and remain untouched.
   `seller_agreement_reviews`, `settlement_tokens`, `evidence_outbox` (and
   `seller_configs`). Add `agent_id TEXT NOT NULL` to `orders` and
   `evidence_outbox` (Q13); A2A task attribution lives in `task_ownership` (§7.4).
+- New `products` table (Appendix B B.6): full SellerPolicy product model with
+  optional-with-defaults columns; composite PK `(organization_id, sku)`;
+  `organization_id` only (no `agent_id`) — one org's agents share the catalog.
+  `inventory` PK becomes `(organization_id, sku)`.
 - Add `organization_id` to all seller indexes; idempotency/unique constraints
   are **rescoped** to `(organization_id, …)` (e.g. order idempotency key).
 - `seller_configs` (new): `agent_id` PK, `organization_id` NOT NULL,
@@ -389,7 +393,9 @@ are **not binding** for the seller runtime; the isolation mechanisms are §7 and
 ## 13. Non-goals
 
 - Neon/PostgreSQL migration, RLS, or role engineering (deferred to Neon milestone).
-- Seller onboarding wizard UX, commerce integrations, policy editor (stub spec owns it).
+- Seller onboarding wizard UX beyond this milestone's configuration steps and
+  the catalog-import slice (B.4/B.6); policy editor UX (stub spec owns it).
+  External commerce integrations (OAuth/provider APIs, live catalog sync).
 - Per-pair buyer↔seller ACLs (Q20).
 - Per-tenant quotas, billing, rate limiting (Q21).
 - Daily policy-drift sweep and console surfacing (§12.5) — schema and hashes
@@ -453,8 +459,9 @@ workspace UI after Clerk authentication, and what the backend must do to make
 that real. This appendix supersedes
 `docs/superpowers/specs/seller-agent-config-seller-onboarding.md`
 (recommendation prose) where they differ; the decisions here were settled in
-the 2026-11-06 onboarding grill (O1–O19). Related: the console, control plane
-and seller runtime code paths listed in §2 and §7.
+the 2026-11-06 onboarding grill (O1–O27, after the catalog-import amendments).
+Related: the console, control plane and seller runtime code paths listed in §2
+and §7.
 
 B.2 **As-built today.** Console `(seller-onboarding)/seller/onboarding/[step]/page.tsx`
 is a placeholder for every step; `apps/console/lib/onboarding.ts` defines the
@@ -476,8 +483,10 @@ issued per agent, verified by `POST /v1/agent-credentials/verify` (§12.2 of
 the tenancy design; 30s positive cache). The seller admin's Clerk session is
 never a credential for the agent, and no secret ever reaches the browser.
 
-B.4 **The four configuration-owned steps** (the other three remain stubs this
-milestone — O2). All require `org:agents:manage`; all edits are
+B.4 **The configuration steps** — the four agent steps (`agent_setup`,
+`policies`, `testing`, `activation`) plus a minimal `integrations` slice (B.6;
+O2 as amended by O20). `profile` and `verification` remain stubs this
+milestone. All edits require `org:agents:manage`; all edits are
 compare-and-swap on `expected_config_version`; mismatch → `409` with the
 latest config (O12).
 
@@ -515,31 +524,79 @@ demo topology):
    idempotent operations + compensation (unpublish card, revoke credential) on
    terminal failure.
 
-B.6 **Starter catalog — O19.** Completing onboarding seeds a minimal demo
-catalog (a handful of SKUs with floors/ladders) into the org's `inventory` in
-`sellers.db`, so the catalog test and the full walkthrough pass on a
-zero-state organization; replaced when the seller connects a real integration
-(integrations step is a stub in this milestone — O2).
+B.6 **Catalog import from file via the onboarding UI** — supersedes O19.
+Fresh organizations bring their own products: the `integrations` step gains a
+minimal **"Import product catalog"** slice (O20; the rest of the step —
+external e-commerce/ERP OAuth, live sync — stays a stub).
 
-B.7 **Milestone boundary (build scope) — O2, O18.** This milestone delivers:
-the four configuration steps (B.4), the control-plane endpoints they call
+- **Surface (console):** in the integrations panel, the seller can (a) upload
+  a `.json`/`.yaml`/`.yml` file, (b) paste the document inline, (c) click
+  **Load example catalog** (bundled `example-catalog.json`/`.yaml`, subset of a
+  demo profile — needed for the O17 walkthrough on otherwise-empty orgs), or
+  (d) download an annotated **template**. No silent seeding ever occurs.
+- **Format (O21):** JSON and YAML, dispatched on content sniff (never on the
+  filename extension alone). Canonical import schema = one document `{version: 1,
+  currency: "USD"?, products: [...]}`; products match the `SellerPolicy` product
+  model.
+- **Validation (O23):** strict, all-or-nothing. Required per product: `sku`,
+  `name`, `list_unit_price_cents`, `initial_unit_price_cents`,
+  `floor_unit_price_cents`, `category`, `stock_on_hand`. Invariants:
+  `floor ≤ initial ≤ list` per SKU; no duplicate SKUs in the file; unknown
+  fields rejected; per-product currency consistency when `currency` present;
+  ≤ 2 MB and ≤ 1000 SKUs per onboarding import. Every violation aborts the
+  import with a structured `{errors: [{row, field, message}…]}` report and
+  **zero writes** (single transaction).
+- **Storage (O22, O26): normalized tables.** New `products` table in
+  `sellers.db`: composite PK `(organization_id, sku)`, `organization_id` only,
+  full product model with optional-with-defaults columns (name, prices,
+  category, stock, returns/delivery days, warranty months/addons, concession
+  ladder JSON, description, image_emoji, color, rating, tag) so the runtime
+  constructs a byte-equivalent `SellerPolicy` from DB rows. `inventory` PK
+  becomes `(organization_id, sku)`; stock columns keep `on_hand` / `incoming`
+  / `incoming_days`.
+- **Import semantics:** re-import **upserts by SKU**; new SKUs are inserted,
+  existing ones updated. A **full replace** (remove products absent from the
+  file) requires an explicit `replace_catalog=true` flag from a second,
+  confirmed UI action — never from a single click. Imported
+  `stock_on_hand`/`incoming_stock` wins when present; otherwise existing
+  inventory values are retained.
+- **Write path (O24):** the control plane does **not** write `sellers.db`.
+  CP endpoint `POST /v1/seller/catalog/import` (auth: `org:agents:manage`)
+  forwards to the shared runtime: `POST {seller_runtime}/internal/catalog/import`
+  (service credential, same pattern as B.5 step 5). The runtime parses,
+  validates, upserts `products` + syncs `inventory` in one transaction, and
+  returns `{inserted, updated, replaced, errors}`. Idempotent on the wizard's
+  `Idempotency-Key`; replay returns the recorded result.
+- **No catalog hash (O27):** the catalog is data, not behavioral authority.
+  Catalog edits never trigger `policy_drift`, never invalidate a passing
+  `agent_test_runs` row, and play no part in activation gates — B.4.3's
+  checks re-read the current `products`/`inventory` rows live at call time.
+
+B.7 **Milestone boundary (build scope) — O2(amended), O18, O20.** This
+milestone delivers: the four agent steps (B.4) and the minimal integrations
+catalog-import slice (B.6) with their control-plane endpoints
 (`POST /v1/agents`, `PATCH …/config`, `PATCH …/policies`,
-`POST …/test`, `POST …/activate`, `GET …/status`), the console screens and
-portal reuse (O10), the `/internal/agent-configs` runtime endpoint, the
-`seller_configs` read path in request handling, and starter seeding — a
-minimal shared-runtime slice **layered on the single-endpoint design in this
-same document**. The cutover (registry flip of the four demo sellers,
-container retirement) stays in that milestone's §10; profile/verification/
-integrations UI and credential rotation remain out of scope.
+`POST …/test`, `POST …/activate`, `GET …/status`,
+`POST /v1/seller/catalog/import`), the console screens and portal reuse
+(O10), the `/internal/agent-configs` and `/internal/catalog/import` runtime
+endpoints, the `seller_configs` read path in request handling, and
+`products`/`inventory` provisioning — a minimal shared-runtime slice
+**layered on the single-endpoint design in this same document**. The cutover
+(registry flip of the four demo sellers, container retirement) stays in
+that milestone's §10; `profile`/`verification` UI steps and credential
+rotation remain out of scope.
 
-B.8 **Acceptance gate — O17.** Fresh-org walkthrough in a clean environment:
-Clerk signup → org creation → wizard → instructions override → capability
-toggles → `policies` save → `testing` (real checks pass) → `activation`
-(card published; registry discovery returns the agent) → buyer-side A2A call
-resolves to exactly this organization and negotiates. Plus: control-plane
-endpoint integration tests, saga idempotency/retry tests (replay without
-duplicates; mid-saga failure resume), scoping-invariant tests (cross-tenant
-negative tests per §9/B.4), and the existing suite green.
+B.8 **Acceptance gate — O17, amended O25.** Fresh-org walkthrough in a clean
+environment: Clerk signup → org creation → wizard → **import the example
+catalog (one click)** → instructions override → capability toggles →
+`policies` save → `testing` (real checks pass against imported data) →
+`activation` (card published; registry discovery returns the agent) →
+buyer-side A2A call resolves to exactly this organization and negotiates.
+Plus: control-plane endpoint integration tests, saga idempotency/retry tests
+(replay without duplicates; mid-saga failure resume), catalog-import tests
+(file/paste/example; validation aborts with zero writes; upsert vs replace
+semantics; org isolation on products/inventory), scoping-invariant tests
+(cross-tenant negative tests per §9/B.4), and the existing suite green.
 
 B.9 **Accepted risks / divergences.**
 - **All capabilities default ON** at onboarding (O14) — deliberate
@@ -547,24 +604,31 @@ B.9 **Accepted risks / divergences.**
   Success criterion for the demo outweighs defense-in-depth default here.
 - **Synchronous provisioning blocks the UI** briefly (O6); async promotion is
   the documented escape hatch if steps outgrow the request budget.
-- **Starter demo catalog** mixes fixture data into fresh orgs (O19).
+- **Imported catalogs are only as good as the seller's file** — strict
+  validation catches structural and pricing-invariant errors (floor/initial/list
+  ordering, duplicates), never bad business data (wrong floors, stale stock).
+  No starter fixture ever lands in an org silently; the seller always performs
+  or confirms the import (O25).
+- **All-or-nothing aborts** mean one bad row rejects the whole file; sellers
+  must fix and re-upload rather than receive a half-imported catalog (O23).
 - **Hardcoded `agent_test_runs` placeholders replaced by real checks** (O9) —
   this removes the previous silent pass-through; activation is blocked until
   real checks pass.
 
 B.10 **Open/deferred items.** Credential rotation UX and endpoint (O15);
-integrations step (real external catalog sync); policy-drift daily sweep
+integrations beyond the catalog-import slice (external catalog sync via
+OAuth/provider APIs, incremental updates); policy-drift daily sweep
 (§12.5, unchanged); per-category autonomy caps (rejected O8); per-pair
-buyer↔seller ACLs (Q20, Appendix A); catalog provenance/verification beyond
-the starter seed; async provisioning transport; portal editing of granular
-`agent_policies`-style rows beyond autonomy caps.
+buyer↔seller ACLs (Q20, Appendix A); async provisioning transport; portal
+editing of granular `agent_policies`-style rows beyond autonomy caps;
+full-replace UX confirmation polish.
 
 B.11 **Decision log (onboarding grill, 2026-11-06).**
 
 | # | Decision | Choice |
 |---|----------|--------|
 | O1 | Deliverable | **Decisions land in this document (Appendix B)**; the onboarding-config recommendation is marked superseded here |
-| O2 | Build scope | **Four config steps + endpoints** (`agent_setup`, `policies`, `testing`, `activation`); `profile`/`verification`/`integrations` remain stubs |
+| O2 | Build scope | **Four config steps + endpoints** (`agent_setup`, `policies`, `testing`, `activation`) + minimal integrations catalog-import slice (O20); `profile`/`verification` remain stubs |
 | O3 | `agent_id` format | **`agent_<slug>` unique per org**; permanent, independent of display name |
 | O4 | Skills vs tools | **Card skills derived from the tool allowlist; never edited independently**; advertised ⊆ authorized |
 | O5 | Cross-store provisioning | **Idempotent inline saga, control plane orchestrates**; `(organization_id, Idempotency-Key)` replay-safe; no 2PC; compensating actions on terminal failure |
@@ -581,4 +645,12 @@ B.11 **Decision log (onboarding grill, 2026-11-06).**
 | O16 | Config write path | **Runtime-owned via `/internal/agent-configs`** (service auth); control plane records `policy_version`/`policy_hash`; seller store authoritative |
 | O17 | Acceptance gate | **Full fresh-org walkthrough + integration/retry/scoping tests** (B.8) |
 | O18 | Milestone boundary | **Minimal shared-runtime slice in scope** (config resolution + `/internal/agent-configs` + real checks); cutover stays in this document's §10 |
-| O19 | New-org catalog | **Starter demo catalog seed** at onboarding completion for empty orgs |
+| O19 | New-org catalog | **Superseded by O25** — no built-in seed |
+| O20 | Integrations scope | **Minimal file-import slice in scope**; external sync stays stub (amends O2) |
+| O21 | Import formats | **JSON + YAML, content-sniffed**; one canonical import schema |
+| O22 | Catalog storage | **Normalized `products` table**; composite PK `(organization_id, sku)`; full model optional-defaults |
+| O23 | Import validation | **Strict all-or-nothing** (floor ≤ initial ≤ list, dup SKUs rejected, ≤2MB/≤1000 SKUs, zero writes on failure); upsert by SKU; full replace only via explicit flag + confirm |
+| O24 | Import write path | **Runtime-owned `/internal/catalog/import`** (service auth); inventory synced in the same transaction; idempotent replay |
+| O25 | O19 disposition | **Auto-seed removed**; bundled `example-catalog.json`/`.yaml` + one-click import in UI |
+| O26 | Products schema | **Full SellerPolicy product model**, optional-with-defaults; `organization_id` only on products; `agent_id` not applicable |
+| O27 | Catalog hash | **No catalog hash**; activation checks re-run live; §12.5 drift stays bound to `policy_hash` + `card_hash` |
