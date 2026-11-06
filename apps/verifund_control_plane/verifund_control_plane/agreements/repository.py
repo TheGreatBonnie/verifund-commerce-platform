@@ -77,6 +77,8 @@ class AgreementRepository:
             Column("run_id", String, nullable=False, index=True),
             Column("buyer_id", String, nullable=False, index=True),
             Column("seller_id", String, nullable=False, index=True),
+            Column("buyer_organization_id", String, nullable=True, index=True),
+            Column("seller_organization_id", String, nullable=True, index=True),
             Column("current_version", Integer, nullable=False),
             Column("status", String, nullable=False, index=True),
             Column("offer_id", String, nullable=False),

@@ -147,6 +147,7 @@ def create_app(
         receipts=receipts,
         agreement_service=agreement_service,
         tracking=tracking,
+        tenancy=tenancy,
     )
     reconciler = Reconciler(
         repo=repo,

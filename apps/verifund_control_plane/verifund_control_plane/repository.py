@@ -146,6 +146,8 @@ class Repository:
             Column("evidence_id", String, primary_key=True),
             Column("transaction_id", String, nullable=False, index=True),
             Column("seller_id", String, nullable=False),
+            Column("organization_id", String, nullable=True, index=True),
+            Column("storage_key", String, nullable=True),
             Column("kind", String, nullable=False),
             Column("sha256", String, nullable=False),
             Column("media_type", String, nullable=False),
@@ -256,6 +258,7 @@ class Repository:
             Column("jti_hash", String, primary_key=True),
             Column("transaction_id", String, nullable=False, index=True),
             Column("seller_id", String, nullable=False),
+            Column("organization_id", String, nullable=True),
             Column("agreement_hash", String, nullable=False),
             Column("scopes", JSON, nullable=False),
             Column("expires_at", String, nullable=False),
@@ -268,6 +271,7 @@ class Repository:
             Column("jti_hash", String, primary_key=True),
             Column("transaction_id", String, nullable=False, index=True),
             Column("buyer_id", String, nullable=False),
+            Column("organization_id", String, nullable=True),
             Column("scopes", JSON, nullable=False),
             Column("expires_at", String, nullable=False),
             Column("revoked_at", String, nullable=True),
@@ -290,6 +294,7 @@ class Repository:
             self.metadata,
             Column("jti", String, primary_key=True),
             Column("transaction_id", String, nullable=False, index=True),
+            Column("organization_id", String, nullable=True),
             Column("kind", String, nullable=False),
             Column("expires_at", String, nullable=False),
             Column("used_at", String, nullable=True),
@@ -388,6 +393,18 @@ class Repository:
                     " actor, action, NULL, note, payload, created_at FROM audit_log_old"
                 )
                 await conn.exec_driver_sql("DROP TABLE audit_log_old")
+            await self._ensure_column(conn, "transactions", "buyer_organization_id", "TEXT")
+            await self._ensure_column(conn, "transactions", "seller_organization_id", "TEXT")
+            await self._ensure_column(conn, "evidence", "organization_id", "TEXT")
+            await self._ensure_column(conn, "evidence", "storage_key", "TEXT")
+            await self._ensure_column(conn, "checkout_links", "organization_id", "TEXT")
+            await self._ensure_column(conn, "buyer_tokens", "organization_id", "TEXT")
+            await self._ensure_column(conn, "seller_tokens", "organization_id", "TEXT")
+
+    async def _ensure_column(self, conn, table: str, name: str, ddl_type: str) -> None:
+        cols = {row[1] for row in await conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+        if name not in cols:
+            await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
@@ -401,6 +418,8 @@ class Repository:
             buyer_id=row.buyer_id,
             seller_id=row.seller_id,
             offer_id=row.offer_id,
+            buyer_organization_id=getattr(row, "buyer_organization_id", None),
+            seller_organization_id=getattr(row, "seller_organization_id", None),
             state=TransactionState(row.state),
             version=row.version,
             last_seq=row.last_seq,
@@ -582,6 +601,8 @@ class Repository:
                 run_id=txn.run_id,
                 buyer_id=txn.buyer_id,
                 seller_id=txn.seller_id,
+                buyer_organization_id=txn.buyer_organization_id,
+                seller_organization_id=txn.seller_organization_id,
                 offer_id=txn.offer_id,
                 state=txn.state.value,
                 version=txn.version,

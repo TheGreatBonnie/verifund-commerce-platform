@@ -249,6 +249,7 @@ class VerifundService:
         receipts: ReceiptSigner,
         agreement_service: Any = None,
         tracking: PayPalTrackingClient | None = None,
+        tenancy: Any = None,
     ) -> None:
         self.repo = repo
         self.settings = settings
@@ -262,6 +263,7 @@ class VerifundService:
         self.receipts = receipts
         self.agreement_service = agreement_service
         self.tracking = tracking
+        self.tenancy = tenancy
 
     def _now(self) -> datetime:
         return self.clock()
@@ -423,6 +425,17 @@ class VerifundService:
             )
         now = self._now()
         transaction_id = f"vf_{uuid.uuid4().hex}"
+        buyer_org_id = None
+        seller_org_id = None
+        if self.tenancy is not None:
+            seller_org = await self.tenancy.ensure_seed_organization(
+                seller_id=request.seller_id, kind="business", verified=False
+            )
+            buyer_org = await self.tenancy.ensure_seed_buyer_organization(
+                request.buyer_id
+            )
+            seller_org_id = seller_org["id"]
+            buyer_org_id = buyer_org["id"]
 
         async def operation(conn):
             agreement = await self.agreement_service.create_from_award(
@@ -459,6 +472,8 @@ class VerifundService:
                 last_error=None,
                 created_at=now,
                 updated_at=now,
+                buyer_organization_id=buyer_org_id,
+                seller_organization_id=seller_org_id,
             )
             issued = self.tokens.issue(
                 transaction_id, request.seller_id, digest
