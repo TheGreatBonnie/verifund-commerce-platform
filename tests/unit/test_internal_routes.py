@@ -2,9 +2,8 @@ import json
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-
-from seller_agent.settings import Settings
 from seller_agent.server import create_app
+from seller_agent.settings import Settings
 
 INTERNAL = "internal-test-token"
 ORG = "org_A"
@@ -21,11 +20,10 @@ async def client(tmp_path):
         verifund_mode="off",
     )
     app = create_app(settings)
-    async with app.router.lifespan_context(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as async_client:
-            yield async_client
+    async with app.router.lifespan_context(app), AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as async_client:
+        yield async_client
 
 
 def h(org=ORG, agent=AGENT, token=INTERNAL) -> dict[str, str]:

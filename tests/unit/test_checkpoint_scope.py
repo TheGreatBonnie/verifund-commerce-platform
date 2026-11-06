@@ -1,5 +1,4 @@
 import pytest
-
 from buyer_agent.executor import BuyerExecutor
 from buyer_agent.graph import memory_namespace, thread_id
 from verifund_control_plane.errors import VerifundError

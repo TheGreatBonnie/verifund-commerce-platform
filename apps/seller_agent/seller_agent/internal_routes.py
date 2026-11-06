@@ -15,11 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from seller_agent.catalog_import import parse_catalog_document, CatalogImportError
+from seller_agent.catalog_import import CatalogImportError, parse_catalog_document
 from seller_agent.planner import ScriptedSellerPlanner
-from seller_agent.service import SellerService
 from seller_agent.shared_store import (
-    OrgScopedStore, ConfigUpsert, ConfigConflict, TenantContextError,
+    ConfigConflict,
+    ConfigUpsert,
+    OrgScopedStore,
+    TenantContextError,
 )
 
 router = APIRouter(prefix="/internal")
@@ -92,7 +94,7 @@ class TestSuiteBody(BaseModel):
 
 @router.post("/agent-configs")
 async def upsert_agent_config(body: AgentConfigBody, request: Request,
-                              _=Depends(_require_internal_token)):
+                              _=Depends(_require_internal_token)):  # noqa: B008
     org = _org(request)
     if org != body.organization_id:
         raise HTTPException(
@@ -124,7 +126,7 @@ async def upsert_agent_config(body: AgentConfigBody, request: Request,
 
 @router.post("/catalog/import")
 async def import_catalog(body: CatalogImportBody, request: Request,
-                         _=Depends(_require_internal_token)):
+                         _=Depends(_require_internal_token)):  # noqa: B008
     org = _org(request)
     agent = _agent(request)
     try:
@@ -141,7 +143,7 @@ async def import_catalog(body: CatalogImportBody, request: Request,
 
 @router.get("/agent-configs/{agent_id}")
 async def get_agent_config(agent_id: str, request: Request,
-                           _=Depends(_require_internal_token)):
+                           _=Depends(_require_internal_token)):  # noqa: B008
     org = _org(request)
     store = get_store(request, org, agent_id)
     snapshot = await store.get_config(agent_id)
@@ -181,7 +183,7 @@ def _check(name: str, passed: bool, detail: str) -> dict[str, Any]:
 
 @router.post("/test-suite")
 async def test_suite(body: TestSuiteBody, request: Request,
-                     _=Depends(_require_internal_token)):
+                     _=Depends(_require_internal_token)):  # noqa: B008
     org = _org(request)
     store = get_store(request, org, body.agent_id)
     settings = request.app.state.settings
@@ -261,17 +263,19 @@ async def test_suite(body: TestSuiteBody, request: Request,
         for artifact in turn.artifacts:
             for part in artifact.parts:
                 payload = part_value(part)
-                if isinstance(payload, dict) and isinstance(
-                        payload.get("payload"), dict):
-                    if payload["payload"].get("offer_id"):
-                        offer_found = True
+                if (
+                    isinstance(payload, dict)
+                    and isinstance(payload.get("payload"), dict)
+                    and payload["payload"].get("offer_id")
+                ):
+                    offer_found = True
         a2a_ok = bool(offer_found) and turn.task_state in (
             TaskState.TASK_STATE_INPUT_REQUIRED,
             TaskState.TASK_STATE_COMPLETED,
         )
         a2a_detail = ("mediated RFQ round trip returned an offer"
                       if a2a_ok else "RFQ turn completed without an offer artifact")
-    except Exception as e:  # the check must report failures, never crash
+    except Exception as e:  # noqa: BLE001 - the check must report failures, never crash
         a2a_ok, a2a_detail = False, f"in-process RFQ failed: {e}"
     checks.append(_check("a2a", a2a_ok, a2a_detail))
 

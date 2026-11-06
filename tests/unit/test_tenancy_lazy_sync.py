@@ -1,6 +1,5 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from verifund_control_plane.settings import Settings
 from verifund_control_plane.tenancy.identity import resolve_identity
 from verifund_control_plane.tenancy.repository import TenancyRepository

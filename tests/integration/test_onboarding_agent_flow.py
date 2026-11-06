@@ -1,19 +1,17 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
-import pytest
 import pytest_asyncio
-
+from seller_agent.server import create_app as create_seller_app
+from seller_agent.settings import Settings as SellerSettings
 from verifund_control_plane.agents.credentials import verify_credential
 from verifund_control_plane.app import create_app
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.settings import Settings
-from seller_agent.settings import Settings as SellerSettings
-from seller_agent.server import create_app as create_seller_app
 
 EXAMPLE = Path("scripts/fixtures/example-catalog.json").read_text(encoding="utf-8")
-CLOCK = lambda: datetime.now(timezone.utc)
+CLOCK = lambda: datetime.now(UTC)
 
 
 @pytest_asyncio.fixture
@@ -49,61 +47,62 @@ async def stack(tmp_path):
             return httpx.Response(201, json={"published": True})
         return httpx.Response(404, json={"code": "not_found"})
 
-    async with seller_app.router.lifespan_context(seller_app):
-        async with cp_app.router.lifespan_context(cp_app):
-            async def _verify(token: str, *, purpose: str = "a2a:call"):
-                tenancy = cp_app.state.tenancy
-                try:
-                    return await verify_credential(tenancy, token,
-                                                   purpose=purpose)
-                except VerifundError:
-                    return None
+    async with (
+        seller_app.router.lifespan_context(seller_app),
+        cp_app.router.lifespan_context(cp_app),
+    ):
+        async def _verify(token: str, *, purpose: str = "a2a:call"):
+            tenancy = cp_app.state.tenancy
+            try:
+                return await verify_credential(tenancy, token, purpose=purpose)
+            except VerifundError:
+                return None
 
-            seller_app.state.credential_verifier = _verify
-            cp_app.state.runtime_client_factory = lambda: httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=seller_app),
-                base_url="http://seller-shared",
-            )
-            cp_app.state.registry_client_factory = lambda: httpx.AsyncClient(
-                transport=httpx.MockTransport(registry_handler),
-                base_url="http://registry",
-            )
-            cp = httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=cp_app), base_url="http://cp")
+        seller_app.state.credential_verifier = _verify
+        cp_app.state.runtime_client_factory = lambda: httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=seller_app),
+            base_url="http://seller-shared",
+        )
+        cp_app.state.registry_client_factory = lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(registry_handler),
+            base_url="http://registry",
+        )
+        cp = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=cp_app), base_url="http://cp")
 
-            async def _seed(org_id: str, seller_id: str, display: str,
-                            role: str = "org:admin", verified: bool = True):
-                store = cp_app.state.tenancy
-                user = await store.upsert_user(f"user_{seller_id}",
-                                               f"{seller_id}@example.com",
-                                               display)
-                org = await store.upsert_organization(org_id, display, seller_id)
-                await store.upsert_membership(org["id"], user["id"], role,
-                                              f"mem_{seller_id}")
-                await store.upsert_seller_profile(org["id"], seller_id, display)
-                if verified:
-                    await store.set_verification_status(seller_id, "verified")
-                return org, user
+        async def _seed(org_id: str, seller_id: str, display: str,
+                        role: str = "org:admin", verified: bool = True):
+            store = cp_app.state.tenancy
+            user = await store.upsert_user(f"user_{seller_id}",
+                                           f"{seller_id}@example.com",
+                                           display)
+            org = await store.upsert_organization(org_id, display, seller_id)
+            await store.upsert_membership(org["id"], user["id"], role,
+                                         f"mem_{seller_id}")
+            await store.upsert_seller_profile(org["id"], seller_id, display)
+            if verified:
+                await store.set_verification_status(seller_id, "verified")
+            return org, user
 
-            def _headers(seller_id: str):
-                app = cp_app
-                app.state.clerk_authenticator = (
-                    lambda request: {
-                        "sub": f"user_{seller_id}",
-                        "org_id": f"org_{seller_id}",
-                        "org_role": "org:admin",
-                    })
-                return {"authorization": f"Bearer {seller_id}"}
+        def _headers(seller_id: str):
+            app = cp_app
+            app.state.clerk_authenticator = (
+                lambda request: {
+                    "sub": f"user_{seller_id}",
+                    "org_id": f"org_{seller_id}",
+                    "org_role": "org:admin",
+                })
+            return {"authorization": f"Bearer {seller_id}"}
 
-            await _seed("org_acme", "acme", "Acme", verified=True)
-            yield {
-                "cp": cp,
-                "published": published,
-                "headers": _headers("acme"),
-                "seller_app": seller_app,
-                "cp_app": cp_app,
-            }
-            await cp.aclose()
+        await _seed("org_acme", "acme", "Acme", verified=True)
+        yield {
+            "cp": cp,
+            "published": published,
+            "headers": _headers("acme"),
+            "seller_app": seller_app,
+            "cp_app": cp_app,
+        }
+        await cp.aclose()
 
 
 async def test_full_onboarding_saga_reaches_active(stack):

@@ -18,9 +18,7 @@ async def apply_clerk_event(store, event: dict) -> None:
         await store.update_organization(data["id"], data.get("name"), data.get("slug"))
     elif kind == "organization.deleted":
         await store.set_organization_status_by_clerk_id(data["id"], "disabled")
-    elif kind == "organizationMembership.created":
-        await store.upsert_membership_from_clerk(data)
-    elif kind == "organizationMembership.updated":
+    elif kind == "organizationMembership.created" or kind == "organizationMembership.updated":
         await store.upsert_membership_from_clerk(data)
     elif kind == "organizationMembership.deleted":
         await store.remove_membership_from_clerk(data)

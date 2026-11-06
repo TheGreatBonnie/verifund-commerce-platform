@@ -1,6 +1,5 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from verifund_control_plane.repository import Repository
 
 

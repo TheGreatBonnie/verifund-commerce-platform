@@ -63,7 +63,7 @@ async def confirm_policy(store, agent_id, version, hash) -> dict:
         raise VerifundError("not_found", "agent not found", status_code=404)
     drift = agent["policy_hash"] != hash
     await store.set_policy_hash(agent_id, hash, policy_version=version)
-    await store.set_policy_drift(agent_id, False if not drift else True)
+    await store.set_policy_drift(agent_id, not drift)
     # confirm clears drift: the confirmed hash is the new baseline
     await store.set_policy_drift(agent_id, False)
     updated = await store.get_agent(agent_id)

@@ -17,13 +17,14 @@ from commerce_core.a2a_parts import first_envelope
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from verifund_contracts import AgreementProjection
-
 from verifund_control_plane.errors import VerifundError
 
 from buyer_agent.approval import normalize_approval
 from buyer_agent.graph import (
     build_buyer_graph,
     memory_namespace,
+)
+from buyer_agent.graph import (
     thread_id as _thread_id,
 )
 from buyer_agent.planner import select_buyer_planner
@@ -38,7 +39,7 @@ from buyer_agent.settings import Settings
 # importing the graph module.
 thread_id = _thread_id
 
-__all__ = ["BuyerExecutor", "thread_id", "memory_namespace"]
+__all__ = ["BuyerExecutor", "memory_namespace", "thread_id"]
 
 
 class BuyerExecutor(AgentExecutor):

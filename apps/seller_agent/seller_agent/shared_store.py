@@ -3,14 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
+from commerce_core.contracts import Offer
+from commerce_core.pricing import SellerCatalogProduct, SellerPolicy
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from commerce_core.pricing import SellerPolicy, SellerCatalogProduct
-from commerce_core.contracts import Offer
 from seller_agent.mandate import SellerMandate
 from seller_agent.store import Stock
 
@@ -211,8 +211,8 @@ class OrgScopedStore:
                     counts["replaced"] = getattr(result, "rowcount", 0) or 0
                     await conn.execute(text(
                         "DELETE FROM inventory WHERE organization_id = :o "
-                        f"AND sku NOT IN (SELECT sku FROM products "
-                        f"WHERE organization_id = :o)"),
+                        "AND sku NOT IN (SELECT sku FROM products "
+                        "WHERE organization_id = :o)"),
                         {"o": self.organization_id})
                 else:
                     await conn.execute(text(

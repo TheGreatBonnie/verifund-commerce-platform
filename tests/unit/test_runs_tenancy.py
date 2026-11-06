@@ -1,7 +1,6 @@
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from buyer_agent.store import BuyerStore
+from sqlalchemy.ext.asyncio import create_async_engine
 
 
 @pytest.fixture

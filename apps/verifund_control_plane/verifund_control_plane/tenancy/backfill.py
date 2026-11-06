@@ -23,7 +23,7 @@ async def seed_payment_accounts(store, settings) -> None:
     for seller_id, email in (getattr(settings, "seller_payout_emails", {}) or {}).items():
         profile = await store.get_seller_profile(seller_id)
         if profile is None:
-            org = await store.ensure_seed_organization(
+            await store.ensure_seed_organization(
                 seller_id=seller_id, kind="business", verified=True
             )
             profile = await store.get_seller_profile(seller_id)
@@ -38,7 +38,7 @@ async def seed_payment_accounts(store, settings) -> None:
                 status="active",
                 credentials_reference=f"secret:{seller_id}",
             )
-        except Exception:
+        except Exception:  # noqa: BLE001,S112 - per-record tolerance is deliberate
             continue
 
 

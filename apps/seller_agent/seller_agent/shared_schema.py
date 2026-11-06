@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
-
 
 SHARED_DDL: list[str] = [
     """CREATE TABLE IF NOT EXISTS seller_configs (

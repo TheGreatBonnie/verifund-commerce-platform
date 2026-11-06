@@ -1,5 +1,4 @@
 import pytest
-
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.tenancy.visibility import assert_resource_visible
 

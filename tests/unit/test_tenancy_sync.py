@@ -1,6 +1,5 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from verifund_control_plane.tenancy.repository import TenancyRepository
 from verifund_control_plane.tenancy.sync import apply_clerk_event
 

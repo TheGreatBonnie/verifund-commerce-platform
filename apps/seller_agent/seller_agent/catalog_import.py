@@ -102,7 +102,7 @@ def parse_catalog_document(content: str) -> list[ImportProduct]:
             continue
         try:
             product = ImportProduct.model_validate(raw)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - surface per-row validation errors
             msg = " ".join(str(e).splitlines())[:400]
             errors.append(ImportErrorEntry(row=index + 1, message=msg))
             continue

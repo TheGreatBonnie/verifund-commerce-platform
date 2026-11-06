@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-
-from seller_agent.catalog_import import parse_catalog_document, CatalogImportError
+from seller_agent.catalog_import import CatalogImportError, parse_catalog_document
 
 GOOD = json.dumps({"version": 1, "currency": "USD", "products": [
     {"sku": "S1", "name": "One", "category": "c", "list_unit_price_cents": 100,

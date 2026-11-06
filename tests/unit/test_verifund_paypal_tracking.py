@@ -7,7 +7,6 @@ import json
 import httpx
 import pytest
 from sqlalchemy import select
-from verifund_contracts import TransactionState
 from verifund_control_plane.app import create_app
 from verifund_control_plane.paypal_tracking import (
     FakePayPalTracking,
@@ -102,14 +101,14 @@ async def _funded(client) -> dict:
 
 async def test_tracker_sync_is_idempotent():
     client = FakePayPalTracking()
-    kwargs = dict(
-        transaction_id="vf_1",
-        capture_id="8MC585209K746392H",
-        tracking_number="TEST-TRACK-001",
-        carrier="OTHER",
-        carrier_name_other="Verifund Sandbox Carrier",
-        items=[{"sku": "sku01", "quantity": "1"}],
-    )
+    kwargs = {
+        "transaction_id": "vf_1",
+        "capture_id": "8MC585209K746392H",
+        "tracking_number": "TEST-TRACK-001",
+        "carrier": "OTHER",
+        "carrier_name_other": "Verifund Sandbox Carrier",
+        "items": [{"sku": "sku01", "quantity": "1"}],
+    }
     first = await client.sync(**kwargs)
     second = await client.sync(**kwargs)
     assert first == second == "8MC585209K746392H-TEST-TRACK-001"

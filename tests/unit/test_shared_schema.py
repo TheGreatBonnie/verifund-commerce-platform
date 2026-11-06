@@ -1,8 +1,8 @@
 import pytest
+from seller_agent.shared_schema import configure_shared_engine, create_shared_schema
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
-
-from seller_agent.shared_schema import create_shared_schema, configure_shared_engine
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ async def test_products_pk_is_org_scoped(engine):
 
 
 async def test_seller_configs_unique_seller_id(engine):
-    with pytest.raises(Exception):
+    with pytest.raises(IntegrityError):
         async with engine.begin() as conn:
             for org in ("orgA", "orgB"):
                 await conn.execute(text(

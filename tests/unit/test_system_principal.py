@@ -1,6 +1,5 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.settings import Settings

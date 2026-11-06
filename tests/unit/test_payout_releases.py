@@ -1,7 +1,5 @@
-import httpx
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.repository import Repository
 from verifund_control_plane.settings import Settings
@@ -51,7 +49,7 @@ async def test_removed_member_cannot_release_funds(store):
             )
         )
     user = await store.upsert_user("user_r", "r@example.com", "R")
-    org = await store.upsert_organization("org_seller_clerk", "Seller", "seller")
+    await store.upsert_organization("org_seller_clerk", "Seller", "seller")
     # rewire: org_seller is a raw id, need org entity with that id for membership
     # create org with fixed id via direct insert
     async with store.engine.begin() as conn:

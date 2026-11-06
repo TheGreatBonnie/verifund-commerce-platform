@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from verifund_control_plane.agents.registry_sync import publish_agent  # noqa: F401  (re-export)

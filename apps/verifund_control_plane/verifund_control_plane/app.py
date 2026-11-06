@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
+from verifund_control_plane.agents import routes as agent_routes
 from verifund_control_plane.agreements import routes as agreement_routes
 from verifund_control_plane.agreements.repository import AgreementRepository
 from verifund_control_plane.agreements.service import AgreementService
@@ -14,6 +15,7 @@ from verifund_control_plane.api import buyer, checkout, fulfillment, health, ops
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.errors import VerifundError, verifund_error_handler
 from verifund_control_plane.evidence import EvidenceStore
+from verifund_control_plane.onboarding import routes as onboarding_routes
 from verifund_control_plane.paypal.fake import FakePaymentPort
 from verifund_control_plane.paypal.sandbox import PayPalSandboxPaymentPort
 from verifund_control_plane.paypal_tracking import (
@@ -23,12 +25,10 @@ from verifund_control_plane.paypal_tracking import (
 from verifund_control_plane.receipts import ReceiptSigner
 from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.repository import Repository
-from verifund_control_plane.agents import routes as agent_routes
-from verifund_control_plane.onboarding import routes as onboarding_routes
 from verifund_control_plane.service import VerifundService
+from verifund_control_plane.settings import Settings
 from verifund_control_plane.tenancy import routes as tenancy_routes
 from verifund_control_plane.tenancy.repository import TenancyRepository
-from verifund_control_plane.settings import Settings
 from verifund_control_plane.tokens import (
     BuyerTokenService,
     InvitationTokenService,

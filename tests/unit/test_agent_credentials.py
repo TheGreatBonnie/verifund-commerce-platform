@@ -1,6 +1,5 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from verifund_control_plane.agents.credentials import issue_credential, verify_credential
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.repository import Repository

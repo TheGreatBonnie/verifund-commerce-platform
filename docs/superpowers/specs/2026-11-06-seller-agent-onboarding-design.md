@@ -66,3 +66,7 @@ state machines in the tenancy spec and must not restate or contradict them.
 - Agent lifecycle transitions (tenancy spec §9.4).
 - Payments and payout release (tenancy spec §13).
 - Buyer-side onboarding.
+
+> Implemented by plan
+> `docs/superpowers/plans/2026-11-06-seller-onboarding-agent-configuration.md`
+> (Appendix B of `docs/superpowers/specs/2026-11-06-single-shared-a2a-endpoint-design.md`).

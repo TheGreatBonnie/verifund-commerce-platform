@@ -1,8 +1,6 @@
 import httpx
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from verifund_control_plane.app import create_app
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.repository import Repository
@@ -151,7 +149,6 @@ async def test_fulfillment_role_uploads_evidence(two_tenants):
 
 
 async def test_finance_role_releases_funds(two_tenants):
-    identity = _identity("org_seller_a", "org:finance")
     # sales cannot release (no approve), finance can via admin? Check: finance lacks approve.
     # Use admin for release success; sales failure already covered in T17.
     admin = _identity("org_seller_a", "org:admin")

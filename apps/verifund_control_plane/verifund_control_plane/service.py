@@ -280,7 +280,7 @@ class VerifundService:
 
                 account = await resolve_payout_account_for_seller(self.tenancy, seller_id)
                 return account["provider_account_id"]
-            except Exception:
+            except Exception:  # noqa: BLE001 - payout lookup is best-effort
                 return None
         return self.settings.payout_email_for(seller_id)
 

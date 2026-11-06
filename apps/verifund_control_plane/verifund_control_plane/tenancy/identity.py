@@ -136,7 +136,7 @@ def _default_authenticator(request: Request, settings) -> dict:
     if not isinstance(payload, dict):
         try:
             payload = dict(payload)
-        except Exception:
+        except Exception:  # noqa: BLE001 - fall back to an empty claims dict
             payload = {}
     return payload
 

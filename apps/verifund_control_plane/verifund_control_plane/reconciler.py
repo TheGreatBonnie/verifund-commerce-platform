@@ -186,8 +186,9 @@ class Reconciler:
                             resource_id=record.transaction_id,
                             payload={},
                         )
-                    except Exception:
+                    except Exception:  # noqa: BLE001,S110 - per-record tolerance is deliberate
                         pass
+                    continue
                     continue
             await self.service.refresh_payout(
                 record.transaction_id, actor="reconciler"

@@ -2,12 +2,11 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from buyer_agent import console_api
 from buyer_agent.settings import Settings
 from buyer_agent.trace import TraceStore
+from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import create_async_engine
 
 
 @pytest.fixture

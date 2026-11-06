@@ -1,6 +1,5 @@
 import httpx
 import pytest
-from sqlalchemy import select
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
 
