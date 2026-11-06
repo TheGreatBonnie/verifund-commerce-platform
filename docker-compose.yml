@@ -24,6 +24,7 @@ services:
       REGISTRY_DATABASE_URL: sqlite+aiosqlite:////app/data/registry.db
       REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
       ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech","verifund-agent","host.docker.internal"]'
+      ALLOWED_CARD_URLS: '["http://northwind:9201/.well-known/agent-card.json","http://circuitforge:9202/.well-known/agent-card.json","http://aurora:9203/.well-known/agent-card.json","http://summit-tech:9204/.well-known/agent-card.json"]'
     ports:
       - "127.0.0.1:9105:9105"
     healthcheck:

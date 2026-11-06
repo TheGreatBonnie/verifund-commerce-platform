@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 
 from scripts import config, dev
 
@@ -8,6 +9,33 @@ from scripts import config, dev
 def clear(monkeypatch, *names: str) -> None:
     for name in names:
         monkeypatch.delenv(name, raising=False)
+
+
+def test_registry_environment_allows_default_seller_card_urls(monkeypatch):
+    clear(
+        monkeypatch,
+        "ALLOWED_CARD_URLS",
+        "NORTHWIND_PUBLIC_BASE_URL",
+        "CIRCUITFORGE_PUBLIC_BASE_URL",
+        "AURORA_PUBLIC_BASE_URL",
+        "SUMMIT_TECH_PUBLIC_BASE_URL",
+    )
+    env = dev.registry_environment("scripted")
+    assert json.loads(env["ALLOWED_CARD_URLS"]) == [
+        "http://127.0.0.1:9201/.well-known/agent-card.json",
+        "http://127.0.0.1:9202/.well-known/agent-card.json",
+        "http://127.0.0.1:9203/.well-known/agent-card.json",
+        "http://127.0.0.1:9204/.well-known/agent-card.json",
+    ]
+
+
+def test_wait_for_http_treats_auth_protected_404_as_ready(monkeypatch):
+    def reject_request(url, timeout):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(dev.urllib.request, "urlopen", reject_request)
+
+    dev.wait_for_http("console", "http://127.0.0.1:3000", timeout=0.1)
 
 
 def test_mode_defaults_to_sandbox(monkeypatch):

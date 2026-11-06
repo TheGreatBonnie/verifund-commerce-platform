@@ -30,3 +30,4 @@ class Settings(BaseSettings):
         "verifund-agent",
         "host.docker.internal",
     )
+    allowed_card_urls: tuple[str, ...] = ()

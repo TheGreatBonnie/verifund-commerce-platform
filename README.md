@@ -220,7 +220,9 @@ durable ADK session store:
    `PROFILE_PATH`, `PUBLIC_BASE_URL`, `SELLER_TOKEN`, `DATABASE_URL`, and `PORT`.
 5. Register its card with `POST /v1/sellers` using the registry admin token, or extend the
    seed list and run `make seed`.
-6. Add the hostname to `ALLOWED_CARD_HOSTS` if it is not `127.0.0.1`.
+6. Add the hostname to `ALLOWED_CARD_HOSTS` if it is not `127.0.0.1`, and add its
+   exact card URL to `ALLOWED_CARD_URLS` unless it uses a platform-issued
+   `/{seller_id}/a2a` path.
 
 The buyer re-fetches and validates every Agent Card itself; the registry is an index, not
 a trust shortcut.

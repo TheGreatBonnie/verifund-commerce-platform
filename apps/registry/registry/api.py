@@ -60,15 +60,31 @@ class DiscoverRequest(BaseModel):
     product_sku: str | None = None
 
 
-def assert_card_url_owned(seller_id: str, card_url: str) -> None:
-    if f"/{seller_id}/a2a" not in card_url and f"/{seller_id}/" not in card_url:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "card_url_not_owned",
-                "message": "card url does not match seller id",
-            },
-        )
+def _canonical_card_url(value: str) -> str:
+    try:
+        return str(httpx.URL(value)).rstrip("/")
+    except httpx.InvalidURL:
+        return value.rstrip("/")
+
+
+def assert_card_url_owned(
+    seller_id: str,
+    card_url: str,
+    allowed_card_urls: tuple[str, ...] = (),
+) -> None:
+    if f"/{seller_id}/a2a" in card_url or f"/{seller_id}/" in card_url:
+        return
+    if _canonical_card_url(card_url) in {
+        _canonical_card_url(url) for url in allowed_card_urls
+    }:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "code": "card_url_not_owned",
+            "message": "card url does not match seller id",
+        },
+    )
 
 
 def _slug(value: str) -> str:
@@ -194,7 +210,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         seller_id = body.seller_id or ""
         if seller_id:
-            assert_card_url_owned(seller_id, body.card_url)
+            assert_card_url_owned(
+                seller_id,
+                body.card_url,
+                allowed_card_urls=settings.allowed_card_urls,
+            )
         if body.card_json is not None:
             if not seller_id:
                 raise HTTPException(status_code=400, detail="invalid seller_id")

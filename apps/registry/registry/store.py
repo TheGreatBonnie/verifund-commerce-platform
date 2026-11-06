@@ -65,10 +65,32 @@ class RegistryStore:
             Column("published", Boolean, nullable=False, default=False),
         )
 
+    @staticmethod
+    async def _ensure_projection_columns(conn) -> None:
+        additions = {
+            "sellers": (
+                ("organization_id", "organization_id VARCHAR"),
+                ("verified", "verified BOOLEAN NOT NULL DEFAULT 1"),
+            ),
+            "agents": (
+                ("organization_id", "organization_id VARCHAR"),
+                ("published", "published BOOLEAN NOT NULL DEFAULT 0"),
+            ),
+        }
+        for table, columns in additions.items():
+            rows = await conn.execute(text(f"PRAGMA table_info({table})"))
+            existing = {row[1] for row in rows}
+            for name, ddl in columns:
+                if name not in existing:
+                    await conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+                    )
+
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
+            await self._ensure_projection_columns(conn)
 
     async def upsert(
         self,

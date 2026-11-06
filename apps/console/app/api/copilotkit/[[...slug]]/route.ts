@@ -12,6 +12,7 @@ import { handle } from "hono/vercel";
 import { createDefaultAgent } from "../../../agent";
 import { auth } from "@clerk/nextjs/server";
 import { singleTerminalStream } from "@/lib/single-terminal-stream";
+import { identifyCopilotUser } from "@/lib/copilot-user";
 
 // Force dynamic rendering for the API route to avoid build-time fetching
 export const dynamic = "force-dynamic";
@@ -391,10 +392,7 @@ const runtime = new CopilotRuntime({
             ? { wsUrl: process.env.INTELLIGENCE_GATEWAY_WS_URL }
             : {}),
         }),
-        identifyUser: (async () => {
-          const { userId } = await auth.protect();
-          return { id: userId };
-        }) as never,
+        identifyUser: identifyCopilotUser,
       }
     : { runner: new InMemoryAgentRunner() }),
   // --- /copilotkit:intelligence ---

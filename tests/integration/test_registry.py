@@ -41,6 +41,9 @@ async def registry_client(tmp_path: Path, seller_card_json: dict):
         settings = Settings(
             database_url=f"sqlite+aiosqlite:///{tmp_path / 'registry.db'}",
             admin_token="test-admin",
+            allowed_card_urls=(
+                "http://127.0.0.1:9201/.well-known/agent-card.json",
+            ),
         )
         app = create_app(settings)
         await app.state.store.create_schema()
@@ -88,6 +91,19 @@ async def test_registry_rejects_bad_admin_token(
         headers={"Authorization": "Bearer wrong"},
     )
     assert response.status_code == 401
+
+
+async def test_registry_accepts_registered_seller_card_url(registry_client):
+    response = await registry_client.post(
+        "/v1/sellers",
+        json={
+            "seller_id": "northwind-audio",
+            "card_url": "http://127.0.0.1:9201/.well-known/agent-card.json",
+            "categories": ["consumer-electronics"],
+        },
+        headers={"Authorization": "Bearer test-admin"},
+    )
+    assert response.status_code == 201
 
 
 async def test_registry_rejects_non_local_card_url(registry_client):

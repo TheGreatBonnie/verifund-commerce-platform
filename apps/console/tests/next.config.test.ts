@@ -32,6 +32,37 @@ describe("next.config", () => {
     );
   });
 
+  it("allows Clerk's frontend API, bot protection, and assets", async () => {
+    const csp = await readCsp();
+
+    expect(readDirective(csp, "script-src")).toEqual(
+      expect.arrayContaining([
+        "https://*.clerk.accounts.dev",
+        "https://challenges.cloudflare.com",
+        "https://*.protect.clerk.com",
+      ]),
+    );
+    expect(readDirective(csp, "connect-src")).toEqual(
+      expect.arrayContaining([
+        "https://*.clerk.accounts.dev",
+        "https://*.protect.clerk.com:*",
+      ]),
+    );
+    expect(readDirective(csp, "img-src")).toContain(
+      "https://img.clerk.com",
+    );
+    expect(readDirective(csp, "worker-src")).toEqual(
+      expect.arrayContaining(["'self'", "blob:"]),
+    );
+    expect(readDirective(csp, "frame-src")).toEqual(
+      expect.arrayContaining([
+        "https://challenges.cloudflare.com",
+        "https://*.protect.clerk.com",
+      ]),
+    );
+    expect(readDirective(csp, "form-action")).toContain("'self'");
+  });
+
   it("allows the PayPal v6 SDK origins the embedded checkout needs", async () => {
     const csp = await readCsp();
 

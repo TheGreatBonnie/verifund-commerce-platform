@@ -202,6 +202,10 @@ def wait_for_http(
                 if response.status < 500:
                     return
                 last_error = f"HTTP {response.status}"
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
+                return
+            last_error = f"HTTP {exc.code}"
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_error = str(exc)
         time.sleep(0.4)
@@ -247,6 +251,7 @@ def registry_environment(mode: str) -> dict[str, str]:
             "REGISTRY_DATABASE_URL": _registry_database(),
             "REGISTRY_ADMIN_TOKEN": admin_token(),
             "ALLOWED_CARD_HOSTS": allowed_card_hosts_json(),
+            "ALLOWED_CARD_URLS": allowed_card_urls_json(),
         }
     )
     return env
@@ -294,6 +299,18 @@ def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, st
         env["BUYER_INTERNAL_TOKEN"] = config.buyer_internal_token()
         env["VERIFUND_AGENT_INTERNAL_TOKEN"] = config.verifund_agent_internal_token()
     return env
+
+
+def allowed_card_urls_json() -> str:
+    urls = {seller.card_url for seller in SELLERS}
+    configured = _env_value("ALLOWED_CARD_URLS", "")
+    try:
+        configured_urls = json.loads(configured) if configured else []
+    except (json.JSONDecodeError, TypeError):
+        configured_urls = []
+    if isinstance(configured_urls, list):
+        urls.update(url for url in configured_urls if isinstance(url, str))
+    return json.dumps(sorted(urls))
 
 
 def allowed_card_hosts_json() -> str:
