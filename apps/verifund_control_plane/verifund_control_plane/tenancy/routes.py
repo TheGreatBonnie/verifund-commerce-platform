@@ -21,6 +21,10 @@ class VerificationDecision(BaseModel):
     note: str | None = None
 
 
+class PayoutReleaseRequest(BaseModel):
+    reason: str = Field(min_length=1)
+
+
 async def require_platform_admin(request: Request) -> Identity:
     provided = request.headers.get("authorization", "")
     if provided.startswith("Bearer ") and secrets.compare_digest(
@@ -43,6 +47,37 @@ async def ops_verification(
         store, seller_id, body.decision, body.note, identity.user_id
     )
     return updated
+
+
+@router.post("/ops/transactions/{transaction_id}/payout-release", status_code=201)
+async def ops_payout_release(
+    transaction_id: str, body: PayoutReleaseRequest, request: Request
+) -> dict:
+    identity = await require_platform_admin(request)
+    if "org:payouts:manage" not in identity.permissions and not identity.is_platform_admin:
+        raise VerifundError("forbidden", "permission denied", status_code=403)
+    store = request.app.state.tenancy
+    txn = await request.app.state.repo.get_transaction(transaction_id)
+    seller_org_id = txn.seller_organization_id
+    if seller_org_id is None:
+        org = await store.ensure_seed_organization(
+            seller_id=txn.seller_id, kind="business", verified=False
+        )
+        seller_org_id = org["id"]
+    release = await store.create_payout_release(
+        transaction_id, seller_org_id, identity.user_id, body.reason
+    )
+    await store.record_audit(
+        scope="organization",
+        organization_id=seller_org_id,
+        transaction_id=transaction_id,
+        actor_user_id=identity.user_id,
+        actor_type="user",
+        action="payout.release_approved",
+        resource_id=transaction_id,
+        payload={"reason": body.reason},
+    )
+    return release
 
 
 @router.get("/v1/me")

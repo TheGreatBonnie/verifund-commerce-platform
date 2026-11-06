@@ -155,6 +155,7 @@ def create_app(
         service=service,
         settings=settings,
         clock=now,
+        tenancy=tenancy,
     )
 
     @asynccontextmanager

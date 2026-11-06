@@ -63,8 +63,10 @@ class Reconciler:
         clock: Callable[[], datetime],
         webhook_dispatch: Callable[[Any, dict[str, Any]], Awaitable[str]] | None = None,
         scanner: Any = None,
+        tenancy: Any = None,
     ) -> None:
         self.repo = repo
+        self.tenancy = tenancy
         self.service = service
         self.settings = settings
         self.clock = clock
@@ -149,6 +151,42 @@ class Reconciler:
 
     async def _sweep_payouts(self, stats: dict[str, int]) -> None:
         for record in await self.repo.list_transactions(state="PAYOUT_PENDING"):
+            if self.tenancy is not None:
+                profile = await self.tenancy.get_seller_profile(record.seller_id)
+                seller_org_id = record.seller_organization_id or (
+                    profile["organization_id"] if profile else None
+                )
+                seller_active = (
+                    profile is not None
+                    and profile["verification_status"] == "verified"
+                    and seller_org_id is not None
+                    and (await self.tenancy.get_organization(seller_org_id) or {}).get(
+                        "status"
+                    )
+                    == "active"
+                )
+                release = (
+                    await self.tenancy.get_payout_release(
+                        record.transaction_id, seller_org_id
+                    )
+                    if seller_org_id
+                    else None
+                )
+                if not seller_active and release is None:
+                    stats["payouts_held"] = stats.get("payouts_held", 0) + 1
+                    try:
+                        await self.tenancy.record_audit(
+                            scope="system",
+                            organization_id=seller_org_id,
+                            transaction_id=record.transaction_id,
+                            actor_type="system",
+                            action="payout_hold_seller_suspended",
+                            resource_id=record.transaction_id,
+                            payload={},
+                        )
+                    except Exception:
+                        pass
+                    continue
             await self.service.refresh_payout(
                 record.transaction_id, actor="reconciler"
             )
