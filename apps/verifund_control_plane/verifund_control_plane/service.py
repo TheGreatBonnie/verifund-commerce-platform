@@ -265,6 +265,12 @@ class VerifundService:
         self.tracking = tracking
         self.tenancy = tenancy
 
+    async def seller_status(self, seller_id: str) -> str | None:
+        if self.tenancy is None:
+            return None
+        profile = await self.tenancy.get_seller_profile(seller_id)
+        return profile["verification_status"] if profile else None
+
     def _now(self) -> datetime:
         return self.clock()
 
@@ -415,6 +421,14 @@ class VerifundService:
     ) -> dict[str, Any]:
         from verifund_control_plane.domain import validate_award as _validate_award
         _validate_award(request)
+        if getattr(self.settings, "tenancy_enabled", False) and self.tenancy is not None:
+            status = await self.seller_status(request.seller_id)
+            if status != "verified":
+                raise VerifundError(
+                    "seller_not_verified",
+                    "seller is not verified for new transactions",
+                    status_code=403,
+                )
         if self.settings.is_sandbox and not self.settings.payout_email_for(
             request.seller_id
         ):
@@ -1766,6 +1780,14 @@ class VerifundService:
         self, transaction_id: str, *, actor: str
     ) -> str:
         record = await self.repo.get_transaction(transaction_id)
+        if getattr(self.settings, "tenancy_enabled", False) and self.tenancy is not None:
+            status = await self.seller_status(record.seller_id)
+            if status != "verified":
+                raise VerifundError(
+                    "seller_not_verified",
+                    "seller is not verified for new transactions",
+                    status_code=403,
+                )
         if self.invitation_tokens is None:
             raise VerifundError(
                 "not_implemented",
@@ -3207,6 +3229,15 @@ class VerifundService:
         actor: str = "system",
         **kwargs: Any,
     ) -> dict[str, Any]:
+        if getattr(self.settings, "tenancy_enabled", False) and self.tenancy is not None:
+            _rec = await self.repo.get_transaction(transaction_id)
+            _sid = request.seller_id if request is not None else _rec.seller_id
+            if await self.seller_status(_sid) != "verified":
+                raise VerifundError(
+                    "seller_not_verified",
+                    "seller is not verified for new transactions",
+                    status_code=403,
+                )
         if request is None:
             record = await self.repo.get_transaction(transaction_id)
             request = SellerTokenRequest(
