@@ -10,13 +10,18 @@ vi.mock("@clerk/nextjs", () => ({
   },
   OrganizationSwitcher: () => <div data-testid="org-switcher" />,
   UserButton: () => <div data-testid="user-button" />,
-  SignInButton: ({ children, mode }: { children: React.ReactNode; mode?: string }) => (
-    <div data-testid="sign-in-button" data-mode={mode}>
+  SignInButton: ({ children, fallbackRedirectUrl }: { children?: React.ReactNode; fallbackRedirectUrl?: string }) => (
+    <div data-testid="sign-in-button" data-redirect={fallbackRedirectUrl}>
       {children}
     </div>
   ),
-  SignUpButton: ({ children, mode }: { children: React.ReactNode; mode?: string }) => (
-    <div data-testid="sign-up-button" data-mode={mode}>
+  SignUpButton: ({ children, mode, unsafeMetadata, fallbackRedirectUrl }: { children?: React.ReactNode; mode?: string; unsafeMetadata?: { role?: string }; fallbackRedirectUrl?: string }) => (
+    <div
+      data-testid="sign-up-button"
+      data-mode={mode}
+      data-role={unsafeMetadata?.role}
+      data-redirect={fallbackRedirectUrl}
+    >
       {children}
     </div>
   ),
@@ -63,9 +68,17 @@ describe("ConsoleLayout", () => {
       </ConsoleLayout>,
     );
     expect(screen.getByTestId("sign-in-button")).toBeInTheDocument();
-    expect(screen.getByTestId("sign-up-button")).toBeInTheDocument();
+    expect(screen.getAllByTestId("sign-up-button")).toHaveLength(2);
+    const signUpButtons = screen.getAllByTestId("sign-up-button");
+    expect(signUpButtons.map((b) => b.dataset.role)).toEqual(["buyer", "seller"]);
+    signUpButtons.forEach((b) => {
+      expect(b.dataset.mode).toBe("modal");
+      expect(b.dataset.redirect).toBe("/post-auth");
+    });
+    expect(screen.getByTestId("sign-in-button").dataset.redirect).toBe("/post-auth");
     expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /sign up/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign up as buyer/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign up as seller/i })).toBeInTheDocument();
     expect(screen.queryByTestId("org-switcher")).not.toBeInTheDocument();
     expect(screen.queryByTestId("user-button")).not.toBeInTheDocument();
     expect(screen.getByText("content")).toBeInTheDocument();

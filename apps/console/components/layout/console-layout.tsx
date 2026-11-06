@@ -30,14 +30,19 @@ export function ConsoleLayout({
                 style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "8px 16px", borderBottom: "1px solid var(--rule)" }}
               >
                 <Show when="signed-out">
-                  <SignInButton mode="modal">
+                  <SignInButton mode="modal" fallbackRedirectUrl="/post-auth">
                     <Button variant="outline" size="sm">
                       Sign in
                     </Button>
                   </SignInButton>
-                  <SignUpButton mode="modal">
+                  <SignUpButton mode="modal" unsafeMetadata={{ role: "buyer" }} fallbackRedirectUrl="/post-auth">
                     <Button size="sm">
-                      Sign up
+                      Sign up as buyer
+                    </Button>
+                  </SignUpButton>
+                  <SignUpButton mode="modal" unsafeMetadata={{ role: "seller" }} fallbackRedirectUrl="/post-auth">
+                    <Button variant="outline" size="sm">
+                      Sign up as seller
                     </Button>
                   </SignUpButton>
                 </Show>
