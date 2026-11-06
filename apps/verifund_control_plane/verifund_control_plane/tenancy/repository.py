@@ -166,6 +166,29 @@ class TenancyRepository:
             Column("passed", String, nullable=False),
             Column("created_at", String, nullable=False),
         )
+        self.payment_accounts = Table(
+            "payment_accounts",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=False, index=True),
+            Column("provider", String, nullable=False),
+            Column("provider_account_id", String, nullable=False),
+            Column("account_type", String, nullable=False),
+            Column("status", String, nullable=False),
+            Column("credentials_reference", String, nullable=False),
+            Column("created_at", String, nullable=False),
+            Column("updated_at", String, nullable=False),
+        )
+        self.payout_releases = Table(
+            "payout_releases",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("organization_id", String, nullable=False, index=True),
+            Column("approved_by", String, nullable=False),
+            Column("reason", String, nullable=False),
+            Column("created_at", String, nullable=False),
+        )
 
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
@@ -982,3 +1005,117 @@ class TenancyRepository:
                 .where(self.agent_credentials.c.id == credential_id)
                 .values(status="revoked")
             )
+
+    async def upsert_payment_account(
+        self,
+        *,
+        organization_id: str,
+        provider: str,
+        provider_account_id: str,
+        account_type: str,
+        status: str,
+        credentials_reference: str,
+    ) -> dict:
+        from verifund_control_plane.errors import VerifundError
+
+        profile = await self.get_seller_profile_by_organization(organization_id)
+        if profile is None or profile["verification_status"] != "verified":
+            raise VerifundError(
+                "seller_not_verified",
+                "seller is not verified for payout accounts",
+                status_code=403,
+            )
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.payment_accounts).where(
+                        self.payment_accounts.c.organization_id == organization_id,
+                        self.payment_accounts.c.provider == provider,
+                        self.payment_accounts.c.account_type == account_type,
+                        self.payment_accounts.c.provider_account_id
+                        == provider_account_id,
+                    )
+                )
+            ).first()
+            if row is not None:
+                return dict(row._mapping)
+        new = {
+            "id": _id(),
+            "organization_id": organization_id,
+            "provider": provider,
+            "provider_account_id": provider_account_id,
+            "account_type": account_type,
+            "status": status,
+            "credentials_reference": credentials_reference,
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.payment_accounts.insert().values(**new))
+        return new
+
+    async def get_payout_release(
+        self, transaction_id: str, organization_id: str
+    ) -> dict | None:
+        async with self.engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    select(self.payout_releases).where(
+                        self.payout_releases.c.transaction_id == transaction_id,
+                        self.payout_releases.c.organization_id == organization_id,
+                    )
+                )
+            ).first()
+            return dict(row._mapping) if row else None
+
+    async def create_payout_release(
+        self, transaction_id: str, organization_id: str, approved_by: str, reason: str
+    ) -> dict:
+        row = {
+            "id": _id(),
+            "transaction_id": transaction_id,
+            "organization_id": organization_id,
+            "approved_by": approved_by,
+            "reason": reason,
+            "created_at": _now(),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.payout_releases.insert().values(**row))
+        return row
+
+
+async def resolve_payout_account(store, organization_id: str) -> dict:
+    from verifund_control_plane.errors import VerifundError
+
+    async with store.engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                select(store.payment_accounts).where(
+                    store.payment_accounts.c.organization_id == organization_id,
+                    store.payment_accounts.c.provider == "paypal",
+                    store.payment_accounts.c.account_type == "payout",
+                    store.payment_accounts.c.status == "active",
+                )
+            )
+        ).all()
+        accounts = [dict(r._mapping) for r in rows]
+    if len(accounts) != 1:
+        raise VerifundError(
+            "payout_account_unavailable",
+            "payout account unavailable",
+            status_code=409,
+        )
+    return accounts[0]
+
+
+async def resolve_payout_account_for_seller(store, seller_id: str) -> dict:
+    profile = await store.get_seller_profile(seller_id)
+    if profile is None:
+        from verifund_control_plane.errors import VerifundError
+
+        raise VerifundError(
+            "payout_account_unavailable",
+            "payout account unavailable",
+            status_code=409,
+        )
+    return await resolve_payout_account(store, profile["organization_id"])

@@ -170,13 +170,17 @@ def create_app(
         if settings.tenancy_enabled and hasattr(app.state, "tenancy"):
             from sqlalchemy import select as _select
 
-            from verifund_control_plane.tenancy.backfill import backfill_tenancy
+            from verifund_control_plane.tenancy.backfill import (
+                backfill_tenancy,
+                seed_payment_accounts,
+            )
 
             async with engine.connect() as _conn:
                 res = await _conn.execute(_select(app.state.tenancy.organizations))
                 empty = res.first() is None
             if empty:
                 await backfill_tenancy(app.state.repo, app.state.tenancy)
+                await seed_payment_accounts(app.state.tenancy, settings)
         if (
             hasattr(app.state, "reconciler")
             and settings.mode != "off"

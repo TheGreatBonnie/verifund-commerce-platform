@@ -271,6 +271,19 @@ class VerifundService:
         profile = await self.tenancy.get_seller_profile(seller_id)
         return profile["verification_status"] if profile else None
 
+    async def _payout_email(self, seller_id: str) -> str | None:
+        if getattr(self.settings, "tenancy_enabled", False) and self.tenancy is not None:
+            try:
+                from verifund_control_plane.tenancy.repository import (
+                    resolve_payout_account_for_seller,
+                )
+
+                account = await resolve_payout_account_for_seller(self.tenancy, seller_id)
+                return account["provider_account_id"]
+            except Exception:
+                return None
+        return self.settings.payout_email_for(seller_id)
+
     def _now(self) -> datetime:
         return self.clock()
 
@@ -429,6 +442,11 @@ class VerifundService:
                     "seller is not verified for new transactions",
                     status_code=403,
                 )
+            from verifund_control_plane.tenancy.repository import (
+                resolve_payout_account_for_seller,
+            )
+
+            await resolve_payout_account_for_seller(self.tenancy, request.seller_id)
         if self.settings.is_sandbox and not self.settings.payout_email_for(
             request.seller_id
         ):
@@ -3874,9 +3892,7 @@ class VerifundService:
         actor: str,
     ) -> None:
         record = await self.repo.get_transaction(transaction_id)
-        seller_email = self.settings.payout_email_for(
-            record.seller_id
-        ) or f"{record.seller_id}@example.test"
+        seller_email = (await self._payout_email(record.seller_id)) or f"{record.seller_id}@example.test"
         try:
             result = await self.payments.create_payout(
                 record,
@@ -3937,9 +3953,7 @@ class VerifundService:
             "amount_cents": result.amount_cents,
             "updated_at": self._iso(self._now()),
         }
-        seller_email = self.settings.payout_email_for(
-            record.seller_id
-        ) or f"{record.seller_id}@example.test"
+        seller_email = (await self._payout_email(record.seller_id)) or f"{record.seller_id}@example.test"
         sender_item_id = str(
             current_payout.get("sender_item_id") or f"item_{transaction_id}"
         )

@@ -19,6 +19,29 @@ async def _ensure_columns(conn) -> None:
         )
 
 
+async def seed_payment_accounts(store, settings) -> None:
+    for seller_id, email in (getattr(settings, "seller_payout_emails", {}) or {}).items():
+        profile = await store.get_seller_profile(seller_id)
+        if profile is None:
+            org = await store.ensure_seed_organization(
+                seller_id=seller_id, kind="business", verified=True
+            )
+            profile = await store.get_seller_profile(seller_id)
+            if profile is None:
+                continue
+        try:
+            await store.upsert_payment_account(
+                organization_id=profile["organization_id"],
+                provider="paypal",
+                provider_account_id=email,
+                account_type="payout",
+                status="active",
+                credentials_reference=f"secret:{seller_id}",
+            )
+        except Exception:
+            continue
+
+
 async def backfill_tenancy(repo, store) -> None:
     async with repo.transaction() as conn:
         await _ensure_columns(conn)
