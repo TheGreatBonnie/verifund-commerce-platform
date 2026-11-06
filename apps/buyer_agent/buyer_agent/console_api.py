@@ -22,6 +22,8 @@ def _run(row: dict) -> dict:
         "award": row.get("award_json"),
         "order": row.get("order_json"),
         "error": row.get("error"),
+        "organization_id": row.get("organization_id"),
+        "user_id": row.get("user_id"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
@@ -60,11 +62,24 @@ async def metrics(request: Request) -> str:
 
 
 @router.get("/api/runs")
-async def list_runs(request: Request, limit: int = 50) -> list[dict]:
+async def list_runs(
+    request: Request,
+    organization_id: str = "",
+    limit: int = 50,
+) -> list[dict]:
+    settings = request.app.state.settings
+    expected = settings.internal_api_token
+    provided = request.headers.get("x-verifund-internal-token", "")
+    if not expected or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="organization_id is required")
     trace = getattr(_services(request), "trace", None)
     if trace is None:
         return []
-    rows = await trace.list_runs(limit=max(1, min(limit, 200)))
+    rows = await trace.list_runs(
+        organization_id, limit=max(1, min(limit, 200))
+    )
     return [_run(row) for row in rows]
 
 
