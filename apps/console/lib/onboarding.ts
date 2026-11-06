@@ -10,7 +10,7 @@ const STEPS = [
 
 export function sellerEntryPath(
   profile: { verification_status: string } | null,
-  onboarding: { current_step: string } | null
+  onboarding: { current_step: string; status?: string } | null
 ) {
   if (!profile) return "/seller/onboarding";
   if (profile.verification_status === "verified") return "/seller/dashboard";
