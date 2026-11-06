@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from verifund_control_plane.agents.credentials import issue_credential, verify_credential
+from verifund_control_plane.agents.lifecycle import run_agent_tests
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.tenancy.identity import require_identity
 
@@ -16,6 +17,18 @@ class VerifyRequest(BaseModel):
 
 class IssueRequest(BaseModel):
     scopes: list[str] = Field(default_factory=lambda: ["a2a:call"])
+
+
+@router.post("/v1/agents/{agent_id}/test")
+async def test_agent(request: Request, agent_id: str) -> dict:
+    identity = await require_identity(request)
+    store = request.app.state.tenancy
+    agent = await store.get_agent(agent_id)
+    if agent is None or agent["organization_id"] != identity.tenant_id:
+        raise VerifundError("not_found", "agent not found", status_code=404)
+    if agent["status"] in ("draft", "configuring"):
+        await store.set_agent_status(agent_id, "testing")
+    return await run_agent_tests(store, agent_id)
 
 
 @router.post("/v1/agent-credentials/verify")
