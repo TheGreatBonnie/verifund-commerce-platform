@@ -1,0 +1,28 @@
+# Verifund catalog import template
+# Upload a .json or .yaml file with this shape. All fields are required unless
+# marked optional. Amounts are integer cents. Invariants enforced on import:
+# floor_unit_price_cents <= initial_unit_price_cents <= list_unit_price_cents.
+version: 1                 # required; currently 1
+currency: USD              # optional; ISO 4217
+products:                  # required; 1..1000 entries
+  - sku: EX-EXAMPLE-1            # required; unique (re-import upserts by SKU)
+    name: Example Product        # required
+    category: Electronics        # required
+    description: Short blurb     # optional
+    list_unit_price_cents: 10000      # required; the "anchor" price
+    original_unit_price_cents: 12000  # optional; strike-through price
+    initial_unit_price_cents: 9800    # required; first offer price
+    floor_unit_price_cents: 9000      # required; never offer below this
+    concession_ladder_cents: [9800, 9400, 9100]  # optional; descending counter-offer ladder
+    base_warranty_months: 12          # optional; default 12
+    warranty_addons_cents: { "12": 0, "24": 900 }  # optional; warranty months -> price delta
+    returns_days: 30                  # optional; default 30
+    delivery_days: 5                  # optional; default 5
+    stock_on_hand: 10                 # optional; default 0
+    incoming_stock: 4                 # optional; default 0
+    incoming_days: 7                  # optional; expected restock horizon
+    image_emoji: "📦"                 # optional
+    color: "#eef2ed"                  # optional; hex
+    rating: 4.5                       # optional; 0.0..5.0
+    reviews: "120"                    # optional; free text
+    tag: "Popular"                    # optional

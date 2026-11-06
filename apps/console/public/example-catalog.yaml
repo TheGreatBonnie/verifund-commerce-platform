@@ -1,0 +1,106 @@
+version: 1
+currency: USD
+products:
+- sku: EX-LAPTOP-M4
+  name: ExamplePro 14 Laptop
+  category: Electronics
+  description: 14-inch laptop, 16GB RAM, 512GB SSD
+  list_unit_price_cents: 149900
+  original_unit_price_cents: 179900
+  initial_unit_price_cents: 139900
+  floor_unit_price_cents: 129900
+  concession_ladder_cents:
+  - 139900
+  - 134900
+  - 131900
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 1900
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 25
+  incoming_stock: 10
+  incoming_days: 7
+  image_emoji: 💻
+  color: '#eaf0fb'
+  rating: 4.6
+  reviews: '230'
+  tag: Popular
+- sku: EX-WIRELESS-HEADPHONES
+  name: ExamplePro Wireless Headphones
+  category: Electronics
+  description: ANC over-ear headphones, 30h battery
+  list_unit_price_cents: 24900
+  original_unit_price_cents: 29900
+  initial_unit_price_cents: 22900
+  floor_unit_price_cents: 19900
+  concession_ladder_cents:
+  - 22900
+  - 21500
+  - 20500
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 800
+  returns_days: 30
+  delivery_days: 3
+  stock_on_hand: 40
+  incoming_stock: 0
+  incoming_days: null
+  image_emoji: 🎧
+  color: '#f1edff'
+  rating: 4.7
+  reviews: 1.1k
+  tag: Best deal
+- sku: EX-ERGONOMIC-CHAIR
+  name: ExamplePro Ergonomic Mesh Chair
+  category: Home & Living
+  description: Adjustable lumbar support, breathable mesh
+  list_unit_price_cents: 34900
+  original_unit_price_cents: 39900
+  initial_unit_price_cents: 31900
+  floor_unit_price_cents: 27900
+  concession_ladder_cents:
+  - 31900
+  - 29900
+  - 28500
+  base_warranty_months: 24
+  warranty_addons_cents:
+    '24': 0
+    '36': 1500
+  returns_days: 45
+  delivery_days: 7
+  stock_on_hand: 16
+  incoming_stock: 5
+  incoming_days: 10
+  image_emoji: 🪑
+  color: '#e7f7f2'
+  rating: 4.5
+  reviews: '640'
+  tag: Negotiable
+- sku: EX-PORTABLE-SSD-2TB
+  name: ExamplePro Portable SSD 2TB
+  category: Electronics
+  description: Rugged USB-C drive, 1,050 MB/s
+  list_unit_price_cents: 18900
+  original_unit_price_cents: 21900
+  initial_unit_price_cents: 17900
+  floor_unit_price_cents: 14900
+  concession_ladder_cents:
+  - 17900
+  - 16500
+  - 15400
+  base_warranty_months: 36
+  warranty_addons_cents:
+    '36': 0
+  returns_days: 30
+  delivery_days: 3
+  stock_on_hand: 34
+  incoming_stock: 10
+  incoming_days: 4
+  image_emoji: 💾
+  color: '#f1eee7'
+  rating: 4.8
+  reviews: '905'
+  tag: Fast delivery
