@@ -34,6 +34,7 @@ async def test_create_and_get_config(engine):
     )
     assert snap.config_version == 1 and snap.policy_version == 1 and snap.policy_hash
     snap2 = await store.get_config("agent_acme")
+    assert snap2 is not None
     assert snap2.instructions == "hello" and snap2.config_version == 1
 
 

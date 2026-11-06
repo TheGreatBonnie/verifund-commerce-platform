@@ -143,6 +143,15 @@ class Service:
         self.calls.append(("cancel", transaction_id))
         return {"state": "CANCELED"}
 
+    async def refresh_tracker(self, transaction_id):
+        self.calls.append(("refresh_tracker", transaction_id))
+
+    async def release(self, transaction_id, request, *, actor, idempotency_key=None):
+        self.calls.append(("release", transaction_id))
+
+    async def _agreement_terms(self, transaction_id):
+        return {}
+
 
 class Settings:
     reconciler_pending_seconds = 30
@@ -189,7 +198,7 @@ async def test_one_failing_sweep_does_not_stop_the_others():
     async def broken_funding(transaction_id, *, actor):
         raise RuntimeError("paypal down")
 
-    service.refresh_funding = broken_funding  # ty: ignore[invalid-assignment]
+    service.refresh_funding = broken_funding
 
     async def dispatch(_service, event):
         return "processed"

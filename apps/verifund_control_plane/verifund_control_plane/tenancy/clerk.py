@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Protocol
+from typing import Any, Protocol
 
 from clerk_backend_api import Clerk
 
@@ -17,7 +17,7 @@ class ClerkDirectory(Protocol):
 class ClerkBackendDirectory:
     def __init__(self, secret_key: str) -> None:
         self.secret_key = secret_key
-        self._sdk = Clerk(bearer_auth=secret_key)
+        self._sdk: Any = Clerk(bearer_auth=secret_key)
 
     async def user(self, clerk_user_id: str) -> dict | None:
         user = await asyncio.to_thread(self._sdk.users.get, user_id=clerk_user_id)

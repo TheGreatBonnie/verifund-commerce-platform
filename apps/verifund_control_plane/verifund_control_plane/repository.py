@@ -19,6 +19,7 @@ from sqlalchemy import (
     select,
     tuple_,
 )
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from verifund_contracts import EvidenceItem, TransactionState
@@ -26,6 +27,16 @@ from verifund_contracts import EvidenceItem, TransactionState
 from verifund_control_plane.db import configure_sqlite, transaction
 from verifund_control_plane.domain import TransactionRecord, assert_transition
 from verifund_control_plane.errors import VerifundError
+
+
+async def _reflected_column_names(
+    conn: Any, table: str
+) -> set[str]:
+    def _reflect(sync_conn: Any) -> set[str]:
+        inspector = sa_inspect(sync_conn)
+        return {c["name"] for c in inspector.get_columns(table)}
+
+    return set(await conn.run_sync(_reflect))
 
 
 def _iso(value: datetime) -> str:
@@ -359,28 +370,19 @@ class Repository:
             await conn.run_sync(self.metadata.create_all)
             # SQLite has no in-place migrations. Existing demo databases get
             # new nullable columns through this idempotent ALTER.
-            columns = await conn.exec_driver_sql(
-                "PRAGMA table_info(transactions)"
-            )
-            names = {row[1] for row in columns}
+            names = await _reflected_column_names(conn, "transactions")
             if "tracker" not in names:
                 await conn.exec_driver_sql(
                     "ALTER TABLE transactions ADD COLUMN tracker JSON"
                 )
             # webhook_events.source for existing DBs
-            wh_columns = await conn.exec_driver_sql(
-                "PRAGMA table_info(webhook_events)"
-            )
-            wh_names = {row[1] for row in wh_columns}
+            wh_names = await _reflected_column_names(conn, "webhook_events")
             if "source" not in wh_names:
                 await conn.exec_driver_sql(
                     "ALTER TABLE webhook_events ADD COLUMN source TEXT NOT NULL DEFAULT 'paypal'"
                 )
             # Rebuild audit_log to the scoped shape for existing DBs.
-            audit_columns = await conn.exec_driver_sql(
-                "PRAGMA table_info(audit_log)"
-            )
-            audit_names = {row[1] for row in audit_columns}
+            audit_names = await _reflected_column_names(conn, "audit_log")
             if "scope" not in audit_names:
                 await conn.exec_driver_sql(
                     "ALTER TABLE audit_log RENAME TO audit_log_old"

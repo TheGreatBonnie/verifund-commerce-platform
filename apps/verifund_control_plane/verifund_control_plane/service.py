@@ -1576,7 +1576,7 @@ class VerifundService:
         next_cursor = None
         if len(rows) == limit and rows:
             last = rows[-1]
-            next_cursor = _encode_cursor(self._iso(last.created_at), last.evidence_id)
+            next_cursor = _encode_cursor(self._iso(last[1].created_at), last[1].evidence_id)
         return SellerEvidenceLibrary(items=items, next_cursor=next_cursor)
 
     async def list_seller_payouts(self, seller_id: str) -> SellerPayoutView:

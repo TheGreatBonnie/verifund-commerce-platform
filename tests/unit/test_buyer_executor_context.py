@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 from typing import cast
 
+from a2a.server.agent_execution import RequestContext
 from a2a.server.events import EventQueue
 from a2a.types.a2a_pb2 import Message, Part, Role
 from buyer_agent.executor import BuyerExecutor
@@ -74,7 +75,7 @@ async def test_fresh_brief_uses_context_id_as_the_graph_thread() -> None:
     queue = RecordingQueue()
 
     await _executor(graph).execute(
-        _context(context_id="thread-1"), cast(EventQueue, queue)
+        cast(RequestContext, _context(context_id="thread-1")), cast(EventQueue, queue)
     )
 
     assert len(graph.calls) == 1
@@ -88,7 +89,7 @@ async def test_second_brief_on_a_completed_thread_fails() -> None:
     queue = RecordingQueue()
 
     await _executor(graph).execute(
-        _context(context_id="thread-1"), cast(EventQueue, queue)
+        cast(RequestContext, _context(context_id="thread-1")), cast(EventQueue, queue)
     )
 
     assert graph.calls == []
@@ -103,7 +104,7 @@ async def test_fresh_brief_on_a_new_checkpoint_starts_the_run() -> None:
     queue = RecordingQueue()
 
     await _executor(graph).execute(
-        _context(context_id="thread-2"), cast(EventQueue, queue)
+        cast(RequestContext, _context(context_id="thread-2")), cast(EventQueue, queue)
     )
 
     assert len(graph.calls) == 1

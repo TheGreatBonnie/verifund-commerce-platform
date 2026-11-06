@@ -42,6 +42,12 @@ class ReconcilerService(Protocol):
 
     async def refresh_tracker(self, transaction_id: str) -> Any: ...
 
+    async def release(
+        self, transaction_id: str, request: Any, *, actor: str
+    ) -> Any: ...
+
+    async def _agreement_terms(self, transaction_id: str) -> Any: ...
+
 
 class ReconcilerSettings(Protocol):
     @property
@@ -329,7 +335,7 @@ class Reconciler:
 
         now = self._now()
         for record in await self.repo.list_transactions(state="RELEASE_PERMITTED"):
-            verification = record.verification or {}
+            verification = getattr(record, "verification", None) or {}
             requirements = verification.get("requirements") or []
             if requirements and not all(
                 (req.get("status") == "pass") for req in requirements

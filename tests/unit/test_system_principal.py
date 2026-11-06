@@ -21,8 +21,32 @@ async def store(tmp_path):
 @pytest.fixture
 async def reconciler(store):
     class FakeService:
-        async def refresh_payout(self, txn_id, actor=None):
+        async def refresh_payout(self, transaction_id, *, actor=None):
             raise AssertionError("held payout must not be refreshed")
+
+        async def refresh_funding(self, transaction_id, *, actor):
+            raise AssertionError("held payout must not be refreshed")
+
+        async def recover_operation(self, operation, *, actor):
+            return False
+
+        async def verify(self, transaction_id, *, actor):
+            return {"state": "RELEASE_PERMITTED"}
+
+        async def backfill_receipt(self, transaction_id, *, actor):
+            return False
+
+        async def cancel(self, transaction_id, request, *, actor, idempotency_key):
+            return {"state": "CANCELED"}
+
+        async def refresh_tracker(self, transaction_id):
+            return None
+
+        async def release(self, transaction_id, request, *, actor, idempotency_key=None):
+            return {"state": "RELEASED"}
+
+        async def _agreement_terms(self, transaction_id):
+            return {}
 
     settings = Settings(_env_file=None, mode="fake")
     return Reconciler(

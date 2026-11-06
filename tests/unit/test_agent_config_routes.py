@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
@@ -23,7 +24,7 @@ async def client(tmp_path):
     clock = lambda: datetime.now(UTC)
     app = create_app(settings, clock=clock)
 
-    runtime_state = {"configs": {}, "force_test_fail": False}
+    runtime_state: dict[str, Any] = {"configs": {}, "force_test_fail": False}
     published: list[dict] = []
 
     def runtime_handler(request: httpx.Request) -> httpx.Response:
@@ -102,8 +103,8 @@ async def client(tmp_path):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport,
                                      base_url="http://test") as c:
-            c._published = published
-            c._runtime_state = runtime_state
+            setattr(c, "_published", published)  # noqa: B010
+            setattr(c, "_runtime_state", runtime_state)  # noqa: B010
             yield c
 
 

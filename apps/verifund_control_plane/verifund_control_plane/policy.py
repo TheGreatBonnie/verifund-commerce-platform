@@ -605,7 +605,7 @@ def evaluate(
                 declared_by=(
                     str(declaration.get("actor")) if declaration and declaration.get("actor") else None
                 ),
-                attempt=int(declaration.get("attempt")) if declaration and str(
+                attempt=int(str(declaration.get("attempt") or "")) if declaration and str(
                     declaration.get("attempt") or ""
                 ).isdigit() else None,
                 reasons=req_reasons,

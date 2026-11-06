@@ -1,9 +1,8 @@
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
-from commerce_core.contracts import CounterOffer
+from commerce_core.contracts import RFQ, CounterOffer
 from commerce_core.pricing import Quote
-from seller_agent.graph import _offer_from_quote
+from seller_agent.graph import SellerState, _offer_from_quote
 from seller_agent.planner import (
     ScriptedSellerPlanner,
     SellerDecision,
@@ -57,15 +56,23 @@ def test_offer_attributes_describe_the_selected_product(northwind_policy):
         warranty_months=12,
         valid_until=datetime.now(UTC) + timedelta(hours=1),
     )
+    state: SellerState = {
+        "task_id": "task-1",
+        "context_id": "context-1",
+        "rfq": RFQ(
+            request_id="rfq-1",
+            run_id="task-1",
+            category="general",
+            product_hint="MacBook Air",
+            quantity=1,
+            required_by=datetime.now(UTC) + timedelta(days=7),
+        ),
+        "previous_offer": None,
+        "current_round": 1,
+    }
     offer = _offer_from_quote(
         policy=policy,
-        state={
-            "task_id": "task-1",
-            "context_id": "context-1",
-            "rfq": SimpleNamespace(request_id="rfq-1", quantity=1),
-            "previous_offer": None,
-            "current_round": 1,
-        },
+        state=state,
         quote=quote,
         decision=SellerDecision(
             action="propose",

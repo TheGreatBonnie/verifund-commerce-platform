@@ -161,7 +161,7 @@ def task_result(
     skill: VerifundSkill = VerifundSkill.AGREEMENT_CREATE,
     status: Literal["completed", "input_required", "approval_required", "failed"] = "input_required",
     checkpoint: VerifundCheckpoint | None = None,
-    approval_type: Literal["funding", "release"] | None = None,
+    approval_type: Literal["funding", "checkout", "release"] | None = None,
     state: TransactionState | None = None,
     data: dict[str, Any] | None = None,
     message: str = "",
@@ -992,6 +992,7 @@ def test_the_checkout_tool_exposes_the_structured_decision_fields() -> None:
     parameters = declaration.parameters
     assert parameters is not None
     properties = parameters.properties
+    assert properties is not None
     assert set(properties) == {
         "task_id",
         "context_id",
@@ -1008,7 +1009,7 @@ def test_the_checkout_tool_exposes_the_structured_decision_fields() -> None:
         "canceled",
         "fallback",
     ]
-    assert "projection" not in parameters.required
+    assert parameters.required is None or "projection" not in parameters.required
 
 
 def test_checkout_args_carry_the_agreement_projection() -> None:

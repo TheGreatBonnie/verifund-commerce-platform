@@ -18,11 +18,22 @@ from sqlalchemy import (
     Table,
     select,
 )
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 SENSITIVE_KEYS = {"authorization", "cookie", "x-api-key", "token"}
 MAX_PAYLOAD_BYTES = 256 * 1024
+
+
+async def _reflected_column_names(
+    conn: Any, table: str
+) -> set[str]:
+    def _reflect(sync_conn: Any) -> set[str]:
+        inspector = sa_inspect(sync_conn)
+        return {c["name"] for c in inspector.get_columns(table)}
+
+    return set(await conn.run_sync(_reflect))
 
 
 def redact(value: Any) -> Any:
@@ -104,10 +115,7 @@ class TraceStore:
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
             for column in ("organization_id", "user_id"):
-                cols = {
-                    row[1]
-                    for row in await conn.exec_driver_sql("PRAGMA table_info(runs)")
-                }
+                cols = await _reflected_column_names(conn, "runs")
                 if column not in cols:
                     await conn.exec_driver_sql(
                         f"ALTER TABLE runs ADD COLUMN {column} TEXT"

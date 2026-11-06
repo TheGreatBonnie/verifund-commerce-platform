@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, Column, MetaData, String, Table, select
@@ -22,6 +23,8 @@ class TenancyRepository:
     def __init__(self, engine) -> None:
         self.engine = engine
         self.metadata = MetaData()
+        self._repo: Any = None
+        self._org_id: str | None = None
         self._define_tables()
 
     def _define_tables(self) -> None:
@@ -210,7 +213,7 @@ class TenancyRepository:
                         updated_at=_now(),
                     )
                 )
-            return await self.get_user_by_clerk_id(clerk_user_id)  # type: ignore[return-value]
+            return await self.get_user_by_clerk_id(clerk_user_id)  # ty: ignore[invalid-return-type]
         row = {
             "id": _id(),
             "clerk_user_id": clerk_user_id,
@@ -255,7 +258,7 @@ class TenancyRepository:
                         updated_at=_now(),
                     )
                 )
-            return await self.get_organization_by_clerk_id(clerk_org_id)  # type: ignore[return-value]
+            return await self.get_organization_by_clerk_id(clerk_org_id)  # ty: ignore[invalid-return-type]
         row = {
             "id": _id(),
             "clerk_org_id": clerk_org_id,
@@ -334,7 +337,7 @@ class TenancyRepository:
                         updated_at=_now(),
                     )
                 )
-            return await self.get_membership(organization_id, user_id)  # type: ignore[return-value]
+            return await self.get_membership(organization_id, user_id)  # ty: ignore[invalid-return-type]
         row = {
             "id": _id(),
             "organization_id": organization_id,
@@ -549,7 +552,7 @@ class TenancyRepository:
         existing = await self.get_seller_profile(seller_id)
         if existing:
             org = await self.get_organization(existing["organization_id"])
-            return org  # type: ignore[return-value]
+            return org  # ty: ignore[invalid-return-type]
         org_id = _id()
         org = {
             "id": org_id,
@@ -768,7 +771,7 @@ class TenancyRepository:
                         updated_at=_now(),
                     )
                 )
-            return await self.get_onboarding(organization_id)  # type: ignore[return-value]
+            return await self.get_onboarding(organization_id)  # ty: ignore[invalid-return-type]
         row = {
             "organization_id": organization_id,
             "status": status,

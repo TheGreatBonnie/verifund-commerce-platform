@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from seller_agent.mandate import SellerMandate
-from seller_agent.store import Stock
+from seller_agent.store import SellerStore, Stock
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -91,9 +91,10 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-class OrgScopedStore:
+class OrgScopedStore(SellerStore):
     def __init__(self, engine: AsyncEngine, *, organization_id: str,
                  agent_id: str | None = None) -> None:
+        super().__init__(engine)
         org = (organization_id or "").strip()
         if not org:
             raise TenantContextError("organization_id is required")
@@ -365,7 +366,19 @@ class OrgScopedStore:
             product_tag=(first.get("tag") or ""),
             product_color=(first.get("color") or "#eef2ed"),
             color=(first.get("color_name") or "black"),
-            **defaults,
+            list_unit_price_cents=defaults["list_unit_price_cents"],
+            floor_unit_price_cents=defaults["floor_unit_price_cents"],
+            initial_unit_price_cents=defaults["initial_unit_price_cents"],
+            concession_ladder_cents=defaults["concession_ladder_cents"],
+            base_warranty_months=defaults["base_warranty_months"],
+            warranty_addons_cents=defaults["warranty_addons_cents"],
+            returns_days=defaults["returns_days"],
+            delivery_days=defaults["delivery_days"],
+            stock_on_hand=defaults["stock_on_hand"],
+            incoming_stock=defaults["incoming_stock"],
+            incoming_days=defaults["incoming_days"],
+            sustainability_certified=defaults["sustainability_certified"],
+            rating=defaults["rating"],
             products=catalog,
             mandate=None,
         )

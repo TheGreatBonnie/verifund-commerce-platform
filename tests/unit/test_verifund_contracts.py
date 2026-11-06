@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
@@ -227,7 +228,7 @@ def _check(**overrides):
 
 
 def _requirement(**overrides):
-    data = {
+    data: dict[str, Any] = {
         "requirement_id": "product_photos",
         "title": "Product photographs",
         "description": "Clear photographs of the product",

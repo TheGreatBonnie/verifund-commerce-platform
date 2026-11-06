@@ -180,7 +180,7 @@ class AwardLineItem(VerifundModel):
     quantity: int = Field(gt=0)
     unit_price_cents: int = Field(ge=0)
     warranty_addon_cents: int = Field(default=0, ge=0)
-    attributes: dict[str, str]
+    attributes: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod

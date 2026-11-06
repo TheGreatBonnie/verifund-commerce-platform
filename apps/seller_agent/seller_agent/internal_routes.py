@@ -3,7 +3,6 @@ from __future__ import annotations
 import hmac
 import uuid
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -209,10 +208,16 @@ async def test_suite(body: TestSuiteBody, request: Request,
     # 3. Pricing bounds: every product satisfies floor <= initial <= list.
     try:
         policy = await store.load_policy()
-        pricing_ok = all(
-            p.floor_unit_price_cents <= p.initial_unit_price_cents
-            <= p.list_unit_price_cents
-            for p in policy.catalog()) and len(policy.catalog()) > 0
+        pricing_ok = len(policy.catalog()) > 0 and all(
+            (
+                p.floor_unit_price_cents is not None
+                and p.initial_unit_price_cents is not None
+                and p.list_unit_price_cents is not None
+                and p.floor_unit_price_cents <= p.initial_unit_price_cents
+                and p.initial_unit_price_cents <= p.list_unit_price_cents
+            )
+            for p in policy.catalog()
+        )
         pricing_detail = (
             f"{len(policy.catalog())} products within floor/initial/list bounds"
             if pricing_ok else "at least one product violates price bounds")
@@ -234,7 +239,7 @@ async def test_suite(body: TestSuiteBody, request: Request,
             settlement=None,
             settlement_enabled=False,
             auto_evidence=False,
-            review_store=SimpleNamespace(),
+            review_store=None,
         )
         product = policy.catalog()[0]
         rfq = RFQ(
@@ -289,13 +294,15 @@ async def test_suite(body: TestSuiteBody, request: Request,
         initial = product.initial_unit_price_cents
         floor = product.floor_unit_price_cents
         max_discount = config.max_discount_bps
-        agent_max_unit = max(floor,
-                             (initial * (10_000 - max_discount)) // 10_000)
-        deep_discount = initial // 2
+        agent_max_unit = max(
+            floor or 0,
+            (initial or 0) * (10_000 - (max_discount or 0)) // 10_000,
+        )
+        deep_discount = (initial or 0) // 2
         authority_ok = (
             config.autonomy_mode == "policy_bounded"
-            and deep_discount < floor
-            and agent_max_unit >= floor)
+            and deep_discount < (floor or 0)
+            and agent_max_unit >= (floor or 0))
         authority_detail = (
             f"policy_bounded; deep discount {deep_discount}c < floor {floor}c; "
             f"max concession unit {agent_max_unit}c ≥ floor")

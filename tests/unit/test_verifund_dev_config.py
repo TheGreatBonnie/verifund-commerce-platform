@@ -31,7 +31,8 @@ def test_registry_environment_allows_default_seller_card_urls(monkeypatch):
 
 def test_wait_for_http_treats_auth_protected_404_as_ready(monkeypatch):
     def reject_request(url, timeout):
-        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        import email.message
+        raise urllib.error.HTTPError(url, 404, "Not Found", email.message.Message(), None)
 
     monkeypatch.setattr(dev.urllib.request, "urlopen", reject_request)
 

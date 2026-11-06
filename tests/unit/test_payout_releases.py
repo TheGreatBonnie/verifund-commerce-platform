@@ -79,8 +79,33 @@ async def test_suspended_seller_payout_is_held_without_release(store):
     from verifund_control_plane.reconciler import Reconciler
 
     class FakeService:
-        async def refresh_payout(self, txn_id, actor=None):
+        async def refresh_payout(self, transaction_id, *, actor=None):
             raise AssertionError("should be held")
+
+        async def refresh_funding(self, transaction_id, *, actor):
+            raise AssertionError("not used in this sweep")
+
+        async def recover_operation(self, operation, *, actor):
+            return False
+
+        async def verify(self, transaction_id, *, actor):
+            return {"state": "RELEASE_PERMITTED"}
+
+        async def backfill_receipt(self, transaction_id, *, actor):
+            return False
+
+        async def cancel(self, transaction_id, request, *, actor, idempotency_key):
+            return {"state": "CANCELED"}
+
+        async def refresh_tracker(self, transaction_id):
+            return None
+
+        async def release(self, transaction_id, request, *, actor, idempotency_key=None):
+            return {"state": "RELEASED"}
+
+        async def _agreement_terms(self, transaction_id):
+            return {}
+
 
     settings = Settings(_env_file=None, mode="fake")
     rec = Reconciler(
@@ -130,8 +155,32 @@ async def test_release_allows_the_payout(store, tmp_path):
     called = {}
 
     class FakeService:
-        async def refresh_payout(self, txn_id, actor=None):
-            called["txn"] = txn_id
+        async def refresh_payout(self, transaction_id, *, actor=None):
+            called["txn"] = transaction_id
+
+        async def refresh_funding(self, transaction_id, *, actor):
+            raise AssertionError("not used in this sweep")
+
+        async def recover_operation(self, operation, *, actor):
+            return False
+
+        async def verify(self, transaction_id, *, actor):
+            return {"state": "RELEASE_PERMITTED"}
+
+        async def backfill_receipt(self, transaction_id, *, actor):
+            return False
+
+        async def cancel(self, transaction_id, request, *, actor, idempotency_key):
+            return {"state": "CANCELED"}
+
+        async def refresh_tracker(self, transaction_id):
+            return None
+
+        async def release(self, transaction_id, request, *, actor, idempotency_key=None):
+            return {"state": "RELEASED"}
+
+        async def _agreement_terms(self, transaction_id):
+            return {}
 
     repo = store._repo
     now = "2026-11-06T00:00:00+00:00"

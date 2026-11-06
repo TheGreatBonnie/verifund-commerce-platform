@@ -23,4 +23,5 @@ async def test_organization_audit_has_no_transaction(tmp_path):
         )
     async with repo.transaction() as conn:
         row = (await conn.execute(select(repo.audit_log))).first()
+    assert row is not None
     assert row.organization_id == "org_1"

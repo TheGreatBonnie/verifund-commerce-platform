@@ -72,9 +72,9 @@ def canonical_offer_binding(offer: Offer) -> dict[str, Any]:
 
 def binding_from_award(award: dict[str, Any]) -> dict[str, Any]:
     version = int(award.get("binding_version") or 1)
-    line_items = []
+    line_items: list[dict[str, Any]] = []
     for item in award["line_items"]:
-        payload = {
+        payload: dict[str, Any] = {
             "sku": item["sku"],
             "name": item["name"],
             "quantity": item["quantity"],

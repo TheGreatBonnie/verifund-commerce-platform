@@ -14,6 +14,7 @@ async def test_organization_membership_and_seller_profile_round_trip(tmp_path):
         org = await store.upsert_organization("org_1", "Acme", "acme")
         await store.upsert_membership(org["id"], user["id"], "org:admin", "mem_1")
         membership = await store.get_membership(org["id"], user["id"])
+        assert membership is not None
         assert membership["role"] == "org:admin"
         assert membership["status"] == "active"
 
