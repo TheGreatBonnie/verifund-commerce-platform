@@ -173,7 +173,6 @@ async def issue(request: Request, agent_id: str, body: IssueRequest) -> dict:
 
 async def _forward_config(request: Request, agent_id: str, identity,
                           body: ConfigBody, agent: dict):
-    store = request.app.state.tenancy
     # seller_id is anchored to policy_ref ("{seller_id}/vN"); keep it stable.
     seller_id = (agent.get("policy_ref") or f"{agent_id}/v1").split("/")[0]
     json_body: dict[str, Any] = {"agent_id": agent_id,
@@ -196,7 +195,9 @@ async def _forward_config(request: Request, agent_id: str, identity,
 
 @router.post("/v1/agents", status_code=201)
 async def create_agent_route(request: Request, response: Response,
-                             body: CreateAgentBody = CreateAgentBody()) -> dict:
+                             body: CreateAgentBody | None = None) -> dict:
+    if body is None:
+        body = CreateAgentBody()
     identity = await require_seller_agent_admin(request)
     store = request.app.state.tenancy
     idempotency_key = _idem_key(request)
@@ -327,7 +328,10 @@ async def catalog_import_route(body: CatalogImportBody, request: Request) -> dic
     if runtime_response.status_code == 422:
         detail = runtime_response.json()
         raise VerifundError(
-            "catalog_invalid", json.dumps(detail), status_code=422)
+            "catalog_invalid", "Catalog document failed validation",
+            status_code=422,
+            details=detail if isinstance(detail, dict) else {"detail": detail},
+        )
     if runtime_response.status_code >= 400:
         raise VerifundError(
             "runtime_error", runtime_response.text, status_code=502)
@@ -337,12 +341,9 @@ async def catalog_import_route(body: CatalogImportBody, request: Request) -> dic
 @router.post("/v1/agents/{agent_id}/activate")
 async def activate_agent_route(agent_id: str, request: Request) -> dict:
     identity = await require_seller_agent_admin(request)
-    agent = await require_own_agent(request, agent_id, identity)
+    await require_own_agent(request, agent_id, identity)
     store = request.app.state.tenancy
-    try:
-        activated = await activate_agent(store, agent_id)
-    except VerifundError:
-        raise
+    activated = await activate_agent(store, agent_id)
     profile = await store.get_seller_profile_by_organization(identity.tenant_id)
     seller_id = (profile or {}).get("seller_id") or agent_id
     settings = request.app.state.settings
@@ -383,7 +384,7 @@ async def activate_agent_route(agent_id: str, request: Request) -> dict:
                                          timeout=httpx.Timeout(10.0)) as client:
                 await _publish(client)
         published = True
-    except Exception as e:  # activation already committed; sweep repairs later
+    except Exception as e:  # noqa: BLE001 - activation already committed; sweep repairs later
         published = False
         await store.record_audit(
             scope="agents", organization_id=identity.tenant_id,
@@ -400,7 +401,7 @@ async def agent_status_route(agent_id: str, request: Request) -> dict:
     agent = await require_own_agent(request, agent_id, identity)
     store = request.app.state.tenancy
     latest = await store.latest_test_run(agent_id)
-    return {
+    base: dict = {
         "agent_id": agent["id"],
         "status": agent["status"],
         "name": agent.get("name"),
@@ -410,6 +411,33 @@ async def agent_status_route(agent_id: str, request: Request) -> dict:
         "card_hash": agent.get("card_hash"),
         "latest_test_run": latest,
     }
+    # Fresh config read from the runtime (never cached): lets the console
+    # prefill forms and compare-and-swap on expected_config_version.
+    try:
+        runtime_response = await _call_runtime(
+            request, f"/internal/agent-configs/{agent_id}",
+            headers={"x-org-id": identity.tenant_id, "x-agent-id": agent_id},
+            method="GET", timeout=5.0)
+        if runtime_response.status_code < 400:
+            snapshot = runtime_response.json()
+            base.update({
+                "config_version": snapshot.get("config_version"),
+                "policy_version": snapshot.get("policy_version"),
+                "policy_hash": snapshot.get("policy_hash"),
+                "tool_allowlist": snapshot.get("tool_allowlist") or [],
+                "instructions": snapshot.get("instructions") or "",
+                "max_discount_bps": snapshot.get("max_discount_bps"),
+                "autonomy_mode": snapshot.get("autonomy_mode"),
+                "name": snapshot.get("name") or agent.get("name"),
+                "tagline": snapshot.get("tagline") or "",
+            })
+        else:
+            base["config_version"] = None
+            base["runtime_unreachable"] = True
+    except VerifundError:
+        base["config_version"] = None
+        base["runtime_unreachable"] = True
+    return base
 
 
 @router.get("/v1/agents/{agent_id}/card")

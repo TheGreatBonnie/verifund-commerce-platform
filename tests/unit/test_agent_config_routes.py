@@ -1,8 +1,7 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
-
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
 
@@ -21,7 +20,7 @@ async def client(tmp_path):
         registry_url="http://registry",
         agents_public_base_url="https://agents.verifund.com",
     )
-    clock = lambda: datetime.now(timezone.utc)
+    clock = lambda: datetime.now(UTC)
     app = create_app(settings, clock=clock)
 
     runtime_state = {"configs": {}, "force_test_fail": False}
@@ -201,7 +200,9 @@ async def test_import_validation_error_propagates_as_422(client, identities):
                           json={"document": '{"version":1,"products":[]}'},
                           headers=identities["admin_headers"])
     assert r.status_code == 422
-    assert "duplicate" in r.text
+    assert r.json()["error"]["code"] == "catalog_invalid"
+    entries = r.json()["error"]["details"]["errors"]
+    assert entries and entries[0]["message"] == "duplicate"
 
 
 async def test_full_flow_reaches_active_and_publishes_card(client, identities):

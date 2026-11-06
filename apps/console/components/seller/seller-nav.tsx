@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bot,
   ClipboardCheck,
   FileCheck2,
   LayoutDashboard,
@@ -14,6 +15,7 @@ import { cn } from "@/lib/cn";
 
 const NAV: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/seller/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/seller/agent", label: "Agent", icon: Bot },
   { href: "/seller/orders", label: "Orders", icon: Package },
   { href: "/seller/fulfillment", label: "Fulfillment", icon: ClipboardCheck },
   { href: "/seller/evidence", label: "Evidence", icon: FileCheck2 },
