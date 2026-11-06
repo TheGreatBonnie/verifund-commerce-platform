@@ -918,6 +918,14 @@ class TenancyRepository:
                 .values(policy_drift="1" if drift else "0", updated_at=_now())
             )
 
+    async def set_card_hash(self, agent_id: str, card_hash: str) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.agents.update()
+                .where(self.agents.c.id == agent_id)
+                .values(card_hash=card_hash, updated_at=_now())
+            )
+
     async def create_test_run(
         self,
         agent_id: str,

@@ -152,7 +152,8 @@ async def get_agent_config(agent_id: str, request: Request,
     return snapshot.__dict__
 
 
-async def _verify(settings, request: Request, token: str) -> dict[str, Any] | None:
+async def _verify(settings, request: Request, token: str, *,
+                  purpose: str = "a2a:call") -> dict[str, Any] | None:
     """Verify a machine credential against the control plane.
 
     Injected `request.app.state.credential_verifier` short-circuits the
@@ -161,13 +162,14 @@ async def _verify(settings, request: Request, token: str) -> dict[str, Any] | No
     """
     injected = getattr(request.app.state, "credential_verifier", None)
     if injected is not None:
-        return await injected(token)
+        return await injected(token, purpose=purpose)
     if settings.verifund_mode == "off":
         return None
     async with httpx.AsyncClient(base_url=settings.verifund_url,
                                  timeout=httpx.Timeout(5.0)) as client:
         response = await client.post(
-            "/v1/agent-credentials/verify", json={"token": token})
+            "/v1/agent-credentials/verify",
+            json={"token": token, "purpose": purpose})
         if response.status_code == 200:
             return response.json()
         return None
@@ -187,7 +189,8 @@ async def test_suite(body: TestSuiteBody, request: Request,
     checks: list[dict[str, Any]] = []
 
     # 1. Agent credential verifies (active).
-    verified = await _verify(settings, request, body.credential)
+    verified = await _verify(settings, request, body.credential,
+                              purpose="a2a:test")
     auth_ok = bool(verified) and verified.get("status") == "active"
     checks.append(_check(
         "auth", auth_ok,
@@ -219,7 +222,6 @@ async def test_suite(body: TestSuiteBody, request: Request,
     a2a_ok = False
     a2a_detail = "not executed"
     try:
-        from types import SimpleNamespace as _NS  # silence linters on stub
         policy = await store.load_policy()
         from seller_agent.service import SellerService as _Svc
         service = _Svc(
@@ -251,7 +253,7 @@ async def test_suite(body: TestSuiteBody, request: Request,
             text="Need one unit.",
             context_id=context_id,
             task_id=task_id,
-            envelope=wrap_payload("rfq", rfq.model_dump(mode="json")),
+            envelope=wrap_payload("rfq", rfq),
         )
         turn = await service.handle_turn(task_id, context_id, message)
         from commerce_core.a2a_parts import part_value
@@ -263,8 +265,10 @@ async def test_suite(body: TestSuiteBody, request: Request,
                         payload.get("payload"), dict):
                     if payload["payload"].get("offer_id"):
                         offer_found = True
-        a2a_ok = bool(offer_found) and (
-            turn.task_state == TaskState.TASK_STATE_COMPLETED)
+        a2a_ok = bool(offer_found) and turn.task_state in (
+            TaskState.TASK_STATE_INPUT_REQUIRED,
+            TaskState.TASK_STATE_COMPLETED,
+        )
         a2a_detail = ("mediated RFQ round trip returned an offer"
                       if a2a_ok else "RFQ turn completed without an offer artifact")
     except Exception as e:  # the check must report failures, never crash
@@ -294,7 +298,8 @@ async def test_suite(body: TestSuiteBody, request: Request,
     checks.append(_check("authority", authority_ok, authority_detail))
 
     # 6. Revoked credential stops passing.
-    revoked = await _verify(settings, request, body.revoked_credential)
+    revoked = await _verify(settings, request, body.revoked_credential,
+                             purpose="a2a:test")
     revoked_ok = revoked is None or revoked.get("status") != "active"
     checks.append(_check(
         "revocation", revoked_ok,

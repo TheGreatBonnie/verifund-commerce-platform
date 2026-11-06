@@ -25,20 +25,39 @@ async def revoke_credential_by_raw(store, organization_id, raw_token: str) -> bo
     return True
 
 
-async def verify_credential(store, token) -> dict:
+async def verify_credential(store, token, *, purpose: str = "a2a:call") -> dict:
     row = await store.get_credential_by_hash(_hash(token))
     if row is None or row["status"] != "active":
         raise VerifundError(
             "unauthorized", "invalid credential", status_code=401
         )
     agent = await store.get_agent(row["agent_id"])
-    if agent is None or agent["status"] != "active":
+    if agent is None:
         raise VerifundError(
-            "agent_not_active", "agent is not active", status_code=403
+            "agent_not_found", "agent not found", status_code=403
         )
     scopes = row["scopes"]
     if isinstance(scopes, str):
         scopes = json.loads(scopes)
+    if purpose == "a2a:test":
+        # Pre-activation test verification (B.4.3). Accepts an `a2a:test`-scoped
+        # credential against a non-revoked agent that is being tested, but never
+        # authorizes A2A traffic for non-active agents: callers must use the
+        # default purpose, which requires agent status == "active".
+        if "a2a:test" not in scopes:
+            raise VerifundError(
+                "scope_insufficient",
+                "a2a:test scope required for test verification",
+                status_code=403,
+            )
+        if agent["status"] not in ("configuring", "testing", "active"):
+            raise VerifundError(
+                "agent_not_active", "agent is not active", status_code=403
+            )
+    elif agent["status"] != "active":
+        raise VerifundError(
+            "agent_not_active", "agent is not active", status_code=403
+        )
     return {
         "organization_id": row["organization_id"],
         "agent_id": row["agent_id"],

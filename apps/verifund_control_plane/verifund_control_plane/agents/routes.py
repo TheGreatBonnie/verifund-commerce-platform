@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -13,7 +14,7 @@ from verifund_control_plane.agents.credentials import (
     revoke_credential_by_raw,
     verify_credential,
 )
-from verifund_control_plane.agents.lifecycle import activate_agent
+from verifund_control_plane.agents.lifecycle import activate_agent, confirm_policy
 from verifund_control_plane.agents.registry_sync import publish_agent
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.tenancy.identity import require_identity
@@ -23,6 +24,7 @@ router = APIRouter()
 
 class VerifyRequest(BaseModel):
     token: str = Field(min_length=1)
+    purpose: str = Field(default="a2a:call", pattern="^(a2a:call|a2a:test)$")
 
 
 class IssueRequest(BaseModel):
@@ -154,7 +156,8 @@ async def test_agent(agent_id: str, request: Request) -> dict:
 
 @router.post("/v1/agent-credentials/verify")
 async def verify(request: Request, body: VerifyRequest) -> dict:
-    return await verify_credential(request.app.state.tenancy, body.token)
+    return await verify_credential(request.app.state.tenancy, body.token,
+                                   purpose=body.purpose)
 
 
 @router.post("/v1/agents/{agent_id}/credentials", status_code=201)
@@ -238,11 +241,53 @@ async def create_agent_route(request: Request, response: Response,
             **runtime_response.json()}
 
 
+def _seller_id(agent: dict, agent_id: str) -> str:
+    return (agent.get("policy_ref") or f"{agent_id}/v1").split("/")[0]
+
+
+def _card_hash(card: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(card, sort_keys=True,
+                   separators=(",", ":")).encode()).hexdigest()
+
+
+async def _record_hashes(request: Request, store, identity, agent_id: str,
+                         agent: dict, snapshot: dict) -> None:
+    """Persist the runtime-computed policy and card hashes on the CP agent row.
+
+    The control plane records the hashes (§12.4 / B.5 step 6) so the
+    activation gate (`latest_passing_test` on current hashes) is meaningful.
+    """
+    policy_hash = snapshot.get("policy_hash")
+    if policy_hash:
+        await confirm_policy(
+            store, agent_id,
+            str(snapshot.get("policy_version") or "1"),
+            str(policy_hash),
+        )
+    profile = await store.get_seller_profile_by_organization(identity.tenant_id)
+    seller_id = _seller_id(agent, agent_id)
+    settings = request.app.state.settings
+    base_url = getattr(settings, "agents_public_base_url",
+                       "https://agents.verifund.com")
+    card = build_seller_card(
+        profile=profile,
+        agent_name=snapshot.get("name") or (profile or {}).get("name")
+        or "Seller agent",
+        agent_id=agent_id,
+        allowlist=snapshot.get("tool_allowlist") or [],
+        base_url=base_url,
+        seller_id=seller_id,
+    )
+    await store.set_card_hash(agent_id, _card_hash(card))
+
+
 @router.patch("/v1/agents/{agent_id}/config")
 async def update_agent_config(agent_id: str, body: ConfigBody,
                               request: Request) -> dict:
     identity = await require_seller_agent_admin(request)
     agent = await require_own_agent(request, agent_id, identity)
+    store = request.app.state.tenancy
     runtime_response = await _forward_config(request, agent_id, identity, body, agent)
     if runtime_response.status_code == 409:
         detail = runtime_response.json()
@@ -251,7 +296,9 @@ async def update_agent_config(agent_id: str, body: ConfigBody,
     if runtime_response.status_code >= 400:
         raise VerifundError(
             "runtime_error", runtime_response.text, status_code=502)
-    return runtime_response.json()
+    snapshot = runtime_response.json()
+    await _record_hashes(request, store, identity, agent_id, agent, snapshot)
+    return snapshot
 
 
 @router.patch("/v1/agents/{agent_id}/policies")

@@ -46,3 +46,50 @@ async def test_non_active_agent_credential_is_rejected(store, agent):
     with pytest.raises(VerifundError) as exc:
         await verify_credential(store, raw)
     assert exc.value.code == "agent_not_active"
+
+
+async def test_test_credential_verifies_for_testing_agent(store, agent):
+    await store.set_agent_status(agent["id"], "configuring")
+    raw = await issue_credential(
+        store, agent["organization_id"], agent["id"], ["a2a:test"])
+    verified = await verify_credential(store, raw, purpose="a2a:test")
+    assert verified["agent_id"] == agent["id"]
+    # strict production verification still denies a non-active agent
+    from verifund_control_plane.errors import VerifundError
+
+    with pytest.raises(VerifundError) as exc:
+        await verify_credential(store, raw)
+    assert exc.value.code == "agent_not_active"
+
+
+async def test_test_purpose_rejects_call_scope_credential(store, agent):
+    await store.set_agent_status(agent["id"], "testing")
+    raw = await issue_credential(
+        store, agent["organization_id"], agent["id"], ["a2a:call"])
+    from verifund_control_plane.errors import VerifundError
+
+    with pytest.raises(VerifundError) as exc:
+        await verify_credential(store, raw, purpose="a2a:test")
+    assert exc.value.code == "scope_insufficient"
+
+
+async def test_test_purpose_rejects_revoked_agent(store, agent):
+    await store.set_agent_status(agent["id"], "testing")
+    raw = await issue_credential(
+        store, agent["organization_id"], agent["id"], ["a2a:test"])
+    await store.set_agent_status(agent["id"], "revoked")
+    from verifund_control_plane.errors import VerifundError
+
+    with pytest.raises(VerifundError) as exc:
+        await verify_credential(store, raw, purpose="a2a:test")
+    assert exc.value.code == "agent_not_active"
+
+
+async def test_test_purpose_allows_active_agent_retest(store, agent):
+    await store.set_agent_status(agent["id"], "active")
+    raw = await issue_credential(
+        store, agent["organization_id"], agent["id"], ["a2a:test"])
+    verified = await verify_credential(store, raw, purpose="a2a:test")
+    assert verified["agent_id"] == agent["id"]
+    verified_call = await verify_credential(store, raw, purpose="a2a:call")
+    assert verified_call["agent_id"] == agent["id"]
