@@ -41,9 +41,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${plusJakartaSans.variable} ${splineSansMono.variable} ${instrumentSerif.variable} antialiased`}
+        suppressHydrationWarning
       >
         <ClerkProvider>{children}</ClerkProvider>
       </body>

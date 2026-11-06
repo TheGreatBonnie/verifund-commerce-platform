@@ -20,7 +20,7 @@ export default async function SellerLayout({
   if (access === "onboarding") redirect("/seller/onboarding");
 
   return (
-    <div className="mm-seller-shell">
+    <div className="mm-seller-shell" suppressHydrationWarning>
       <aside className="mm-seller-sidebar">
         <Link href="/seller/dashboard" className="mm-seller-brand">
           <span className="mm-seller-brand-mark" aria-hidden="true">
