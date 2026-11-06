@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from clerk_backend_api import AuthenticateRequestOptions, authenticate_request
 from fastapi import Request
@@ -95,6 +96,24 @@ async def resolve_identity(store, payload: dict, settings, directory=None) -> Id
     )
 
 
+def _authorized_parties(settings) -> list[str]:
+    """Origins the console may legitimately be served from.
+
+    Clerk sets the session token ``azp`` to the browser origin the user
+    signed in at. The console runs on loopback locally and behind the
+    public tunnel in the demo, so both origins (plus the alternate
+    loopback spelling) must be allowlisted. Mirrors the origin set
+    already used by ``_validate_console_url`` in service.py.
+    """
+    candidates = {settings.console_base_url, settings.public_base_url}
+    console = urlsplit(settings.console_base_url)
+    if console.hostname in {"127.0.0.1", "localhost"}:
+        other = "localhost" if console.hostname == "127.0.0.1" else "127.0.0.1"
+        port = f":{console.port}" if console.port else ""
+        candidates.add(f"{console.scheme}://{other}{port}")
+    return sorted({candidate.rstrip("/") for candidate in candidates})
+
+
 def _default_authenticator(request: Request, settings) -> dict:
     try:
         state = authenticate_request(
@@ -102,7 +121,7 @@ def _default_authenticator(request: Request, settings) -> dict:
             AuthenticateRequestOptions(
                 secret_key=settings.clerk_secret_key,
                 jwt_key=settings.clerk_jwt_key,
-                authorized_parties=[settings.console_base_url],
+                authorized_parties=_authorized_parties(settings),
                 accepts_token=["session_token"],
             ),
         )
