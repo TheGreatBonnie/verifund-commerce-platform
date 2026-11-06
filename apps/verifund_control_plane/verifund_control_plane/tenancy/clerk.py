@@ -45,14 +45,15 @@ class ClerkBackendDirectory:
         self, clerk_org_id: str, clerk_user_id: str
     ) -> dict | None:
         memberships = await asyncio.to_thread(
-            self._sdk.organizations.list_memberships,
+            self._sdk.organization_memberships.list,
             organization_id=clerk_org_id,
-            user_id=clerk_user_id,
+            user_id=[clerk_user_id],
         )
-        if not memberships:
+        if not memberships.data:
             return None
-        membership = memberships[0]
+        membership = memberships.data[0]
         return {
+            "id": membership.id,
             "organization": {"id": clerk_org_id},
             "public_user_data": {"user_id": clerk_user_id},
             "role": membership.role,
