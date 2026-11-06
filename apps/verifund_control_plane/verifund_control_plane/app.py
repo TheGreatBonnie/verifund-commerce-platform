@@ -23,6 +23,7 @@ from verifund_control_plane.paypal_tracking import (
 from verifund_control_plane.receipts import ReceiptSigner
 from verifund_control_plane.reconciler import Reconciler
 from verifund_control_plane.repository import Repository
+from verifund_control_plane.agents import routes as agent_routes
 from verifund_control_plane.onboarding import routes as onboarding_routes
 from verifund_control_plane.service import VerifundService
 from verifund_control_plane.tenancy import routes as tenancy_routes
@@ -221,4 +222,5 @@ def create_app(
     app.include_router(agreement_routes.router)
     app.include_router(tenancy_routes.router)
     app.include_router(onboarding_routes.router)
+    app.include_router(agent_routes.router)
     return app
