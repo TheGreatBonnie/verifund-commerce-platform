@@ -40,6 +40,23 @@ class EvidenceStore:
             )
         return self.root / sha256
 
+    def _key(
+        self, organization_id: str, transaction_id: str, sha256: str
+    ) -> str:
+        return f"tenants/{organization_id}/transactions/{transaction_id}/{sha256}"
+
+    def verification_key(
+        self, organization_id: str, document_id: str, sha256: str
+    ) -> str:
+        return f"tenants/{organization_id}/verification/{document_id}/{sha256}"
+
+    def _path_for_key(self, storage_key: str) -> Path:
+        if ".." in Path(storage_key).parts or storage_key.startswith("/"):
+            raise VerifundError(
+                "invalid_request", "invalid evidence hash", status_code=400
+            )
+        return self.root / storage_key
+
     async def put(
         self,
         *,
@@ -51,6 +68,7 @@ class EvidenceStore:
         data: bytes,
         note: str | None,
         captured_at: datetime | None,
+        organization_id: str | None = None,
     ) -> EvidenceItem:
         try:
             EvidenceKind(kind)
@@ -75,7 +93,12 @@ class EvidenceStore:
                 status_code=413,
             )
         digest = hashlib.sha256(data).hexdigest()
-        path = self._path(digest)
+        storage_key: str | None = None
+        if organization_id:
+            storage_key = self._key(organization_id, transaction_id, digest)
+            path = self._path_for_key(storage_key)
+        else:
+            path = self._path(digest)
         if not path.exists():
             await asyncio.to_thread(self._write_atomic, path, data)
         return EvidenceItem(
@@ -87,23 +110,33 @@ class EvidenceStore:
             original_filename=original_filename or "evidence",
             note=note,
             created_at=datetime.now().astimezone(),
+            storage_key=storage_key,
+            organization_id=organization_id,
         )
 
     def _write_atomic(self, path: Path, data: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
         temporary.write_bytes(data)
         os.replace(temporary, path)
 
-    def read(self, sha256: str) -> bytes:
-        path = self._path(sha256)
-        if not path.exists():
-            raise VerifundError(
-                "not_found", "evidence content is missing", status_code=404
-            )
-        return path.read_bytes()
+    def read(self, sha256: str, storage_key: str | None = None) -> bytes:
+        candidates: list[Path] = []
+        if storage_key:
+            candidates.append(self._path_for_key(storage_key))
+        legacy = self._path(sha256)
+        if legacy not in candidates:
+            candidates.append(legacy)
+        for path in candidates:
+            if path.exists():
+                return path.read_bytes()
+        raise VerifundError(
+            "not_found", "evidence content is missing", status_code=404
+        )
 
-    def verify(self, sha256: str) -> bool:
-        path = self._path(sha256)
-        if not path.exists():
+    def verify(self, sha256: str, storage_key: str | None = None) -> bool:
+        try:
+            raw = self.read(sha256, storage_key)
+        except (VerifundError, OSError, ValueError):
             return False
-        return hashlib.sha256(path.read_bytes()).hexdigest() == sha256
+        return hashlib.sha256(raw).hexdigest() == sha256

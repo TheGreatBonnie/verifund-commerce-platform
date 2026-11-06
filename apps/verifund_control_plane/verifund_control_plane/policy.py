@@ -172,7 +172,7 @@ def _load(store: EvidenceStore, item: EvidenceItem) -> dict[str, Any] | None:
     filename = (item.original_filename or "").lower()
     media = (item.media_type or "").lower()
     try:
-        raw = store.read(item.sha256)
+        raw = store.read(item.sha256, item.storage_key)
     except (VerifundError, OSError, ValueError):
         return None
     if media in {"application/json", "text/plain"} or filename.endswith(".json"):
@@ -481,7 +481,7 @@ def evaluate(
     verified_items: list[EvidenceItem] = []
     invalid_sha: set[str] = set()
     for item in items:
-        if store.verify(item.sha256):
+        if store.verify(item.sha256, item.storage_key):
             verified_items.append(item)
         else:
             invalid_sha.add(item.sha256)

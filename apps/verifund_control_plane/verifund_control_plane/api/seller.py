@@ -313,7 +313,7 @@ async def download_evidence(
     )
     item = await request.app.state.repo.get_evidence(transaction_id, evidence_id)
     return Response(
-        content=request.app.state.evidence_store.read(item.sha256),
+        content=request.app.state.evidence_store.read(item.sha256, item.storage_key),
         media_type=item.media_type,
         headers={
             "content-disposition": f'attachment; filename="{item.original_filename}"'

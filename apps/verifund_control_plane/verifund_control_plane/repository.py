@@ -913,6 +913,8 @@ class Repository:
                 reference=item.reference,
                 agreement_version=item.agreement_version,
                 scan_status=item.scan_status,
+                organization_id=item.organization_id,
+                storage_key=item.storage_key,
             )
             .on_conflict_do_nothing(index_elements=["transaction_id", "sha256"])
         )
@@ -965,6 +967,8 @@ class Repository:
             reference=row.reference,
             submission_attempt=row.submission_attempt,
             created_at=_dt(row.created_at),
+            storage_key=getattr(row, "storage_key", None),
+            organization_id=getattr(row, "organization_id", None),
         )
 
     async def list_evidence(self, transaction_id: str) -> list[EvidenceItem]:

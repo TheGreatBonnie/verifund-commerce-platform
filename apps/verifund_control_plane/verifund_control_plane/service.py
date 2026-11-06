@@ -1182,6 +1182,7 @@ class VerifundService:
             data=payload,
             note=note,
             captured_at=captured_at,
+            organization_id=record.seller_organization_id,
         )
         scan_status = "clean" if is_reference else "pending"
 
@@ -1965,6 +1966,7 @@ class VerifundService:
             data=payload.encode("utf-8"),
             note="buyer-attested delivery confirmation",
             captured_at=confirmed_at,
+            organization_id=record.seller_organization_id,
         )
 
         new_state = record.state
@@ -2154,6 +2156,7 @@ class VerifundService:
             data=data,
             note=note,
             captured_at=captured_at,
+            organization_id=record.seller_organization_id,
         )
         item = item.model_copy(
             update={

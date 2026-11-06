@@ -811,6 +811,8 @@ class EvidenceItem(VerifundModel):
     reference: str | None = None  # reference payload, e.g. a tracking number
     submission_attempt: int | None = None  # the open attempt the upload belongs to
     created_at: datetime
+    storage_key: str | None = None
+    organization_id: str | None = None
 
 
 class EvidenceSubmission(VerifundModel):
