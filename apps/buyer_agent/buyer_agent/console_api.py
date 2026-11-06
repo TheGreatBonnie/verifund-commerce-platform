@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import text
 
 router = APIRouter()
@@ -12,6 +13,19 @@ router = APIRouter()
 
 def _services(request: Request):
     return request.app.state.services
+
+
+async def authorize_run_stream(trace, organization_id: str, run_id: str) -> bool:
+    row = await trace.get_run(run_id)
+    return row is not None and row.get("organization_id") == organization_id
+
+
+def _check_internal_token(request: Request) -> None:
+    settings = request.app.state.settings
+    expected = settings.internal_api_token
+    provided = request.headers.get("x-verifund-internal-token", "")
+    if not expected or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 def _run(row: dict) -> dict:
@@ -67,11 +81,7 @@ async def list_runs(
     organization_id: str = "",
     limit: int = 50,
 ) -> list[dict]:
-    settings = request.app.state.settings
-    expected = settings.internal_api_token
-    provided = request.headers.get("x-verifund-internal-token", "")
-    if not expected or not secrets.compare_digest(provided, expected):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    _check_internal_token(request)
     if not organization_id:
         raise HTTPException(status_code=400, detail="organization_id is required")
     trace = getattr(_services(request), "trace", None)
@@ -81,6 +91,32 @@ async def list_runs(
         organization_id, limit=max(1, min(limit, 200))
     )
     return [_run(row) for row in rows]
+
+
+@router.get("/api/runs/{run_id}/stream")
+async def stream_run(
+    run_id: str,
+    request: Request,
+    organization_id: str = "",
+):
+    _check_internal_token(request)
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="organization_id is required")
+    trace = getattr(_services(request), "trace", None)
+    if trace is None or not await authorize_run_stream(
+        trace, organization_id, run_id
+    ):
+        raise HTTPException(status_code=404, detail="run not found")
+
+    async def events():
+        for event in await trace.list(run_id, limit=500):
+            yield f"data: {json.dumps(asdict(event))}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"cache-control": "no-store"},
+    )
 
 
 @router.get("/api/marketplace/products")
