@@ -7,6 +7,8 @@ Related docs:
 - `docs/superpowers/specs/2026-11-06-verifund-multi-tenancy-design.md` (tenancy model, status axes, §12.2–§12.5 credential/registry/provisioning specs — binding)
 - `docs/superpowers/specs/2026-11-06-verifund-neon-postgres-design.md` (Neon target; see pointer note added 2026-11-06 — deferred, not binding for this milestone)
 - `docs/superpowers/specs/2026-11-06-seller-agent-onboarding-design.md` (onboarding stub; consumes this design, does not restate it)
+- `docs/superpowers/specs/seller-agent-config-seller-onboarding.md` (attached recommendation for onboarding configuration; **superseded** by Appendix B of this document)
+- `docs/superpowers/specs/seller-agent-onboarding-recommendation.md` (source recommendation)
 - `docs/superpowers/specs/verifund-multi-tenancy-recommendation.md` (original tenancy rationale)
 - A2A Multi-Tenancy and Multi-Agent Routing guide: `https://a2a-protocol.org/latest/topics/multi-tenancy/`
 - A2A Specification: `https://github.com/a2aproject/A2A/blob/main/docs/specification.md`
@@ -441,3 +443,142 @@ are **not binding** for the seller runtime; the isolation mechanisms are §7 and
 | Q30 | Scoping mechanism | **Org-bound scoped store, fail closed** |
 | Q31 | A2A tasks | **Sidecar `task_ownership` + org-filtered reads** |
 | Q32 | Seeding | **Fresh seed from YAML fixtures; legacy `.db` files not imported** |
+
+---
+
+## Appendix B. Seller onboarding — agent configuration (2026-11-06 onboarding grill)
+
+B.1 **Purpose.** How a seller configures its A2A Seller Agent inside the seller
+workspace UI after Clerk authentication, and what the backend must do to make
+that real. This appendix supersedes
+`docs/superpowers/specs/seller-agent-config-seller-onboarding.md`
+(recommendation prose) where they differ; the decisions here were settled in
+the 2026-11-06 onboarding grill (O1–O19). Related: the console, control plane
+and seller runtime code paths listed in §2 and §7.
+
+B.2 **As-built today.** Console `(seller-onboarding)/seller/onboarding/[step]/page.tsx`
+is a placeholder for every step; `apps/console/lib/onboarding.ts` defines the
+seven steps `profile → verification → integrations → agent_setup → policies →
+testing → activation` (`sellerEntryPath` routes verified sellers elsewhere).
+FastAPI control plane exposes `require_identity`, onboarding create/read +
+verification submit, and agent routes for **test / issues / verify** only;
+`provision_agent`, `confirm_policy`, `activate_agent` exist in
+`agents/lifecycle.py` but are **not routed** and two of them still carry
+placeholders (`policy_hash="0"*64`, six hardcoded test checks of `True`).
+
+B.3 **Human vs machine identity.** Clerk authenticates the human
+administrator only; every console→control-plane call is pinned to one Verifund
+organization by `require_identity` (Clerk session token verified against the
+Clerk backend API, `azp` allowlisted; `tenant_id` = Verifund organization id
+resolved from `clerk_org_id`; never taken from the request body). The Seller
+Agent is a machine identity: opaque `vf_agent_*` credential, hashed at rest,
+issued per agent, verified by `POST /v1/agent-credentials/verify` (§12.2 of
+the tenancy design; 30s positive cache). The seller admin's Clerk session is
+never a credential for the agent, and no secret ever reaches the browser.
+
+B.4 **The four configuration-owned steps** (the other three remain stubs this
+milestone — O2). All require `org:agents:manage`; all edits are
+compare-and-swap on `expected_config_version`; mismatch → `409` with the
+latest config (O12).
+
+| B.4.1 `agent_setup` | Creates the draft agent on first save: `agent_<slug>` unique per org (O3); display `name`, `description` (editable, `agent_id` immutable). Instructions = generated default template from the business profile + seller-editable free-text body (O7): sanitized (control chars stripped), length-capped (~4k chars), stored versioned in `seller_configs` with `config_version`; never on the public card. Capability checkboxes map 1:1 to the commerce skill set (`catalog.search`, `inventory.check`, `pricing.quote`, `offer.create`, `offer.negotiate`, `agreement.review`, `order.create`) and are persisted as the agent's **tool allowlist** (O4). **All boxes default ON (O14 — accepted divergence).** A read-only public card preview panel is shown for the seller to review (B.4.4) before activation (O13). |
+| B.4.2 `policies` | Global autonomy caps only (O8): `max_discount_bps` (default 1000 = 10%), `autonomy_mode` (`read_only \| assisted \| policy_bounded`; default `policy_bounded`), and the three fixed human-escalation rules (below floor / above cap / non-standard terms) — always on. Per-product floors stay catalog data; not editable here. Policy body is authoritative in the seller runtime's config store; saving writes via the runtime and records `policy_version`/`policy_hash` in the control plane (§12.4–12.5 of the tenancy design) (O5). |
+| B.4.3 `testing` | Real checks, not placeholders (O9): (1) agent credential verifies against the control plane; (2) catalog returns a known SKU for the org; (3) pricing bounds refuse out-of-range offers (floor and ceiling); (4) mediated A2A round trip returns a valid response; (5) an action above the agent's authority ceiling escalates; (6) a revoked credential stops passing. Runs against the sandbox profile (`VERIFUND_MODE=sandbox`). Each check is recorded in `agent_test_runs` with policy/card hashes; the wizard renders results and blocks `activation` until a run passes for the current hashes. |
+| B.4.4 `activation` | Gates (O11): organization `verified` · no policy drift · a passing test run for the current `policy_hash`+`card_hash` · ≥1 active credential. On success the agent transitions to `active` and the registry projection publishes the card (`published=true`; unpublish on suspend, not delete). Card URL = `agents.verifund.com/{seller_id}/.well-known/agent-card.json` (§3.4); advertised `tenant` = `agent_<slug>`. The seller portal `/seller/agent` renders the **same** components/forms as the wizard for post-activation edit-in-place (O10); credential material is never shown — status metadata only (issued/active/revoked/last rotation); rotation deferred to post-activation hardening (O15). |
+
+B.5 **Provisioning flow (synchronous, idempotent, saga) — O5, O6, O11, O16.**
+
+Wizard "Finish setup" (`POST /v1/agents/{id}/provisions` — routed by B.4) executes
+inline and returns the final agent status (refresh-safe; target seconds on the
+demo topology):
+
+1. `require_identity` → business organization; require `org:agents:manage`.
+2. Idempotency key `(organization_id, Idempotency-Key: <client-generated-uuid>)`;
+   a replay returns the recorded transition — never a second agent.
+3. Control plane creates/updates the `draft` agent (`create_agent` state
+   machine: `draft → configuring` on first save, `configuring → testing` when
+   the test suite runs, `testing → active` on activation).
+4. **Card + capability projection** computed by the runtime: card `skills` are
+   **derived** from the tool allowlist — never edited independently (O4);
+   advertised can never exceed authorized.
+5. Policy/config write goes to the **shared seller runtime**, not the control
+   plane (§12.4-3 "seller agent's store is authoritative"): CP calls
+   `POST {seller_runtime}/internal/agent-configs` (service-credential auth,
+   single-use scope); the runtime validates, computes canonical
+   `policy_version`/`policy_hash` from the config payload, upserts
+   `seller_configs`, and returns both hashes (O16).
+6. Control plane records hashes on the agent row, recomputes `card_hash`, and
+   at activation publishes the registry projection (`agents.published=true`,
+   desired card_url/card_json) (§12.3–12.4 of the tenancy design).
+7. Any step failure marks that step `failed` with an audit event; the seller
+   retries from the failing step; no 2PC/saga framework — explicit per-step
+   idempotent operations + compensation (unpublish card, revoke credential) on
+   terminal failure.
+
+B.6 **Starter catalog — O19.** Completing onboarding seeds a minimal demo
+catalog (a handful of SKUs with floors/ladders) into the org's `inventory` in
+`sellers.db`, so the catalog test and the full walkthrough pass on a
+zero-state organization; replaced when the seller connects a real integration
+(integrations step is a stub in this milestone — O2).
+
+B.7 **Milestone boundary (build scope) — O2, O18.** This milestone delivers:
+the four configuration steps (B.4), the control-plane endpoints they call
+(`POST /v1/agents`, `PATCH …/config`, `PATCH …/policies`,
+`POST …/test`, `POST …/activate`, `GET …/status`), the console screens and
+portal reuse (O10), the `/internal/agent-configs` runtime endpoint, the
+`seller_configs` read path in request handling, and starter seeding — a
+minimal shared-runtime slice **layered on the single-endpoint design in this
+same document**. The cutover (registry flip of the four demo sellers,
+container retirement) stays in that milestone's §10; profile/verification/
+integrations UI and credential rotation remain out of scope.
+
+B.8 **Acceptance gate — O17.** Fresh-org walkthrough in a clean environment:
+Clerk signup → org creation → wizard → instructions override → capability
+toggles → `policies` save → `testing` (real checks pass) → `activation`
+(card published; registry discovery returns the agent) → buyer-side A2A call
+resolves to exactly this organization and negotiates. Plus: control-plane
+endpoint integration tests, saga idempotency/retry tests (replay without
+duplicates; mid-saga failure resume), scoping-invariant tests (cross-tenant
+negative tests per §9/B.4), and the existing suite green.
+
+B.9 **Accepted risks / divergences.**
+- **All capabilities default ON** at onboarding (O14) — deliberate
+  divergence from least-privilege default; sellers trim power by unchecking.
+  Success criterion for the demo outweighs defense-in-depth default here.
+- **Synchronous provisioning blocks the UI** briefly (O6); async promotion is
+  the documented escape hatch if steps outgrow the request budget.
+- **Starter demo catalog** mixes fixture data into fresh orgs (O19).
+- **Hardcoded `agent_test_runs` placeholders replaced by real checks** (O9) —
+  this removes the previous silent pass-through; activation is blocked until
+  real checks pass.
+
+B.10 **Open/deferred items.** Credential rotation UX and endpoint (O15);
+integrations step (real external catalog sync); policy-drift daily sweep
+(§12.5, unchanged); per-category autonomy caps (rejected O8); per-pair
+buyer↔seller ACLs (Q20, Appendix A); catalog provenance/verification beyond
+the starter seed; async provisioning transport; portal editing of granular
+`agent_policies`-style rows beyond autonomy caps.
+
+B.11 **Decision log (onboarding grill, 2026-11-06).**
+
+| # | Decision | Choice |
+|---|----------|--------|
+| O1 | Deliverable | **Decisions land in this document (Appendix B)**; the onboarding-config recommendation is marked superseded here |
+| O2 | Build scope | **Four config steps + endpoints** (`agent_setup`, `policies`, `testing`, `activation`); `profile`/`verification`/`integrations` remain stubs |
+| O3 | `agent_id` format | **`agent_<slug>` unique per org**; permanent, independent of display name |
+| O4 | Skills vs tools | **Card skills derived from the tool allowlist; never edited independently**; advertised ⊆ authorized |
+| O5 | Cross-store provisioning | **Idempotent inline saga, control plane orchestrates**; `(organization_id, Idempotency-Key)` replay-safe; no 2PC; compensating actions on terminal failure |
+| O6 | Provisioning transport | **Synchronous**; final status returned in-response; async promotion documented, not built |
+| O7 | Instructions | **Generated template + seller-editable free text**; ~4k cap, sanitized, versioned; never on the card |
+| O8 | Policy model | **Global caps only**: `max_discount_bps` (default 1000), `autonomy_mode` (default `policy_bounded`), fixed escalation trio; per-product floors stay in catalog |
+| O9 | Test checks | **Real minimum set** (auth / catalog SKU / pricing bounds / mediated A2A / authority ceiling / revoked credential denied) against sandbox; placeholders removed |
+| O10 | Portal | **`/seller/agent` reuses wizard components** for edit-in-place; no forked UI |
+| O11 | Gates | **Provision at `pending|verified`; activate at `verified`** + no drift + passing test + active credential |
+| O12 | Concurrency | **Optimistic compare-and-swap** on `expected_config_version`; `409` + latest version on mismatch |
+| O13 | Card transparency | **Read-only card preview** on testing/activation; exactly what buyers will see |
+| O14 | Capability defaults | **ALL ON at onboarding** (accepted divergence) |
+| O15 | Credential UX | **Status metadata only**; rotation deferred to post-activation hardening |
+| O16 | Config write path | **Runtime-owned via `/internal/agent-configs`** (service auth); control plane records `policy_version`/`policy_hash`; seller store authoritative |
+| O17 | Acceptance gate | **Full fresh-org walkthrough + integration/retry/scoping tests** (B.8) |
+| O18 | Milestone boundary | **Minimal shared-runtime slice in scope** (config resolution + `/internal/agent-configs` + real checks); cutover stays in this document's §10 |
+| O19 | New-org catalog | **Starter demo catalog seed** at onboarding completion for empty orgs |
