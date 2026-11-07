@@ -56,7 +56,6 @@ export default async function SellerLayout({
         <header className="mm-seller-topbar">
           <div>
             <span className="mm-kicker">Fulfillment workspace</span>
-            <strong>{orgId ?? "Seller"}</strong>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Link
