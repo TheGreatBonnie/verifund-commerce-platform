@@ -17,15 +17,18 @@ from commerce_core.negotiation.concessions import (
     constrain_buyer_counter,
     validate_requested_changes,
 )
+from commerce_core.negotiation.deadlock import DeadlockDecision, detect_deadlock
 from commerce_core.negotiation.trust import TrustReject, verify_offer_binding
 
 __all__ = [
     "ALLOWED_REQUESTED_CHANGE_KEYS",
     "AllowedBuyerCounter",
+    "DeadlockDecision",
     "RejectResult",
     "TrustReject",
     "budget_allows",
     "constrain_buyer_counter",
+    "detect_deadlock",
     "hard_constraint_failures",
     "recompute_subtotal",
     "recompute_total",
