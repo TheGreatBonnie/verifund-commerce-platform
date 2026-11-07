@@ -25,6 +25,21 @@ from tests.support.award_flow import (
     fund_and_capture,
     upload_reference,
 )
+from tests.support.seller_auth import clerk_seller_headers, seed_seller_profile
+
+
+async def seller_headers(client):
+    app = client._transport.app
+    await seed_seller_profile(
+        app,
+        clerk_org_id="org_northwind",
+        seller_id="northwind-audio",
+        display_name="northwind-audio",
+        clerk_user_id="user_northwind",
+    )
+    return clerk_seller_headers(
+        app, sub="user_northwind", org_id="org_northwind", token="tok_northwind"
+    )
 
 
 def requirement_catalog() -> list[dict]:
@@ -174,7 +189,9 @@ async def test_http_client_tracks_and_reads_back():
 async def test_shipping_reference_registers_tracker(client):
     body = await _funded(client)
     txid = body["transaction_id"]
-    response = await upload_reference(client, body, "shipping", "TRK-1")
+    response = await upload_reference(
+        client, body, "shipping", "TRK-1", headers=await seller_headers(client)
+    )
     assert response.status_code == 201, response.text
 
     app = client._transport.app
@@ -200,7 +217,11 @@ async def test_shipping_reference_registers_tracker(client):
 async def test_tracker_is_visible_in_dispute_context(client):
     body = await _funded(client)
     txid = body["transaction_id"]
-    assert (await upload_reference(client, body, "shipping", "TRK-1")).status_code == 201
+    assert (
+        await upload_reference(
+            client, body, "shipping", "TRK-1", headers=await seller_headers(client)
+        )
+    ).status_code == 201
 
     app = client._transport.app
     record = await app.state.repo.get_transaction(txid)
@@ -224,7 +245,11 @@ async def test_tracker_is_visible_in_dispute_context(client):
 async def test_tracker_refresh_failure_is_non_fatal(client):
     body = await _funded(client)
     txid = body["transaction_id"]
-    assert (await upload_reference(client, body, "shipping", "TRK-1")).status_code == 201
+    assert (
+        await upload_reference(
+            client, body, "shipping", "TRK-1", headers=await seller_headers(client)
+        )
+    ).status_code == 201
 
     app = client._transport.app
 

@@ -42,7 +42,9 @@ class FakeSettlement:
         self.projection = projection
         self.error = error
 
-    async def get_transaction(self, token, transaction_id):
+    async def get_transaction(
+        self, transaction_id, *, organization_id, seller_id
+    ):
         if self.error is not None:
             raise self.error
         assert self.projection is not None
@@ -127,13 +129,16 @@ def build(store, policy, *, settlement=None):
         planner=ScriptedSellerPlanner(),
         settlement=settlement,
         settlement_enabled=True,
+        organization_id="org_test",
     )
 
 
 async def test_settlement_status_omits_tokens_and_reports_state(
     store, northwind_policy
 ):
-    await store.save_settlement_token("vf_1", "northwind-audio", TOKEN)
+    await store.save_settlement_context(
+        transaction_id="vf_1", seller_id="northwind-audio"
+    )
     settlement = FakeSettlement(projection())
     service = build(store, northwind_policy, settlement=settlement)
 
@@ -148,7 +153,9 @@ async def test_settlement_status_omits_tokens_and_reports_state(
 async def test_settlement_status_degrades_when_the_control_plane_is_down(
     store, northwind_policy
 ):
-    await store.save_settlement_token("vf_1", "northwind-audio", TOKEN)
+    await store.save_settlement_context(
+        transaction_id="vf_1", seller_id="northwind-audio"
+    )
     settlement = FakeSettlement(
         error=SettlementError("provider_unavailable", "down", status_code=503)
     )

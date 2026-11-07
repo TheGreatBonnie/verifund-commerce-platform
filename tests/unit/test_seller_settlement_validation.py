@@ -47,10 +47,18 @@ async def store(tmp_path):
 class FakeSettlement:
     def __init__(self, projection: dict) -> None:
         self.projection = projection
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[dict] = []
 
-    async def get_transaction(self, token, transaction_id):
-        self.calls.append((token, transaction_id))
+    async def get_transaction(
+        self, transaction_id, *, organization_id, seller_id
+    ):
+        self.calls.append(
+            {
+                "transaction_id": transaction_id,
+                "organization_id": organization_id,
+                "seller_id": seller_id,
+            }
+        )
         return dict(self.projection)
 
 
@@ -152,6 +160,7 @@ def build(store, policy, projection_value=None):
         planner=ScriptedSellerPlanner(),
         settlement=cast(SellerSettlementClient, client),
         settlement_enabled=True,
+        organization_id="org_test",
     )
     return service, client
 
@@ -221,7 +230,7 @@ def test_strip_settlement_token_does_not_mutate_the_source():
     assert envelope["payload"]["settlement_token"] == TOKEN
 
 
-async def test_validate_acceptance_binds_the_agreement_and_stores_the_token(
+async def test_validate_acceptance_binds_the_agreement_and_records_context(
     store, northwind_policy
 ):
     service, client = build(store, northwind_policy)
@@ -229,8 +238,22 @@ async def test_validate_acceptance_binds_the_agreement_and_stores_the_token(
     result = await service.validate_acceptance(accept(), token=TOKEN)
 
     assert result["agreement_hash"] == HASH
-    assert client.calls == [(TOKEN, "vf_1")]
-    assert await store.get_settlement_token("vf_1") == TOKEN
+    assert client.calls == [
+        {
+            "transaction_id": "vf_1",
+            "organization_id": "org_test",
+            "seller_id": "northwind-audio",
+        }
+    ]
+    assert await store.list_settlement_tokens() == [
+        {
+            "transaction_id": "vf_1",
+            "seller_id": "northwind-audio",
+            "updated_at": (await store.list_settlement_tokens())[0][
+                "updated_at"
+            ],
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -255,23 +278,19 @@ async def test_validate_acceptance_rejects_bad_bindings(
         await service.validate_acceptance(accept(), token=TOKEN)
 
 
-async def test_validate_acceptance_requires_a_token_and_fields(
+async def test_validate_acceptance_requires_fields(
     store, northwind_policy
 ):
     service, _ = build(store, northwind_policy)
-
-    with pytest.raises(CommerceProtocolError):
-        await service.validate_acceptance(accept(), token=None)
 
     missing = accept().model_copy(update={"agreement_hash": None})
     with pytest.raises(CommerceProtocolError):
         await service.validate_acceptance(missing, token=TOKEN)
 
 
-async def test_validate_purchase_order_requires_funded_and_rotates_the_token(
+async def test_validate_purchase_order_requires_funded_and_records_context(
     store, northwind_policy
 ):
-    await store.save_settlement_token("vf_1", "northwind-audio", "v1.old")
     service, client = build(
         store, northwind_policy, projection(state="FUNDED")
     )
@@ -281,8 +300,16 @@ async def test_validate_purchase_order_requires_funded_and_rotates_the_token(
     )
 
     assert result["state"] == "FUNDED"
-    assert client.calls == [(TOKEN, "vf_1")]
-    assert await store.get_settlement_token("vf_1") == TOKEN
+    assert client.calls == [
+        {
+            "transaction_id": "vf_1",
+            "organization_id": "org_test",
+            "seller_id": "northwind-audio",
+        }
+    ]
+    assert [row["transaction_id"] for row in await store.list_settlement_tokens()] == [
+        "vf_1"
+    ]
 
 
 async def test_validate_purchase_order_rejects_an_unfunded_transaction(

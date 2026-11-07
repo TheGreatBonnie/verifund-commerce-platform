@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import update
 
+from verifund_control_plane.errors import VerifundError
+
 
 def clerk_seller_headers(
     app, *, sub="user_seller", org_id="org_seller", org_role="org:admin", token="seller-bearer"
@@ -24,7 +26,9 @@ def clerk_seller_headers(
             )
             claims = mappings.get(token_value) or mappings.get("*")
             if claims is None:
-                raise RuntimeError(f"no test Clerk mapping for token {token_value!r}")
+                raise VerifundError(
+                    "unauthorized", "sign-in required", status_code=401
+                )
             return claims
 
         app.state.clerk_authenticator = _auth

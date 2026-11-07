@@ -168,6 +168,12 @@ def purchase_order(award_body: dict) -> dict:
 
 
 def seller_headers(award_body: dict, *, headers: dict[str, str] | None = None) -> dict[str, str]:
+    """Legacy bearer seller-token headers.
+
+    Deprecated for migrated ``/seller/*`` routes, which now require Clerk
+    (console) or internal service auth (settlement); see
+    ``tests.support.seller_auth``. Retained only for agreement-era helpers.
+    """
     if headers is not None:
         return headers
     return {"authorization": f"Bearer {award_body['seller_token']}"}

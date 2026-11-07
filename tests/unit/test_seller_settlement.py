@@ -37,14 +37,22 @@ def order() -> Order:
 
 
 @respx.mock
-async def test_get_transaction_uses_the_seller_bearer_token():
+async def test_get_transaction_uses_internal_service_auth():
     route = respx.get(
         "http://control/seller/transactions/vf_1"
     ).mock(return_value=httpx.Response(200, json={"state": "AWARDED"}))
-    client = SellerSettlementClient("http://control")
-    projection = await client.get_transaction("v1.secret", "vf_1")
+    client = SellerSettlementClient("http://control", internal_token="secret")
+    projection = await client.get_transaction(
+        "vf_1",
+        organization_id="org_test",
+        seller_id="northwind-audio",
+    )
     assert projection["state"] == "AWARDED"
-    assert route.calls[0].request.headers["authorization"] == "Bearer v1.secret"
+    request = route.calls[0].request
+    assert request.headers["x-verifund-internal-token"] == "secret"
+    assert request.headers["x-seller-org-id"] == "org_test"
+    assert request.headers["x-seller-id"] == "northwind-audio"
+    assert "authorization" not in request.headers
     await client.close()
 
 
@@ -53,11 +61,12 @@ async def test_upload_evidence_posts_multipart_without_leaking_the_token():
     route = respx.post(
         "http://control/seller/transactions/vf_1/evidence"
     ).mock(return_value=httpx.Response(201, json={"evidence_id": "ev_1"}))
-    client = SellerSettlementClient("http://control")
+    client = SellerSettlementClient("http://control", internal_token="secret")
     response = await client.upload_evidence(
-        "v1.secret",
         "vf_1",
-        kind="shipment_manifest",
+        organization_id="org_test",
+        seller_id="northwind-audio",
+        requirement_id="shipment_manifest",
         content=b'{"tracking_number":"TRK-1"}',
         media_type="application/json",
         filename="manifest.json",
@@ -65,9 +74,13 @@ async def test_upload_evidence_posts_multipart_without_leaking_the_token():
     )
     assert response["evidence_id"] == "ev_1"
     request = route.calls[0].request
-    assert request.headers["authorization"] == "Bearer v1.secret"
-    assert b'name="kind"' in request.content
+    assert request.headers["x-verifund-internal-token"] == "secret"
+    assert request.headers["x-seller-org-id"] == "org_test"
+    assert request.headers["x-seller-id"] == "northwind-audio"
+    assert "authorization" not in request.headers
+    assert b'name="requirement_id"' in request.content
     assert b"shipment_manifest" in request.content
+    assert b'name="kind"' not in request.content
     assert b"TRK-1" in request.content
     await client.close()
 

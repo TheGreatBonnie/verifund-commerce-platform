@@ -55,12 +55,14 @@ class VerifundClient:
         *,
         ops_token: str,
         actor: str = "buyer-agent",
+        internal_token: str | None = None,
         httpx_client: httpx.AsyncClient | None = None,
         timeout: float = 20.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.ops_token = ops_token
         self.actor = actor
+        self.internal_token = internal_token
         self._client = httpx_client or httpx.AsyncClient(timeout=timeout)
         self._owns_client = httpx_client is None
 
@@ -443,11 +445,17 @@ class VerifundClient:
         )
 
     async def seller_projection(
-        self, transaction_id: str, token: str
+        self, transaction_id: str, *, organization_id: str, seller_id: str
     ) -> SellerProjection:
+        headers = {
+            "x-seller-org-id": organization_id,
+            "x-seller-id": seller_id,
+        }
+        if self.internal_token:
+            headers["x-verifund-internal-token"] = self.internal_token
         response = await self._client.get(
             f"{self.base_url}/seller/transactions/{transaction_id}",
-            headers={"authorization": f"Bearer {token}"},
+            headers=headers,
         )
         if response.status_code >= 400:
             raise VerifundError(

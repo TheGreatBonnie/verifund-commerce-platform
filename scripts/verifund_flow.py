@@ -99,10 +99,14 @@ class VerifundFlow:
         console_base_url: str = "http://127.0.0.1:3000",
         timeout: float = 20.0,
         client: httpx.Client | None = None,
+        settlement_internal_token: str | None = None,
+        seller_organization_id: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.console_base_url = console_base_url.rstrip("/")
         self.ops_token = ops_token
+        self.settlement_internal_token = settlement_internal_token
+        self.seller_organization_id = seller_organization_id
         self._client = client or httpx.Client(base_url=self.base_url, timeout=timeout)
         self._owns_client = client is None
 
@@ -259,12 +263,23 @@ class VerifundFlow:
     def upload_evidence(
         self, award: Mapping[str, Any], kind: str, payload: Mapping[str, Any], filename: str
     ) -> dict[str, Any]:
+        # ``kind`` here is the requirement identity (e.g. ``shipment_manifest``);
+        # migrated seller routes require ``requirement_id``, not ``kind``.
         transaction_id = str(award["transaction_id"])
+        if not self.settlement_internal_token or not self.seller_organization_id:
+            raise RuntimeError(
+                "upload_evidence requires settlement_internal_token and "
+                "seller_organization_id for internal service auth"
+            )
         response = self._client.post(
             f"{self.base_url}/seller/transactions/{transaction_id}/evidence",
-            headers={"authorization": f"Bearer {award['seller_token']}"},
+            headers={
+                "x-verifund-internal-token": self.settlement_internal_token,
+                "x-seller-org-id": self.seller_organization_id,
+                "x-seller-id": str(award.get("seller_id", SELLER_ID)),
+            },
             data={
-                "kind": kind,
+                "requirement_id": kind,
                 "note": f"verifund flow {kind}",
                 "captured_at": datetime.now(UTC).isoformat(),
             },

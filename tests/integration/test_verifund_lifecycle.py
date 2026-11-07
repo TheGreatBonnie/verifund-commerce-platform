@@ -19,6 +19,21 @@ from tests.support.award_flow import (
     purchase_order,
     upload_json,
 )
+from tests.support.seller_auth import clerk_seller_headers, seed_seller_profile
+
+
+async def seller_headers(api):
+    app = api._transport.app
+    await seed_seller_profile(
+        app,
+        clerk_org_id="org_northwind",
+        seller_id="northwind-audio",
+        display_name="northwind-audio",
+        clerk_user_id="user_northwind",
+    )
+    return clerk_seller_headers(
+        app, sub="user_northwind", org_id="org_northwind", token="tok_northwind"
+    )
 
 
 @pytest.fixture
@@ -113,18 +128,22 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
         "agreement_hash": award_body["agreement_hash"],
         "line_items": [{"sku": "NC-700", "quantity": 12}],
     }
-    uploaded = await upload_json(api, award_body, "shipment_manifest", manifest)
+    headers = await seller_headers(api)
+    uploaded = await upload_json(
+        api, award_body, "shipment_manifest", manifest, headers=headers
+    )
     assert uploaded.status_code == 201, uploaded.text
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
     assert state["state"] == "VERIFICATION_PENDING"
 
-    # The delivery confirmation is system-owned: the seller token cannot
+    # The delivery confirmation is system-owned: the seller cannot
     # create it (Task 9a); the control plane does (stand-in for Task 13).
     rejected = await upload_json(
         api,
         award_body,
         "delivery_confirmation",
         {"delivered_at": (NOW - timedelta(hours=30)).isoformat()},
+        headers=headers,
     )
     assert rejected.status_code == 422, rejected.text
     await seed_system_delivery(api, award_body, NOW - timedelta(hours=30))
@@ -136,7 +155,7 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
         "currency": "USD",
         "line_items": [{"sku": "NC-700", "quantity": 12, "unit_price_cents": 10000}],
     }
-    uploaded = await upload_json(api, award_body, "invoice", invoice)
+    uploaded = await upload_json(api, award_body, "invoice", invoice, headers=headers)
     assert uploaded.status_code == 201, uploaded.text
     # Scans settle asynchronously in production (Task 20a); settle here.
     await settle_scans_and_verify(api, txid)
@@ -241,6 +260,8 @@ async def test_release_override_requires_note_and_allows_manual_flag(api):
 
 
 async def test_seller_token_reissue_revokes_old_token(api):
+    # OPS token issuance still exists for agreement/buyer flows, but
+    # migrated /seller/* data routes no longer accept bearer seller tokens.
     award_body = await award(api)
     txid = award_body["transaction_id"]
     old_token = award_body["seller_token"]
@@ -259,24 +280,25 @@ async def test_seller_token_reissue_revokes_old_token(api):
     new_token = reissued.json()["seller_token"]
     assert new_token != old_token
 
+    headers = await seller_headers(api)
+    current = await api.get(
+        f"/seller/transactions/{txid}",
+        headers=headers,
+    )
+    assert current.status_code == 200, current.text
+
     stale = await api.get(
         f"/seller/transactions/{txid}",
         headers={"authorization": f"Bearer {old_token}"},
     )
     assert stale.status_code == 401
 
-    current = await api.get(
-        f"/seller/transactions/{txid}",
-        headers={"authorization": f"Bearer {new_token}"},
-    )
-    assert current.status_code == 200
-
     revoked = await api.post(
         f"/transactions/{txid}/seller-token/revoke", headers=OPS
     )
     assert revoked.status_code == 200
-    gone = await api.get(
+    legacy = await api.get(
         f"/seller/transactions/{txid}",
         headers={"authorization": f"Bearer {new_token}"},
     )
-    assert gone.status_code == 401
+    assert legacy.status_code == 401
