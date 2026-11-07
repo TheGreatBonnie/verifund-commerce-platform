@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from commerce_core.contracts import Offer
+from commerce_core.contracts import Offer, Order
 from commerce_core.pricing import SellerCatalogProduct, SellerPolicy
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from seller_agent.mandate import SellerMandate
-from seller_agent.store import SellerStore, Stock
+from seller_agent.store import Reservation, SellerStore, Stock
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -89,6 +91,67 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): v for k, v in value.items()}
     return value
+
+
+class OrgScopedTransaction:
+    def __init__(self, store: OrgScopedStore, conn) -> None:
+        self.store = store
+        self.conn = conn
+
+    async def get_offer(self, offer_id: str) -> Offer | None:
+        row = (await self.conn.execute(
+            text("SELECT offer_json FROM offers "
+                 "WHERE organization_id = :o AND offer_id = :i"),
+            {"o": self.store.organization_id, "i": offer_id})).first()
+        return Offer.model_validate(json.loads(row.offer_json)) if row else None
+
+    async def get_order_by_idempotency(self, key: str) -> Order | None:
+        row = (await self.conn.execute(
+            text("SELECT order_json FROM orders "
+                 "WHERE organization_id = :o AND idempotency_key = :k"),
+            {"o": self.store.organization_id, "k": key})).first()
+        return Order.model_validate(json.loads(row.order_json)) if row else None
+
+    async def reserve(
+        self, sku: str, quantity: int, *, allow_split: bool
+    ) -> Reservation:
+        row = (await self.conn.execute(
+            text("SELECT on_hand, incoming, incoming_days FROM inventory "
+                 "WHERE organization_id = :o AND sku = :s"),
+            {"o": self.store.organization_id, "s": sku})).first()
+        if row is None:
+            raise ValueError("unknown sku")
+        if row.on_hand >= quantity:
+            await self.conn.execute(
+                text("UPDATE inventory SET on_hand = on_hand - :q "
+                     "WHERE organization_id = :o AND sku = :s"),
+                {"q": quantity, "o": self.store.organization_id, "s": sku})
+            return Reservation(split_shipment=False)
+        if (
+            allow_split
+            and row.on_hand + row.incoming >= quantity
+            and (row.incoming_days is None or row.incoming_days <= 14)
+        ):
+            remaining = row.on_hand + row.incoming - quantity
+            await self.conn.execute(
+                text("UPDATE inventory SET on_hand = 0, incoming = :r "
+                     "WHERE organization_id = :o AND sku = :s"),
+                {"r": remaining, "o": self.store.organization_id, "s": sku})
+            return Reservation(split_shipment=True)
+        raise ValueError("out_of_stock")
+
+    async def save_order(self, order: Order, *, idempotency_key: str) -> None:
+        await self.conn.execute(
+            text("""INSERT INTO orders
+                        (organization_id, order_id, offer_id, seller_id,
+                         idempotency_key, order_json, created_at, agent_id)
+                    VALUES (:o, :oid, :fid, :sid, :k, :json, :now, :a)"""),
+            {"o": self.store.organization_id, "oid": order.order_id,
+             "fid": order.offer_id, "sid": order.seller_id,
+             "k": idempotency_key,
+             "json": json.dumps(order.model_dump(mode="json")),
+             "now": datetime.now(UTC).isoformat(),
+             "a": self.store.agent_id})
 
 
 class OrgScopedStore(SellerStore):
@@ -386,18 +449,20 @@ class OrgScopedStore(SellerStore):
     async def get_stock(self, sku: str) -> Stock:
         async with self.engine.connect() as conn:
             row = (await conn.execute(text(
-                "SELECT p.stock_on_hand AS ph, i.on_hand AS oh, "
-                "       i.incoming AS inc, i.incoming_days AS ind "
-                "FROM products p LEFT JOIN inventory i "
-                "  ON i.organization_id = p.organization_id AND i.sku = p.sku "
-                "WHERE p.organization_id = :o AND p.sku = :s"),
+                "SELECT on_hand, incoming, incoming_days FROM inventory "
+                "WHERE organization_id = :o AND sku = :s"),
                 {"o": self.organization_id, "s": sku})).first()
-        if row is None:
+            if row is not None:
+                return Stock(on_hand=int(row.on_hand),
+                             incoming=int(row.incoming),
+                             incoming_days=row.incoming_days)
+            product = (await conn.execute(text(
+                "SELECT stock_on_hand FROM products "
+                "WHERE organization_id = :o AND sku = :s"),
+                {"o": self.organization_id, "s": sku})).first()
+        if product is None:
             return Stock(0, 0, None)
-        on_hand = row.oh if row.oh is not None else (row.ph or 0)
-        incoming = row.inc if row.inc is not None else 0
-        return Stock(on_hand=int(on_hand), incoming=int(incoming),
-                     incoming_days=row.ind)
+        return Stock(on_hand=int(product.stock_on_hand or 0), incoming=0)
 
     async def save_offer(self, offer: Offer, *, task_id: str,
                          context_id: str) -> None:
@@ -451,3 +516,198 @@ class OrgScopedStore(SellerStore):
                    VALUES (:t, :o, :a, :c)"""
             ), {"t": task_id, "o": self.organization_id,
                 "a": self.agent_id, "c": context_id})
+
+    async def create_schema(self) -> None:
+        return None
+
+    async def seed_catalog(self, policy: SellerPolicy) -> None:
+        return None
+
+    @asynccontextmanager
+    async def transaction(self):
+        async with self.engine.begin() as conn:
+            yield OrgScopedTransaction(self, conn)
+
+    async def set_stock(
+        self,
+        sku: str,
+        on_hand: int,
+        incoming: int = 0,
+        incoming_days: int | None = None,
+    ) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                """INSERT INTO inventory
+                       (organization_id, sku, on_hand, incoming, incoming_days)
+                   VALUES (:o, :s, :oh, :inc, :ind)
+                   ON CONFLICT(organization_id, sku) DO UPDATE SET
+                     on_hand = :oh, incoming = :inc, incoming_days = :ind"""
+            ), {"o": self.organization_id, "s": sku, "oh": int(on_hand),
+                "inc": int(incoming), "ind": incoming_days})
+
+    async def list_offers(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT offer_json, created_at FROM offers "
+                "WHERE organization_id = :o ORDER BY created_at DESC LIMIT :n"),
+                {"o": self.organization_id,
+                 "n": max(1, min(limit, 100))})).all()
+        return [{
+            "created_at": row.created_at,
+            "offer": Offer.model_validate(
+                json.loads(row.offer_json)).model_dump(mode="json"),
+        } for row in rows]
+
+    async def list_orders(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT order_json, created_at FROM orders "
+                "WHERE organization_id = :o ORDER BY created_at DESC LIMIT :n"),
+                {"o": self.organization_id,
+                 "n": max(1, min(limit, 100))})).all()
+        return [{
+            "created_at": row.created_at,
+            "order": Order.model_validate(
+                json.loads(row.order_json)).model_dump(mode="json"),
+        } for row in rows]
+
+    async def save_order(
+        self, order: Order, *, idempotency_key: str
+    ) -> None:
+        async with self.transaction() as tx:
+            await tx.save_order(order, idempotency_key=idempotency_key)
+
+    async def get_order_by_idempotency(self, idempotency_key: str) -> Order | None:
+        async with self.transaction() as tx:
+            return await tx.get_order_by_idempotency(idempotency_key)
+
+    async def reserve(
+        self, sku: str, quantity: int, *, allow_split: bool
+    ) -> dict[str, Any]:
+        async with self.transaction() as tx:
+            reservation = await tx.reserve(
+                sku, quantity, allow_split=allow_split)
+        stock = await self.get_stock(sku)
+        return {"split_shipment": reservation.split_shipment,
+                "on_hand": stock.on_hand}
+
+    async def save_settlement_token(
+        self, transaction_id: str, seller_id: str, token: str
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                """INSERT INTO settlement_tokens
+                       (organization_id, transaction_id, seller_id,
+                        token_json, created_at, updated_at)
+                   VALUES (:o, :t, :s, :j, :now, :now)
+                   ON CONFLICT(organization_id, transaction_id) DO UPDATE SET
+                     token_json = :j, seller_id = :s, updated_at = :now"""
+            ), {"o": self.organization_id, "t": transaction_id,
+                "s": seller_id, "j": json.dumps({"token": token}),
+                "now": now})
+
+    async def get_settlement_token(self, transaction_id: str) -> str | None:
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT token_json FROM settlement_tokens "
+                "WHERE organization_id = :o AND transaction_id = :t"),
+                {"o": self.organization_id, "t": transaction_id})).first()
+        return json.loads(row.token_json)["token"] if row else None
+
+    async def list_settlement_tokens(
+        self, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT transaction_id, seller_id, updated_at "
+                "FROM settlement_tokens WHERE organization_id = :o "
+                "ORDER BY updated_at DESC LIMIT :n"),
+                {"o": self.organization_id,
+                 "n": max(1, min(limit, 20))})).all()
+        return [dict(row._mapping) for row in rows]
+
+    async def enqueue_evidence(
+        self,
+        *,
+        transaction_id: str,
+        seller_id: str,
+        kind: str,
+        content: bytes,
+        media_type: str,
+        filename: str,
+        note: str = "",
+        captured_at: str | None = None,
+        created_at: datetime | None = None,
+    ) -> bool:
+        now = (created_at or datetime.now(UTC)).isoformat()
+        async with self.engine.begin() as conn:
+            result = await conn.execute(text(
+                """INSERT INTO evidence_outbox
+                       (organization_id, outbox_id, transaction_id, seller_id,
+                        kind, filename, media_type, content, note, captured_at,
+                        next_attempt_at, created_at, agent_id)
+                   VALUES (:o, :id, :t, :s, :k, :f, :m, :c, :n, :cap,
+                           :now, :now, :a)
+                   ON CONFLICT(organization_id, transaction_id, kind)
+                   DO NOTHING"""
+            ), {"o": self.organization_id, "id": uuid.uuid4().hex,
+                "t": transaction_id, "s": seller_id, "k": kind,
+                "f": filename, "m": media_type, "c": content, "n": note,
+                "cap": captured_at, "now": now, "a": self.agent_id})
+        return bool(result.rowcount)
+
+    async def list_due_evidence(
+        self, *, now: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT * FROM evidence_outbox WHERE organization_id = :o "
+                "AND status = 'pending' AND next_attempt_at <= :now "
+                "ORDER BY created_at LIMIT :n"),
+                {"o": self.organization_id, "now": now,
+                 "n": max(1, min(limit, 100))})).all()
+        return [dict(row._mapping) | {"evidence_key": row.outbox_id}
+                for row in rows]
+
+    async def mark_evidence_sent(
+        self, evidence_key: str, *, sent_at: str
+    ) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE evidence_outbox SET status = 'sent', sent_at = :s, "
+                "last_error = NULL WHERE organization_id = :o "
+                "AND outbox_id = :id"),
+                {"s": sent_at, "o": self.organization_id, "id": evidence_key})
+
+    async def reschedule_evidence(
+        self, evidence_key: str, *, next_attempt_at: str, error: str
+    ) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE evidence_outbox SET attempts = attempts + 1, "
+                "next_attempt_at = :n, last_error = :e "
+                "WHERE organization_id = :o AND outbox_id = :id"),
+                {"n": next_attempt_at, "e": error,
+                 "o": self.organization_id, "id": evidence_key})
+
+    async def fail_evidence(self, evidence_key: str, *, error: str) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE evidence_outbox SET status = 'failed', "
+                "attempts = attempts + 1, last_error = :e "
+                "WHERE organization_id = :o AND outbox_id = :id"),
+                {"e": error, "o": self.organization_id, "id": evidence_key})
+
+    async def get_evidence_outbox(
+        self, transaction_id: str, kind: str
+    ) -> dict[str, Any] | None:
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT * FROM evidence_outbox WHERE organization_id = :o "
+                "AND transaction_id = :t AND kind = :k"),
+                {"o": self.organization_id, "t": transaction_id,
+                 "k": kind})).first()
+        if row is None:
+            return None
+        return dict(row._mapping) | {"evidence_key": row.outbox_id}
