@@ -133,10 +133,20 @@ async def _load_agent_card(card_url: str, settings: Settings):
     return card
 
 
+def seller_path_base(card_url: str) -> str:
+    url = httpx.URL(card_url)
+    suffix = "/.well-known/agent-card.json"
+    path = url.path
+    path = path.removesuffix(suffix)
+    return str(url.copy_with(path=path or "/", query=None, fragment=None)).rstrip("/")
+
+
+def seller_catalog_url(card_url: str) -> str:
+    return f"{seller_path_base(card_url)}/api/catalog"
+
+
 async def _fetch_catalog(card_url: str) -> list[dict[str, Any]]:
-    catalog_url = str(
-        httpx.URL(card_url).copy_with(path="/api/catalog", query=None, fragment=None)
-    )
+    catalog_url = seller_catalog_url(card_url)
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(catalog_url)
         response.raise_for_status()

@@ -58,6 +58,7 @@ def build_services(settings: Settings, engine: AsyncEngine) -> BuyerServices:
         registry_url=settings.registry_url,
         allowed_card_hosts=settings.allowed_card_hosts,
         seller_tokens=settings.seller_tokens,
+        seller_internal_token=getattr(settings, "seller_internal_token", ""),
         trace=store.trace,
     )
     coordinator = SettlementCoordinator()

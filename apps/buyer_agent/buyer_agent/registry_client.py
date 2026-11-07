@@ -27,6 +27,22 @@ class SellerEndpoint:
     sustainability_certified: bool
 
 
+def seller_path_base(card_url: str) -> str:
+    url = httpx.URL(card_url)
+    suffix = "/.well-known/agent-card.json"
+    path = url.path
+    path = path.removesuffix(suffix)
+    return str(url.copy_with(path=path or "/", query=None, fragment=None)).rstrip("/")
+
+
+def seller_catalog_url(card_url: str) -> str:
+    return f"{seller_path_base(card_url)}/api/catalog"
+
+
+def seller_dashboard_url(card_url: str) -> str:
+    return f"{seller_path_base(card_url)}/api/console/dashboard"
+
+
 class RegistryClient:
     def __init__(
         self,
@@ -34,12 +50,14 @@ class RegistryClient:
         registry_url: str,
         allowed_card_hosts: tuple[str, ...],
         seller_tokens: dict[str, str],
+        seller_internal_token: str = "",
         trace: TraceStore | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.registry_url = registry_url.rstrip("/")
         self.allowed_card_hosts = allowed_card_hosts
         self.seller_tokens = seller_tokens
+        self.seller_internal_token = seller_internal_token
         self.trace = trace
         self.http = client or httpx.AsyncClient(timeout=10.0)
         self.fetch_calls = 0
@@ -149,18 +167,9 @@ class RegistryClient:
             )
 
         async def refresh_seller_catalog(seller_id: str, card_url: str) -> None:
-            token = self.seller_tokens.get(seller_id)
-            if not token:
-                return
-            catalog_url = str(
-                httpx.URL(card_url).copy_with(
-                    path="/api/catalog", query=None, fragment=None
-                )
-            )
+            catalog_url = seller_catalog_url(card_url)
             try:
-                live = await self.http.get(
-                    catalog_url, headers={"Authorization": f"Bearer {token}"}
-                )
+                live = await self.http.get(catalog_url)
                 live.raise_for_status()
                 live_products = {
                     product["sku"]: product
@@ -208,9 +217,8 @@ class RegistryClient:
             raise LookupError(f"seller {seller_id!r} is not registered")
         response.raise_for_status()
         seller = response.json()
-        token = self.seller_tokens.get(seller_id)
-        if not token:
-            raise RuntimeError(f"missing buyer credential for seller {seller_id}")
+        if not self.seller_internal_token:
+            raise RuntimeError(f"missing seller internal token for {seller_id}")
 
         card = await fetch_agent_card(
             seller["card_url"],
@@ -221,14 +229,10 @@ class RegistryClient:
         if errors:
             raise RuntimeError("seller Agent Card is invalid: " + "; ".join(errors))
 
-        dashboard_url = str(
-            httpx.URL(seller["card_url"]).copy_with(
-                path="/api/console/dashboard", query=None, fragment=None
-            )
-        )
+        dashboard_url = seller_dashboard_url(seller["card_url"])
         dashboard = await self.http.get(
             dashboard_url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"X-Internal-Token": self.seller_internal_token},
         )
         dashboard.raise_for_status()
         return dashboard.json()
