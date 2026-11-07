@@ -43,6 +43,10 @@ protocol. Keeping them separate matters:
 - The buyer is the only component that holds outbound seller credentials.
 - Trace frames are persisted by the buyer and read through a console proxy.
 
+Authentication at each hop is explained in [Authentication boundaries](auth-boundaries.md):
+Clerk guards the human-facing console, and service credentials authenticate
+machine-to-machine calls.
+
 ## Settlement subsystem
 
 `VERIFUND_MODE=fake|sandbox` adds one authority for money and transaction state:
