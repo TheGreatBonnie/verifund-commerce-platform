@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal, Optional
 
 from ag_ui_adk import AGUIToolset
@@ -12,6 +13,7 @@ from verifund_contracts import (
     ReleaseApprovalDecision,
 )
 
+from orchestrator_agent import marketplace
 from orchestrator_agent.mediation import mediate_seller_call as _mediate_seller_call
 from orchestrator_agent.settings import Settings
 from orchestrator_agent.verifund import (
@@ -21,6 +23,8 @@ from orchestrator_agent.verifund import (
     VerifundLifecycle,
     VerifundTaskHandle,
 )
+
+logger = logging.getLogger(__name__)
 
 MARKETMESH_ORCHESTRATOR_INSTRUCTION = """
 # 1. Role and Mission
@@ -256,6 +260,73 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
     return FunctionTool(mediate_seller_call)
 
 
+def _build_marketplace_search_tool(settings: Settings) -> FunctionTool:
+    async def search_marketplace_products(
+        # ADK's automatic function parser does not understand PEP 604 unions.
+        query: Optional[str] = None,  # noqa: UP045
+        category: Optional[str] = None,  # noqa: UP045
+        max_unit_price_cents: Optional[int] = None,  # noqa: UP045
+        in_stock_only: bool = False,
+        use_case: Optional[str] = None,  # noqa: UP045
+        preferences: Optional[list[str]] = None,  # noqa: UP045
+        limit: int = 12,
+    ) -> dict:
+        """Find products from MarketMesh sellers for a grounded purchase search."""
+        try:
+            products = await marketplace.fetch_marketplace_products(
+                base_url=settings.buyer_internal_url,
+                internal_token=settings.buyer_internal_token,
+                timeout=settings.buyer_internal_timeout_seconds,
+                category=category or None,
+            )
+        except Exception:
+            logger.exception("marketplace catalog fetch failed")
+            return {
+                "error": "marketplace_unavailable",
+                "message": "Marketplace catalog is unavailable",
+            }
+
+        ceiling: int | None
+        try:
+            ceiling = (
+                int(max_unit_price_cents)
+                if max_unit_price_cents is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            ceiling = None
+        try:
+            effective_limit = int(limit)
+        except (TypeError, ValueError):
+            effective_limit = 12
+        effective_limit = max(1, min(effective_limit, 24))
+
+        ranked = marketplace.filter_and_rank_products(
+            products,
+            query=query,
+            category=category,
+            max_unit_price_cents=ceiling,
+            in_stock_only=bool(in_stock_only),
+            use_case=use_case,
+            preferences=preferences,
+        )
+        return marketplace.shape_search_result(
+            {
+                "query": query,
+                "category": category,
+                "max_unit_price_cents": ceiling,
+                "in_stock_only": bool(in_stock_only),
+                "use_case": use_case,
+                "preferences": preferences or [],
+                "limit": effective_limit,
+            },
+            ranked,
+            effective_limit,
+        )
+
+    return FunctionTool(search_marketplace_products)
+
+
 def build_verifund_lifecycle(settings: Settings) -> VerifundLifecycle:
     return VerifundLifecycle(
         verifund=VerifundA2AClient(
@@ -394,7 +465,11 @@ def build_agent(settings: Settings) -> LlmAgent:
         api_key=settings.nebius_api_key,
         _skip_mcp_handler=True,
     )
-    tools = [_build_mediation_tool(settings), AGUIToolset()]
+    tools = [
+        _build_mediation_tool(settings),
+        _build_marketplace_search_tool(settings),
+        AGUIToolset(),
+    ]
     if settings.verifund_mode != "off":
         tools.extend(_build_verifund_tools(settings))
     return LlmAgent(

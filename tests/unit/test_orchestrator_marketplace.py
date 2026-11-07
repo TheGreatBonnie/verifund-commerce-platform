@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
+from inspect import signature
 
 import httpx
 import pytest
 import respx
+from orchestrator_agent import agent, marketplace
 from orchestrator_agent.marketplace import (
     fetch_marketplace_products,
     filter_and_rank_products,
@@ -261,3 +264,99 @@ def test_shape_reports_pre_limit_total_and_truncates():
     assert shaped["total_candidates"] == len(ranked)
     assert len(shaped["products"]) == 2
     assert shaped["applied_filters"] == {"category": "Electronics"}
+
+
+@pytest.mark.asyncio
+async def test_tool_binds_settings_and_hides_credentials(monkeypatch):
+    from orchestrator_agent.settings import Settings
+
+    captured: dict = {}
+
+    async def fake_fetch(**kwargs):
+        captured.update(kwargs)
+        return [MACBOOK]
+
+    monkeypatch.setattr(marketplace, "fetch_marketplace_products", fake_fetch)
+    tool = agent._build_marketplace_search_tool(
+        Settings(
+            buyer_internal_url="http://buyer-configured",
+            buyer_internal_token="internal-secret",
+            buyer_internal_timeout_seconds=3.5,
+        )
+    )
+
+    assert tool.name == "search_marketplace_products"
+    parameters = signature(tool.func).parameters
+    for name in (
+        "query",
+        "category",
+        "max_unit_price_cents",
+        "in_stock_only",
+        "use_case",
+        "preferences",
+        "limit",
+    ):
+        assert name in parameters
+    assert "buyer_internal_token" not in parameters
+    assert "buyer_internal_url" not in parameters
+
+    result = await tool.func(query="laptop")
+    assert captured == {
+        "base_url": "http://buyer-configured",
+        "internal_token": "internal-secret",
+        "timeout": 3.5,
+        "category": None,
+    }
+    assert [product["sku"] for product in result["products"]] == [
+        "MM-MACBOOK-AIR-M4-13"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tool_coerces_the_price_ceiling_and_clamps_the_limit(monkeypatch):
+    from orchestrator_agent.settings import Settings
+
+    async def fake_fetch(**_kwargs):
+        return [MACBOOK]
+
+    monkeypatch.setattr(marketplace, "fetch_marketplace_products", fake_fetch)
+    tool = agent._build_marketplace_search_tool(Settings())
+
+    coerced = await tool.func(query="laptop", max_unit_price_cents="150000")
+    assert coerced["total_candidates"] == 1
+    assert coerced["applied_filters"]["max_unit_price_cents"] == 150000
+
+    too_many = [
+        {**MACBOOK, "sku": f"SKU-{index}", "name": f"Gadget {index}"}
+        for index in range(30)
+    ]
+    monkeypatch.setattr(
+        marketplace, "fetch_marketplace_products", lambda **_kwargs: _async(too_many)
+    )
+    clamped = await tool.func(limit=999)
+    assert clamped["total_candidates"] == 30
+    assert len(clamped["products"]) == 24
+    assert len((await tool.func(limit=0))["products"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_returns_a_secret_free_error_when_the_catalog_fails(monkeypatch):
+    from orchestrator_agent.settings import Settings
+
+    async def failing_fetch(**_kwargs):
+        raise RuntimeError("http://buyer-configured rejected internal-secret")
+
+    monkeypatch.setattr(marketplace, "fetch_marketplace_products", failing_fetch)
+    tool = agent._build_marketplace_search_tool(
+        Settings(buyer_internal_token="internal-secret")
+    )
+
+    result = await tool.func(query="laptop")
+    assert result["error"] == "marketplace_unavailable"
+    serialized = json.dumps(result)
+    assert "internal-secret" not in serialized
+    assert "buyer-configured" not in serialized
+
+
+async def _async(value):
+    return value
