@@ -503,6 +503,20 @@ class TenancyRepository:
             await conn.execute(self.seller_profiles.insert().values(**row))
         return row
 
+    async def update_seller_display_name(
+        self, seller_id: str, display_name: str
+    ) -> dict | None:
+        existing = await self.get_seller_profile(seller_id)
+        if existing is None:
+            return None
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.seller_profiles.update()
+                .where(self.seller_profiles.c.seller_id == seller_id)
+                .values(display_name=display_name, updated_at=_now())
+            )
+        return await self.get_seller_profile(seller_id)
+
     async def get_seller_profile(self, seller_id: str) -> dict | None:
         async with self.engine.connect() as conn:
             result = await conn.execute(
