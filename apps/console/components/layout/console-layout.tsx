@@ -6,6 +6,7 @@ import { CopilotProvider, threadsEnabled } from "@/providers/copilot-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SkipLink } from "@/components/layout/skip-link";
+import { SellerLink } from "@/components/layout/seller-link";
 import { Button } from "@/components/ui/button";
 
 export function ConsoleLayout({
@@ -47,6 +48,7 @@ export function ConsoleLayout({
                   </SignUpButton>
                 </Show>
                 <Show when="signed-in">
+                  <SellerLink />
                   <OrganizationSwitcher
                     afterCreateOrganizationUrl="/"
                     afterSelectOrganizationUrl="/"
