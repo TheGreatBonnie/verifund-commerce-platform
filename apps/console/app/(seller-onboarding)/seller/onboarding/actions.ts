@@ -2,6 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { controlPlaneForUser } from "@/lib/control-plane";
 import {
   activateAgent,
   createAgent,
@@ -28,9 +29,71 @@ function asFriendlyError(err: unknown): { error: string; status?: number; code?:
   return { error: "Something went wrong. Please try again." };
 }
 
+async function readControlPlaneError(
+  response: Response,
+): Promise<{ error: string; status: number; code?: string }> {
+  let message = `Request failed (${response.status})`;
+  let code: string | undefined;
+  try {
+    const body = (await response.json()) as {
+      error?: { message?: string; code?: string };
+      detail?: string;
+    };
+    message = body?.error?.message ?? body?.detail ?? message;
+    code = body?.error?.code;
+  } catch {
+    // keep status message
+  }
+  return { error: message, status: response.status, code };
+}
+
 function revalidateAgentPaths() {
   revalidatePath("/seller/onboarding");
   revalidatePath("/seller/agent");
+}
+
+function revalidateOnboarding() {
+  revalidatePath("/seller/onboarding");
+  revalidatePath("/seller/onboarding/profile");
+  revalidatePath("/seller/onboarding/verification");
+}
+
+export async function saveProfileAction(
+  displayName: string,
+): Promise<ActionResult<{ profile: unknown; onboarding: unknown }>> {
+  await auth.protect();
+  const name = displayName.trim();
+  if (!name) return { ok: false, error: "Display name is required.", status: 400 };
+  try {
+    const response = await controlPlaneForUser("/v1/seller/onboarding/profile", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ display_name: name }),
+    });
+    if (!response.ok) return { ok: false, ...(await readControlPlaneError(response)) };
+    revalidateOnboarding();
+    return { ok: true, data: (await response.json()) as { profile: unknown; onboarding: unknown } };
+  } catch (err) {
+    return { ok: false, ...asFriendlyError(err) };
+  }
+}
+
+export async function submitVerificationAction(
+  documents: Record<string, unknown> | unknown[],
+): Promise<ActionResult<Record<string, unknown>>> {
+  await auth.protect();
+  try {
+    const response = await controlPlaneForUser("/v1/seller/verification/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ documents }),
+    });
+    if (!response.ok) return { ok: false, ...(await readControlPlaneError(response)) };
+    revalidateOnboarding();
+    return { ok: true, data: (await response.json()) as Record<string, unknown> };
+  } catch (err) {
+    return { ok: false, ...asFriendlyError(err) };
+  }
 }
 
 export async function createAgentAction(
