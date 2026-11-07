@@ -338,8 +338,7 @@ async def test_review_supports_flag_and_retry(api):
 async def test_get_run_includes_settlement_only_with_a_valid_console_token(api):
     http, *_ = api
     without = await http.get("/api/runs/run-1")
-    assert without.status_code == 200
-    assert "settlement" not in without.json()
+    assert without.status_code == 401
 
     with_token = await http.get("/api/runs/run-1", headers=CONSOLE)
     assert with_token.status_code == 200

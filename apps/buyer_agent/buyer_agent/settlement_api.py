@@ -66,9 +66,17 @@ def _settlement_store(request: Request):
 
 
 def console_authorized(request: Request) -> bool:
-    expected = request.app.state.settings.console_api_token
+    settings = request.app.state.settings
     provided = request.headers.get("x-marketmesh-console-token", "")
-    return bool(expected) and secrets.compare_digest(provided, expected)
+    if settings.console_api_token and provided and secrets.compare_digest(
+        provided, settings.console_api_token
+    ):
+        return True
+    internal = request.headers.get("x-verifund-internal-token", "")
+    expected_internal = getattr(settings, "internal_api_token", None)
+    return bool(expected_internal) and bool(internal) and secrets.compare_digest(
+        internal, expected_internal
+    )
 
 
 def _require_console(request: Request) -> None:

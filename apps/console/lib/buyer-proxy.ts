@@ -3,23 +3,44 @@ import { NextResponse } from "next/server";
 const BUYER = process.env.BUYER_API_URL ?? "http://127.0.0.1:9100";
 const CONSOLE_TOKEN =
   process.env.BUYER_CONSOLE_API_TOKEN ?? "dev-console";
+const INTERNAL_TOKEN = process.env.BUYER_INTERNAL_TOKEN ?? "";
 
-function headers(extra?: HeadersInit): Headers {
+/**
+ * Internal service-auth boundary between the console server (Clerk-protected)
+ * and the buyer agent. User auth is verified at the console route
+ * (`auth.protect()` + `consoleSession()` org) before proxying; this token is
+ * the server-to-server credential, not a user token. Organization scoping is
+ * enforced in the buyer agent when `organization_id` is supplied.
+ */
+function headers(extra?: HeadersInit, organizationId?: string | null): Headers {
   const value = new Headers(extra);
   value.set("x-marketmesh-console-token", CONSOLE_TOKEN);
+  if (INTERNAL_TOKEN) {
+    value.set("x-verifund-internal-token", INTERNAL_TOKEN);
+  }
+  if (organizationId) {
+    value.set("x-buyer-organization-id", organizationId);
+  }
   return value;
+}
+
+function withOrg(path: string, organizationId?: string | null): string {
+  if (!organizationId) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}organization_id=${encodeURIComponent(organizationId)}`;
 }
 
 export async function buyerJson(
   path: string,
   init: RequestInit = {},
   timeoutMs = 10_000,
+  organizationId?: string | null,
 ): Promise<Response> {
   try {
-    const response = await fetch(`${BUYER}${path}`, {
+    const response = await fetch(`${BUYER}${withOrg(path, organizationId)}`, {
       ...init,
       cache: "no-store",
-      headers: headers(init.headers),
+      headers: headers(init.headers, organizationId),
       signal: AbortSignal.timeout(timeoutMs),
     });
     const contentType =
@@ -39,11 +60,12 @@ export async function buyerJson(
 export async function buyerBinary(
   path: string,
   timeoutMs = 10_000,
+  organizationId?: string | null,
 ): Promise<Response> {
   try {
-    const response = await fetch(`${BUYER}${path}`, {
+    const response = await fetch(`${BUYER}${withOrg(path, organizationId)}`, {
       cache: "no-store",
-      headers: headers(),
+      headers: headers(undefined, organizationId),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) {
