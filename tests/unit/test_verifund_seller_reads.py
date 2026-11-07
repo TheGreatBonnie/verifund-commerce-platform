@@ -1,4 +1,4 @@
-"""Seller-scoped read endpoints (plan Tasks 10/10a seed)."""
+"""Seller-scoped read endpoints (migrated to Clerk seller auth)."""
 
 from __future__ import annotations
 
@@ -16,9 +16,8 @@ from tests.support.award_flow import (
     award_payload,
     fund_and_capture,
     purchase_order,
-    seller_headers,
-    upload_file,
 )
+from tests.support.seller_auth import clerk_seller_headers, seed_seller_profile
 
 
 def award_for(run_id: str, seller_id: str) -> dict:
@@ -44,15 +43,34 @@ async def client(tmp_path):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield client
+            yield client, app
 
 
-async def test_seller_list_scoped_by_token(client):
-    first = await award(client, award_for("run-1", "northwind-audio"))
-    second = await award(client, award_for("run-2", "northwind-audio"))
-    await award(client, award_for("run-3", "other-seller"))
+async def _seed_and_headers(
+    app, seller_id: str, *, clerk_org_id: str, sub: str, token: str | None = None
+):
+    await seed_seller_profile(
+        app,
+        clerk_org_id=clerk_org_id,
+        seller_id=seller_id,
+        display_name=seller_id,
+        clerk_user_id=sub,
+    )
+    return clerk_seller_headers(
+        app, sub=sub, org_id=clerk_org_id, token=token or f"tok_{sub}"
+    )
 
-    response = await client.get("/seller/transactions", headers=seller_headers(first))
+
+async def test_seller_list_scoped_by_identity(client):
+    http, app = client
+    first = await award(http, award_for("run-1", "northwind-audio"))
+    second = await award(http, award_for("run-2", "northwind-audio"))
+    await award(http, award_for("run-3", "other-seller"))
+
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
+    response = await http.get("/seller/transactions", headers=headers)
     assert response.status_code == 200, response.text
     body = response.json()
     ids = {item["transaction_id"] for item in body["items"]}
@@ -65,16 +83,19 @@ async def test_seller_list_scoped_by_token(client):
 
 
 async def test_seller_list_pagination_round_trips(client):
-    awards = [await award(client, award_for(f"run-{i}", "northwind-audio")) for i in range(1, 4)]
-    headers = seller_headers(awards[0])
+    http, app = client
+    awards = [await award(http, award_for(f"run-{i}", "northwind-audio")) for i in range(1, 4)]
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
 
-    first_page = await client.get("/seller/transactions?limit=2", headers=headers)
+    first_page = await http.get("/seller/transactions?limit=2", headers=headers)
     assert first_page.status_code == 200
     page = first_page.json()
     assert len(page["items"]) == 2
     assert page["next_cursor"]
 
-    second_page = await client.get(
+    second_page = await http.get(
         f"/seller/transactions?limit=2&cursor={page['next_cursor']}", headers=headers
     )
     assert second_page.status_code == 200
@@ -83,50 +104,56 @@ async def test_seller_list_pagination_round_trips(client):
     assert page2["next_cursor"] is None
 
     seen = {item["transaction_id"] for item in page["items"] + page2["items"]}
-    assert seen == {award["transaction_id"] for award in awards}
+    assert seen == {award_body["transaction_id"] for award_body in awards}
 
 
 async def test_seller_list_rejects_bad_state_limit_seller_id_and_cursor(client):
-    body = await award(client, award_for("run-1", "northwind-audio"))
-    headers = seller_headers(body)
+    http, app = client
+    await award(http, award_for("run-1", "northwind-audio"))
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
 
-    bad_state = await client.get("/seller/transactions?state=bogus", headers=headers)
+    bad_state = await http.get("/seller/transactions?state=bogus", headers=headers)
     assert bad_state.status_code == 400
 
-    low_limit = await client.get("/seller/transactions?limit=0", headers=headers)
+    low_limit = await http.get("/seller/transactions?limit=0", headers=headers)
     assert low_limit.status_code == 400
 
-    high_limit = await client.get("/seller/transactions?limit=201", headers=headers)
+    high_limit = await http.get("/seller/transactions?limit=201", headers=headers)
     assert high_limit.status_code == 400
 
-    seller_id = await client.get("/seller/transactions?seller_id=other-seller", headers=headers)
+    seller_id = await http.get("/seller/transactions?seller_id=other-seller", headers=headers)
     assert seller_id.status_code == 400
 
-    bad_cursor = await client.get("/seller/transactions?cursor=@@!!", headers=headers)
+    bad_cursor = await http.get("/seller/transactions?cursor=@@!!", headers=headers)
     assert bad_cursor.status_code == 400
 
 
 async def test_seller_list_state_filter(client):
-    body = await award(client, award_for("run-1", "northwind-audio"))
-    headers = seller_headers(body)
+    http, app = client
+    body = await award(http, award_for("run-1", "northwind-audio"))
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
 
-    missing = await client.get("/seller/transactions?state=FUNDED", headers=headers)
+    missing = await http.get("/seller/transactions?state=FUNDED", headers=headers)
     assert missing.json()["items"] == []
 
-    awarded = await client.get("/seller/transactions?state=AWARDED", headers=headers)
+    awarded = await http.get("/seller/transactions?state=AWARDED", headers=headers)
     assert [item["transaction_id"] for item in awarded.json()["items"]] == [
         body["transaction_id"]
     ]
 
 
-async def funded_transaction(client, run_id: str, seller_id: str = "northwind-audio"):
-    body = await award(client, award_for(run_id, seller_id))
-    await accept(client, body, seller_id=seller_id)
-    await approve(client, body)
-    await fund_and_capture(client, body)
+async def funded_transaction(http, run_id: str, seller_id: str = "northwind-audio"):
+    body = await award(http, award_for(run_id, seller_id))
+    await accept(http, body, seller_id=seller_id)
+    await approve(http, body)
+    await fund_and_capture(http, body)
     po = purchase_order(body)
     po["offer_id"] = f"offer-{run_id}"
-    reported = await client.post(
+    reported = await http.post(
         f"/transactions/{body['transaction_id']}/purchase-order",
         json=po,
         headers={**OPS, "idempotency-key": f"po:{body['transaction_id']}"},
@@ -136,20 +163,23 @@ async def funded_transaction(client, run_id: str, seller_id: str = "northwind-au
 
 
 async def test_seller_evidence_library_lists_and_filters(client):
-    body = await funded_transaction(client, "run-1")
-    other = await funded_transaction(client, "run-2", "other-seller")
+    http, app = client
+    body = await funded_transaction(http, "run-1")
+    other = await funded_transaction(http, "run-2", "other-seller")
     manifest = b'{"tracking_number":"TRK-1","carrier":"Northwind Logistics"}'
-    uploaded = await upload_file(
-        client,
-        body,
-        "shipment_manifest",
-        data=manifest,
-        filename="manifest.json",
-        media_type="application/json",
+
+    nw_headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
+    uploaded = await http.post(
+        f"/seller/transactions/{body['transaction_id']}/evidence",
+        headers=nw_headers,
+        data={"requirement_id": "shipment_manifest"},
+        files={"file": ("manifest.json", manifest, "application/json")},
     )
     assert uploaded.status_code == 201, uploaded.text
 
-    response = await client.get("/seller/evidence", headers=seller_headers(body))
+    response = await http.get("/seller/evidence", headers=nw_headers)
     assert response.status_code == 200, response.text
     items = response.json()["items"]
     assert len(items) == 1
@@ -161,29 +191,39 @@ async def test_seller_evidence_library_lists_and_filters(client):
     assert entry["transaction_state"] == "VERIFICATION_PENDING"
     assert entry["verification"]["status"] == "pending"
 
-    by_requirement = await client.get(
-        "/seller/evidence?requirement_id=shipment_manifest", headers=seller_headers(body)
+    by_requirement = await http.get(
+        "/seller/evidence?requirement_id=shipment_manifest", headers=nw_headers
     )
     assert len(by_requirement.json()["items"]) == 1
-    by_invoice = await client.get(
-        "/seller/evidence?requirement_id=invoice", headers=seller_headers(body)
+    by_invoice = await http.get(
+        "/seller/evidence?requirement_id=invoice", headers=nw_headers
     )
     assert by_invoice.json()["items"] == []
-    by_kind = await client.get(
-        "/seller/evidence?kind=shipment_manifest", headers=seller_headers(body)
+    by_kind = await http.get(
+        "/seller/evidence?kind=shipment_manifest", headers=nw_headers
     )
     assert len(by_kind.json()["items"]) == 1
 
-    other_view = await client.get("/seller/evidence", headers=seller_headers(other))
+    other_headers = await _seed_and_headers(
+        app, "other-seller", clerk_org_id="org_other", sub="user_other"
+    )
+    other_view = await http.get("/seller/evidence", headers=other_headers)
     assert other_view.json()["items"] == []
 
 
 async def test_seller_payouts_view_maps_statuses_and_scopes(client):
-    app = client._transport.app
+    http, app = client
     repo = app.state.repo
-    paid = await award(client, award_for("run-1", "northwind-audio"))
-    pending = await award(client, award_for("run-2", "northwind-audio"))
-    await award(client, award_for("run-3", "other-seller"))
+    paid = await award(http, award_for("run-1", "northwind-audio"))
+    pending = await award(http, award_for("run-2", "northwind-audio"))
+    await award(http, award_for("run-3", "other-seller"))
+
+    nw_headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
+    other_headers = await _seed_and_headers(
+        app, "other-seller", clerk_org_id="org_other", sub="user_other"
+    )
 
     for award_body, status in ((paid, "SUCCESS"), (pending, "PENDING")):
         async with repo.transaction() as conn:
@@ -203,9 +243,7 @@ async def test_seller_payouts_view_maps_statuses_and_scopes(client):
                 },
             )
 
-    response = await client.get(
-        "/seller/payouts", headers=seller_headers(paid)
-    )
+    response = await http.get("/seller/payouts", headers=nw_headers)
     assert response.status_code == 200, response.text
     body = response.json()
     by_id = {entry["transaction_id"]: entry for entry in body["transactions"]}
@@ -216,9 +254,11 @@ async def test_seller_payouts_view_maps_statuses_and_scopes(client):
     assert body["totals"]["pending_cents"] == 123400
     assert body["totals"]["failed_cents"] == 0
 
-    other = await award(client, award_for("run-3b", "other-seller"))
-    other_view = await client.get("/seller/payouts", headers=seller_headers(other))
+    other_award = await award(http, award_for("run-3b", "other-seller"))
+    other_view = await http.get("/seller/payouts", headers=other_headers)
     other_body = other_view.json()
+    # other-seller has run-3 and run-3b
+    assert len(other_body["transactions"]) == 2
     assert all(entry["payout"] is None for entry in other_body["transactions"])
     assert other_body["totals"] == {
         "pending_cents": 0,
@@ -226,57 +266,60 @@ async def test_seller_payouts_view_maps_statuses_and_scopes(client):
         "failed_cents": 0,
     }
 
-    # The transaction projection exposes the same payout source.
-    projection = await client.get(
-        f"/seller/transactions/{paid['transaction_id']}", headers=seller_headers(paid)
+    projection = await http.get(
+        f"/seller/transactions/{paid['transaction_id']}", headers=nw_headers
     )
     assert projection.json()["payout"]["status"] == "SUCCESS"
 
 
 async def test_seller_can_read_events_and_agreement(client):
-    body = await award(client, award_for("run-1", "northwind-audio"))
-    headers = seller_headers(body)
+    http, app = client
+    body = await award(http, award_for("run-1", "northwind-audio"))
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
 
-    events = await client.get(
+    events = await http.get(
         f"/seller/transactions/{body['transaction_id']}/events", headers=headers
     )
     assert events.status_code == 200, events.text
     payload = events.json()
     assert "items" in payload
-    assert payload["items"]  # award created at least one event
+    assert payload["items"]
     assert all("seq" in entry and "type" in entry for entry in payload["items"])
 
     agreement_id = body["agreement"]["agreement_id"]
-    agreement = await client.get(
-        f"/seller/agreements/{agreement_id}", headers=headers
-    )
+    agreement = await http.get(f"/seller/agreements/{agreement_id}", headers=headers)
     assert agreement.status_code == 200, agreement.text
     body_json = agreement.json()
     assert body_json["terms"]["requirements"]
 
 
 async def test_seller_events_unknown_transaction_returns_404(client):
-    body = await award(client, award_for("run-1", "northwind-audio"))
-    headers = seller_headers(body)
-    response = await client.get(
-        "/seller/transactions/vf_does_not_exist/events", headers=headers
+    http, app = client
+    await award(http, award_for("run-1", "northwind-audio"))
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
     )
-    assert response.status_code in {403, 404}
+    missing = await http.get(
+        "/seller/transactions/txn_missing/events", headers=headers
+    )
+    assert missing.status_code == 404
 
 
 def seller_requirement_catalog() -> list[dict]:
     return [
         {
             "requirement_id": "product_photos",
-            "title": "Product photographs",
-            "description": "Photos of the product before shipping.",
+            "title": "Product photos",
+            "description": "Photo of the item before shipment.",
             "owner": "seller",
-            "kind": "other",
+            "kind": "product_photos",
             "source": "file",
             "accepted_formats": ["image/jpeg", "image/webp"],
             "checks": [
                 {
-                    "check_id": "photo_integrity",
+                    "check_id": "at_least_one_photo",
                     "description": "At least one intact photo is present.",
                     "operator": "exists",
                     "verification_method": "deterministic",
@@ -308,11 +351,15 @@ def seller_requirement_catalog() -> list[dict]:
 
 
 async def test_seller_projection_exposes_catalog_agreement_and_dispute(client):
+    http, app = client
     body = await award(
-        client, award_payload(requirements=seller_requirement_catalog())
+        http, award_payload(requirements=seller_requirement_catalog())
     )
     txid = body["transaction_id"]
-    repo = client._transport.app.state.repo
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
+    )
+    repo = app.state.repo
     async with repo.transaction() as conn:
         current = await repo.get_transaction(txid, conn)
         await repo.update_transaction(
@@ -331,9 +378,7 @@ async def test_seller_projection_exposes_catalog_agreement_and_dispute(client):
             },
         )
 
-    response = await client.get(
-        f"/seller/transactions/{txid}", headers=seller_headers(body)
-    )
+    response = await http.get(f"/seller/transactions/{txid}", headers=headers)
     assert response.status_code == 200, response.text
     projection = response.json()
     assert projection["agreement_id"] == body["agreement"]["agreement_id"]
@@ -349,33 +394,50 @@ async def test_seller_projection_exposes_catalog_agreement_and_dispute(client):
     assert projection["dispute"]["claim"] == "arrived damaged"
 
 
-async def test_seller_agreement_cross_seller_returns_403(client):
-    first = await award(client, award_for("run-1", "northwind-audio"))
-    other = await award(client, award_for("run-2", "other-seller"))
-    agreement_id = first["agreement"]["agreement_id"]
-    headers = seller_headers(other)
-    response = await client.get(
-        f"/seller/agreements/{agreement_id}", headers=headers
+async def test_seller_agreement_cross_seller_returns_not_found(client):
+    http, app = client
+    first = await award(http, award_for("run-1", "northwind-audio"))
+    await award(http, award_for("run-2", "other-seller"))
+    await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
     )
+    other_headers = await _seed_and_headers(
+        app, "other-seller", clerk_org_id="org_other", sub="user_other"
+    )
+    agreement_id = first["agreement"]["agreement_id"]
+    response = await http.get(f"/seller/agreements/{agreement_id}", headers=other_headers)
     assert response.status_code in {403, 404}
 
 
 async def test_seller_events_pagination_round_trips(client):
-    body = await funded_transaction(client, "run-1", "northwind-audio")
-    headers = seller_headers(body)
-    # produce a few events by uploading evidence
-    await upload_file(
-        client,
-        body,
-        "shipment_manifest",
-        data=b'{"tracking_number":"TRK-1","carrier":"Northwind Logistics"}',
-        filename="manifest.json",
-        media_type="application/json",
+    http, app = client
+    body = await funded_transaction(http, "run-1", "northwind-audio")
+    headers = await _seed_and_headers(
+        app, "northwind-audio", clerk_org_id="org_northwind", sub="user_nw"
     )
-    first = await client.get(
+    await http.post(
+        f"/seller/transactions/{body['transaction_id']}/evidence",
+        headers=headers,
+        data={"requirement_id": "shipment_manifest"},
+        files={
+            "file": (
+                "manifest.json",
+                b'{"tracking_number":"TRK-1","carrier":"Northwind Logistics"}',
+                "application/json",
+            )
+        },
+    )
+    first = await http.get(
         f"/seller/transactions/{body['transaction_id']}/events?limit=2",
         headers=headers,
     )
     assert first.status_code == 200
     page = first.json()
     assert len(page["items"]) <= 2
+    if page.get("next_cursor"):
+        second = await http.get(
+            f"/seller/transactions/{body['transaction_id']}/events?limit=2&cursor={page['next_cursor']}",
+            headers=headers,
+        )
+        assert second.status_code == 200
+
