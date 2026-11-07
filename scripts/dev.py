@@ -276,6 +276,29 @@ def seller_environment(mode: str, seller, verifund_mode: str = "sandbox") -> dic
     return env
 
 
+def shared_seller_environment(
+    mode: str, verifund_mode: str = "sandbox"
+) -> dict[str, str]:
+    env = _base_env(mode)
+    env.update(
+        {
+            "HOST": _env_value("HOST", "127.0.0.1"),
+            "PORT": str(shared_seller_port()),
+            "SELLER_PORT": str(shared_seller_port()),
+            "SELLER_CONFIG_SOURCE": "shared",
+            "SELLER_SHARED_DB_URL": shared_seller_db_url(),
+            "SELLER_INTERNAL_TOKEN": seller_internal_token(),
+            "PUBLIC_BASE_URL": shared_seller_url(),
+            "SELLER_CHECKPOINT_PATH": seller_checkpoint_path(),
+            "VERIFUND_MODE": verifund_mode,
+            "BUYER_AGENT_TOKEN": buyer_agent_token(),
+        }
+    )
+    if verifund_mode != "off":
+        env["VERIFUND_URL"] = config.verifund_url()
+    return env
+
+
 def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, str]:
     env = _base_env(mode)
     env.update(
@@ -289,6 +312,8 @@ def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, st
             "BUYER_CONSOLE_API_TOKEN": _env_value(
                 "BUYER_CONSOLE_API_TOKEN", "dev-console"
             ),
+            "SELLER_INTERNAL_TOKEN": seller_internal_token(),
+            "BUYER_AGENT_TOKEN": buyer_agent_token(),
             "ALLOWED_CARD_HOSTS": allowed_card_hosts_json(),
             "VERIFUND_MODE": verifund_mode,
         }
@@ -302,7 +327,7 @@ def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, st
 
 
 def allowed_card_urls_json() -> str:
-    urls = {seller.card_url for seller in SELLERS}
+    urls = {shared_card_url(seller.seller_id) for seller in SELLERS}
     configured = _env_value("ALLOWED_CARD_URLS", "")
     try:
         configured_urls = json.loads(configured) if configured else []
@@ -327,8 +352,8 @@ def allowed_card_hosts_json() -> str:
         if isinstance(configured_hosts, list)
         else {"127.0.0.1", "localhost"}
     )
-    for seller in SELLERS:
-        hostname = urlsplit(seller.base_url).hostname
+    for url in (shared_seller_url(), *(seller.base_url for seller in SELLERS)):
+        hostname = urlsplit(url).hostname
         if hostname:
             hosts.add(hostname)
     return json.dumps(sorted(hosts))
@@ -347,12 +372,12 @@ def orchestrator_environment(mode: str, verifund_mode: str = "sandbox") -> dict[
             "ORCHESTRATOR_URL": orchestrator_url(),
             "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
             "BUYER_A2A_URL": buyer_a2a_url(),
-            "SELLER_URLS": ",".join(seller.base_url for seller in SELLERS),
+            "SELLER_SHARED_URL": shared_seller_url(),
+            "BUYER_AGENT_TOKEN": buyer_agent_token(),
             "COPILOTKIT_AGENT_MODEL": f"openai:{nebius_model()}",
             "OPENAI_BASE_URL": nebius_base_url(),
         }
     )
-    env.update(seller_auth_environment())
     if mode == "live":
         env["OPENAI_API_KEY"] = nebius_api_key()
     if verifund_mode != "off":
@@ -375,12 +400,13 @@ def console_environment(mode: str) -> dict[str, str]:
             ),
             "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
             "REGISTRY_URL": registry_url(),
+            "SELLER_SHARED_URL": shared_seller_url(),
+            "BUYER_AGENT_TOKEN": buyer_agent_token(),
             "NEXT_TELEMETRY_DISABLED": "1",
             "COPILOTKIT_TELEMETRY_DISABLED": "true",
             "VERIFUND_MODE": "sandbox",
         }
     )
-    env.update(seller_auth_environment())
     return env
 
 
@@ -602,21 +628,20 @@ def run_stack(scripted: bool, settlement_mode: str = "off") -> int:
                     "VERIFUND_PUBLIC_BASE_URL is not HTTPS."
                 )
 
-        for seller in SELLERS:
-            child = start_child(
-                seller.log_name,
-                [sys.executable, "-m", "seller_agent"],
-                env=seller_environment(mode, seller, settlement_mode),
-                url=f"{seller.base_url}/health",
-            )
-            children.append(child)
-            wait_for_http(
-                seller.log_name,
-                f"{seller.base_url}/health",
-                timeout=30,
-                process=child.process,
-                log_path=child.log_path,
-            )
+        shared = start_child(
+            "seller-shared",
+            [sys.executable, "-m", "seller_agent"],
+            env=shared_seller_environment(mode, settlement_mode),
+            url=f"{shared_seller_url()}/health",
+        )
+        children.append(shared)
+        wait_for_http(
+            "seller-shared",
+            f"{shared_seller_url()}/health",
+            timeout=45,
+            process=shared.process,
+            log_path=shared.log_path,
+        )
 
         run_seed(mode)
 
@@ -712,8 +737,7 @@ def run_stack(scripted: bool, settlement_mode: str = "off") -> int:
         if verifund_enabled(settlement_mode):
             print(f"  Verifund      {verifund_url()}")
             print(f"  Verifund A2A  {verifund_agent_url()}")
-        for seller in SELLERS:
-            print(f"  {seller.seller_id:<13} {seller.base_url}")
+        print(f"  Shared seller {shared_seller_url()}")
         print("\nPress Ctrl-C to stop the stack. Logs: .dev-logs/")
 
         while True:

@@ -61,6 +61,9 @@ def _resolve_seller_token(
     # Prefer an explicitly supplied, non-default token (e.g. tests).
     if seller_token and seller_token != "dev-seller":
         return seller_token
+    buyer_agent_token = os.environ.get("BUYER_AGENT_TOKEN")
+    if buyer_agent_token:
+        return buyer_agent_token
     # Resolve by stable seller ID first, then by port for older callers.
     seller_tokens = {
         "northwind-audio": os.environ.get("SELLER_NORTHWIND_TOKEN", "dev-northwind"),
