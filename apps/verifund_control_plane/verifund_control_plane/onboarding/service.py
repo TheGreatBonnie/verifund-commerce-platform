@@ -105,3 +105,38 @@ async def decide_verification(
         payload={"decision": decision, "note": note},
     )
     return updated  # type: ignore[return-value]
+
+
+async def save_profile_and_continue(
+    store, organization_id: str, actor_user_id: str, display_name: str
+) -> dict:
+    profile = await store.get_seller_profile_by_organization(organization_id)
+    if profile is None:
+        raise VerifundError("not_found", "seller profile not found", status_code=404)
+    name = display_name.strip()
+    if not name:
+        raise VerifundError("invalid_argument", "display_name is required", status_code=400)
+    updated_profile = await store.update_seller_display_name(profile["seller_id"], name)
+    if updated_profile is None:
+        raise VerifundError("not_found", "seller profile not found", status_code=404)
+
+    onboarding = await store.get_onboarding(organization_id)
+    current = (onboarding or {}).get("current_step")
+    # Do not regress submitted/verified workflows; advance early steps to verification.
+    if current in (None, "profile"):
+        onboarding = await store.upsert_onboarding(
+            organization_id, "in_progress", "verification"
+        )
+    else:
+        onboarding = await store.get_onboarding(organization_id)
+
+    await store.record_audit(
+        scope="organization",
+        organization_id=organization_id,
+        actor_user_id=actor_user_id,
+        actor_type="user",
+        action="seller.onboarding.profile_saved",
+        resource_id=updated_profile["seller_id"],
+        payload={"display_name": name},
+    )
+    return {"profile": updated_profile, "onboarding": onboarding}
