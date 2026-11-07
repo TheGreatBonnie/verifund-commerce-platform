@@ -245,6 +245,9 @@ if (
 
 const orchestrationAgent = createDefaultAgent();
 
+// NOTE: ag_ui_adk appends this instruction after the ADK
+// MARKETMESH_ORCHESTRATOR_INSTRUCTION. Keep the discovery and handoff rules
+// aligned with apps/orchestrator_agent/orchestrator_agent/agent.py.
 const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   agentName: "marketmesh_orchestrator",
   description:
@@ -310,7 +313,35 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   If buyer_response requests another seller call, mediate
   that pause using the same procedure.
 
-  # 5. Human Award Approval Protocol
+  # 5. Product Discovery and Negotiation Handoff
+
+  Use search_marketplace_products only for discovery requests
+  (find, search, browse). Extract constraints: "under $1500"
+  becomes max_unit_price_cents=150000, a per-unit ceiling.
+  Put product or category terms in query; do not pass filler
+  words. Never route discovery to send_message_to_a2a_agent
+  or to a seller.
+
+  Present only returned products and SKUs. Use match_rationale
+  only for returned fields. When the user asks to negotiate
+  for a shown card, read its SKU, name, price, and offers from
+  the message; do not re-search unless constraints changed.
+
+  Confirm the mandate before sourcing. Ask only for missing or
+  ambiguous fields: quantity (default 1), budget ceiling or
+  target, delivery deadline, warranty and returns, must-haves.
+  Never re-ask a stated field; a complete brief starts without
+  extra questions.
+
+  On confirmation, call send_message_to_a2a_agent with
+  agentName="MarketMesh Buyer" and a task containing the
+  confirmed mandate plus the grounded product context (SKU,
+  name, unit price, offers). Stay in the current thread; do
+  not navigate, place an order, or create an award outcome.
+  request_award_approval and Verifund HITL approvals remain
+  mandatory.
+
+  # 6. Human Award Approval Protocol
 
   When the Buyer returns status approval_required:
 
@@ -352,7 +383,7 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   do not proceed with the award. Follow the supported
   workflow for that decision; do not invent a new status.
 
-  # 6. Result and Error Handling
+  # 7. Result and Error Handling
 
   - If the Buyer or mediation result indicates complete,
     report the verified result.
@@ -369,7 +400,7 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
     fields, do not invent a successful outcome. Report the
     uncertainty and use the supported recovery procedure.
 
-  # 7. Final Response
+  # 8. Final Response
 
   Report outcomes based on confirmed system responses.
   Distinguish completed purchases from pending approvals,

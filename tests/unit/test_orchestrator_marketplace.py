@@ -358,5 +358,12 @@ async def test_tool_returns_a_secret_free_error_when_the_catalog_fails(monkeypat
     assert "buyer-configured" not in serialized
 
 
+def test_instruction_wires_discovery_and_buyer_handoff():
+    instruction = agent.MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert "search_marketplace_products" in instruction
+    assert "send_message_to_a2a_agent" in instruction
+    assert "MarketMesh Buyer" in instruction
+
+
 async def _async(value):
     return value
