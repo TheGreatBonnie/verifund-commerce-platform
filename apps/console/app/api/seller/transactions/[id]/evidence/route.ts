@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { SellerApiError, uploadEvidence } from "@/lib/seller-api";
+
+import { controlPlaneForUser } from "@/lib/control-plane";
 
 export async function POST(
   request: Request,
@@ -18,18 +19,25 @@ export async function POST(
     );
   }
   try {
-    const receipt = await uploadEvidence(id, formData);
-    return NextResponse.json(receipt, { status: 201 });
+    const upstream = await controlPlaneForUser(
+      `/seller/transactions/${encodeURIComponent(id)}/evidence`,
+      { method: "POST", body: formData },
+    );
+    const text = await upstream.text();
+    const contentType = upstream.headers.get("content-type") ?? "application/json";
+    return new Response(text, {
+      status: upstream.status,
+      headers: { "content-type": contentType },
+    });
   } catch (error) {
-    if (error instanceof SellerApiError) {
-      return NextResponse.json(
-        { error: { message: error.message, code: error.code } },
-        { status: error.status },
-      );
-    }
     return NextResponse.json(
-      { error: { message: "Upload failed" } },
-      { status: 500 },
+      {
+        error: {
+          message:
+            error instanceof Error ? error.message : "Upload failed",
+        },
+      },
+      { status: 503 },
     );
   }
 }

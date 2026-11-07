@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { SellerApiError, sellerRequest } from "@/lib/seller-api";
+
+import { controlPlaneForUser } from "@/lib/control-plane";
 
 export async function GET(
   _request: Request,
@@ -9,10 +10,8 @@ export async function GET(
   await auth.protect();
   const { id, evidenceId } = await params;
   try {
-    const upstream = await sellerRequest(
+    const upstream = await controlPlaneForUser(
       `/seller/transactions/${encodeURIComponent(id)}/evidence/${encodeURIComponent(evidenceId)}`,
-      {},
-      id,
     );
     if (!upstream.ok) {
       const text = await upstream.text();
@@ -35,15 +34,14 @@ export async function GET(
       },
     });
   } catch (error) {
-    if (error instanceof SellerApiError) {
-      return NextResponse.json(
-        { error: { message: error.message, code: error.code } },
-        { status: error.status },
-      );
-    }
     return NextResponse.json(
-      { error: { message: "Evidence download failed" } },
-      { status: 500 },
+      {
+        error: {
+          message:
+            error instanceof Error ? error.message : "Evidence download failed",
+        },
+      },
+      { status: 503 },
     );
   }
 }
