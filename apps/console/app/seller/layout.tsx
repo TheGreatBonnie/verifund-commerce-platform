@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LogOut, ShieldCheck } from "lucide-react";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { SellerNav } from "@/components/seller/seller-nav";
+import { MarketplaceLink } from "@/components/layout/marketplace-link";
 import { consoleSession } from "@/lib/console-session";
 import { sellerAccess } from "@/lib/seller-access";
 import { signOutAction } from "./actions";
@@ -58,20 +59,7 @@ export default async function SellerLayout({
             <span className="mm-kicker">Fulfillment workspace</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <Link
-              href="/"
-              className="mm-text-action"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                border: "1px solid var(--rule-strong)",
-                borderRadius: "6px",
-                padding: "4px 10px",
-              }}
-            >
-              Marketplace
-            </Link>
+            <MarketplaceLink />
             <OrganizationSwitcher
               afterCreateOrganizationUrl="/seller/dashboard"
               afterSelectOrganizationUrl="/seller/dashboard"
