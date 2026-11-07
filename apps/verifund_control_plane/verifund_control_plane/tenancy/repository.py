@@ -596,6 +596,41 @@ class TenancyRepository:
             await conn.execute(self.seller_profiles.insert().values(**profile))
         return org
 
+    async def upsert_buyer_profile(self, organization_id: str, buyer_id: str) -> dict:
+        existing = await self.get_buyer_profile(buyer_id)
+        if existing:
+            return existing
+        row = {
+            "buyer_id": buyer_id,
+            "organization_id": organization_id,
+            "created_at": _now(),
+        }
+        async with self.engine.begin() as conn:
+            await conn.execute(self.buyer_profiles.insert().values(**row))
+        return row
+
+    async def get_buyer_profile(self, buyer_id: str) -> dict | None:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.buyer_profiles).where(
+                    self.buyer_profiles.c.buyer_id == buyer_id
+                )
+            )
+            row = result.first()
+            return dict(row._mapping) if row else None
+
+    async def get_buyer_profile_by_organization(
+        self, organization_id: str
+    ) -> dict | None:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.buyer_profiles).where(
+                    self.buyer_profiles.c.organization_id == organization_id
+                )
+            )
+            row = result.first()
+            return dict(row._mapping) if row else None
+
     async def ensure_seed_buyer_organization(self, buyer_id: str) -> dict:
         async with self.engine.connect() as conn:
             result = await conn.execute(

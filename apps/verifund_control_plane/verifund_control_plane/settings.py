@@ -48,6 +48,13 @@ class Settings(BaseSettings):
             "VERIFUND_SETTLEMENT_INTERNAL_TOKEN", "SETTLEMENT_INTERNAL_TOKEN"
         ),
     )
+    buyer_settlement_internal_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "VERIFUND_BUYER_SETTLEMENT_INTERNAL_TOKEN",
+            "BUYER_SETTLEMENT_INTERNAL_TOKEN",
+        ),
+    )
     registry_url: str = Field(
         default="http://127.0.0.1:9100", validation_alias="REGISTRY_URL"
     )
