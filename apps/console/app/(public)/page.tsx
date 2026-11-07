@@ -86,9 +86,24 @@ const capabilities = [
 
 export default function Home() {
   const router = useRouter();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, orgId } = useAuth();
   const { runs } = useRuns({ enabled: isSignedIn === true });
   const recent = runs.slice(0, 3);
+
+  const sellerAccessQuery = useQuery({
+    queryKey: ["seller-access", orgId ?? "no-org"],
+    queryFn: () =>
+      fetch("/api/me/seller-access", { cache: "no-store" }).then(async (r) => {
+        if (!r.ok) throw new Error(`seller-access ${r.status}`);
+        return (await r.json()) as { access: string; orgId: string | null };
+      }),
+    enabled: isSignedIn === true && !!orgId,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const sellerAccess = sellerAccessQuery.data?.access;
+  const isSeller = sellerAccess === "workspace" || sellerAccess === "read_only";
+  const isOnboarding = sellerAccess === "onboarding";
 
   const catalogQuery = useQuery({
     queryKey: ["marketplace-products"],
@@ -140,6 +155,24 @@ export default function Home() {
             <Button onClick={runSample} leftIcon={<ArrowRight size={14} aria-hidden="true" />}>
               Start Shopping
             </Button>
+            {isSeller && (
+              <Button
+                variant="outline"
+                onClick={() => router.push("/seller/dashboard")}
+                leftIcon={<ShieldCheck size={14} aria-hidden="true" />}
+              >
+                Open seller dashboard
+              </Button>
+            )}
+            {isOnboarding && (
+              <Button
+                variant="outline"
+                onClick={() => router.push("/seller/onboarding")}
+                leftIcon={<ShieldCheck size={14} aria-hidden="true" />}
+              >
+                Continue seller onboarding
+              </Button>
+            )}
             <Button variant="outline" onClick={() => router.push("/help")}>
               How It Works
             </Button>
