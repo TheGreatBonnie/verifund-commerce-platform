@@ -750,6 +750,134 @@ paypal-button {
   line-height: 1.5;
 }
 
+.mm-product-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.mm-product-count {
+  margin: 0;
+  color: var(--ink-soft);
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mm-product-grid {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mm-product-card {
+  background: #fbf9ee;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--signal);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.mm-product-card-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+}
+
+.mm-product-emoji {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.mm-product-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.mm-product-seller,
+.mm-product-description,
+.mm-product-meta,
+.mm-product-rationale {
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.mm-product-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.mm-product-price {
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mm-product-price strong {
+  display: block;
+  font-size: 13px;
+}
+
+.mm-product-was {
+  color: var(--ink-soft);
+  font-size: 10px;
+  text-decoration: line-through;
+}
+
+.mm-product-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.mm-product-negotiate {
+  background: var(--signal);
+  border: 1px solid var(--signal);
+  border-radius: var(--radius);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 7px 10px;
+}
+
+.mm-product-negotiate:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+.mm-product-details {
+  font-size: 11px;
+}
+
+.mm-product-details summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.mm-product-details ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
+.mm-product-error {
+  color: #a11;
+  font-size: 11px;
+  margin: 0;
+}
+
 /* Keep A2A routing labels from squeezing the message text in the chat rail. */
 .a2a-message-card {
   container-type: inline-size;

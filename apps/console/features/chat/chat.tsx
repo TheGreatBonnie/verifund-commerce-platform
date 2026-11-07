@@ -34,6 +34,7 @@ import {
   releaseDecision,
   verifundToolsEnabled,
 } from "./verifund-tools";
+import { ProductSearchCards } from "./product-cards";
 import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
 import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
 
@@ -397,6 +398,22 @@ export function Chat({
     },
     [verifundEnabled, onVerifundAction],
   );
+
+  useRenderTool({
+    name: "search_marketplace_products",
+    parameters: z.object({
+      query: z.string().optional(),
+      category: z.string().optional(),
+      max_unit_price_cents: z.number().optional(),
+      in_stock_only: z.boolean().optional(),
+      use_case: z.string().optional(),
+      preferences: z.array(z.string()).optional(),
+      limit: z.number().optional(),
+    }),
+    render: ({ status, result }) => (
+      <ProductSearchCards status={status} result={result} />
+    ),
+  });
 
   useRenderTool({
     name: "verifund_create_agreement",

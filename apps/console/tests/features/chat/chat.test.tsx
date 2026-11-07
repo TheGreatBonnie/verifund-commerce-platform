@@ -6,11 +6,17 @@ const hooks = vi.hoisted(() => ({
   useFrontendTool: vi.fn(),
   useHumanInTheLoop: vi.fn(),
   useRenderTool: vi.fn(),
+  addMessage: vi.fn(),
+  runAgent: vi.fn(),
 }));
 
 vi.mock("@copilotkit/react-core/v2", () => ({
   CopilotChat: vi.fn(() => <div data-testid="copilot-chat" />),
-  useAgent: () => ({ agent: { messages: [] }, isReady: true }),
+  useAgent: () => ({
+    agent: { messages: [], addMessage: hooks.addMessage },
+    isReady: true,
+  }),
+  useCopilotKit: () => ({ copilotkit: { runAgent: hooks.runAgent } }),
   useFrontendTool: hooks.useFrontendTool,
   useHumanInTheLoop: hooks.useHumanInTheLoop,
   useRenderTool: hooks.useRenderTool,
@@ -114,6 +120,23 @@ describe("chat paypal checkout", () => {
     expect(screen.getByTestId("verifund-checkout-settled").textContent).toContain(
       "FUNDED",
     );
+  });
+});
+
+describe("chat marketplace discovery", () => {
+  beforeEach(() => {
+    hooks.useRenderTool.mockClear();
+  });
+
+  it("registers the marketplace search renderer", () => {
+    renderChat();
+
+    const call = hooks.useRenderTool.mock.calls.find(
+      ([tool]) => tool.name === "search_marketplace_products",
+    );
+    expect(call).toBeTruthy();
+    expect(call?.[0].parameters).toBeTruthy();
+    expect(call?.[0].render).toEqual(expect.any(Function));
   });
 });
 
