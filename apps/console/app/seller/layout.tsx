@@ -64,7 +64,7 @@ export default async function SellerLayout({
               style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
             >
               <ArrowLeft size={13} aria-hidden="true" />
-              Back to home
+              Marketplace
             </Link>
             <OrganizationSwitcher
               afterCreateOrganizationUrl="/seller/dashboard"
