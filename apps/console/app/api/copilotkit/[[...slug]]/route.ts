@@ -185,22 +185,20 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
 }
 
 const buyerAgentUrl = process.env.BUYER_A2A_URL ?? "http://127.0.0.1:9100";
+const sharedSellerBaseUrl = process.env.SELLER_SHARED_URL ?? "http://127.0.0.1:9200";
+const sellerAgentToken =
+  process.env.BUYER_AGENT_TOKEN ??
+  process.env.SELLER_NORTHWIND_TOKEN ??
+  "dev-buyer-agent";
 
 const sellerAgentUrls = [
-  process.env.NORTHWIND_A2A_URL ?? "http://127.0.0.1:9201",
-  process.env.CIRCUITFORGE_A2A_URL ?? "http://127.0.0.1:9202",
-  process.env.AURORA_A2A_URL ?? "http://127.0.0.1:9203",
-  process.env.SUMMIT_TECH_A2A_URL ?? "http://127.0.0.1:9204",
+  `${sharedSellerBaseUrl}/northwind-audio`,
+  `${sharedSellerBaseUrl}/circuitforge`,
+  `${sharedSellerBaseUrl}/aurora-supply`,
+  `${sharedSellerBaseUrl}/summit-tech`,
 ];
 
 const a2aAgentUrls = [buyerAgentUrl, ...sellerAgentUrls];
-
-const sellerTokens = new Map<string, string>([
-  ["9201", process.env.SELLER_NORTHWIND_TOKEN ?? "dev-northwind"],
-  ["9202", process.env.SELLER_CIRCUITFORGE_TOKEN ?? "dev-circuitforge"],
-  ["9203", process.env.SELLER_AURORA_TOKEN ?? "dev-aurora"],
-  ["9204", process.env.SELLER_SUMMIT_TECH_TOKEN ?? "dev-summit-tech"],
-]);
 
 // The @a2a-js/sdk uses the global `fetch` and has no per-client header hook.
 // Patching `globalThis.fetch` per call (inside sendMessage) is racy when several
@@ -222,7 +220,8 @@ if (
           : input.url;
     if (url.includes("/a2a")) {
       const port = new URL(url).port;
-      const token = sellerTokens.get(port) ?? "";
+      const sharedPort = new URL(sharedSellerBaseUrl).port;
+      const token = port === sharedPort ? sellerAgentToken : "";
       const headers = new Headers(init?.headers);
       // @a2a-js/sdk 0.2.x speaks A2A 0.3 (lowercase JSON-RPC methods), so
       // use the server's v0.3 compatibility adapter.
