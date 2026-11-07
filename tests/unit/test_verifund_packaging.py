@@ -79,10 +79,19 @@ def test_compose_wires_settlement_settings_into_existing_services():
         == "${VERIFUND_AGENT_INTERNAL_TOKEN:-dev-verifund-agent-internal}"
     )
 
-    for name in ("northwind", "circuitforge", "aurora", "summit-tech"):
-        seller = compose["services"][name]["environment"]
-        assert seller["VERIFUND_MODE"] == "${VERIFUND_MODE:-sandbox}"
-        assert seller["VERIFUND_URL"] == "http://verifund:9300"
+    seller = compose["services"]["seller-shared"]["environment"]
+    assert seller["VERIFUND_MODE"] == "${VERIFUND_MODE:-sandbox}"
+    assert seller["VERIFUND_URL"] == "http://verifund:9300"
+    assert seller["SELLER_CONFIG_SOURCE"] == "shared"
+    assert (
+        seller["SELLER_SHARED_DB_URL"]
+        == "sqlite+aiosqlite:////app/data/sellers.db"
+    )
+    assert (
+        seller["SELLER_INTERNAL_TOKEN"]
+        == "${SELLER_INTERNAL_TOKEN:-dev-seller-internal}"
+    )
+    assert seller["PUBLIC_BASE_URL"] == "http://seller-shared:9200"
 
     orchestrator = compose["services"]["orchestrator"]["environment"]
     assert orchestrator["BUYER_INTERNAL_URL"] == "http://buyer:9100"
