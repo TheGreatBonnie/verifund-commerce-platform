@@ -128,6 +128,8 @@ class Offer(CommerceModel):
     round: int = Field(default=1, ge=1)
     binding_version: int = Field(default=1, ge=1)
     rationale: str = ""
+    parent_offer_id: str | None = None
+    supersedes_offer_id: str | None = None
 
     @model_validator(mode="after")
     def _validate_totals(self) -> Offer:
@@ -173,6 +175,8 @@ class AcceptOffer(CommerceModel):
     settlement_transaction_id: str | None = None
     agreement_hash: str | None = None
     settlement_token: str | None = None
+    idempotency_key: str | None = None
+    accepted_at: datetime | None = None
 
 
 class ApprovalReceipt(CommerceModel):
