@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, PrivateAttr, model_validator
+from pydantic import AliasChoices, Field, PrivateAttr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_SECRETS = {
@@ -141,6 +141,15 @@ class Settings(BaseSettings):
     )
     seller_payout_emails: dict[str, str] = Field(
         default_factory=dict, validation_alias="VERIFUND_SELLER_PAYOUT_EMAILS"
+    )
+    seller_tokens: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices(
+            "VERIFUND_SELLER_AGENT_TOKENS", "SELLER_AGENT_TOKENS"),
+    )
+    buyer_agent_token: str = Field(
+        default="dev-buyer-agent",
+        validation_alias=AliasChoices("BUYER_AGENT_TOKEN"),
     )
 
     reconciler_enabled: bool = Field(

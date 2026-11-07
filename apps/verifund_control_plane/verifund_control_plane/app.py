@@ -173,6 +173,7 @@ def create_app(
 
             from verifund_control_plane.tenancy.backfill import (
                 backfill_tenancy,
+                seed_demo_agents,
                 seed_payment_accounts,
             )
 
@@ -182,6 +183,7 @@ def create_app(
             if empty:
                 await backfill_tenancy(app.state.repo, app.state.tenancy)
                 await seed_payment_accounts(app.state.tenancy, settings)
+            await seed_demo_agents(app.state.tenancy, settings)
         if (
             hasattr(app.state, "reconciler")
             and settings.mode != "off"

@@ -1,8 +1,100 @@
 from __future__ import annotations
 
+import hashlib
+
 from sqlalchemy import select
 
 SEED_SELLERS = {"northwind-audio", "circuitforge", "aurora-supply", "summit-tech"}
+BUYER_AGENT_ID = "agent_marketmesh_buyer"
+BUYER_ID = "marketmesh-buyer"
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def _ensure_agent(
+    store,
+    *,
+    organization_id: str,
+    agent_id: str,
+    name: str,
+    policy_ref: str,
+) -> dict:
+    agent = await store.get_agent(agent_id)
+    if agent is None:
+        agent = await store.create_agent(
+            organization_id=organization_id,
+            name=name,
+            created_by="seed",
+            policy_ref=policy_ref,
+            policy_version="1",
+            policy_hash="0" * 64,
+            agent_id=agent_id,
+        )
+    if agent["status"] != "active":
+        await store.set_agent_status(agent_id, "active")
+        agent = await store.get_agent(agent_id)
+    return agent
+
+
+async def _ensure_credential(store, *, organization_id: str, agent_id: str,
+                            token: str, scopes: list[str]) -> None:
+    if not token:
+        return
+    digest = _token_hash(token)
+    existing = await store.get_credential_by_hash(digest)
+    if existing is not None:
+        return
+    await store.create_credential(
+        organization_id, agent_id, digest, scopes)
+
+
+async def seed_demo_agents(store, settings) -> None:
+    """Seed deterministic demo agents and credentials for local development.
+
+    This runs only during empty-database bootstrap. It creates the buyer agent
+    used by the demo buyer, and one active seller agent per configured seller
+    token, with the static seller token registered as an ``a2a:test``
+    credential (never as an ``a2a:call`` credential).
+    """
+    buyer_org = await store.ensure_seed_buyer_organization(BUYER_ID)
+    await _ensure_agent(
+        store,
+        organization_id=buyer_org["id"],
+        agent_id=BUYER_AGENT_ID,
+        name="MarketMesh Buyer",
+        policy_ref="marketmesh-buyer/v1",
+    )
+    buyer_token = getattr(settings, "buyer_agent_token", "") or ""
+    if buyer_token:
+        await _ensure_credential(
+            store,
+            organization_id=buyer_org["id"],
+            agent_id=BUYER_AGENT_ID,
+            token=buyer_token,
+            scopes=["a2a:call"],
+        )
+
+    seller_tokens = getattr(settings, "seller_tokens", {}) or {}
+    for seller_id, token in seller_tokens.items():
+        org = await store.ensure_seed_organization(
+            seller_id=seller_id, kind="business", verified=True)
+        agent_id = f"agent_{seller_id}"
+        await _ensure_agent(
+            store,
+            organization_id=org["id"],
+            agent_id=agent_id,
+            name=seller_id,
+            policy_ref=f"{seller_id}/v1",
+        )
+        await _ensure_credential(
+            store,
+            organization_id=org["id"],
+            agent_id=agent_id,
+            token=token,
+            scopes=["a2a:test"],
+        )
 
 
 async def _ensure_columns(conn) -> None:
