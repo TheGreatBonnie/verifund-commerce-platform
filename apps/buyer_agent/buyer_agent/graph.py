@@ -43,6 +43,7 @@ from verifund_contracts import (
     AgreementReviewResult,
 )
 
+from buyer_agent.engine_session import BuyerNegotiationSessionEngine
 from buyer_agent.planner import (
     SKU_PATTERN,
     BuyerPlanner,
@@ -51,6 +52,8 @@ from buyer_agent.planner import (
     mandate_from_text,
 )
 from buyer_agent.settlement_flow import build_award_request, settlement_enabled
+
+_BUYER_SESSION_ENGINE = BuyerNegotiationSessionEngine()
 
 
 def thread_id(organization_id: str, run_id: str) -> str:
@@ -153,11 +156,7 @@ async def _record_decision(
 
 
 def _safe_text(text: str, mandate: Mandate) -> bool:
-    if not text:
-        return False
-    budget_dollars = f"{mandate.max_total_cents // 100}"
-    budget_cents = str(mandate.max_total_cents)
-    return "max_total_cents" not in text and budget_dollars not in text and budget_cents not in text
+    return _BUYER_SESSION_ENGINE.rfq_text_safe(text, mandate)
 
 
 def fallback_rfq_message(mandate: Mandate) -> str:
@@ -358,29 +357,15 @@ def _recompute_total(offer: Offer) -> int:
 
 
 def _trusted_offer(offer: Offer, mandate: Mandate, endpoint: Any, request_id: str) -> tuple[Offer | None, str | None]:
-    if offer.seller_id != endpoint.seller_id:
-        return None, "offer seller_id does not match the validated card"
-    if offer.request_id != request_id:
-        return None, "offer request_id does not match the A2A task"
-    if mandate.product_sku and any(
-        item.sku != mandate.product_sku for item in offer.line_items
-    ):
-        return None, "offer SKU does not match the requested product"
-    if _recompute_total(offer) != offer.subtotal_cents:
-        return None, "offer total could not be recomputed"
-    if offer.total_cents != offer.subtotal_cents + offer.shipping_cents:
-        return None, "offer total does not match line items"
-    trusted = offer.model_copy(
-        update={
-            "seller_rating": endpoint.rating,
-            "terms": offer.terms.model_copy(
-                update={
-                    "sustainability_certified": endpoint.sustainability_certified
-                }
-            ),
-        }
+    return _BUYER_SESSION_ENGINE.trusted_offer(
+        offer,
+        mandate=mandate,
+        expected_seller_id=endpoint.seller_id,
+        expected_request_id=request_id,
+        validated_rating=endpoint.rating,
+        validated_sustainability=endpoint.sustainability_certified,
+        now_utc=datetime.now(UTC),
     )
-    return trusted, None
 
 
 async def _choose_counter(
