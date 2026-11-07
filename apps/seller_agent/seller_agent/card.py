@@ -15,7 +15,9 @@ from commerce_core.extension import EXTENSION_URI
 from commerce_core.pricing import SellerPolicy
 
 
-def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
+def build_agent_card(
+    policy: SellerPolicy, base_url: str, tenant: str | None = None
+) -> AgentCard:
     skills = [
         AgentSkill(
             id="commerce.catalog.search",
@@ -68,6 +70,7 @@ def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
                 url=f"{base_url}/a2a",
                 protocol_binding=TransportProtocol.JSONRPC.value,
                 protocol_version=PROTOCOL_VERSION_CURRENT,
+                tenant=tenant or "",
             )
         ],
         capabilities=AgentCapabilities(

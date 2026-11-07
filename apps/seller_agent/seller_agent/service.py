@@ -80,6 +80,8 @@ class SellerService:
         auto_evidence: bool = True,
         mandate: SellerMandate | None = None,
         review_store: SellerAgreementReviewStore | None = None,
+        graph: Any | None = None,
+        scope: str = "",
     ) -> None:
         self.store = store
         self.policy = policy
@@ -94,7 +96,8 @@ class SellerService:
         self.evidence_outbox = evidence_outbox
         self.auto_evidence = auto_evidence
         self.order_service = OrderService(store)
-        self.graph = build_graph()
+        self.graph = graph or build_graph()
+        self.scope = scope
 
     def redact_message(self, message: Message) -> Message:
         clone = Message()
@@ -312,7 +315,9 @@ class SellerService:
                 state,
                 config={
                     "configurable": {
-                        "thread_id": task_id,
+                        "thread_id": (
+                            f"{self.scope}:{task_id}" if self.scope else task_id
+                        ),
                         "planner": self.planner,
                         "service": self,
                         "settlement_token": settlement_token,

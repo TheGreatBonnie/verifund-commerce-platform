@@ -514,7 +514,7 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
     }
 
 
-def build_graph():
+def build_graph(checkpointer=None):
     # ty cannot match TypedDicts against langgraph's StateLike protocol bound.
     builder = StateGraph(SellerState)  # ty: ignore[invalid-argument-type]
     builder.add_node("classify", classify)
@@ -552,7 +552,7 @@ def build_graph():
     builder.add_edge("accept_offer", END)
     builder.add_edge("reject_offer", END)
     builder.add_edge("order", END)
-    return builder.compile(checkpointer=MemorySaver())
+    return builder.compile(checkpointer=checkpointer or MemorySaver())
 
 
 def error_artifact(error: dict):
