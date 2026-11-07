@@ -200,6 +200,11 @@ const sellerAgentUrls = [
 
 const a2aAgentUrls = [buyerAgentUrl, ...sellerAgentUrls];
 
+const sharedSellerPort = new URL(sharedSellerBaseUrl).port || "9200";
+const sellerTokens = new Map<string, string>([
+  [sharedSellerPort, sellerAgentToken],
+]);
+
 // The @a2a-js/sdk uses the global `fetch` and has no per-client header hook.
 // Patching `globalThis.fetch` per call (inside sendMessage) is racy when several
 // seller calls overlap, which intermittently drops the Authorization header and
