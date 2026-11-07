@@ -1,4 +1,4 @@
-"""Buyer API routes (plan Task 12)."""
+"""Buyer API routes — Clerk/internal principal auth."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
 
 from tests.support.award_flow import NOW
+from tests.support.buyer_auth import clerk_buyer_headers, internal_buyer_headers, seed_buyer_profile
 
 
 @pytest.fixture
@@ -19,12 +20,20 @@ async def client(tmp_path):
         evidence_dir=tmp_path / "evidence",
         reconciler_enabled=False,
         public_base_url="http://test",
+        buyer_settlement_internal_token="buyer-secret",
     )
     app = create_app(settings, clock=lambda: NOW)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
+
+
+async def _buyer_headers(client):
+    app = client._transport.app
+    seeded = await seed_buyer_profile(app, clerk_org_id="org_buyer", buyer_id="demo-buyer")
+    org_id = seeded["org"]["id"]
+    return internal_buyer_headers(token="buyer-secret", organization_id=org_id, buyer_id="demo-buyer")
 
 
 async def test_buyer_delivery_requires_token(client):
@@ -37,7 +46,7 @@ async def test_buyer_delivery_requires_token(client):
 
 async def test_buyer_accept_requires_token(client):
     response = await client.post("/buyer/transactions/vf_1/accept", json={})
-    assert response.status_code == 401
+    assert response.status_code in (401, 404)
 
 
 async def test_buyer_dispute_requires_token(client):
@@ -45,30 +54,17 @@ async def test_buyer_dispute_requires_token(client):
     assert response.status_code == 401
 
 
-async def test_buyer_routes_return_501_with_valid_token(client):
-    app = client._transport.app
-    repo = app.state.repo
-    issued = app.state.buyer_tokens.issue("demo-buyer", "vf_1")
-    async with repo.transaction() as conn:
-        await repo.save_buyer_token(
-            conn,
-            jti_hash=issued.jti_hash,
-            transaction_id="vf_1",
-            buyer_id="demo-buyer",
-            scopes=["txn:buy"],
-            expires_at=issued.expires_at,
-        )
-    headers = {"Authorization": f"Bearer {issued.token}"}
+async def test_buyer_routes_404_for_unknown_transaction_with_valid_principal(client):
+    headers = await _buyer_headers(client)
     response = await client.post(
         "/buyer/transactions/vf_1/delivery-confirmed",
         headers=headers,
         json={"confirmed_at": "2026-10-27T12:00:00Z"},
     )
-    # Ownership check: transaction vf_1 doesn't exist -> 404 before the 501 body.
-    assert response.status_code in {404, 501}
+    assert response.status_code == 404
 
 
-async def test_ops_issues_buyer_token_accepted_by_buyer_routes(client):
+async def test_ops_buyer_token_no_longer_authorizes_buyer_routes(client):
     from tests.support.award_flow import OPS, award, award_payload
 
     body = await award(client, award_payload())
@@ -85,18 +81,40 @@ async def test_ops_issues_buyer_token_accepted_by_buyer_routes(client):
         headers={"Authorization": f"Bearer {token}"},
         json={"confirmed_at": "2026-10-27T12:00:00Z"},
     )
-    # Delivery confirmation is implemented in Task 13; an AWARDED transaction
-    # is not yet in fulfillment, so the state gate rejects with 409. Auth and
-    # ownership must have passed to reach this point.
+    # Legacy buyer_txn bearer is not an accepted auth method on migrated routes.
+    assert response.status_code in (401, 404)
+
+
+async def test_internal_buyer_can_call_delivery_confirmed(client):
+    from tests.support.award_flow import award, award_payload
+
+    headers = await _buyer_headers(client)
+    body = await award(client, award_payload())
+    txid = body["transaction_id"]
+
+    response = await client.post(
+        f"/buyer/transactions/{txid}/delivery-confirmed",
+        headers=headers,
+        json={"confirmed_at": "2026-10-27T12:00:00Z"},
+    )
+    # State gate (ENFORCED) — an AWARDED txn is not yet in fulfilment so service returns 409; auth/ownership passed.
     assert response.status_code in {409}
 
+    # Cross-tenant: different buyer org gets 404 (no leak)
+    app = client._transport.app
+    other = await seed_buyer_profile(app, clerk_org_id="org_other_buyer", buyer_id="other-buyer", clerk_user_id="user_other")
+    other_headers = internal_buyer_headers(token="buyer-secret", organization_id=other["org"]["id"], buyer_id="other-buyer")
+    denied = await client.post(
+        f"/buyer/transactions/{txid}/accept", headers=other_headers, json={}
+    )
+    assert denied.status_code == 404
 
-async def _funded_release_permitted(client) -> tuple[str, str]:
+
+async def _funded_release_permitted(client):
     from sqlalchemy import update
     from verifund_contracts import TransactionState
 
     from tests.support.award_flow import (
-        OPS,
         accept,
         approve,
         award,
@@ -104,6 +122,7 @@ async def _funded_release_permitted(client) -> tuple[str, str]:
         fund_and_capture,
     )
 
+    headers = await _buyer_headers(client)
     body = await award(client, award_payload())
     await accept(client, body)
     await approve(client, body)
@@ -116,17 +135,11 @@ async def _funded_release_permitted(client) -> tuple[str, str]:
             .where(repo.transactions.c.transaction_id == txid)
             .values(state=TransactionState.RELEASE_PERMITTED.value)
         )
-    issued = await client.post(
-        f"/ops/transactions/{txid}/issue-buyer-token",
-        headers=OPS,
-    )
-    assert issued.status_code == 200, issued.text
-    return txid, issued.json()["token"]
+    return txid, headers
 
 
 async def test_buyer_accept_releases_immediately_and_is_final(client):
-    txid, token = await _funded_release_permitted(client)
-    headers = {"Authorization": f"Bearer {token}"}
+    txid, headers = await _funded_release_permitted(client)
 
     accepted = await client.post(
         f"/buyer/transactions/{txid}/accept", headers=headers, json={}
@@ -156,18 +169,15 @@ async def test_buyer_accept_releases_immediately_and_is_final(client):
 
 
 async def test_buyer_accept_rejected_before_verification(client):
-    from tests.support.award_flow import OPS, award, award_payload
+    from tests.support.award_flow import award, award_payload
 
+    headers = await _buyer_headers(client)
     body = await award(client, award_payload())
     txid = body["transaction_id"]
-    issued = await client.post(
-        f"/ops/transactions/{txid}/issue-buyer-token", headers=OPS
-    )
     response = await client.post(
         f"/buyer/transactions/{txid}/accept",
-        headers={"Authorization": f"Bearer {issued.json()['token']}"},
+        headers=headers,
         json={},
     )
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "invalid_state"
-

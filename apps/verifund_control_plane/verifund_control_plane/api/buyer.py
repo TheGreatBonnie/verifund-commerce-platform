@@ -1,10 +1,4 @@
-"""Buyer-facing routes (plan Task 12, scaffolded).
-
-The three buyer actions (CONFIRM_DELIVERY, ACCEPT, DISPUTE) land in
-Tasks 13, 16 and 18 respectively; this module owns the bearer-token
-enforcement, ownership checks and route registration. Bodies return 501
-until those tasks fill them in.
-"""
+"""Buyer-facing routes — Clerk/internal principal auth (fail-closed)."""
 
 from __future__ import annotations
 
@@ -12,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from verifund_control_plane.errors import VerifundError
+from verifund_control_plane.api.buyer_auth import authorize_buyer_transaction
 
 router = APIRouter(prefix="/buyer")
 
@@ -21,42 +15,18 @@ def _service(request: Request):
     return request.app.state.service
 
 
-async def authenticate_buyer(request: Request, transaction_id: str):
-    header = request.headers.get("authorization", "")
-    if not header.startswith("Bearer "):
-        raise VerifundError(
-            "unauthorized", "buyer token is required", status_code=401
-        )
-    claims = request.app.state.buyer_tokens.verify(
-        header.removeprefix("Bearer "), required_scope="txn:buy"
-    )
-    stored = await request.app.state.repo.get_buyer_token(claims.jti_hash)
-    if stored.get("revoked_at"):
-        raise VerifundError(
-            "unauthorized", "buyer token has been revoked", status_code=401
-        )
-    if stored["buyer_id"] != claims.buyer_id:
-        raise VerifundError(
-            "unauthorized", "buyer token mismatch", status_code=401
-        )
-    record = await request.app.state.repo.get_transaction(transaction_id)
-    if record.buyer_id != claims.buyer_id:
-        raise VerifundError(
-            "forbidden", "buyer does not own this transaction", status_code=403
-        )
-    return claims
-
-
 @router.post("/transactions/{transaction_id}/delivery-confirmed")
 async def confirm_delivery(
     transaction_id: str, request: Request
 ) -> dict[str, Any]:
-    claims = await authenticate_buyer(request, transaction_id)
+    principal, _record = await authorize_buyer_transaction(
+        request, transaction_id, required_scope="txn:act"
+    )
     body = await request.json()
     confirmed_at = body.get("confirmed_at")
     return await _service(request).confirm_delivery(
         transaction_id,
-        buyer_id=claims.buyer_id,
+        buyer_id=principal.buyer_id,
         confirmed_at=confirmed_at,
         condition=body.get("condition"),
         photos=body.get("photos"),
@@ -66,21 +36,25 @@ async def confirm_delivery(
 
 @router.post("/transactions/{transaction_id}/accept")
 async def accept(transaction_id: str, request: Request) -> dict[str, Any]:
-    claims = await authenticate_buyer(request, transaction_id)
+    principal, _record = await authorize_buyer_transaction(
+        request, transaction_id, required_scope="txn:act"
+    )
     return await _service(request).buyer_accept(
         transaction_id,
-        buyer_id=claims.buyer_id,
-        actor=f"buyer:{claims.buyer_id}",
+        buyer_id=principal.buyer_id,
+        actor=principal.actor,
     )
 
 
 @router.post("/transactions/{transaction_id}/dispute")
 async def dispute(transaction_id: str, request: Request) -> dict[str, Any]:
-    claims = await authenticate_buyer(request, transaction_id)
+    principal, _record = await authorize_buyer_transaction(
+        request, transaction_id, required_scope="txn:act"
+    )
     body = await request.json()
     return await _service(request).open_dispute(
         transaction_id,
-        buyer_id=claims.buyer_id,
+        buyer_id=principal.buyer_id,
         requirement_ids=body.get("requirement_ids") or [],
         reason_code=body.get("reason_code"),
         claim=body.get("claim"),
