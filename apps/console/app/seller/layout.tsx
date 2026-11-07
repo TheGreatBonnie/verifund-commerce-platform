@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { LogOut, ShieldCheck } from "lucide-react";
-import { UserButton } from "@clerk/nextjs";
+import { ArrowLeft, LogOut, ShieldCheck } from "lucide-react";
+import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { SellerNav } from "@/components/seller/seller-nav";
 import { consoleSession } from "@/lib/console-session";
 import { sellerAccess } from "@/lib/seller-access";
@@ -58,7 +58,22 @@ export default async function SellerLayout({
             <span className="mm-kicker">Fulfillment workspace</span>
             <strong>{orgId ?? "Seller"}</strong>
           </div>
-          <span className="mm-status is-signal">Authenticated session</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Link
+              href="/"
+              className="mm-text-action"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              <ArrowLeft size={13} aria-hidden="true" />
+              Back to home
+            </Link>
+            <OrganizationSwitcher
+              afterCreateOrganizationUrl="/seller/dashboard"
+              afterSelectOrganizationUrl="/seller/dashboard"
+              hidePersonal={false}
+            />
+            <span className="mm-status is-signal">Authenticated session</span>
+          </div>
         </header>
         <main className="mm-seller-main">{children}</main>
       </div>
