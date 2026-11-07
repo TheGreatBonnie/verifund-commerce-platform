@@ -72,7 +72,6 @@ export default async function SellerLayout({
               afterSelectOrganizationUrl="/seller/dashboard"
               hidePersonal={false}
             />
-            <span className="mm-status is-signal">Authenticated session</span>
           </div>
         </header>
         <main className="mm-seller-main">{children}</main>
