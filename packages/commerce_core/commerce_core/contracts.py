@@ -160,6 +160,8 @@ class CounterOffer(CommerceModel):
     target_unit_price_cents: int | None = Field(default=None, gt=0)
     requested_changes: dict[str, str | int | bool] = Field(default_factory=dict)
     rationale: str = ""
+    in_response_to_offer_id: str | None = None
+    idempotency_key: str | None = None
 
 
 class AcceptOffer(CommerceModel):
