@@ -26,35 +26,12 @@ from seller_agent.settlement import SellerSettlementClient
 from seller_agent.store import SellerStore
 
 
-def _create_shared_app(settings: Settings) -> FastAPI:
-    from seller_agent.internal_routes import router as internal_router
-    from seller_agent.shared_schema import configure_shared_engine, create_shared_schema
-
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI):
-        engine = create_async_engine(settings.shared_db_url)
-        await configure_shared_engine(engine)
-        await create_shared_schema(engine)
-        _app.state.shared_engine = engine
-        _app.state.settings = settings
-        yield
-        await engine.dispose()
-
-    app = FastAPI(title="seller-shared", lifespan=lifespan)
-    app.state.settings = settings
-    app.include_router(internal_router)
-
-    @app.get("/health")
-    async def health() -> dict:
-        return {"status": "ok"}
-
-    return app
-
-
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     if settings.config_source == "shared":
-        return _create_shared_app(settings)
+        from seller_agent.shared_app import create_shared_app
+
+        return create_shared_app(settings)
     policy = load_policy(settings.profile_path)
     with settings.profile_path.open("r", encoding="utf-8") as _handle:
         import yaml as _yaml

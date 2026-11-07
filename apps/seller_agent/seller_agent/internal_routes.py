@@ -163,6 +163,9 @@ async def _verify(settings, request: Request, token: str, *,
     """
     injected = getattr(request.app.state, "credential_verifier", None)
     if injected is not None:
+        verify = getattr(injected, "verify", None)
+        if verify is not None:
+            return await verify(token, purpose=purpose)
         return await injected(token, purpose=purpose)
     if settings.verifund_mode == "off":
         return None

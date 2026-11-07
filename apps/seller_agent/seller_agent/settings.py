@@ -28,6 +28,22 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("SELLER_INTERNAL_TOKEN"),
     )
+    checkpoint_path: str = Field(
+        default="./data/seller-checkpoints.sqlite",
+        validation_alias=AliasChoices("SELLER_CHECKPOINT_PATH"),
+    )
+    demo_credentials_path: Path = Field(
+        default=Path("data/demo-credentials.json"),
+        validation_alias=AliasChoices("SELLER_DEMO_CREDENTIALS_PATH"),
+    )
+    credential_cache_ttl_seconds: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices("SELLER_CREDENTIAL_CACHE_TTL_SECONDS"),
+    )
+    evidence_sweep_seconds: float = Field(
+        default=2.0,
+        validation_alias=AliasChoices("SELLER_EVIDENCE_SWEEP_SECONDS"),
+    )
     profile_path: Path = Path(
         "apps/seller_agent/seller_agent/profiles/northwind.yaml"
     )
