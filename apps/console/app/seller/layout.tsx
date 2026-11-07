@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, LogOut, ShieldCheck } from "lucide-react";
+import { LogOut, ShieldCheck } from "lucide-react";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { SellerNav } from "@/components/seller/seller-nav";
 import { consoleSession } from "@/lib/console-session";
@@ -61,9 +61,15 @@ export default async function SellerLayout({
             <Link
               href="/"
               className="mm-text-action"
-              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                border: "1px solid var(--rule-strong)",
+                borderRadius: "6px",
+                padding: "4px 10px",
+              }}
             >
-              <ArrowLeft size={13} aria-hidden="true" />
               Marketplace
             </Link>
             <OrganizationSwitcher
