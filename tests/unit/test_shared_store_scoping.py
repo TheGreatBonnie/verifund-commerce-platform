@@ -139,22 +139,31 @@ async def test_evidence_reschedule_and_fail_are_org_scoped(engine):
         filename="receipt.txt",
     )
     row = await a.get_evidence_outbox("tx-1", "receipt")
+    assert row is not None
     key = row["evidence_key"]
     await a.reschedule_evidence(key, next_attempt_at="2026-01-01T00:00:00Z",
                                 error="boom")
-    assert (await a.get_evidence_outbox("tx-1", "receipt"))["attempts"] == 1
+    rescheduled = await a.get_evidence_outbox("tx-1", "receipt")
+    assert rescheduled is not None
+    assert rescheduled["attempts"] == 1
     await a.fail_evidence(key, error="fatal")
-    assert (await a.get_evidence_outbox("tx-1", "receipt"))["status"] == "failed"
+    failed = await a.get_evidence_outbox("tx-1", "receipt")
+    assert failed is not None
+    assert failed["status"] == "failed"
     # other org cannot mutate the row
     await b.fail_evidence(key, error="other")
-    assert (await a.get_evidence_outbox("tx-1", "receipt"))["last_error"] == "fatal"
+    final = await a.get_evidence_outbox("tx-1", "receipt")
+    assert final is not None
+    assert final["last_error"] == "fatal"
 
 
 async def test_orders_are_org_scoped(engine):
     a = OrgScopedStore(engine, organization_id="org-a", agent_id="agent-a")
     b = OrgScopedStore(engine, organization_id="org-b", agent_id="agent-b")
     await a.save_order(make_order(), idempotency_key="idem-1")
-    assert (await a.get_order_by_idempotency("idem-1")).order_id == "ord-1"
+    order = await a.get_order_by_idempotency("idem-1")
+    assert order is not None
+    assert order.order_id == "ord-1"
     assert await b.get_order_by_idempotency("idem-1") is None
     assert len(await a.list_orders()) == 1
     assert await b.list_orders() == []
@@ -177,7 +186,7 @@ async def test_transaction_is_org_scoped(engine):
             await tx.reserve("SKU-1", 1, allow_split=False)
 
 
-async def test_create_schema_and_seed_catalog_are_noops(engine):
+async def test_create_schema_and_seed_catalog_are_noops(engine, northwind_policy):
     store = OrgScopedStore(engine, organization_id="org-a", agent_id="agent-a")
     assert await store.create_schema() is None
-    assert await store.seed_catalog(None) is None
+    assert await store.seed_catalog(northwind_policy) is None

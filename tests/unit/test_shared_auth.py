@@ -89,7 +89,9 @@ def test_static_demo_verifier_reads_hashed_tokens(tmp_path):
     }), encoding="utf-8")
     verifier = StaticDemoCredentialVerifier(path)
     import asyncio
-    assert asyncio.run(verifier.verify(token))["agent_id"] == "agent_buyer"
+    result = asyncio.run(verifier.verify(token))
+    assert result is not None
+    assert result["agent_id"] == "agent_buyer"
     assert asyncio.run(verifier.verify("wrong")) is None
     assert asyncio.run(
         verifier.verify("seller-test-token")

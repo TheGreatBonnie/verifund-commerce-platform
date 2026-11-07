@@ -3,6 +3,24 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Protocol
+
+
+class AgreementReviewStore(Protocol):
+    """Duck-typed review store used by agreement review.
+
+    Both `SellerAgreementReviewStore` (single-tenant SQLite file) and
+    `OrgScopedAgreementReviewStore` (shared engine + org scope) satisfy
+    this protocol. `review_agreement` only needs these three methods.
+    """
+
+    def record(
+        self, projection, offer_hash, *, decision, now, task_id, context_id
+    ) -> None: ...
+
+    def get(self, agreement_id, version): ...
+
+    def list(self, agreement_id): ...
 
 
 class SellerAgreementReviewStore:

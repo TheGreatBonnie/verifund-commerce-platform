@@ -149,7 +149,7 @@ async def create_shared_schema(engine: AsyncEngine) -> None:
         rows = (
             await conn.exec_driver_sql("PRAGMA table_info(evidence_outbox)")
         ).fetchall()
-        columns = {str(row[1]) for row in rows}
+        columns = {str(row._mapping["name"]) for row in rows}
         if "requirement_id" not in columns:
             await conn.exec_driver_sql(
                 "ALTER TABLE evidence_outbox ADD COLUMN requirement_id TEXT"

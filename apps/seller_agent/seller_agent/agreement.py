@@ -15,7 +15,7 @@ from verifund_contracts import (
 from verifund_contracts.models import canonical_json, sha256_hex
 from verifund_contracts.terms import apply_change_set
 
-from seller_agent.agreement_store import SellerAgreementReviewStore
+from seller_agent.agreement_store import AgreementReviewStore, SellerAgreementReviewStore
 from seller_agent.mandate import SellerMandate
 from seller_agent.settlement import validate_mandate
 
@@ -109,7 +109,7 @@ def _result(projection, status, reason_code, now, task_id, context_id, *,
 
 
 def review_agreement(projection, offer, mandate: SellerMandate,
-                     store: SellerAgreementReviewStore, seller_id: str,
+                     store: AgreementReviewStore, seller_id: str,
                      now: datetime, *, task_id: str, context_id: str,
                      change_request: ChangeRequestEnvelope | None = None
                      ) -> AgreementReviewResult:

@@ -94,7 +94,7 @@ async def agree(client: httpx.AsyncClient) -> dict:
     agreement_id = award["agreement"]["agreement_id"]
     from tests.support.buyer_auth import internal_buyer_headers, seed_buyer_profile
 
-    app = client._transport.app
+    app = getattr(client._transport, "app")
     if not getattr(app.state.settings, "buyer_settlement_internal_token", None):
         app.state.settings.buyer_settlement_internal_token = "buyer-secret"
     await seed_buyer_profile(app, buyer_id=award.get("buyer_id", "demo-buyer"))

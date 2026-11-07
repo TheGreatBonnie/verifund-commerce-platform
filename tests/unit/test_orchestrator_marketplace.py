@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from inspect import signature
+from typing import Any
 
 import httpx
 import pytest
@@ -14,7 +15,7 @@ from orchestrator_agent.marketplace import (
     shape_search_result,
 )
 
-MACBOOK = {
+MACBOOK: dict[str, Any] = {
     "id": "MM-MACBOOK-AIR-M4-13",
     "sku": "MM-MACBOOK-AIR-M4-13",
     "name": "MacBook Air M4 13-inch",
@@ -36,7 +37,7 @@ MACBOOK = {
     ],
 }
 
-MONITOR = {
+MONITOR: dict[str, Any] = {
     "id": "MM-4K-MONITOR-27",
     "sku": "MM-4K-MONITOR-27",
     "name": "27-inch 4K USB-C Monitor",
@@ -58,7 +59,7 @@ MONITOR = {
     ],
 }
 
-CHAIR = {
+CHAIR: dict[str, Any] = {
     "id": "MM-ERGONOMIC-MESH-CHAIR",
     "sku": "MM-ERGONOMIC-MESH-CHAIR",
     "name": "Ergonomic Mesh Office Chair",

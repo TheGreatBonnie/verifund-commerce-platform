@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from fastapi import Request
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from verifund_control_plane.api.seller_auth import (
@@ -16,10 +17,15 @@ from verifund_control_plane.repository import Repository
 from verifund_control_plane.tenancy.repository import TenancyRepository
 
 
-class Req:
+class Req(Request):
     def __init__(self, headers=None, app=None):
-        self.headers = headers or {}
-        self.app = app
+        raw_headers = [
+            (k.lower().encode("latin-1"), v.encode("latin-1"))
+            for k, v in (headers or {}).items()
+        ]
+        super().__init__(
+            {"type": "http", "method": "GET", "headers": raw_headers, "app": app}
+        )
 
 
 @pytest.fixture

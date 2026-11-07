@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -72,7 +73,7 @@ class TenantRoutingExecutor(AgentExecutor):
         self.runtime = runtime
 
     async def _service(self, context: RequestContext):
-        state: dict[str, Any] = context.call_context.state
+        state: MutableMapping[str, Any] = context.call_context.state
         try:
             seller = await self.resolver.resolve(
                 context.tenant,

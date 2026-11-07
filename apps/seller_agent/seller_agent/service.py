@@ -21,7 +21,7 @@ from google.protobuf import json_format
 from verifund_contracts import parse_agreement_review_request, wrap_agreement_review_result
 
 from seller_agent.agreement import review_agreement
-from seller_agent.agreement_store import SellerAgreementReviewStore
+from seller_agent.agreement_store import AgreementReviewStore, SellerAgreementReviewStore
 from seller_agent.graph import (
     CommerceProtocolError,
     build_graph,
@@ -79,7 +79,7 @@ class SellerService:
         evidence_outbox: EvidenceOutbox | None = None,
         auto_evidence: bool = True,
         mandate: SellerMandate | None = None,
-        review_store: SellerAgreementReviewStore | None = None,
+        review_store: AgreementReviewStore | None = None,
         graph: Any | None = None,
         scope: str = "",
         organization_id: str | None = None,
