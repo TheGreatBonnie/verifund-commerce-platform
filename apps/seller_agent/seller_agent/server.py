@@ -52,12 +52,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.verifund_mode != "off":
         settlement_client = SellerSettlementClient(
             settings.verifund_url,
+            internal_token=settings.verifund_settlement_internal_token,
             timeout_seconds=settings.verifund_timeout_seconds,
         )
         evidence_outbox = EvidenceOutbox(
             store,
             settlement_client,
             retry_seconds=settings.verifund_evidence_retry_seconds,
+            organization_id=settings.seller_organization_id,
         )
     service = SellerService(
         store=store,
@@ -68,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settlement_enabled=settings.verifund_mode != "off",
         evidence_outbox=evidence_outbox,
         auto_evidence=settings.verifund_auto_evidence,
+        organization_id=settings.seller_organization_id,
     )
     executor = SellerExecutor(service)
     handler = DefaultRequestHandler(

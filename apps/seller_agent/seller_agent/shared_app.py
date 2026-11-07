@@ -108,6 +108,7 @@ class SharedRuntime:
                 self.engine, tenant.organization_id),
             graph=self.graph,
             scope=f"organization_id:{tenant.organization_id}:{tenant.agent_id}",
+            organization_id=tenant.organization_id,
         )
 
 
@@ -288,6 +289,7 @@ def create_shared_app(
         if settings.verifund_mode != "off":
             settlement = SellerSettlementClient(
                 settings.verifund_url,
+                internal_token=settings.verifund_settlement_internal_token,
                 timeout_seconds=settings.verifund_timeout_seconds,
             )
 

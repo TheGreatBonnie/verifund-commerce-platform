@@ -168,7 +168,11 @@ class SellerStore:
             Column("evidence_key", String, primary_key=True),
             Column("transaction_id", String, nullable=False),
             Column("seller_id", String, nullable=False),
+            # Legacy ``kind`` values are preserved for back-compat; new rows
+            # mirror the CP ``requirement_id`` into both columns so the
+            # historic unique constraint keeps deduplicating.
             Column("kind", String, nullable=False),
+            Column("requirement_id", String, nullable=True),
             Column("filename", String, nullable=False),
             Column("media_type", String, nullable=False),
             Column("content", LargeBinary, nullable=False),
@@ -191,6 +195,37 @@ class SellerStore:
         await configure_sqlite(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
+        await self._migrate_evidence_outbox()
+
+    async def _migrate_evidence_outbox(self) -> None:
+        """Add ``requirement_id`` to pre-migration databases and backfill it.
+
+        Fresh databases already have the column via ``create_all``. Existing
+        SQLite databases only gain it through this idempotent migration.
+        """
+        from sqlalchemy import inspect, text
+
+        async with self.engine.begin() as conn:
+            inspector = await conn.run_sync(
+                lambda sync_conn: (
+                    inspect(sync_conn).get_columns("evidence_outbox")
+                )
+            )
+            columns = {col["name"] for col in inspector}
+            if "requirement_id" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE evidence_outbox "
+                        "ADD COLUMN requirement_id TEXT"
+                    )
+                )
+            if "kind" in columns:
+                await conn.execute(
+                    text(
+                        "UPDATE evidence_outbox SET requirement_id = kind "
+                        "WHERE requirement_id IS NULL"
+                    )
+                )
 
     async def seed_catalog(self, policy: SellerPolicy) -> None:
         for product in policy.catalog():
@@ -404,12 +439,25 @@ class SellerStore:
     async def get_settlement_token(self, transaction_id: str) -> str | None:
         return await get_settlement_token(self, transaction_id)
 
+    async def save_settlement_context(
+        self, *, transaction_id: str, seller_id: str
+    ) -> None:
+        """Record a transaction as a known settlement without a secret.
+
+        The control plane migrated routes authenticate with the shared
+        internal token + org/seller context, so no bearer token is stored.
+        """
+        await save_settlement_context(
+            self, transaction_id=transaction_id, seller_id=seller_id
+        )
+
     async def enqueue_evidence(
         self,
         *,
         transaction_id: str,
         seller_id: str,
-        kind: str,
+        kind: str | None = None,
+        requirement_id: str | None = None,
         content: bytes,
         media_type: str,
         filename: str,
@@ -417,11 +465,15 @@ class SellerStore:
         captured_at: str | None = None,
         created_at: datetime | None = None,
     ) -> bool:
+        resolved = requirement_id or kind
+        if not resolved:
+            raise ValueError("requirement_id is required")
         return await enqueue_evidence(
             self,
             transaction_id=transaction_id,
             seller_id=seller_id,
-            kind=kind,
+            kind=resolved,
+            requirement_id=resolved,
             content=content,
             media_type=media_type,
             filename=filename,
@@ -496,12 +548,33 @@ async def get_settlement_token(self, transaction_id: str) -> str | None:
         return row.token if row else None
 
 
+async def save_settlement_context(
+    self, *, transaction_id: str, seller_id: str
+) -> None:
+    statement = sqlite_insert(self.settlement_tokens).values(
+        transaction_id=transaction_id,
+        seller_id=seller_id,
+        token="",
+        updated_at=_iso(datetime.now(UTC)),
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=["transaction_id"],
+        set_={
+            "seller_id": seller_id,
+            "updated_at": _iso(datetime.now(UTC)),
+        },
+    )
+    async with self.engine.begin() as conn:
+        await conn.execute(statement)
+
+
 async def enqueue_evidence(
     self,
     *,
     transaction_id: str,
     seller_id: str,
     kind: str,
+    requirement_id: str | None = None,
     content: bytes,
     media_type: str,
     filename: str,
@@ -509,6 +582,7 @@ async def enqueue_evidence(
     captured_at: str | None = None,
     created_at: datetime | None = None,
 ) -> bool:
+    resolved = requirement_id or kind
     created = _iso(created_at or datetime.now(UTC))
     statement = (
         sqlite_insert(self.evidence_outbox)
@@ -516,7 +590,8 @@ async def enqueue_evidence(
             evidence_key=uuid.uuid4().hex,
             transaction_id=transaction_id,
             seller_id=seller_id,
-            kind=kind,
+            kind=resolved,
+            requirement_id=resolved,
             filename=filename,
             media_type=media_type,
             content=content,

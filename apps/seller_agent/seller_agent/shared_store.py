@@ -607,6 +607,23 @@ class OrgScopedStore(SellerStore):
                 "s": seller_id, "j": json.dumps({"token": token}),
                 "now": now})
 
+    async def save_settlement_context(
+        self, *, transaction_id: str, seller_id: str
+    ) -> None:
+        """Record a known settlement without persisting a secret."""
+        now = datetime.now(UTC).isoformat()
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                """INSERT INTO settlement_tokens
+                       (organization_id, transaction_id, seller_id,
+                        token_json, created_at, updated_at)
+                   VALUES (:o, :t, :s, :j, :now, :now)
+                   ON CONFLICT(organization_id, transaction_id) DO UPDATE SET
+                     seller_id = :s, updated_at = :now"""
+            ), {"o": self.organization_id, "t": transaction_id,
+                "s": seller_id, "j": json.dumps({"token": ""}),
+                "now": now})
+
     async def get_settlement_token(self, transaction_id: str) -> str | None:
         async with self.engine.connect() as conn:
             row = (await conn.execute(text(
@@ -632,7 +649,8 @@ class OrgScopedStore(SellerStore):
         *,
         transaction_id: str,
         seller_id: str,
-        kind: str,
+        kind: str | None = None,
+        requirement_id: str | None = None,
         content: bytes,
         media_type: str,
         filename: str,
@@ -640,19 +658,22 @@ class OrgScopedStore(SellerStore):
         captured_at: str | None = None,
         created_at: datetime | None = None,
     ) -> bool:
+        resolved = requirement_id or kind
+        if not resolved:
+            raise ValueError("requirement_id is required")
         now = (created_at or datetime.now(UTC)).isoformat()
         async with self.engine.begin() as conn:
             result = await conn.execute(text(
                 """INSERT INTO evidence_outbox
                        (organization_id, outbox_id, transaction_id, seller_id,
-                        kind, filename, media_type, content, note, captured_at,
+                        kind, requirement_id, filename, media_type, content, note, captured_at,
                         next_attempt_at, created_at, agent_id)
-                   VALUES (:o, :id, :t, :s, :k, :f, :m, :c, :n, :cap,
+                   VALUES (:o, :id, :t, :s, :k, :k, :f, :m, :c, :n, :cap,
                            :now, :now, :a)
                    ON CONFLICT(organization_id, transaction_id, kind)
                    DO NOTHING"""
             ), {"o": self.organization_id, "id": uuid.uuid4().hex,
-                "t": transaction_id, "s": seller_id, "k": kind,
+                "t": transaction_id, "s": seller_id, "k": resolved,
                 "f": filename, "m": media_type, "c": content, "n": note,
                 "cap": captured_at, "now": now, "a": self.agent_id})
         return bool(result.rowcount)

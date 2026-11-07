@@ -30,6 +30,7 @@ class EvidenceOutbox:
         retry_seconds: float = 2.0,
         batch_size: int = 20,
         clock: Callable[[], datetime] | None = None,
+        organization_id: str | None = None,
     ) -> None:
         self.store = store
         self.client = client
@@ -38,13 +39,26 @@ class EvidenceOutbox:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._stop = asyncio.Event()
         self._task: asyncio.Task | None = None
+        self._organization_id = organization_id
+
+    def _context(self, row: dict[str, Any]) -> tuple[str, str] | None:
+        organization_id = (
+            getattr(self.store, "organization_id", None)
+            or self._organization_id
+            or row.get("organization_id")
+        )
+        seller_id = row.get("seller_id")
+        if not organization_id or not seller_id:
+            return None
+        return str(organization_id), str(seller_id)
 
     async def enqueue(
         self,
         *,
         transaction_id: str,
         seller_id: str,
-        kind: str,
+        kind: str | None = None,
+        requirement_id: str | None = None,
         content: bytes,
         media_type: str,
         filename: str,
@@ -52,10 +66,14 @@ class EvidenceOutbox:
         captured_at: str | None = None,
         created_at: datetime | None = None,
     ) -> bool:
+        resolved = requirement_id or kind
+        if not resolved:
+            raise ValueError("requirement_id is required")
         return await self.store.enqueue_evidence(
             transaction_id=transaction_id,
             seller_id=seller_id,
-            kind=kind,
+            kind=resolved,
+            requirement_id=resolved,
             content=content,
             media_type=media_type,
             filename=filename,
@@ -73,29 +91,39 @@ class EvidenceOutbox:
         )
         counts = {"sent": 0, "retried": 0, "failed": 0}
         for row in rows:
-            token = await self.store.get_settlement_token(
-                row["transaction_id"]
-            )
-            if not token:
+            context = self._context(row)
+            if context is None:
                 await self.store.reschedule_evidence(
                     row["evidence_key"],
                     next_attempt_at=_iso(
                         current + timedelta(seconds=self.retry_seconds)
                     ),
-                    error="seller token unavailable",
+                    error="seller organization unavailable",
                 )
                 counts["retried"] += 1
                 continue
+            organization_id, seller_id = context
+            requirement_id = (
+                row.get("requirement_id") or row.get("kind")
+            )
+            if not requirement_id:
+                await self.store.fail_evidence(
+                    row["evidence_key"],
+                    error="evidence requirement_id unavailable",
+                )
+                counts["failed"] += 1
+                continue
             try:
                 await self.client.upload_evidence(
-                    token,
                     row["transaction_id"],
-                    kind=row["kind"],
+                    organization_id=organization_id,
+                    seller_id=seller_id,
+                    requirement_id=str(requirement_id),
                     content=row["content"],
                     media_type=row["media_type"],
                     filename=row["filename"],
-                    note=row["note"],
-                    captured_at=row["captured_at"],
+                    note=row["note"] or "",
+                    captured_at=row.get("captured_at"),
                 )
             except SettlementError as exc:
                 if (

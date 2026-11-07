@@ -93,6 +93,7 @@ SHARED_DDL: list[str] = [
         transaction_id TEXT NOT NULL,
         seller_id TEXT NOT NULL,
         kind TEXT NOT NULL,
+        requirement_id TEXT,
         filename TEXT NOT NULL DEFAULT '',
         media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
         content BLOB NOT NULL DEFAULT X'',
@@ -145,3 +146,15 @@ async def create_shared_schema(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         for ddl in SHARED_DDL:
             await conn.exec_driver_sql(ddl)
+        rows = (
+            await conn.exec_driver_sql("PRAGMA table_info(evidence_outbox)")
+        ).fetchall()
+        columns = {str(row[1]) for row in rows}
+        if "requirement_id" not in columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE evidence_outbox ADD COLUMN requirement_id TEXT"
+            )
+        await conn.exec_driver_sql(
+            "UPDATE evidence_outbox SET requirement_id = kind "
+            "WHERE requirement_id IS NULL"
+        )

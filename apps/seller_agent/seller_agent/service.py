@@ -82,11 +82,13 @@ class SellerService:
         review_store: SellerAgreementReviewStore | None = None,
         graph: Any | None = None,
         scope: str = "",
+        organization_id: str | None = None,
     ) -> None:
         self.store = store
         self.policy = policy
         self.planner = planner
         self.settlement = settlement
+        self._organization_id = organization_id
         self.mandate = mandate or SellerMandate()
         from pathlib import Path
         self.review_store = review_store or SellerAgreementReviewStore(
@@ -121,31 +123,46 @@ class SellerService:
             raise CommerceProtocolError("settlement is not configured")
         return self.settlement
 
+    def _settlement_context(self) -> tuple[str, str]:
+        organization_id = (
+            getattr(self.store, "organization_id", None)
+            or self._organization_id
+            or ""
+        )
+        if not organization_id:
+            raise CommerceProtocolError(
+                "seller organization is required for settlement"
+            )
+        return str(organization_id), self.policy.seller_id
+
     async def _settlement_projection(
-        self, transaction_id: str, token: str
+        self, transaction_id: str
     ) -> dict[str, Any]:
         client = self._require_settlement()
+        organization_id, seller_id = self._settlement_context()
         try:
-            return await client.get_transaction(token, transaction_id)
+            return await client.get_transaction(
+                transaction_id,
+                organization_id=organization_id,
+                seller_id=seller_id,
+            )
         except SettlementError as exc:
             raise CommerceProtocolError(
-                f"settlement token was rejected ({exc.code})"
+                f"settlement call was rejected ({exc.code})"
             ) from exc
 
     async def validate_acceptance(
-        self, accepted: AcceptOffer, *, token: str | None
+        self, accepted: AcceptOffer, *, token: str | None = None
     ) -> dict[str, Any] | None:
         if not self.settlement_enabled:
             return None
-        if not token:
-            raise CommerceProtocolError("settlement token is required")
         if (
             not accepted.settlement_transaction_id
             or not accepted.agreement_hash
         ):
             raise CommerceProtocolError("settlement fields are required")
         projection = await self._settlement_projection(
-            accepted.settlement_transaction_id, token
+            accepted.settlement_transaction_id
         )
         if projection.get("state") != "AWARDED":
             raise CommerceProtocolError(
@@ -163,24 +180,21 @@ class SellerService:
             raise CommerceProtocolError("accepted total mismatch")
         if projection.get("currency") != "USD":
             raise CommerceProtocolError("unsupported settlement currency")
-        await self.store.save_settlement_token(
-            accepted.settlement_transaction_id,
-            self.policy.seller_id,
-            token,
+        await self.store.save_settlement_context(
+            transaction_id=accepted.settlement_transaction_id,
+            seller_id=self.policy.seller_id,
         )
         return projection
 
     async def validate_purchase_order(
-        self, po: PurchaseOrderRequest, *, token: str | None
+        self, po: PurchaseOrderRequest, *, token: str | None = None
     ) -> dict[str, Any] | None:
         if not self.settlement_enabled:
             return None
-        if not token:
-            raise CommerceProtocolError("settlement token is required")
         if not po.settlement_transaction_id or not po.agreement_hash:
             raise CommerceProtocolError("settlement fields are required")
         projection = await self._settlement_projection(
-            po.settlement_transaction_id, token
+            po.settlement_transaction_id
         )
         if projection.get("state") != "FUNDED":
             raise CommerceProtocolError(
@@ -196,8 +210,9 @@ class SellerService:
             raise CommerceProtocolError("purchase order total mismatch")
         if projection.get("currency") != "USD":
             raise CommerceProtocolError("unsupported settlement currency")
-        await self.store.save_settlement_token(
-            po.settlement_transaction_id, self.policy.seller_id, token
+        await self.store.save_settlement_context(
+            transaction_id=po.settlement_transaction_id,
+            seller_id=self.policy.seller_id,
         )
         return projection
 
@@ -214,12 +229,23 @@ class SellerService:
         statuses: list[dict[str, Any]] = []
         for row in rows:
             transaction_id = row["transaction_id"]
-            token = await self.store.get_settlement_token(transaction_id)
-            if not token:
+            try:
+                organization_id, seller_id = self._settlement_context()
+            except CommerceProtocolError:
+                statuses.append(
+                    {
+                        "transaction_id": transaction_id,
+                        "seller_id": row["seller_id"],
+                        "state": "unavailable",
+                        "unavailable": True,
+                    }
+                )
                 continue
             try:
                 projection = await self.settlement.get_transaction(
-                    token, transaction_id
+                    transaction_id,
+                    organization_id=organization_id,
+                    seller_id=seller_id,
                 )
             except Exception:  # noqa: BLE001
                 logger.warning(

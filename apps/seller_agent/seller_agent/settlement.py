@@ -77,22 +77,51 @@ def encode_payload(payload: dict[str, Any]) -> bytes:
 
 
 class SellerSettlementClient:
-    def __init__(self, base_url: str, *, timeout_seconds: float = 20.0) -> None:
+    """Control-plane seller API client using internal service auth.
+
+    Migrated routes require `X-Verifund-Internal-Token` plus explicit seller
+    context (`X-Seller-Org-Id` and/or `X-Seller-Id`). Legacy per-transaction
+    bearer seller tokens are not accepted.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        internal_token: str | None = None,
+        timeout_seconds: float = 20.0,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.internal_token = internal_token
         self._client = httpx.AsyncClient(timeout=timeout_seconds)
 
     async def close(self) -> None:
         await self._client.aclose()
 
-    def _headers(self, token: str) -> dict[str, str]:
-        return {"authorization": f"Bearer {token}"}
+    def _headers(
+        self, *, organization_id: str | None = None, seller_id: str | None = None
+    ) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self.internal_token:
+            headers["x-verifund-internal-token"] = self.internal_token
+        if organization_id:
+            headers["x-seller-org-id"] = organization_id
+        if seller_id:
+            headers["x-seller-id"] = seller_id
+        return headers
 
     async def get_transaction(
-        self, token: str, transaction_id: str
+        self,
+        transaction_id: str,
+        *,
+        organization_id: str | None = None,
+        seller_id: str | None = None,
     ) -> dict[str, Any]:
         response = await self._client.get(
             f"{self.base_url}/seller/transactions/{transaction_id}",
-            headers=self._headers(token),
+            headers=self._headers(
+                organization_id=organization_id, seller_id=seller_id
+            ),
         )
         if response.status_code >= 400:
             raise SettlementError(
@@ -104,26 +133,47 @@ class SellerSettlementClient:
 
     async def upload_evidence(
         self,
-        token: str,
         transaction_id: str,
         *,
-        kind: str,
-        content: bytes,
-        media_type: str,
-        filename: str,
+        organization_id: str | None = None,
+        seller_id: str | None = None,
+        requirement_id: str,
+        content: bytes | None = None,
+        media_type: str | None = None,
+        filename: str | None = None,
+        reference: str | None = None,
+        reference_type: str | None = None,
         note: str = "",
         captured_at: str | None = None,
+        agreement_version: int | None = None,
     ) -> dict[str, Any]:
-        data = {"kind": kind}
+        data: dict[str, Any] = {"requirement_id": requirement_id}
         if note:
             data["note"] = note
         if captured_at:
             data["captured_at"] = captured_at
+        if agreement_version is not None:
+            data["agreement_version"] = str(agreement_version)
+        files = None
+        if content is not None:
+            files = {
+                "file": (
+                    filename or f"{requirement_id}.bin",
+                    content,
+                    media_type or "application/octet-stream",
+                )
+            }
+        elif reference is not None:
+            data["reference"] = reference
+            if reference_type:
+                data["reference_type"] = reference_type
         response = await self._client.post(
             f"{self.base_url}/seller/transactions/{transaction_id}/evidence",
-            headers=self._headers(token),
+            headers=self._headers(
+                organization_id=organization_id, seller_id=seller_id
+            ),
             data=data,
-            files={"file": (filename, content, media_type)},
+            files=files,
         )
         if response.status_code >= 400:
             raise SettlementError(
@@ -134,11 +184,18 @@ class SellerSettlementClient:
         return response.json()
 
     async def get_evidence(
-        self, token: str, transaction_id: str, evidence_id: str
+        self,
+        transaction_id: str,
+        evidence_id: str,
+        *,
+        organization_id: str | None = None,
+        seller_id: str | None = None,
     ) -> tuple[bytes, str]:
         response = await self._client.get(
             f"{self.base_url}/seller/transactions/{transaction_id}/evidence/{evidence_id}",
-            headers=self._headers(token),
+            headers=self._headers(
+                organization_id=organization_id, seller_id=seller_id
+            ),
         )
         if response.status_code >= 400:
             raise SettlementError(

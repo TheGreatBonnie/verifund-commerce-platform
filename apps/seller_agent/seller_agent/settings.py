@@ -82,6 +82,21 @@ class Settings(BaseSettings):
         default=20.0,
         validation_alias=AliasChoices("VERIFUND_TIMEOUT_SECONDS"),
     )
+    verifund_settlement_internal_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "VERIFUND_SETTLEMENT_INTERNAL_TOKEN",
+            "SETTLEMENT_INTERNAL_TOKEN",
+            "SELLER_VERIFUND_INTERNAL_TOKEN",
+        ),
+    )
+    seller_organization_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SELLER_ORGANIZATION_ID",
+            "VERIFUND_SELLER_ORGANIZATION_ID",
+        ),
+    )
     verifund_auto_evidence: bool = Field(
         default=True,
         validation_alias=AliasChoices("VERIFUND_AUTO_EVIDENCE"),
