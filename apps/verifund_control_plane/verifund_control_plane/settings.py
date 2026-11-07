@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     seller_internal_token: str | None = Field(
         default=None, validation_alias="SELLER_INTERNAL_TOKEN"
     )
+    settlement_internal_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "VERIFUND_SETTLEMENT_INTERNAL_TOKEN", "SETTLEMENT_INTERNAL_TOKEN"
+        ),
+    )
     registry_url: str = Field(
         default="http://127.0.0.1:9100", validation_alias="REGISTRY_URL"
     )
