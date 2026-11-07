@@ -368,6 +368,40 @@ def seller_tokens_json() -> str:
     return json.dumps(tokens)
 
 
+def shared_seller_port() -> int:
+    return _port("SELLER_SHARED_PORT", 9200)
+
+
+def shared_seller_url() -> str:
+    return _env(
+        "SELLER_SHARED_URL",
+        f"http://127.0.0.1:{shared_seller_port()}",
+    ).rstrip("/")
+
+
+def shared_seller_db_url() -> str:
+    return _env(
+        "SELLER_SHARED_DB_URL",
+        "sqlite+aiosqlite:///./data/sellers.db",
+    )
+
+
+def seller_internal_token() -> str:
+    return _env("SELLER_INTERNAL_TOKEN", "dev-seller-internal")
+
+
+def buyer_agent_token() -> str:
+    return _env("BUYER_AGENT_TOKEN", "dev-buyer-agent")
+
+
+def seller_checkpoint_path() -> str:
+    return _env("SELLER_CHECKPOINT_PATH", "./data/seller-checkpoints.sqlite")
+
+
+def shared_card_url(seller_id: str) -> str:
+    return f"{shared_seller_url()}/{seller_id}/.well-known/agent-card.json"
+
+
 def orchestrator_port() -> int:
     return _port("ORCHESTRATOR_PORT", 9000)
 
