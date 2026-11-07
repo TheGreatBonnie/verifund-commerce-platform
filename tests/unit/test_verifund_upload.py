@@ -16,11 +16,11 @@ from tests.support.award_flow import (
     award,
     award_payload,
     fund_and_capture,
-    seller_headers,
     upload_file,
     upload_json,
     upload_reference,
 )
+from tests.support.seller_auth import clerk_seller_headers, seed_seller_profile
 
 
 def requirement_catalog() -> list[dict]:
@@ -106,10 +106,26 @@ async def client(tmp_path):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield client
+            yield client, app
 
 
-async def funded(client) -> dict:
+async def _seller_headers(app, *, seller_id: str = "northwind-audio") -> dict[str, str]:
+    await seed_seller_profile(
+        app,
+        clerk_org_id=f"org_{seller_id.replace('-', '_')}",
+        seller_id=seller_id,
+        display_name=seller_id,
+        clerk_user_id=f"user_{seller_id.replace('-', '_')}",
+    )
+    return clerk_seller_headers(
+        app,
+        sub=f"user_{seller_id.replace('-', '_')}",
+        org_id=f"org_{seller_id.replace('-', '_')}",
+        token=f"tok_{seller_id.replace('-', '_')}",
+    )
+
+
+async def funded(client, app) -> dict:
     body = await award(client, catalog_award_payload())
     await accept(client, body)
     await approve(client, body)
@@ -118,16 +134,19 @@ async def funded(client) -> dict:
 
 
 async def test_upload_addressed_by_requirement_id_returns_receipt(client):
-    body = await funded(client)
+    http, app = client
+    body = await funded(http, app)
     captured_at = datetime(2026, 11, 4, 10, 0, tzinfo=UTC)
+    headers = await _seller_headers(app)
     response = await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"ram_gb,32\n",
         filename="diag.csv",
         media_type="text/csv",
         captured_at=captured_at,
+        headers=headers,
     )
     assert response.status_code == 201, response.text
     receipt = response.json()
@@ -139,7 +158,6 @@ async def test_upload_addressed_by_requirement_id_returns_receipt(client):
     assert receipt["artifact_type"] == "file"
     assert receipt["scan_status"] == "pending"
 
-    app = client._transport.app
     items = await app.state.repo.list_evidence(body["transaction_id"])
     assert [item.requirement_id for item in items] == ["hardware"]
     assert items[0].scan_status == "pending"
@@ -153,8 +171,8 @@ async def test_upload_addressed_by_requirement_id_returns_receipt(client):
 
 
 async def test_requirement_catalog_is_stamped_on_the_agreement_terms(client):
-    body = await award(client, catalog_award_payload())
-    app = client._transport.app
+    http, app = client
+    body = await award(http, catalog_award_payload())
     agreement = await app.state.service.agreement_service.get_by_transaction(
         body["transaction_id"]
     )
@@ -165,10 +183,12 @@ async def test_requirement_catalog_is_stamped_on_the_agreement_terms(client):
 
 
 async def test_legacy_kind_is_rejected_with_422(client):
-    body = await funded(client)
-    response = await client.post(
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await http.post(
         f"/seller/transactions/{body['transaction_id']}/evidence",
-        headers=seller_headers(body),
+        headers=headers,
         data={"kind": "shipment_manifest"},
         files={"file": ("manifest.json", b"{}", "application/json")},
     )
@@ -178,10 +198,12 @@ async def test_legacy_kind_is_rejected_with_422(client):
 
 
 async def test_kind_and_requirement_id_together_are_rejected(client):
-    body = await funded(client)
-    response = await client.post(
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await http.post(
         f"/seller/transactions/{body['transaction_id']}/evidence",
-        headers=seller_headers(body),
+        headers=headers,
         data={"kind": "other", "requirement_id": "hardware"},
         files={"file": ("diag.csv", b"ram_gb,32\n", "text/csv")},
     )
@@ -189,10 +211,12 @@ async def test_kind_and_requirement_id_together_are_rejected(client):
 
 
 async def test_missing_requirement_id_is_rejected(client):
-    body = await funded(client)
-    response = await client.post(
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await http.post(
         f"/seller/transactions/{body['transaction_id']}/evidence",
-        headers=seller_headers(body),
+        headers=headers,
         files={"file": ("diag.csv", b"ram_gb,32\n", "text/csv")},
     )
     assert response.status_code == 422
@@ -200,27 +224,38 @@ async def test_missing_requirement_id_is_rejected(client):
 
 
 async def test_unknown_requirement_is_rejected(client):
-    body = await funded(client)
-    response = await upload_json(client, body, "not_a_requirement", {"x": 1})
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await upload_json(
+        http, body, "not_a_requirement", {"x": 1}, headers=headers
+    )
     assert response.status_code == 422
     assert "not_a_requirement" in response.json()["error"]["message"]
 
 
 async def test_system_owned_requirement_is_rejected(client):
-    body = await funded(client)
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
     response = await upload_json(
-        client,
+        http,
         body,
         "delivery_confirmation",
         {"delivered_at": "2026-10-26T12:00:00Z"},
+        headers=headers,
     )
     assert response.status_code == 422
     assert "seller-owned" in response.json()["error"]["message"]
 
 
 async def test_reference_requirement_accepts_a_tracking_reference(client):
-    body = await funded(client)
-    response = await upload_reference(client, body, "shipping", "TRK-1", "tracking")
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await upload_reference(
+        http, body, "shipping", "TRK-1", "tracking", headers=headers
+    )
     assert response.status_code == 201, response.text
     receipt = response.json()
     assert receipt["artifact_type"] == "reference"
@@ -229,54 +264,71 @@ async def test_reference_requirement_accepts_a_tracking_reference(client):
 
 
 async def test_reference_requirement_rejects_a_file(client):
-    body = await funded(client)
-    response = await upload_json(client, body, "shipping", {"tracking_number": "TRK-1"})
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await upload_json(
+        http, body, "shipping", {"tracking_number": "TRK-1"}, headers=headers
+    )
     assert response.status_code == 422
 
 
 async def test_file_requirement_rejects_a_reference(client):
-    body = await funded(client)
-    response = await upload_reference(client, body, "hardware", "TRK-1", "tracking")
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await upload_reference(
+        http, body, "hardware", "TRK-1", "tracking", headers=headers
+    )
     assert response.status_code == 422
 
 
 async def test_file_requirement_rejects_media_outside_the_catalog(client):
-    body = await funded(client)
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
     response = await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"%PDF-1.4",
         filename="report.pdf",
         media_type="application/pdf",
+        headers=headers,
     )
     assert response.status_code == 415
     assert "text/csv" in response.json()["error"]["message"]
 
 
 async def test_agreement_version_mismatch_is_rejected_with_409(client):
-    body = await funded(client)
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
     response = await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"ram_gb,32\n",
         filename="diag.csv",
         media_type="text/csv",
         agreement_version=body["agreement_version"] + 1,
+        headers=headers,
     )
     assert response.status_code == 409
 
 
 async def test_upload_before_funding_is_rejected_with_409(client):
-    body = await award(client, catalog_award_payload())
+    http, app = client
+    body = await award(http, catalog_award_payload())
+    headers = await _seller_headers(app)
     response = await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"ram_gb,32\n",
         filename="diag.csv",
         media_type="text/csv",
+        headers=headers,
     )
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "invalid_state"

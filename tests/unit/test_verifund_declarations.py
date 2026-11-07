@@ -13,9 +13,9 @@ from tests.support.award_flow import (
     award,
     award_payload,
     purchase_order,
-    seller_headers,
     upload_file,
 )
+from tests.support.seller_auth import clerk_seller_headers, seed_seller_profile
 from tests.unit.test_verifund_upload import (
     funded as _funded,
 )
@@ -24,8 +24,8 @@ from tests.unit.test_verifund_upload import (
 )
 
 
-async def funded(client):
-    body = await _funded(client)
+async def funded(client, app) -> dict:
+    body = await _funded(client, app)
     reported = await client.post(
         f"/transactions/{body['transaction_id']}/purchase-order",
         json=purchase_order(body),
@@ -49,24 +49,44 @@ async def client(tmp_path):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield client
+            yield client, app
+
+
+async def _seller_headers(app, seller_id: str = "northwind-audio") -> dict[str, str]:
+    suffix = seller_id.replace("-", "_")
+    await seed_seller_profile(
+        app,
+        clerk_org_id=f"org_{suffix}",
+        seller_id=seller_id,
+        display_name=seller_id,
+        clerk_user_id=f"user_{suffix}",
+    )
+    return clerk_seller_headers(
+        app,
+        sub=f"user_{suffix}",
+        org_id=f"org_{suffix}",
+        token=f"tok_{suffix}",
+    )
 
 
 async def test_declare_completes_requirement_and_records_attempt(client):
-    body = await funded(client)
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
     uploaded = await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"ram_gb,32\n",
         filename="diag.csv",
         media_type="text/csv",
+        headers=headers,
     )
     assert uploaded.status_code == 201, uploaded.text
 
-    response = await client.post(
+    response = await http.post(
         f"/seller/transactions/{body['transaction_id']}/requirements/hardware/declare",
-        headers=seller_headers(body),
+        headers=headers,
         json={},
     )
     assert response.status_code == 200, response.text
@@ -74,57 +94,65 @@ async def test_declare_completes_requirement_and_records_attempt(client):
     assert declared["declared_at"]
     assert declared["attempt"] == 1
 
-    trail = await client.get(
+    trail = await http.get(
         f"/seller/transactions/{body['transaction_id']}/requirements/hardware/declarations",
-        headers=seller_headers(body),
+        headers=headers,
     )
     assert trail.status_code == 200, trail.text
     assert [row["attempt"] for row in trail.json()["items"]] == [1]
 
 
 async def test_declare_with_zero_submissions_is_rejected(client):
-    body = await funded(client)
-    response = await client.post(
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
+    response = await http.post(
         f"/seller/transactions/{body['transaction_id']}/requirements/hardware/declare",
-        headers=seller_headers(body),
+        headers=headers,
         json={},
     )
     assert response.status_code == 400, response.text
 
 
 async def test_declare_unknown_requirement_returns_422(client):
-    body = await funded(client)
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
     uploaded = await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"ram_gb,32\n",
         filename="diag.csv",
         media_type="text/csv",
+        headers=headers,
     )
     assert uploaded.status_code == 201
-    response = await client.post(
+    response = await http.post(
         f"/seller/transactions/{body['transaction_id']}/requirements/not_a_thing/declare",
-        headers=seller_headers(body),
+        headers=headers,
         json={},
     )
     assert response.status_code == 422, response.text
 
 
 async def test_declaration_after_fail_starts_new_attempt(client):
-    body = await funded(client)
+    http, app = client
+    body = await funded(http, app)
+    headers = await _seller_headers(app)
     # first attempt: failing value
     await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"ram_gb,16\n",
         filename="diag.csv",
         media_type="text/csv",
+        headers=headers,
     )
-    first = await client.post(
+    first = await http.post(
         f"/seller/transactions/{body['transaction_id']}/requirements/hardware/declare",
-        headers=seller_headers(body),
+        headers=headers,
         json={},
     )
     assert first.status_code == 200, first.text
@@ -132,47 +160,41 @@ async def test_declaration_after_fail_starts_new_attempt(client):
 
     # second submission starts a new attempt; declaration closes it
     await upload_file(
-        client,
+        http,
         body,
         "hardware",
         data=b"ram_gb,64\n",
         filename="diag2.csv",
         media_type="text/csv",
+        headers=headers,
     )
-    second = await client.post(
+    second = await http.post(
         f"/seller/transactions/{body['transaction_id']}/requirements/hardware/declare",
-        headers=seller_headers(body),
+        headers=headers,
         json={},
     )
     assert second.status_code == 200, second.text
     assert second.json()["attempt"] == 2
 
-    trail = await client.get(
+    trail = await http.get(
         f"/seller/transactions/{body['transaction_id']}/requirements/hardware/declarations",
-        headers=seller_headers(body),
+        headers=headers,
     )
     assert [row["attempt"] for row in trail.json()["items"]] == [2, 1]
 
 
 async def test_declaration_cross_seller_returns_403(client):
-    body = await funded(client)
-    other = await award(
-        client,
-        award_payload(
-            run_id="run-other",
-            offer_id="offer-other",
-            request_id="rfq-other",
-            seller_id="other-seller",
-            requirements=requirement_catalog(),
-        ),
-    )
+    http, app = client
+    body = await funded(http, app)
+    other_headers = await _seller_headers(app, seller_id="other-seller")
     await upload_file(
-        client, body, "hardware", data=b"ram_gb,32\n",
+        http, body, "hardware", data=b"ram_gb,32\n",
         filename="diag.csv", media_type="text/csv",
+        headers=await _seller_headers(app),
     )
-    response = await client.post(
+    response = await http.post(
         f"/seller/transactions/{body['transaction_id']}/requirements/hardware/declare",
-        headers=seller_headers(other),
+        headers=other_headers,
         json={},
     )
     assert response.status_code in {403, 404}

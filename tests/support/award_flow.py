@@ -167,7 +167,9 @@ def purchase_order(award_body: dict) -> dict:
     }
 
 
-def seller_headers(award_body: dict) -> dict[str, str]:
+def seller_headers(award_body: dict, *, headers: dict[str, str] | None = None) -> dict[str, str]:
+    if headers is not None:
+        return headers
     return {"authorization": f"Bearer {award_body['seller_token']}"}
 
 
@@ -181,6 +183,7 @@ async def upload_file(
     media_type: str,
     captured_at: datetime | None = None,
     agreement_version: int | None = None,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     form: dict[str, str] = {"requirement_id": requirement_id}
     if captured_at is not None:
@@ -189,7 +192,7 @@ async def upload_file(
         form["agreement_version"] = str(agreement_version)
     return await client.post(
         f"/seller/transactions/{award_body['transaction_id']}/evidence",
-        headers=seller_headers(award_body),
+        headers=seller_headers(award_body, headers=headers),
         data=form,
         files={"file": (filename, data, media_type)},
     )
@@ -200,6 +203,8 @@ async def upload_json(
     award_body: dict,
     requirement_id: str,
     payload: dict,
+    *,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     return await upload_file(
         client,
@@ -208,6 +213,7 @@ async def upload_json(
         data=json.dumps(payload).encode(),
         filename=f"{requirement_id}.json",
         media_type="application/json",
+        headers=headers,
     )
 
 
@@ -217,10 +223,12 @@ async def upload_reference(
     requirement_id: str,
     reference: str,
     reference_type: str = "tracking",
+    *,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     return await client.post(
         f"/seller/transactions/{award_body['transaction_id']}/evidence",
-        headers=seller_headers(award_body),
+        headers=seller_headers(award_body, headers=headers),
         data={
             "requirement_id": requirement_id,
             "reference": reference,
