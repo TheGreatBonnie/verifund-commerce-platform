@@ -1,7 +1,7 @@
 # Single Shared A2A Endpoint for Seller Agents — Design
 
 Date: 2026-11-06
-Status: Design for approval. No code changes are made by this document.
+Status: Implemented by `docs/superpowers/plans/2026-11-07-single-shared-a2a-cutover.md`.
 Related docs:
 - `docs/superpowers/specs/single-a2a-endpoint-multiple-seller-agents.md` (source recommendation; superseded where it contradicts this document)
 - `docs/superpowers/specs/2026-11-06-verifund-multi-tenancy-design.md` (tenancy model, status axes, §12.2–§12.5 credential/registry/provisioning specs — binding)

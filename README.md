@@ -18,10 +18,11 @@ Northwind Audio, CircuitForge, and Aurora Supply.
 | Orchestrator agent | 9000 | AG-UI entrypoint for the console; mediates buyer/seller calls |
 | Buyer agent | 9100 | LangGraph negotiation graph, approval interrupt, purchase orders |
 | Registry | 9105 | Agent Card index and discovery |
-| Northwind Audio | 9201 | Independent seller A2A service |
-| CircuitForge | 9202 | Independent seller A2A service |
-| Aurora Supply | 9203 | Independent seller A2A service |
+| Shared seller | 9200 | Multi-tenant A2A host for all seller agents (one process) |
 | Verifund control plane | 9300 | Optional settlement authority; fake or PayPal Sandbox modes only |
+
+Discovery cards live at `/{seller_id}/.well-known/agent-card.json`, A2A JSON-RPC at
+`/{seller_id}/a2a`, and the A2A `tenant` is `agent_<seller_id>`.
 
 ```mermaid
 flowchart LR
@@ -29,12 +30,8 @@ flowchart LR
   Console -->|AG-UI| Orchestrator[Orchestrator agent]
   Orchestrator -->|mediates| Buyer[Buyer agent]
   Buyer -->|A2A JSON-RPC + SSE| Registry[Registry]
-  Orchestrator -->|A2A JSON-RPC + SSE| Northwind[Northwind Audio]
-  Orchestrator -->|A2A JSON-RPC + SSE| CircuitForge[CircuitForge]
-  Orchestrator -->|A2A JSON-RPC + SSE| Aurora[Aurora Supply]
-  Registry -. indexes .-> Northwind
-  Registry -. indexes .-> CircuitForge
-  Registry -. indexes .-> Aurora
+  Orchestrator -->|A2A JSON-RPC + SSE| Sellers[Shared seller :9200]
+  Registry -. indexes .-> Sellers
 ```
 
 The UI talks to the orchestrator over AG-UI. The orchestrator mediates buyer and seller
