@@ -126,8 +126,8 @@ def _matches(
         and _price(product) > max_unit_price_cents
     ):
         return False
-    if in_stock_only and not _offer_available(product):
-        return False
+    if in_stock_only:
+        return _offer_available(product)
     return True
 
 
@@ -253,5 +253,5 @@ async def fetch_marketplace_products(
         payload = response.json()
     products = payload.get("products") if isinstance(payload, dict) else None
     if not isinstance(products, list):
-        raise ValueError("marketplace aggregation did not return a product list")
+        raise TypeError("marketplace aggregation did not return a product list")
     return [product for product in products if isinstance(product, dict)]

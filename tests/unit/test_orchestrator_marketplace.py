@@ -237,7 +237,7 @@ async def test_fetch_rejects_a_malformed_payload():
     respx.get("http://buyer/api/marketplace/products").mock(
         return_value=httpx.Response(200, json={"products": "nope"})
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         await fetch_marketplace_products(
             base_url="http://buyer",
             internal_token="internal-token",
