@@ -41,7 +41,8 @@ async def create_onboarding(store, organization_id: str, actor_user_id: str) -> 
 
 
 async def submit_verification(
-    store, organization_id: str, submitted_by: str, documents: list | dict
+    store, organization_id: str, submitted_by: str, documents: list | dict,
+    *, auto_approve_sandbox: bool = False,
 ) -> dict:
     profile = await store.get_seller_profile_by_organization(organization_id)
     if profile is None:
@@ -60,6 +61,16 @@ async def submit_verification(
         resource_id=profile["seller_id"],
         payload={"documents": documents},
     )
+    if auto_approve_sandbox:
+        approved = await decide_verification(
+            store,
+            organization_id,
+            decision="verified",
+            note="Auto-approved in sandbox",
+            reviewer_user_id=submitted_by,
+        )
+        await store.upsert_onboarding(organization_id, "in_progress", "activation")
+        return approved
     return await store.get_seller_profile(profile["seller_id"])  # type: ignore[return-value]
 
 
