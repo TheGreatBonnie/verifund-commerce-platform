@@ -91,19 +91,31 @@ SHARED_DDL: list[str] = [
         organization_id TEXT NOT NULL,
         outbox_id TEXT PRIMARY KEY,
         transaction_id TEXT NOT NULL,
+        seller_id TEXT NOT NULL,
         kind TEXT NOT NULL,
+        filename TEXT NOT NULL DEFAULT '',
+        media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+        content BLOB NOT NULL DEFAULT X'',
+        note TEXT NOT NULL DEFAULT '',
+        captured_at TEXT,
         payload_json TEXT NOT NULL DEFAULT '{}',
         status TEXT NOT NULL DEFAULT 'pending',
         attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT NOT NULL,
         last_error TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        agent_id TEXT
+        sent_at TEXT,
+        agent_id TEXT,
+        UNIQUE (organization_id, transaction_id, kind)
     )""",
     """CREATE TABLE IF NOT EXISTS settlement_tokens (
         organization_id TEXT NOT NULL,
-        transaction_id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        seller_id TEXT NOT NULL DEFAULT '',
         token_json TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (organization_id, transaction_id)
     )""",
     """CREATE TABLE IF NOT EXISTS seller_agreement_reviews (
         organization_id TEXT NOT NULL,

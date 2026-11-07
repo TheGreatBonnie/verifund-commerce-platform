@@ -51,6 +51,31 @@ async def test_seller_configs_unique_seller_id(engine):
                 ))
 
 
+async def test_evidence_and_settlement_columns_exist(engine):
+    async with engine.connect() as conn:
+        evidence = {
+            row[1] for row in await conn.exec_driver_sql(
+                "PRAGMA table_info(evidence_outbox)"
+            )
+        }
+        settlement = {
+            row[1] for row in await conn.exec_driver_sql(
+                "PRAGMA table_info(settlement_tokens)"
+            )
+        }
+    assert {
+        "seller_id",
+        "filename",
+        "media_type",
+        "content",
+        "note",
+        "captured_at",
+        "next_attempt_at",
+        "sent_at",
+    } <= evidence
+    assert {"seller_id", "updated_at"} <= settlement
+
+
 async def test_inventory_pk_is_org_scoped(engine):
     async with engine.begin() as conn:
         await conn.execute(text(
