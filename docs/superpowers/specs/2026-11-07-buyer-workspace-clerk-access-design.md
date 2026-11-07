@@ -17,7 +17,7 @@ Buyer-side access still relies on legacy auth patterns that do not match the Cle
 ## Decisions (confirmed)
 
 1. **Scope:** **full parity** with the seller Clerk migration for migrated buyer paths — replace legacy `BuyerTokenService`/`buyer_txn` bearer auth on migrated control-plane buyer/agreement routes with a resolved `BuyerPrincipal` (Clerk for console/user actions, internal service auth for trusted automation), fail-closed tenant scoping, **no legacy buyer bearer tokens on migrated routes**.
-2. **Buyer identity model:** buyers are **individual Clerk users** in the product model. Resolution uses existing tenancy: Clerk identity resolves to a tenant (`identity.tenant_id`, personal org when no active Clerk org → `org:buyer`, or active org membership) and maps to **`buyer_profiles` by `organization_id`** to derive the stable `buyer_id`/org context. (This intentionally reuses the same server-side org/profile resolution pattern as sellers, anchored to buyer profiles.)
+2. **Buyer identity model:** buyers are **individual Clerk users** in the product model. Resolution uses a **direct `clerk_user_id → buyer_profile` mapping** (new `buyer_profiles.clerk_user_id` column, unique): Clerk identity provides `identity.clerk_user_id` (from `sub`) which resolves to the stable `buyer_id` (`get_buyer_profile_by_clerk_user_id`). **`organization_id` is deliberately NOT part of `BuyerPrincipal`** — buyers have no business org; the personal org in tenancy exists only for Seller/other tenant features. Ownership is `txn.buyer_id == principal.buyer_id` only (no `buyer_organization_id` OR fallback). Internal service auth resolves the same way via `x-buyer-clerk-user-id` (fallback: `x-buyer-id` → profile → `clerk_user_id`).
 3. **Console:** migrate **existing buyer-touching surfaces** (agreements buyer decisions, agreement pages/proxies, runs tied to buyer org, related proxies) to Clerk auth — do **not** require creating a full `/buyer/*` workspace in this migration.
 4. **Control plane routes:** migrate **both** `api/buyer.py` actions (`delivery-confirmed`, `accept`, `dispute`) **and** agreements buyer-decision paths (and buyer-related agreement auth where applicable).
 5. **Agreement approval tokens:** **replace `X-Approval-Token` buyer-decision flow with `BuyerPrincipal`-only decisions**. Preserve security invariants with required server-validated `agreement_version` + `agreement_hash`, required `Idempotency-Key`/idempotent replay semantics, and fail-closed ownership/state/scope checks.
@@ -51,26 +51,25 @@ Mirrored `BuyerPrincipal` migration (seller pattern): new buyer principal resolv
 Resolved only by the server (never from request body/query):
 
 - `buyer_id: str` — stable buyer identifier used by transactions/agreements/service APIs
-- `organization_id: str` — Clerk-resolved tenant (personal org or active org)
-- `actor: str` — audit actor (e.g. `clerk:<user_id>` or `service:buyer-settlement`)
+- `clerk_user_id: str | None` — Clerk `sub` used to resolve `buyer_id` (Clerk path); sourced from `buyer_profiles.clerk_user_id` for internal-service path (may be `None` only for legacy seed rows without a linked Clerk user — then Clerk auth fails closed)
+- `actor: str` — audit actor (`user:{local user_id}` for Clerk, `service:buyer-settlement` for internal)
 - `auth_kind: "clerk" | "internal_service"`
 - `scopes: set[str]` / capability flags (e.g. `txn:read`, `txn:act`, `agreement:decide`, `evidence:read`/`write` as needed)
-- optional `clerk_user_id` / source metadata for audit
 
 ### 1.2 Resolver (new `apps/verifund_control_plane/verifund_control_plane/api/buyer_auth.py`, mirroring `seller_auth.py`)
 
 Resolution order is explicit and fail-closed:
 
-1. **Internal service (buyer agent automation/settlement):** triggered by a dedicated header (proposed `X-Verifund-Buyer-Internal-Token`; finalize name in implementation if needed, keep explicit). Constant-time compare to `settings.buyer_settlement_internal_token` (proposed env `VERIFUND_BUYER_SETTLEMENT_INTERNAL_TOKEN`, shared by CP + buyer agent). Require explicit context headers (proposed `X-Buyer-Organization-Id` and/or `X-Buyer-Id`, plus route context such as `X-Transaction-Id`/agreement resource identifiers as required). Validate context against resolved buyer profile and target resource — **401** invalid/missing token, **404/403** fail-closed on ownership/context mismatch (no existence leak). Grant only minimal scopes needed.
+1. **Internal service (buyer agent automation/settlement):** `X-Verifund-Buyer-Internal-Token` constant-time compared to `settings.buyer_settlement_internal_token` (`VERIFUND_BUYER_SETTLEMENT_INTERNAL_TOKEN`, shared by CP + buyer agent). Require `X-Buyer-Clerk-User-Id` (fallback: `X-Buyer-Id` → profile → `clerk_user_id`). Validate against `buyer_profiles.clerk_user_id`/`buyer_id` and target resource — **401** invalid/missing token, **404/403** fail-closed on ownership/context mismatch (no existence leak). Grant only minimal scopes needed.
 
-2. **Clerk (console/user):** if not valid internal service auth, `require_identity(request)`. Resolve buyer profile by `identity.tenant_id` via `get_buyer_profile_by_organization` (fail closed if missing/ineligible). Derive `buyer_id`/`organization_id` from profile + identity; require eligible `org:buyer` context (personal org or active org membership with appropriate permissions/status). Map Clerk role/permissions to scopes (mirror seller pattern). **401** unauthenticated, **404/403** fail-closed per isolation semantics.
+2. **Clerk (console/user):** if not internal service auth, `require_identity(request)`. Resolve **directly by `identity.clerk_user_id`** via `get_buyer_profile_by_clerk_user_id` (fail closed 403 if no linked profile). `BuyerPrincipal.clerk_user_id = identity.clerk_user_id`. Role/permissions still gate scopes (`org:buyer` `approve` → `txn:act`/`agreement:decide`), but tenant is **not** used for buyer identity. **401** unauthenticated, **404/403** fail-closed.
 
 3. **Legacy removed from migrated routes:** no `BuyerTokenService.verify` / `buyer_txn` bearer, no `X-Approval-Token` decision auth on migrated agreement buyer-decision paths, no static console token auth for migrated buyer surfaces.
 
 ### 1.3 Authorization helpers
 
 - `require_buyer_principal(request, ...)` → `BuyerPrincipal`
-- `authorize_transaction_buyer(principal, txn)` / `authorize_agreement_buyer(principal, agreement)` — load resource, enforce ownership (`txn.buyer_id == principal.buyer_id` OR, when set/verified, `txn.buyer_organization_id == principal.organization_id`; agreement/txn buyer ownership) with **fail-closed 404** where appropriate. Reject client-supplied `buyer_id`/org filters on lists.
+- `authorize_transaction_buyer(principal, txn)` / `authorize_agreement_buyer(principal, agreement)` — load resource, enforce `txn/agreement.buyer_id == principal.buyer_id` with **fail-closed 404** where appropriate. Reject client-supplied `buyer_id` filters on lists.
 - Scope checks (e.g. `require_scope(principal, "txn:act")`) return safe errors per design.
 - Rate limiting re-keyed off principal (not legacy claims).
 
@@ -100,7 +99,7 @@ Resolution order is explicit and fail-closed:
 
 - **Settings:** add `buyer_settlement_internal_token` / `VERIFUND_BUYER_SETTLEMENT_INTERNAL_TOKEN` (and wire into app state as needed).
 - **Service (`service.py`):** `confirm_delivery`, `buyer_accept`, `open_dispute` accept authorized `buyer_id`/principal context (no reliance on legacy token claims). Agreement service `record_buyer_decision`/related methods refactored for no `X-Approval-Token` consumption path while preserving audit events/state-transition invariants.
-- **Repository:** buyer lists scoped to principal (reject client `buyer_id`/org filters); per-resource ownership via resolved `buyer_id`/`buyer_organization_id`. `buyer_tokens` table: no new writes from migrated flows. Resolver uses `buyer_profiles` by `organization_id` (existing tenancy schema/backfill).
+- **Repository:** buyer lists scoped to principal; ownership via resolved `buyer_id` only. `buyer_tokens` table: no new writes. Resolver uses `buyer_profiles.clerk_user_id` (new unique column; `organization_id` column retained only for seed/backfill compat, not used for Buyer auth).
 
 ## Section 3 — Console migration (existing buyer-touching surfaces)
 

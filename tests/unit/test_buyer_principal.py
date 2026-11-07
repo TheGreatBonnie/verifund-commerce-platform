@@ -38,7 +38,7 @@ async def tenancy(tmp_path):
 async def seeded_buyer(tenancy):
     ten, core = tenancy
     org = await ten.upsert_organization("org_b1", "Buyer Org", "buyer-org")
-    await ten.upsert_buyer_profile(org["id"], "demo-buyer")
+    await ten.upsert_buyer_profile(org["id"], "demo-buyer", clerk_user_id="user_buyer")
     return ten, core, org
 
 
@@ -53,14 +53,14 @@ async def test_internal_auth_resolves_principal(seeded_buyer):
     request = Req(
         headers={
             "x-verifund-buyer-internal-token": "buyer-secret",
-            "x-buyer-org-id": org["id"],
+            "x-buyer-clerk-user-id": "user_buyer",
         },
         app=app,
     )
     principal = await resolve_buyer_principal(request, required_scope="txn:read")
     assert principal == BuyerPrincipal(
         buyer_id="demo-buyer",
-        organization_id=org["id"],
+        clerk_user_id="user_buyer",
         actor="service:buyer-settlement",
         auth_kind="internal_service",
         scopes=frozenset({"txn:read", "txn:act", "agreement:decide"}),
@@ -76,7 +76,7 @@ async def test_internal_auth_wrong_token_is_401(seeded_buyer):
         )
     )
     request = Req(
-        headers={"x-verifund-buyer-internal-token": "bad", "x-buyer-org-id": org["id"]},
+        headers={"x-verifund-buyer-internal-token": "bad", "x-buyer-clerk-user-id": "user_buyer"},
         app=app,
     )
     with pytest.raises(VerifundError) as exc:
@@ -109,7 +109,7 @@ async def test_internal_auth_mismatched_buyer_id_is_403(seeded_buyer):
     request = Req(
         headers={
             "x-verifund-buyer-internal-token": "buyer-secret",
-            "x-buyer-org-id": org["id"],
+            "x-buyer-clerk-user-id": "user_buyer",
             "x-buyer-id": "other-buyer",
         },
         app=app,
@@ -138,22 +138,21 @@ async def test_clerk_auth_resolves_principal(seeded_buyer):
     principal = await resolve_buyer_principal(request, required_scope="txn:read")
     assert principal.auth_kind == "clerk"
     assert principal.buyer_id == "demo-buyer"
-    assert principal.organization_id == org["id"]
+    assert principal.clerk_user_id == "user_buyer"
     assert principal.actor == f"user:{user['id']}"
     assert "txn:read" in principal.scopes
 
 
-async def test_buyer_owns_transaction_by_id_and_org():
+async def test_buyer_owns_transaction_by_id():
     principal = BuyerPrincipal(
         buyer_id="demo-buyer",
-        organization_id="org-1",
+        clerk_user_id="user_buyer",
         actor="user:u1",
         auth_kind="clerk",
         scopes=frozenset({"txn:read"}),
     )
-    assert buyer_owns_transaction(principal, SimpleNamespace(buyer_id="demo-buyer", buyer_organization_id=None))
-    assert buyer_owns_transaction(principal, SimpleNamespace(buyer_id="other", buyer_organization_id="org-1"))
-    assert not buyer_owns_transaction(principal, SimpleNamespace(buyer_id="other", buyer_organization_id="org-2"))
+    assert buyer_owns_transaction(principal, SimpleNamespace(buyer_id="demo-buyer"))
+    assert not buyer_owns_transaction(principal, SimpleNamespace(buyer_id="other"))
 
 
 async def test_authorize_buyer_transaction_404s_on_cross_tenant(seeded_buyer):
@@ -166,12 +165,12 @@ async def test_authorize_buyer_transaction_404s_on_cross_tenant(seeded_buyer):
         )
     )
     # transaction record owned by other buyer
-    record = SimpleNamespace(buyer_id="other-buyer", buyer_organization_id="org-other")
+    record = SimpleNamespace(buyer_id="other-buyer")
     core.get_transaction = lambda tid, conn=None: _arecord(record)  # type: ignore
     async def _arecord(r):
         return r
     request = Req(
-        headers={"x-verifund-buyer-internal-token": "buyer-secret", "x-buyer-org-id": org["id"]},
+        headers={"x-verifund-buyer-internal-token": "buyer-secret", "x-buyer-clerk-user-id": "user_buyer"},
         app=app,
     )
     with pytest.raises(VerifundError) as exc:

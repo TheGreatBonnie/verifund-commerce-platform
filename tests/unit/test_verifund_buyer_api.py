@@ -31,9 +31,8 @@ async def client(tmp_path):
 
 async def _buyer_headers(client):
     app = client._transport.app
-    seeded = await seed_buyer_profile(app, clerk_org_id="org_buyer", buyer_id="demo-buyer")
-    org_id = seeded["org"]["id"]
-    return internal_buyer_headers(token="buyer-secret", organization_id=org_id, buyer_id="demo-buyer")
+    seeded = await seed_buyer_profile(app, buyer_id="demo-buyer")
+    return internal_buyer_headers(token="buyer-secret", clerk_user_id="user_buyer", buyer_id="demo-buyer")
 
 
 async def test_buyer_delivery_requires_token(client):
@@ -100,10 +99,10 @@ async def test_internal_buyer_can_call_delivery_confirmed(client):
     # State gate (ENFORCED) — an AWARDED txn is not yet in fulfilment so service returns 409; auth/ownership passed.
     assert response.status_code in {409}
 
-    # Cross-tenant: different buyer org gets 404 (no leak)
+    # Cross-buyer: different buyer gets 404 (no leak)
     app = client._transport.app
-    other = await seed_buyer_profile(app, clerk_org_id="org_other_buyer", buyer_id="other-buyer", clerk_user_id="user_other")
-    other_headers = internal_buyer_headers(token="buyer-secret", organization_id=other["org"]["id"], buyer_id="other-buyer")
+    other = await seed_buyer_profile(app, buyer_id="other-buyer", clerk_user_id="user_other")
+    other_headers = internal_buyer_headers(token="buyer-secret", clerk_user_id="user_other", buyer_id="other-buyer")
     denied = await client.post(
         f"/buyer/transactions/{txid}/accept", headers=other_headers, json={}
     )

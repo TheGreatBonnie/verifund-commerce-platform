@@ -9,7 +9,7 @@ def clerk_buyer_headers(
     app,
     *,
     sub="user_buyer",
-    org_id="org_buyer",
+    org_id=None,
     org_role="org:buyer",
     token="buyer-bearer",
 ):
@@ -49,7 +49,7 @@ async def _ensure_org_clerk_id(store, organization_id: str, clerk_org_id: str) -
 async def seed_buyer_profile(
     app,
     *,
-    clerk_org_id,
+    clerk_org_id=None,
     buyer_id,
     display_name=None,
     clerk_user_id="user_buyer",
@@ -58,32 +58,28 @@ async def seed_buyer_profile(
     user = await store.upsert_user(
         clerk_user_id, f"{clerk_user_id}@example.com", display_name or buyer_id
     )
-    existing_profile = await store.get_buyer_profile(buyer_id)
-    if existing_profile is not None:
-        organization_id = existing_profile["organization_id"]
-        await _ensure_org_clerk_id(store, organization_id, clerk_org_id)
-        org = await store.get_organization(organization_id)
-    else:
-        org = await store.upsert_organization(clerk_org_id, display_name or buyer_id, clerk_org_id)
-        organization_id = org["id"]
-        await store.upsert_buyer_profile(organization_id, buyer_id)
+    # Ensure a personal org exists for tenancy/backfill compat, but buyer identity
+    # is now keyed directly by clerk_user_id, not organization_id.
+    org = await store.ensure_personal_organization(user["id"])
+    organization_id = org["id"]
+    await store.upsert_buyer_profile(organization_id, buyer_id, clerk_user_id=clerk_user_id)
     await store.upsert_membership(
         organization_id, user["id"], "org:buyer", f"mem_{clerk_user_id}_{buyer_id}"
     )
     profile = await store.get_buyer_profile(buyer_id)
     return {
         "user": user,
-        "org": org or await store.get_organization(organization_id),
+        "org": org,
         "profile": profile,
     }
 
 
 def internal_buyer_headers(
-    *, token="buyer-internal-secret", organization_id: str, buyer_id: str | None = None
+    *, token="buyer-internal-secret", clerk_user_id: str, buyer_id: str | None = None
 ):
     headers = {
         "x-verifund-buyer-internal-token": token,
-        "x-buyer-org-id": organization_id,
+        "x-buyer-clerk-user-id": clerk_user_id,
     }
     if buyer_id:
         headers["x-buyer-id"] = buyer_id

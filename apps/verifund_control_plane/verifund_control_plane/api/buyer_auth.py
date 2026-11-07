@@ -13,7 +13,7 @@ from verifund_control_plane.tenancy.identity import require_identity
 @dataclass(frozen=True)
 class BuyerPrincipal:
     buyer_id: str
-    organization_id: str
+    clerk_user_id: str | None
     actor: str
     auth_kind: Literal["clerk", "internal_service"]
     scopes: frozenset[str]
@@ -28,20 +28,20 @@ def _constant_time_eq(left: str | None, right: str | None) -> bool:
     return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
-async def _principal_for_org(
+async def _principal_for_clerk_user(
     store: Any,
-    organization_id: str,
+    clerk_user_id: str,
     *,
     actor: str,
     auth_kind: Literal["clerk", "internal_service"],
     scopes: frozenset[str],
 ) -> BuyerPrincipal:
-    profile = await store.get_buyer_profile_by_organization(organization_id)
+    profile = await store.get_buyer_profile_by_clerk_user_id(clerk_user_id)
     if profile is None:
         raise VerifundError("forbidden", "buyer access denied", status_code=403)
     return BuyerPrincipal(
         buyer_id=profile["buyer_id"],
-        organization_id=organization_id,
+        clerk_user_id=clerk_user_id,
         actor=actor,
         auth_kind=auth_kind,
         scopes=scopes,
@@ -58,20 +58,20 @@ async def resolve_buyer_principal(request: Request, *, required_scope: str) -> B
             raise VerifundError(
                 "unauthorized", "buyer access is required", status_code=401
             )
-        org_id = request.headers.get("x-buyer-org-id")
-        if not org_id:
+        clerk_user_id = request.headers.get("x-buyer-clerk-user-id")
+        if not clerk_user_id:
             buyer_id = request.headers.get("x-buyer-id")
             if buyer_id:
                 profile = await request.app.state.tenancy.get_buyer_profile(buyer_id)
                 if profile is not None:
-                    org_id = profile.get("organization_id")
-        if not org_id:
+                    clerk_user_id = profile.get("clerk_user_id")
+        if not clerk_user_id:
             raise VerifundError(
                 "unauthorized", "buyer access is required", status_code=401
             )
-        principal = await _principal_for_org(
+        principal = await _principal_for_clerk_user(
             request.app.state.tenancy,
-            org_id,
+            clerk_user_id,
             actor="service:buyer-settlement",
             auth_kind="internal_service",
             scopes=_INTERNAL_SCOPES,
@@ -98,9 +98,9 @@ async def resolve_buyer_principal(request: Request, *, required_scope: str) -> B
     )
     if has_act:
         scopes.update({"txn:act", "agreement:decide"})
-    principal = await _principal_for_org(
+    principal = await _principal_for_clerk_user(
         request.app.state.tenancy,
-        identity.tenant_id,
+        identity.clerk_user_id,
         actor=f"user:{identity.user_id}",
         auth_kind="clerk",
         scopes=frozenset(scopes),
@@ -111,10 +111,7 @@ async def resolve_buyer_principal(request: Request, *, required_scope: str) -> B
 
 
 def buyer_owns_transaction(principal: BuyerPrincipal, record: Any) -> bool:
-    if getattr(record, "buyer_id", None) == principal.buyer_id:
-        return True
-    org_id = getattr(record, "buyer_organization_id", None)
-    return bool(org_id and org_id == principal.organization_id)
+    return getattr(record, "buyer_id", None) == principal.buyer_id
 
 
 async def authorize_buyer_transaction(
@@ -131,11 +128,7 @@ async def authorize_buyer_transaction(
 
 
 def buyer_owns_agreement(principal: BuyerPrincipal, agreement: Any) -> bool:
-    if getattr(agreement, "buyer_id", None) == principal.buyer_id:
-        return True
-    # If agreement carries org hint, allow org match (defensive; buyer_id is primary).
-    org_id = getattr(agreement, "buyer_organization_id", None)
-    return bool(org_id and org_id == principal.organization_id)
+    return getattr(agreement, "buyer_id", None) == principal.buyer_id
 
 
 async def authorize_buyer_agreement(

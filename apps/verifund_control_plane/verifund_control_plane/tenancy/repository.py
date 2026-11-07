@@ -89,6 +89,7 @@ class TenancyRepository:
             self.metadata,
             Column("buyer_id", String, primary_key=True),
             Column("organization_id", String, unique=True, nullable=False),
+            Column("clerk_user_id", String, unique=True, nullable=True),
             Column("created_at", String, nullable=False),
         )
         self.organization_invitations = Table(
@@ -197,6 +198,20 @@ class TenancyRepository:
         await configure_sqlite(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
+            # Idempotent column migration for existing buyer_profiles
+            try:
+                cols = [
+                    r[0]
+                    for r in (
+                        await conn.exec_driver_sql("PRAGMA table_info(buyer_profiles) ")
+                    ).all()
+                ]
+                if "clerk_user_id" not in cols:
+                    await conn.exec_driver_sql(
+                        "ALTER TABLE buyer_profiles ADD COLUMN clerk_user_id TEXT"
+                    )
+            except Exception:
+                pass
 
     async def upsert_user(
         self, clerk_user_id: str, email: str | None, name: str | None
@@ -596,18 +611,52 @@ class TenancyRepository:
             await conn.execute(self.seller_profiles.insert().values(**profile))
         return org
 
-    async def upsert_buyer_profile(self, organization_id: str, buyer_id: str) -> dict:
+    async def upsert_buyer_profile(
+        self, organization_id: str, buyer_id: str, clerk_user_id: str | None = None
+    ) -> dict:
         existing = await self.get_buyer_profile(buyer_id)
         if existing:
+            if clerk_user_id and existing.get("clerk_user_id") != clerk_user_id:
+                async with self.engine.begin() as conn:
+                    await conn.execute(
+                        self.buyer_profiles.update()
+                        .where(self.buyer_profiles.c.buyer_id == buyer_id)
+                        .values(clerk_user_id=clerk_user_id)
+                    )
+                return await self.get_buyer_profile(buyer_id)  # ty: ignore[invalid-return-type]
             return existing
         row = {
             "buyer_id": buyer_id,
             "organization_id": organization_id,
+            "clerk_user_id": clerk_user_id,
             "created_at": _now(),
         }
         async with self.engine.begin() as conn:
             await conn.execute(self.buyer_profiles.insert().values(**row))
         return row
+
+    async def link_buyer_profile_clerk_user(
+        self, buyer_id: str, clerk_user_id: str
+    ) -> dict | None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.buyer_profiles.update()
+                .where(self.buyer_profiles.c.buyer_id == buyer_id)
+                .values(clerk_user_id=clerk_user_id)
+            )
+        return await self.get_buyer_profile(buyer_id)
+
+    async def get_buyer_profile_by_clerk_user_id(
+        self, clerk_user_id: str
+    ) -> dict | None:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.buyer_profiles).where(
+                    self.buyer_profiles.c.clerk_user_id == clerk_user_id
+                )
+            )
+            row = result.first()
+            return dict(row._mapping) if row else None
 
     async def get_buyer_profile(self, buyer_id: str) -> dict | None:
         async with self.engine.connect() as conn:
