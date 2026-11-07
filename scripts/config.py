@@ -356,7 +356,7 @@ def nebius_model() -> str:
 def seller_tokens_json() -> str:
     configured = _env("BUYER_SELLER_TOKENS", "").strip()
 
-    tokens = {seller.seller_id: seller.token for seller in SELLERS}
+    tokens = {seller.seller_id: buyer_agent_token() for seller in SELLERS}
     if configured:
         try:
             overrides = json.loads(configured)

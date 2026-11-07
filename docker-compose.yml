@@ -23,8 +23,8 @@ services:
       PORT: 9105
       REGISTRY_DATABASE_URL: sqlite+aiosqlite:////app/data/registry.db
       REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
-      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","northwind","circuitforge","aurora","summit-tech","verifund-agent","host.docker.internal"]'
-      ALLOWED_CARD_URLS: '["http://northwind:9201/.well-known/agent-card.json","http://circuitforge:9202/.well-known/agent-card.json","http://aurora:9203/.well-known/agent-card.json","http://summit-tech:9204/.well-known/agent-card.json"]'
+      ALLOWED_CARD_HOSTS: '["127.0.0.1","localhost","seller-shared","verifund-agent","host.docker.internal"]'
+      ALLOWED_CARD_URLS: '["http://seller-shared:9200/northwind-audio/.well-known/agent-card.json","http://seller-shared:9200/circuitforge/.well-known/agent-card.json","http://seller-shared:9200/aurora-supply/.well-known/agent-card.json","http://seller-shared:9200/summit-tech/.well-known/agent-card.json"]'
     ports:
       - "127.0.0.1:9105:9105"
     healthcheck:
@@ -33,98 +33,28 @@ services:
       timeout: 3s
       retries: 20
 
-  northwind:
+  seller-shared:
     <<: *python-service
     command: python -m seller_agent
     environment:
       <<: *model-env
       HOST: 0.0.0.0
-      PORT: 9201
-      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/northwind.yaml
-      PUBLIC_BASE_URL: http://northwind:9201
-      SELLER_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
-      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/northwind.db
+      PORT: 9200
+      SELLER_CONFIG_SOURCE: shared
+      SELLER_SHARED_DB_URL: sqlite+aiosqlite:////app/data/sellers.db
+      SELLER_INTERNAL_TOKEN: ${SELLER_INTERNAL_TOKEN:-dev-seller-internal}
+      SELLER_CHECKPOINT_PATH: /app/data/seller-checkpoints.sqlite
+      PUBLIC_BASE_URL: http://seller-shared:9200
+      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
       VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_URL: http://verifund:9300
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
       VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
       VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
     ports:
-      - "127.0.0.1:9201:9201"
+      - "127.0.0.1:9200:9200"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9201/health', timeout=2)"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  circuitforge:
-    <<: *python-service
-    command: python -m seller_agent
-    environment:
-      <<: *model-env
-      HOST: 0.0.0.0
-      PORT: 9202
-      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/circuitforge.yaml
-      PUBLIC_BASE_URL: http://circuitforge:9202
-      SELLER_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
-      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/circuitforge.db
-      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
-      VERIFUND_URL: http://verifund:9300
-      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
-      VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
-      VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
-    ports:
-      - "127.0.0.1:9202:9202"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9202/health', timeout=2)"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  aurora:
-    <<: *python-service
-    command: python -m seller_agent
-    environment:
-      <<: *model-env
-      HOST: 0.0.0.0
-      PORT: 9203
-      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/aurora.yaml
-      PUBLIC_BASE_URL: http://aurora:9203
-      SELLER_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
-      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/aurora.db
-      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
-      VERIFUND_URL: http://verifund:9300
-      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
-      VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
-      VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
-    ports:
-      - "127.0.0.1:9203:9203"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9203/health', timeout=2)"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  summit-tech:
-    <<: *python-service
-    command: python -m seller_agent
-    environment:
-      <<: *model-env
-      HOST: 0.0.0.0
-      PORT: 9204
-      PROFILE_PATH: /app/apps/seller_agent/seller_agent/profiles/summit-tech.yaml
-      PUBLIC_BASE_URL: http://summit-tech:9204
-      SELLER_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
-      SELLER_DATABASE_URL: sqlite+aiosqlite:////app/data/summit-tech.db
-      VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
-      VERIFUND_URL: http://verifund:9300
-      VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
-      VERIFUND_AUTO_EVIDENCE: ${VERIFUND_AUTO_EVIDENCE:-true}
-      VERIFUND_EVIDENCE_RETRY_SECONDS: ${VERIFUND_EVIDENCE_RETRY_SECONDS:-2}
-    ports:
-      - "127.0.0.1:9204:9204"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9204/health', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9200/health', timeout=2)"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -137,25 +67,21 @@ services:
     depends_on:
       registry:
         condition: service_healthy
-      northwind:
+      verifund:
         condition: service_healthy
-      circuitforge:
-        condition: service_healthy
-      aurora:
-        condition: service_healthy
-      summit-tech:
+      seller-shared:
         condition: service_healthy
     environment:
       REGISTRY_URL: http://registry:9105
       REGISTRY_ADMIN_TOKEN: ${REGISTRY_ADMIN_TOKEN:-dev-registry-admin}
-      NORTHWIND_DATABASE_URL: sqlite+aiosqlite:////app/data/northwind.db
-      CIRCUITFORGE_DATABASE_URL: sqlite+aiosqlite:////app/data/circuitforge.db
-      AURORA_DATABASE_URL: sqlite+aiosqlite:////app/data/aurora.db
-      SUMMIT_TECH_DATABASE_URL: sqlite+aiosqlite:////app/data/summit-tech.db
-      NORTHWIND_PUBLIC_BASE_URL: http://northwind:9201
-      CIRCUITFORGE_PUBLIC_BASE_URL: http://circuitforge:9202
-      AURORA_PUBLIC_BASE_URL: http://aurora:9203
-      SUMMIT_TECH_PUBLIC_BASE_URL: http://summit-tech:9204
+      VERIFUND_DATABASE_URL: sqlite+aiosqlite:////app/data/verifund.db
+      SELLER_SHARED_DB_URL: sqlite+aiosqlite:////app/data/sellers.db
+      SELLER_SHARED_URL: http://seller-shared:9200
+      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
+      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
+      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
+      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
+      SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
     volumes:
       - marketmesh-data:/app/data
 
@@ -203,11 +129,8 @@ services:
       ORCHESTRATOR_URL: http://orchestrator:9000
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       BUYER_A2A_URL: http://buyer:9100
-      SELLER_URLS: http://northwind:9201,http://circuitforge:9202,http://aurora:9203,http://summit-tech:9204
-      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
-      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
-      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
-      SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
+      SELLER_SHARED_URL: http://seller-shared:9200
+      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
       BUYER_INTERNAL_URL: http://buyer:9100
       BUYER_INTERNAL_TOKEN: ${BUYER_INTERNAL_TOKEN:-dev-buyer-internal}
       VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
@@ -240,14 +163,8 @@ services:
       BUYER_CONSOLE_API_TOKEN: ${BUYER_CONSOLE_API_TOKEN:-dev-console}
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       REGISTRY_URL: http://registry:9105
-      NORTHWIND_A2A_URL: http://northwind:9201
-      CIRCUITFORGE_A2A_URL: http://circuitforge:9202
-      AURORA_A2A_URL: http://aurora:9203
-      SUMMIT_TECH_A2A_URL: http://summit-tech:9204
-      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
-      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
-      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
-      SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
+      SELLER_SHARED_URL: http://seller-shared:9200
+      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
       VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       NEXT_TELEMETRY_DISABLED: "1"

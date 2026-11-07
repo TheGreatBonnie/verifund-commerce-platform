@@ -12,21 +12,31 @@ def clear(monkeypatch, *names: str) -> None:
 
 
 def test_registry_environment_allows_default_seller_card_urls(monkeypatch):
-    clear(
-        monkeypatch,
-        "ALLOWED_CARD_URLS",
-        "NORTHWIND_PUBLIC_BASE_URL",
-        "CIRCUITFORGE_PUBLIC_BASE_URL",
-        "AURORA_PUBLIC_BASE_URL",
-        "SUMMIT_TECH_PUBLIC_BASE_URL",
-    )
+    clear(monkeypatch, "ALLOWED_CARD_URLS", "SELLER_SHARED_URL")
     env = dev.registry_environment("scripted")
     assert json.loads(env["ALLOWED_CARD_URLS"]) == [
-        "http://127.0.0.1:9201/.well-known/agent-card.json",
-        "http://127.0.0.1:9202/.well-known/agent-card.json",
-        "http://127.0.0.1:9203/.well-known/agent-card.json",
-        "http://127.0.0.1:9204/.well-known/agent-card.json",
+        "http://127.0.0.1:9200/aurora-supply/.well-known/agent-card.json",
+        "http://127.0.0.1:9200/circuitforge/.well-known/agent-card.json",
+        "http://127.0.0.1:9200/northwind-audio/.well-known/agent-card.json",
+        "http://127.0.0.1:9200/summit-tech/.well-known/agent-card.json",
     ]
+
+
+def test_shared_seller_environment(monkeypatch):
+    clear(
+        monkeypatch,
+        "SELLER_SHARED_PORT",
+        "SELLER_SHARED_URL",
+        "SELLER_INTERNAL_TOKEN",
+        "SELLER_CHECKPOINT_PATH",
+        "BUYER_AGENT_TOKEN",
+    )
+    env = dev.shared_seller_environment("scripted")
+    assert env["PORT"] == "9200"
+    assert env["SELLER_CONFIG_SOURCE"] == "shared"
+    assert env["SELLER_SHARED_DB_URL"].endswith("sellers.db")
+    assert env["PUBLIC_BASE_URL"] == "http://127.0.0.1:9200"
+    assert env["SELLER_INTERNAL_TOKEN"] == "dev-seller-internal"
 
 
 def test_wait_for_http_treats_auth_protected_404_as_ready(monkeypatch):

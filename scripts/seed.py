@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import httpx
 from commerce_core.pricing import load_policy
 from config import (
@@ -21,7 +23,10 @@ from config import (
     shared_seller_url,
     verifund_database_url,
 )
-from seed_shared import seed_seller_rows
+try:
+    from .seed_shared import seed_seller_rows
+except ImportError:
+    from seed_shared import seed_seller_rows
 from seller_agent.shared_schema import (
     configure_shared_engine,
     create_shared_schema,
