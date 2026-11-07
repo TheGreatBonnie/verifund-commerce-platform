@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.onboarding.service import (
     create_onboarding,
+    save_profile_and_continue,
     submit_verification,
 )
 from verifund_control_plane.tenancy.identity import require_identity
@@ -15,6 +16,10 @@ router = APIRouter()
 
 class VerificationSubmit(BaseModel):
     documents: list | dict = Field(default_factory=list)
+
+
+class ProfileSave(BaseModel):
+    display_name: str = Field(min_length=1, max_length=128)
 
 
 @router.post("/v1/seller/onboarding", status_code=201)
@@ -45,10 +50,24 @@ async def get_onboarding(request: Request) -> dict:
     return {"profile": profile, "onboarding": onboarding}
 
 
+@router.post("/v1/seller/onboarding/profile")
+async def save_profile(request: Request, body: ProfileSave) -> dict:
+    identity = await require_identity(request)
+    store = request.app.state.tenancy
+    return await save_profile_and_continue(
+        store, identity.tenant_id, identity.user_id, body.display_name
+    )
+
+
 @router.post("/v1/seller/verification/submit")
 async def submit(request: Request, body: VerificationSubmit) -> dict:
     identity = await require_identity(request)
     store = request.app.state.tenancy
+    settings = request.app.state.settings
     return await submit_verification(
-        store, identity.tenant_id, identity.user_id, body.documents
+        store,
+        identity.tenant_id,
+        identity.user_id,
+        body.documents,
+        auto_approve_sandbox=bool(getattr(settings, "is_sandbox", False)),
     )
