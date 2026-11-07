@@ -4,25 +4,30 @@ The seller-facing `/seller/*` workspace drives the seller leg of the
 requirement-driven evidence flow (design spec
 `docs/superpowers/specs/2026-11-04-verifund-seller-evidence-target-design.md`
 §3.9–§3.10, plan `docs/superpowers/plans/2026-11-04-verifund-seller-evidence-target-implementation.md`
-Tasks 23–27). No mock data: every screen reads a scoped control-plane
-endpoint with the seller's bearer token.
+Tasks 23–27, migrated to Clerk access by
+`docs/superpowers/specs/2026-11-07-seller-workspace-clerk-access-design.md`).
+No mock data: every screen reads a scoped control-plane endpoint.
 
-## Access (invitation exchange)
+## Access (Clerk organization identity)
 
-1. Ops issues a single-use invitation:
-   `POST /ops/transactions/{id}/issue-invitation` (Ops-authenticated).
-2. The seller opens `/fulfillment/access/{token}`. The page renders a
-   server-side exchange form; confirming calls
-   `POST /fulfillment/access/{token}`, which validates expiry, seller
-   ownership, and transaction match on the server, burns the invitation,
-   and returns a seller bearer token (`txn:read` + `evidence:write`).
-3. The console stores the token **server-side** in the HttpOnly cookie
-   `verifund_seller_sessions` (a per-transaction token map) and redirects
-   to `/seller/fulfillment/{transaction_id}`. The bearer token never
-   reaches the browser; server components and route handlers attach it.
+1. The seller verifies their organization (onboarding profile +
+   verification) and signs in with Clerk. The console's `auth()` identity
+   (user + organization) is forwarded to the control plane via
+   `controlPlaneForUser`; the control plane resolves the seller profile
+   for `identity.tenant_id` and scopes every read/write to owned
+   transactions (`seller_id` / `seller_organization_id`).
+2. The legacy per-transaction bearer-token cookie
+   (`verifund_seller_sessions`) and invitation exchange are no longer
+   used for workspace data access. Without a verified Clerk organization
+   with a seller profile, `/seller/*` shows "Seller access is required"
+   and the control plane fails closed (401/403, 404 for cross-tenant).
 
-Without a valid session, `/seller/*` renders an access gate that points the
-seller back to their invitation link.
+Settlement (trusted internal service) uses a separate internal auth path:
+`X-Verifund-Internal-Token` (shared secret
+`VERIFUND_SETTLEMENT_INTERNAL_TOKEN`) plus validated `X-Seller-Org-Id` /
+`X-Seller-Id` context, with only `txn:read` + `evidence:write` for owned
+transactions. Legacy bearer seller tokens are rejected (401) on migrated
+`/seller/*` data routes; token issuance remains for agreement/buyer flows.
 
 ## Routes (all under `/seller`, auth-gated layout)
 
@@ -62,7 +67,8 @@ Buyer identity is deliberately not shown (privacy decision, spec §3.10.6).
   (`POST /seller/transactions/{id}/dispute-evidence`, file-only,
   `purpose=dispute`, ignored by verification/rollup).
 
-Console proxies (Bearer attached server-side):
+Console proxies (Clerk auth via `auth.protect()` + `controlPlaneForUser`;
+uploads forward `FormData` without forcing `content-type`):
 
 - `POST /api/seller/transactions/[id]/evidence`
 - `POST /api/seller/transactions/[id]/dispute-evidence`
@@ -102,7 +108,9 @@ it never says escrow, and payout states stay distinct from capture.
 - List counts (`counts_by_state`) are computed over **all** of the
   seller's transactions, not the returned page.
 - Seller-scoped list endpoints reject a `seller_id` query parameter
-  (the token's `seller_id` is the only scope key).
+  (the resolved principal's `seller_id` is the only scope key; client-supplied
+  org/seller values are never trusted). Evidence uploads are addressed by
+  `requirement_id` and settlement uploads use the same contract (no `kind`).
 
 ## Current limits
 
