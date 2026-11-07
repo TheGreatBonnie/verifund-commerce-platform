@@ -27,8 +27,14 @@ class BuyerSettlementClient:
         ops_token: str,
         actor: str = "buyer-agent",
         timeout_seconds: float = 20.0,
+        buyer_settlement_internal_token: str | None = None,
+        buyer_clerk_user_id: str | None = None,
+        buyer_id: str | None = None,
     ) -> None:
         self.actor = actor
+        self._buyer_settlement_internal_token = buyer_settlement_internal_token
+        self._buyer_clerk_user_id = buyer_clerk_user_id
+        self._buyer_id = buyer_id
         self._client = VerifundClient(
             base_url,
             ops_token=ops_token,
@@ -45,6 +51,12 @@ class BuyerSettlementClient:
             "x-actor-id": self.actor,
             "x-actor-type": "buyer",
         }
+        if self._buyer_settlement_internal_token:
+            headers["x-verifund-buyer-internal-token"] = self._buyer_settlement_internal_token
+            if self._buyer_id:
+                headers["x-buyer-id"] = self._buyer_id
+            if self._buyer_clerk_user_id:
+                headers["x-buyer-clerk-user-id"] = self._buyer_clerk_user_id
         if idempotency_key:
             headers["idempotency-key"] = idempotency_key
         return headers
@@ -92,12 +104,9 @@ class BuyerSettlementClient:
     async def issue_approval_token(
         self, agreement_id: str, *, idempotency_key: str | None = None
     ) -> dict:
-        response = await self._client._client.post(
-            f"{self._client.base_url}/agreements/{agreement_id}/approval-token",
-            headers=self._agreement_headers(idempotency_key=idempotency_key),
+        raise RuntimeError(
+            "buyer approval tokens are not used; authenticate and submit decision"
         )
-        response.raise_for_status()
-        return response.json()
 
     async def record_seller_decision(
         self,
@@ -154,13 +163,16 @@ class BuyerSettlementClient:
     async def buyer_decision(
         self,
         agreement_id: str,
-        token: str,
-        payload: dict,
+        token: str | None = None,
+        payload: dict | None = None,
         *,
         idempotency_key: str | None = None,
     ) -> dict:
+        # token param kept for backward compatibility (ignored).
+        if payload is None and isinstance(token, dict):
+            payload, token = token, None  # type: ignore[assignment]
+        assert payload is not None
         headers = self._agreement_headers(idempotency_key=idempotency_key)
-        headers["x-approval-token"] = token
         response = await self._client._client.post(
             f"{self._client.base_url}/agreements/{agreement_id}/buyer-decision",
             json=payload,

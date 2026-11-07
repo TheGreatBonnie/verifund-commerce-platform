@@ -82,6 +82,17 @@ class Settings(BaseSettings):
         default="dev-verifund-ops",
         validation_alias=AliasChoices("VERIFUND_OPS_TOKEN", "BUYER_VERIFUND_OPS_TOKEN"),
     )
+    buyer_settlement_internal_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "VERIFUND_BUYER_SETTLEMENT_INTERNAL_TOKEN",
+            "BUYER_SETTLEMENT_INTERNAL_TOKEN",
+        ),
+    )
+    buyer_clerk_user_id: str = Field(
+        default="user_buyer",
+        validation_alias=AliasChoices("BUYER_CLERK_USER_ID"),
+    )
     verifund_timeout_seconds: float = Field(
         default=20.0,
         validation_alias=AliasChoices("VERIFUND_TIMEOUT_SECONDS"),

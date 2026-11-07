@@ -85,13 +85,17 @@ async def agreed(client) -> dict:
         },
         headers=OPS,
     )
-    # buyer approval via agreement token
+    # buyer approval via BuyerPrincipal (internal service auth)
     agr_id = award["agreement"]["agreement_id"]
-    token_resp = await client.post(
-        f"/agreements/{agr_id}/approval-token",
-        headers={**OPS, "idempotency-key": "tok:run-1"},
+    from tests.support.buyer_auth import internal_buyer_headers, seed_buyer_profile
+
+    client._transport.app = client._transport.app
+    if not getattr(client._transport.app.state.settings, "buyer_settlement_internal_token", None):
+        client._transport.app.state.settings.buyer_settlement_internal_token = "buyer-secret"
+    await seed_buyer_profile(client._transport.app, buyer_id=award.get("buyer_id", "demo-buyer"))
+    _buyer_headers = internal_buyer_headers(
+        token="buyer-secret", clerk_user_id="user_buyer", buyer_id=award.get("buyer_id", "demo-buyer")
     )
-    token = token_resp.json()["token"]
     await client.post(
         f"/agreements/{agr_id}/buyer-decision",
         json={
@@ -101,7 +105,7 @@ async def agreed(client) -> dict:
             "note": "",
             "idempotency_key": "bd:run-1",
         },
-        headers={**OPS, "idempotency-key": "bd:run-1", "X-Approval-Token": token},
+        headers={**_buyer_headers, "idempotency-key": "bd:run-1"},
     )
     await client.post(
         f"/transactions/{txid}/approve",

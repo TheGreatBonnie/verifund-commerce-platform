@@ -352,10 +352,11 @@ async def revoke_seller_token(
 async def issue_buyer_token(
     transaction_id: str, request: Request
 ) -> dict[str, Any]:
-    token = await _service(request).issue_buyer_token(
-        transaction_id, actor=actor(request)
+    raise VerifundError(
+        "gone",
+        "buyer bearer tokens are not used; authenticate via Clerk or internal service auth",
+        status_code=410,
     )
-    return {"token": token}
 
 
 @router.post(

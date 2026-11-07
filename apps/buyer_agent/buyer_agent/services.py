@@ -69,6 +69,10 @@ def build_services(settings: Settings, engine: AsyncEngine) -> BuyerServices:
             settings.verifund_url,
             ops_token=settings.verifund_ops_token,
             timeout_seconds=settings.verifund_timeout_seconds,
+            buyer_settlement_internal_token=getattr(
+                settings, "buyer_settlement_internal_token", None
+            ),
+            buyer_clerk_user_id=getattr(settings, "buyer_clerk_user_id", "user_buyer"),
         )
         agreements = BuyerAgreementService(
             client=settlement,

@@ -247,16 +247,21 @@ class BuyerAgreementService:
         return await self.client.precheck(transaction_id, agreement_dict)
 
     async def issue_approval_token(self, agreement_id: str) -> dict[str, Any]:
-        return await self.client.issue_approval_token(agreement_id)
+        raise RuntimeError(
+            "buyer approval tokens are not used; authenticate and submit decision"
+        )
 
     async def buyer_decision(
         self,
         agreement_id: str,
-        token: str,
-        decision: Any,
+        token: str | None = None,
+        decision: Any = None,
         note: str = "",
         change_set: Any = None,
     ) -> dict[str, Any]:
+        # token kept for backward compatibility (ignored when dict payload passed).
+        if isinstance(token, dict) and decision is None:
+            decision, token = token, None
         payload = {
             "agreement_version": getattr(decision, "agreement_version", None),
             "agreement_hash": getattr(decision, "agreement_hash", None),

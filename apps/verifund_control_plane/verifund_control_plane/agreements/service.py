@@ -281,7 +281,11 @@ class AgreementService:
         await self.repo.issue_token(conn, record)
         return raw, record
 
-    async def record_buyer_decision(self, conn, agreement_id, raw_token, request, actor, now):
+    async def record_buyer_decision(self, conn, agreement_id, request, actor, now):
+        if request.idempotency_key:
+            replay = await self.repo.get_decision_by_idempotency(request.idempotency_key, conn=conn)
+            if replay is not None:
+                return await self.repo.get(agreement_id, conn=conn)
         agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
@@ -292,38 +296,11 @@ class AgreementService:
         await self._ensure_not_expired(conn, agreement, now)
         if actor.actor_type != "buyer" or actor.actor_id != agreement.buyer_id:
             raise AgreementError("forbidden", "only the agreement buyer may decide")
-        try:
-            token_claims = self.token_service.verify(raw_token)
-        except ValueError as exc:
-            raise AgreementError("token_revoked", str(exc)) from exc
-        jti = token_claims.get("jti")
-        if not isinstance(jti, str):
-            raise AgreementError("token_revoked", "token is missing its identifier")
-        token = await self.repo.get_token(jti, conn=conn)
-        if token is None:
-            raise AgreementError("token_revoked", "unknown token")
-        if token.token_hash != self.token_service.token_hash(raw_token):
-            raise AgreementError("token_revoked", "token hash mismatch")
-        if token.used_at is not None:
-            raise AgreementError("token_used", "token already used")
-        if token.revoked_at is not None:
-            raise AgreementError("token_revoked", "token revoked")
-        if token.expires_at < now:
-            raise AgreementError("token_expired", "token expired")
-        if token.subject_id != agreement.buyer_id:
-            raise AgreementError("forbidden", "token subject mismatch")
         current_hash = self._current_record(agreement).agreement_hash
-        if token.version != agreement.current_version or token.agreement_hash != current_hash:
-            raise AgreementError("hash_mismatch", "token does not bind current version")
         if request.agreement_version != agreement.current_version or request.agreement_hash != current_hash:
             raise AgreementError("hash_mismatch", "stale version/digest")
         decision = request.decision
         decision_id = f"dec_{uuid.uuid4().hex}"
-        ok = await self.token_service.consume(
-            self.repo, conn, raw_token, jti, decision_id, now
-        )
-        if not ok:
-            raise AgreementError("token_used", "token already used")
         if decision == BuyerApprovalDecision.APPROVE:
             await self.repo.append_decision(conn, AgreementDecisionRecord(
                 decision_id=decision_id, agreement_id=agreement_id,
@@ -464,7 +441,7 @@ class AgreementService:
         return await self.repo.get(agreement_id, conn=conn)
 
     async def resolve_change_request(self, conn, agreement_id, change_request_id, accept,
-                                     actor, note, now, *, raw_token: str | None = None):
+                                     actor, note, now):
         agreement = await self.repo.get(agreement_id, conn=conn)
         if agreement is None:
             raise AgreementError("not_found", "agreement not found")
@@ -472,31 +449,20 @@ class AgreementService:
         if cr is None or cr.change_request_id != change_request_id:
             raise AgreementError("not_found", "change request not found")
         if cr.requested_by_party == "buyer":
-            if actor.actor_type not in ("SELLER_AGENT", "SELLER_OPERATOR"):
-                raise AgreementError("forbidden", "only seller may resolve buyer request")
+            if actor.actor_type not in ("SELLER_AGENT", "SELLER_OPERATOR", "seller_agent", "seller_operator"):
+                # Keep legacy actor type values used in tests
+                if actor.actor_type not in ("SELLER_AGENT", "SELLER_OPERATOR"):
+                    raise AgreementError("forbidden", "only seller may resolve buyer request")
         else:
             if actor.actor_type != "buyer" or actor.actor_id != agreement.buyer_id:
                 raise AgreementError("forbidden", "only the agreement buyer may resolve seller request")
-            if not raw_token:
-                raise AgreementError("forbidden", "buyer change resolution requires an approval token")
             if agreement.status != AgreementState.CHANGES_REQUESTED:
                 raise AgreementError("invalid_state", "no open change request")
             current_hash = self._current_record(agreement).agreement_hash
             if (cr.base_version != agreement.current_version
                     or cr.base_hash != current_hash):
                 raise AgreementError("hash_mismatch", "change request base is stale")
-            claims = self.token_service.verify(raw_token)
-            if claims.get("sub") != agreement.buyer_id:
-                raise AgreementError("forbidden", "approval token subject mismatch")
-            if (claims.get("version") != agreement.current_version
-                    or claims.get("agreement_hash") != current_hash):
-                raise AgreementError("hash_mismatch", "approval token binds a different version")
             await self._ensure_not_expired(conn, agreement, now)
-            consumed = await self.token_service.consume(
-                self.repo, conn, raw_token, claims["jti"], change_request_id, now
-            )
-            if not consumed:
-                raise AgreementError("token_used", "approval token already used")
         if not accept:
             requester_pending = (
                 AgreementState.PENDING_SELLER if cr.requested_by_party == "seller"

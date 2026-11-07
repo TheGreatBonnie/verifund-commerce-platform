@@ -13,6 +13,7 @@ from verifund_contracts import (
 
 from verifund_control_plane.agreements.models import ActorContext, AgreementError
 from verifund_control_plane.agreements.service import AgreementService
+from verifund_control_plane.api.buyer_auth import authorize_buyer_agreement, resolve_buyer_principal
 from verifund_control_plane.errors import VerifundError
 
 router = APIRouter(prefix="/agreements", tags=["agreements"])
@@ -64,10 +65,11 @@ def _seller_claims(request: Request, token: str):
     return request.app.state.tokens.verify(token, required_scope="txn:read")
 
 
-def _authorize_agreement_read(request: Request, agreement) -> None:
-    """Gate agreement reads behind seller/buyer/ops auth (Task 12b).
+async def _authorize_agreement_read(request: Request, agreement) -> None:
+    """Gate agreement reads behind ops/seller/buyer-principal auth.
 
-    X-Actor-Id style headers never authorize these routes.
+    X-Actor-Id style headers never authorize these routes. Buyer reads use
+    BuyerPrincipal (Clerk or internal service) with fail-closed ownership.
     """
     provided = request.headers.get("authorization", "")
     settings = request.app.state.settings
@@ -85,24 +87,17 @@ def _authorize_agreement_read(request: Request, agreement) -> None:
             and claims.seller_id == agreement.seller_id
         ):
             return
-        # buyer token
+    # Buyer via BuyerPrincipal (Clerk or internal). Internal headers bypass the
+    # Bearer check above; Clerk sends a Bearer but not ops/seller.
+    has_internal = request.headers.get("x-verifund-buyer-internal-token") is not None
+    if has_internal or provided.startswith("Bearer "):
         try:
-            buyer_claims = request.app.state.buyer_tokens.verify(raw, required_scope="txn:buy")
-        except Exception:  # noqa: BLE001
-            buyer_claims = None
-        if buyer_claims is not None:
-            stored = None
-            try:
-                stored = request.app.state.repo.get_buyer_token(buyer_claims.jti_hash)
-            except Exception:  # noqa: BLE001
-                stored = None
-            if (
-                stored is not None
-                and not stored.get("revoked_at")
-                and buyer_claims.buyer_id == agreement.buyer_id
-                and buyer_claims.txn == agreement.transaction_id
-            ):
-                return
+            await authorize_buyer_agreement(request, agreement, required_scope="txn:read")
+            return
+        except VerifundError as exc:
+            if exc.status_code == 404:
+                raise
+            # fall through to 401 below (unauthenticated / no buyer profile)
     raise VerifundError("unauthorized", "agreement read requires authentication", status_code=401)
 
 
@@ -117,7 +112,7 @@ async def list_agreements(request: Request, transaction_id: str | None = None):
         agreement = await svc.get_by_transaction(transaction_id)
         if agreement is None:
             return []
-        _authorize_agreement_read(request, agreement)
+        await _authorize_agreement_read(request, agreement)
         return [await _view(svc, agreement)]
     # listing all agreements requires ops auth
     provided = request.headers.get("authorization", "")
@@ -142,7 +137,7 @@ async def get_agreement(agreement_id: str, request: Request):
     agreement = await svc.get(agreement_id)
     if agreement is None:
         _raise(AgreementError("not_found", "agreement not found", agreement_id=agreement_id))
-    _authorize_agreement_read(request, agreement)
+    await _authorize_agreement_read(request, agreement)
     return await _view(svc, agreement)
 
 
@@ -152,6 +147,7 @@ async def versions(agreement_id: str, request: Request):
     agreement = await svc.get(agreement_id)
     if agreement is None:
         _raise(AgreementError("not_found", "agreement not found"))
+    await _authorize_agreement_read(request, agreement)
     return [
         {
             "version": v.version,
@@ -168,11 +164,15 @@ async def versions(agreement_id: str, request: Request):
 async def document(agreement_id: str, request: Request, version: int | None = None):
     svc = get_service(request)
     agreement = await svc.get(agreement_id)
-    actor = get_actor(request)
     if agreement is None:
         _raise(AgreementError("not_found", "agreement not found"))
-    if actor.actor_id not in {agreement.buyer_id, agreement.seller_id}:
-        _raise(AgreementError("forbidden", "actor is not a party to this agreement"))
+    # Allow BuyerPrincipal / ops / seller reads; fall back to legacy actor header for tests.
+    try:
+        await _authorize_agreement_read(request, agreement)
+    except VerifundError:
+        actor = get_actor(request)
+        if actor.actor_id not in {agreement.buyer_id, agreement.seller_id}:
+            _raise(AgreementError("forbidden", "actor is not a party to this agreement"))
     html_doc = await svc.document(agreement_id, version)
     if html_doc is None:
         _raise(AgreementError("not_found", "agreement version not found"))
@@ -186,21 +186,11 @@ async def issue_token(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     _require_idempotency(idempotency_key)
-    svc = get_service(request)
-    actor = get_actor(request)
-    now = request.app.state.clock()
-    try:
-        async with svc.repo.transaction() as conn:
-            raw, record = await svc.issue_buyer_token(conn, agreement_id, actor, now)
-    except AgreementError as err:
-        _raise(err)
-    return {
-        "token": raw,
-        "review_url": f"/agreements/{agreement_id}",
-        "expires_at": record.expires_at.isoformat().replace("+00:00", "Z"),
-        "agreement_version": record.version,
-        "agreement_hash": record.agreement_hash,
-    }
+    raise VerifundError(
+        "gone",
+        "buyer approval tokens are not used; authenticate and submit decision",
+        status_code=410,
+    )
 
 
 @router.post("/{agreement_id}/buyer-decision")
@@ -209,16 +199,23 @@ async def buyer_decision(
     body: BuyerAgreementApprovalDecision,
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    token: str = Header(..., alias="X-Approval-Token"),
 ):
     _require_idempotency(idempotency_key)
     svc = get_service(request)
-    actor = get_actor(request)
+    agreement = await svc.get(agreement_id)
+    if agreement is None:
+        _raise(AgreementError("not_found", "agreement not found", agreement_id=agreement_id))
+    principal = await authorize_buyer_agreement(request, agreement, required_scope="agreement:decide")
+    actor = ActorContext(
+        actor_id=principal.buyer_id,
+        actor_type="buyer",
+        display_name=principal.buyer_id,
+    )
     now = request.app.state.clock()
     try:
         async with svc.repo.transaction() as conn:
             agreement = await svc.record_buyer_decision(
-                conn, agreement_id, token, body, actor, now
+                conn, agreement_id, body, actor, now
             )
     except AgreementError as err:
         _raise(err)
@@ -313,11 +310,24 @@ async def resolve_change_request(
     body: dict,
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    buyer_token: str | None = Header(default=None, alias="X-Approval-Token"),
 ):
     _require_idempotency(idempotency_key)
     svc = get_service(request)
-    actor = get_actor(request)
+    # Seller-resolving-buyer-request keeps legacy X-Actor-Id path; buyer path uses BuyerPrincipal.
+    agreement = await svc.get(agreement_id)
+    if agreement is None:
+        _raise(AgreementError("not_found", "agreement not found", agreement_id=agreement_id))
+    cr = await svc.repo.get_open_change_request(agreement_id)
+    actor: ActorContext
+    if cr is not None and cr.requested_by_party == "seller":
+        principal = await authorize_buyer_agreement(request, agreement, required_scope="txn:act")
+        actor = ActorContext(
+            actor_id=principal.buyer_id,
+            actor_type="buyer",
+            display_name=principal.buyer_id,
+        )
+    else:
+        actor = get_actor(request)
     now = request.app.state.clock()
     try:
         async with svc.repo.transaction() as conn:
@@ -327,7 +337,6 @@ async def resolve_change_request(
                 actor=actor,
                 note=str(body.get("note", "")),
                 now=now,
-                raw_token=buyer_token,
             )
     except AgreementError as err:
         _raise(err)

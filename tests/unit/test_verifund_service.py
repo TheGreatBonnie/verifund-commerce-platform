@@ -214,13 +214,17 @@ async def test_approval_binds_hash_and_cancel_before_capture(api):
         "accepted_at": NOW.isoformat(),
     }
     await api.post(f"/transactions/{txid}/accept", json=accepted, headers={**OPS, **ACTOR})
-    # buyer approval via agreement token
+    # buyer approval via BuyerPrincipal (internal service auth)
     agr_id = award["agreement"]["agreement_id"]
-    token_resp = await api.post(
-        f"/agreements/{agr_id}/approval-token",
-        headers={**OPS, **ACTOR, "idempotency-key": "tok:1"},
+    from tests.support.buyer_auth import internal_buyer_headers, seed_buyer_profile
+
+    api._transport.app = api._transport.app
+    if not getattr(api._transport.app.state.settings, "buyer_settlement_internal_token", None):
+        api._transport.app.state.settings.buyer_settlement_internal_token = "buyer-secret"
+    await seed_buyer_profile(api._transport.app, buyer_id=award.get("buyer_id", "demo-buyer"))
+    _buyer_headers = internal_buyer_headers(
+        token="buyer-secret", clerk_user_id="user_buyer", buyer_id=award.get("buyer_id", "demo-buyer")
     )
-    token = token_resp.json()["token"]
     await api.post(
         f"/agreements/{agr_id}/buyer-decision",
         json={
@@ -230,7 +234,7 @@ async def test_approval_binds_hash_and_cancel_before_capture(api):
             "note": "",
             "idempotency_key": "bd:1",
         },
-        headers={**OPS, **ACTOR, "idempotency-key": "bd:1", "X-Approval-Token": token},
+        headers={**_buyer_headers, "idempotency-key": "bd:1"},
     )
     approved = await api.post(
         f"/transactions/{txid}/approve",

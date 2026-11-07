@@ -31,14 +31,6 @@ async function recordDecision(
   note: string,
   idempotencyKey: string,
 ): Promise<AgreementDecisionResult> {
-  const tokenRes = await controlPlaneForUser(
-    `/agreements/${encodeURIComponent(id)}/approval-token`,
-    { method: "POST", headers: { "Idempotency-Key": idempotencyKey } },
-  );
-  if (!tokenRes.ok) {
-    return { error: "token_failed", decisionRecorded: false };
-  }
-  const tokenBody = (await tokenRes.json()) as { token: string };
   const decisionRes = await controlPlaneForUser(
     `/agreements/${encodeURIComponent(id)}/buyer-decision`,
     {
@@ -46,7 +38,6 @@ async function recordDecision(
       headers: {
         "content-type": "application/json",
         "Idempotency-Key": idempotencyKey,
-        "X-Approval-Token": tokenBody.token,
       },
       body: JSON.stringify({
         agreement_version: version,

@@ -72,12 +72,10 @@ async def test_ops_buyer_token_no_longer_authorizes_buyer_routes(client):
         f"/ops/transactions/{txid}/issue-buyer-token",
         headers=OPS,
     )
-    assert issued.status_code == 200, issued.text
-    token = issued.json()["token"]
-
+    assert issued.status_code == 410, issued.text
     response = await client.post(
         f"/buyer/transactions/{txid}/delivery-confirmed",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": "Bearer legacy-buyer-token"},
         json={"confirmed_at": "2026-10-27T12:00:00Z"},
     )
     # Legacy buyer_txn bearer is not an accepted auth method on migrated routes.

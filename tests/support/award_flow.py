@@ -87,12 +87,16 @@ async def accept(client: httpx.AsyncClient, award_body: dict, *, seller_id: str 
     assert response.status_code == 200, response.text
     agr_id = award_body["agreement"]["agreement_id"]
     key = award_body["agreement_hash"][:16]
-    token_resp = await client.post(
-        f"/agreements/{agr_id}/approval-token",
-        headers={**OPS, "idempotency-key": f"tok:{key}"},
+    from tests.support.buyer_auth import internal_buyer_headers, seed_buyer_profile
+
+    app = client._transport.app
+    if not getattr(app.state.settings, "buyer_settlement_internal_token", None):
+        app.state.settings.buyer_settlement_internal_token = "buyer-secret"
+    await seed_buyer_profile(app, buyer_id=award_body.get("buyer_id", "demo-buyer"))
+    buyer_headers = internal_buyer_headers(
+        token="buyer-secret", clerk_user_id="user_buyer", buyer_id=award_body.get("buyer_id", "demo-buyer")
     )
-    token = token_resp.json()["token"]
-    await client.post(
+    resp = await client.post(
         f"/agreements/{agr_id}/buyer-decision",
         json={
             "agreement_version": award_body["agreement_version"],
@@ -101,8 +105,9 @@ async def accept(client: httpx.AsyncClient, award_body: dict, *, seller_id: str 
             "note": "",
             "idempotency_key": f"bd:{key}",
         },
-        headers={**OPS, "idempotency-key": f"bd:{key}", "X-Approval-Token": token},
+        headers={**buyer_headers, "idempotency-key": f"bd:{key}"},
     )
+    assert resp.status_code == 200, resp.text
 
 
 async def approve(client: httpx.AsyncClient, award_body: dict) -> None:

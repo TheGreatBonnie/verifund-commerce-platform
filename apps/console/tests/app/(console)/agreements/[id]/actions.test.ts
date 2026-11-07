@@ -44,9 +44,9 @@ describe("agreement review actions", () => {
   });
 
   it("resumes the orchestrator with the exact decision after approval", async () => {
-    controlPlaneForUserMock
-      .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "AGREED", version: 1 }));
+    controlPlaneForUserMock.mockResolvedValueOnce(
+      jsonResponse({ status: "AGREED", version: 1 }),
+    );
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({
         status: "approval_required",
@@ -70,7 +70,7 @@ describe("agreement review actions", () => {
         checkpoint: "funding_approval_required",
       },
     });
-    expect(controlPlaneForUserMock).toHaveBeenCalledTimes(2);
+    expect(controlPlaneForUserMock).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(protectMock).toHaveBeenCalled();
     const [url, init] = vi.mocked(fetch).mock.calls[0];
@@ -91,9 +91,9 @@ describe("agreement review actions", () => {
   });
 
   it("forwards the Clerk session token without actor headers", async () => {
-    controlPlaneForUserMock
-      .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "AGREED", version: 1 }));
+    controlPlaneForUserMock.mockResolvedValueOnce(
+      jsonResponse({ status: "AGREED", version: 1 }),
+    );
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({ status: "approval_required" }),
     );
@@ -108,19 +108,20 @@ describe("agreement review actions", () => {
     );
 
     expect(result).toMatchObject({ decisionRecorded: true });
-    const tokenCall = controlPlaneForUserMock.mock.calls.find(([url]) =>
-      String(url).endsWith("/approval-token"),
+    const decisionCall = controlPlaneForUserMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/buyer-decision"),
     );
-    expect(tokenCall).toBeDefined();
-    const headers = tokenCall?.[1]?.headers as Record<string, string>;
+    expect(decisionCall).toBeDefined();
+    const headers = decisionCall?.[1]?.headers as Record<string, string>;
     expect(headers["X-Actor-Id"]).toBeUndefined();
+    expect(headers["X-Approval-Token"]).toBeUndefined();
     expect(headers["Idempotency-Key"]).toBe("buyer-decision:vf_1:1");
   });
 
   it("keeps the recorded decision when the orchestrator resume fails", async () => {
-    controlPlaneForUserMock
-      .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "REJECTED", version: 1 }));
+    controlPlaneForUserMock.mockResolvedValueOnce(
+      jsonResponse({ status: "REJECTED", version: 1 }),
+    );
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({ detail: "agreement is not agreed" }, 409),
     );
@@ -141,9 +142,9 @@ describe("agreement review actions", () => {
   });
 
   it("does not pretend to resume when the review link has no handle", async () => {
-    controlPlaneForUserMock
-      .mockResolvedValueOnce(jsonResponse({ token: "approval-token" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "CHANGES_REQUESTED", version: 1 }));
+    controlPlaneForUserMock.mockResolvedValueOnce(
+      jsonResponse({ status: "CHANGES_REQUESTED", version: 1 }),
+    );
 
     const result = await requestChangesAgreement(
       "agr_1",
@@ -158,7 +159,7 @@ describe("agreement review actions", () => {
       decisionRecorded: true,
       resumeError: "missing_handle",
     });
-    expect(controlPlaneForUserMock).toHaveBeenCalledTimes(2);
+    expect(controlPlaneForUserMock).toHaveBeenCalledTimes(1);
     expect(fetch).not.toHaveBeenCalled();
   });
 });

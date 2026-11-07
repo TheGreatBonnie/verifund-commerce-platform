@@ -9,7 +9,6 @@ export async function POST(
   await auth.protect();
   const { id } = await params;
   const body = await request.text();
-  const token = request.headers.get("x-approval-token") ?? "";
   const idempotencyKey =
     request.headers.get("idempotency-key") ?? crypto.randomUUID();
   const response = await controlPlaneForUser(
@@ -20,7 +19,6 @@ export async function POST(
       headers: {
         "content-type": "application/json",
         "Idempotency-Key": idempotencyKey,
-        "X-Approval-Token": token,
       },
     },
   );

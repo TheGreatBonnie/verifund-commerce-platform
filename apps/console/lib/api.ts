@@ -207,27 +207,15 @@ export async function fetchAgreementDocument(id: string, version?: number): Prom
   return await response.text();
 }
 
-export async function issueApprovalToken(id: string): Promise<{
-  token: string;
-  review_url: string;
-  expires_at: string;
-  agreement_version: number;
-  agreement_hash: string;
-}> {
-  const response = await fetch(`/api/agreements/${encodeURIComponent(id)}/approval-token`, {
-    method: "POST",
-    cache: "no-store",
-    headers: { "content-type": "application/json" },
-  });
-  if (!response.ok) {
-    throw new Error(`Approval token request failed (${response.status})`);
-  }
-  return (await response.json()) as any;
+export async function issueApprovalToken(_id: string): Promise<never> {
+  throw new Error(
+    "buyer approval tokens are not used; authenticate and submit decision",
+  );
 }
 
 export async function submitBuyerDecision(
   id: string,
-  token: string,
+  _token: string,
   body: Record<string, unknown>,
 ): Promise<{ status: string; version: number }> {
   const response = await fetch(`/api/agreements/${encodeURIComponent(id)}/buyer-decision`, {
@@ -235,7 +223,6 @@ export async function submitBuyerDecision(
     cache: "no-store",
     headers: {
       "content-type": "application/json",
-      "x-approval-token": token,
     },
     body: JSON.stringify(body),
   });
