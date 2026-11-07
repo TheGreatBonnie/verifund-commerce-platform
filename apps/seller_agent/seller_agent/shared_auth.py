@@ -113,6 +113,8 @@ class StaticDemoCredentialVerifier:
             return None
         if not caller.get("organization_id") or not caller.get("agent_id"):
             return None
+        if purpose not in (caller.get("scopes") or []):
+            return None
         return caller
 
 
