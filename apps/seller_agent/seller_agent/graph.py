@@ -22,12 +22,15 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
+from seller_agent.engine import SellerNegotiationEngine
 from seller_agent.planner import (
     ScriptedSellerPlanner,
     SellerDecision,
     SellerDecisionContext,
     SellerPlanner,
 )
+
+_SELLER_ENGINE = SellerNegotiationEngine()
 
 
 class SellerState(TypedDict, total=False):
@@ -224,15 +227,12 @@ def _build_context(
 def _valid_decision(
     decision: SellerDecision, context: SellerDecisionContext
 ) -> bool:
-    if decision.action not in {"propose", "counter", "accept", "reject"}:
-        return False
-    if decision.warranty_months not in context.allowed_warranty_months:
-        return False
-    if decision.unit_price_cents < context.policy.floor_unit_price_cents:
-        return False
-    if decision.action in {"propose", "counter"}:
-        return decision.unit_price_cents in context.allowed_prices
-    return True
+    return _SELLER_ENGINE.validate_decision(
+        decision,
+        allowed_prices=context.allowed_prices,
+        allowed_warranty_months=context.allowed_warranty_months,
+        floor_unit_price_cents=context.policy.floor_unit_price_cents,
+    )
 
 
 async def decide(state: SellerState, config: RunnableConfig) -> dict:
@@ -314,13 +314,12 @@ def _offer_from_quote(
         if previous is not None
         else 0
     )
-    status = (
-        OfferStatus.FINAL
-        if state.get("current_round", 1) >= policy.max_rounds
-        or decision.unit_price_cents == policy.floor_unit_price_cents
-        or policy.next_price_options(decision.unit_price_cents)
-        == [decision.unit_price_cents]
-        else OfferStatus.PROPOSED
+    status = _SELLER_ENGINE.status_for_offer(
+        round=state.get("current_round", 1),
+        max_rounds=policy.max_rounds,
+        unit_price_cents=decision.unit_price_cents,
+        floor_unit_price_cents=policy.floor_unit_price_cents,
+        next_prices=policy.next_price_options(decision.unit_price_cents),
     )
     line_item = OfferLineItem(
         sku=policy.sku,
