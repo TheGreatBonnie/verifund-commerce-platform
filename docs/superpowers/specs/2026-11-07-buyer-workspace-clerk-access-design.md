@@ -1,7 +1,7 @@
 # Buyer Workspace — Clerk Access Migration
 
 **Date:** 2026-11-07  
-**Status:** Approved design (brainstormed) — not yet implemented  
+**Status:** Implemented (2026-11-07)  
 **Related:** `docs/superpowers/specs/2026-11-07-seller-workspace-clerk-access-design.md` (seller parity reference)
 
 ## Problem
