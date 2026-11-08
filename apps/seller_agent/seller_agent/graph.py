@@ -329,10 +329,9 @@ def _offer_from_quote(
         list_unit_price_cents=policy.list_unit_price_cents,
         warranty_addon_cents=quote.warranty_addon_cents,
         attributes={
-            "color": policy.product_color,
+            "image_url": policy.product_image_url or policy.image_url,
             "color_name": policy.color,
             "description": policy.product_description or policy.product_name,
-            "image_emoji": policy.image_emoji,
             "condition": "new",
             "category": policy.categories[0] if policy.categories else "",
             "tag": policy.product_tag,

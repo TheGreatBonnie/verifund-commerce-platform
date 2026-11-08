@@ -16,8 +16,7 @@ class SellerCatalogProduct(BaseModel):
     name: str
     category: str
     description: str = ""
-    image_emoji: str = "📦"
-    color: str = "#eef2ed"
+    image_url: str = ""
     list_unit_price_cents: int | None = Field(default=None, gt=0)
     original_unit_price_cents: int | None = Field(default=None, gt=0)
     floor_unit_price_cents: int | None = Field(default=None, gt=0)
@@ -65,9 +64,9 @@ class SellerPolicy(BaseModel):
     sku: str = "NC-700-BLK"
     product_name: str = "Nimbus NC-700 ANC Headset"
     product_description: str = ""
-    image_emoji: str = "📦"
+    image_url: str = ""
     product_tag: str = ""
-    product_color: str = "#eef2ed"
+    product_image_url: str = ""
     products: list[SellerCatalogProduct] = Field(default_factory=list)
     mandate: dict | None = None
     def catalog(self) -> list[SellerCatalogProduct]:
@@ -101,9 +100,8 @@ class SellerPolicy(BaseModel):
                 name=self.product_name,
                 category=self.categories[0],
                 description=self.product_description,
-                image_emoji=self.image_emoji,
+                image_url=self.product_image_url or self.image_url,
                 tag=self.product_tag,
-                color=self.color if self.color.startswith("#") else "#eef2ed",
                 color_name=self.color,
                 list_unit_price_cents=self.list_unit_price_cents,
                 floor_unit_price_cents=self.floor_unit_price_cents,
@@ -144,9 +142,9 @@ class SellerPolicy(BaseModel):
                 "sku": product.sku,
                 "product_name": product.name,
                 "product_description": product.description,
-                "image_emoji": product.image_emoji,
+                "image_url": product.image_url,
                 "product_tag": product.tag,
-                "product_color": product.color,
+                "product_image_url": product.image_url,
                 "categories": [product.category],
                 "color": product.color_name,
                 "list_unit_price_cents": product.list_unit_price_cents,

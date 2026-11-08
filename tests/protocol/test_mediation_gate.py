@@ -17,23 +17,30 @@ from tests.support.fake_buyer import FakeServices
 @pytest.fixture
 async def mediated_buyer_server(tmp_path, seller_runtime):
     # Keep only the live Northwind seller in the fake registry.
+    seller_base_url, _seller_app = seller_runtime
     services = FakeServices()
     keep = {"northwind-audio"}
     services.registry._endpoints = {
         k: v for k, v in services.registry._endpoints.items() if k in keep
     }
+    # Point the fake endpoint at the ephemeral seller; otherwise mediation
+    # would hit a dev server on 9201 instead of the test seller.
+    for endpoint in services.registry._endpoints.values():
+        endpoint.card_url = f"{seller_base_url}/.well-known/agent-card.json"
+    from tests.support.servers import _free_port, run_uvicorn
+
+    port = _free_port()
     settings = Settings(
         host="127.0.0.1",
-        port=9120,
-        public_base_url="http://127.0.0.1:9120",
+        port=port,
+        public_base_url=f"http://127.0.0.1:{port}",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'buyer.db'}",
         checkpoint_path=tmp_path / "checkpoints.db",
         llm_mode="scripted",
     )
     app = create_app(settings, MemorySaver(), services)
-    from tests.support.servers import run_uvicorn
 
-    async with run_uvicorn(app, 9120) as base_url:
+    async with run_uvicorn(app, port) as base_url:
         yield base_url, app
 
 

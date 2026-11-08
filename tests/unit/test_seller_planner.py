@@ -37,8 +37,8 @@ async def test_below_floor_target_holds_current_policy_price(
 def test_for_product_carries_catalog_metadata(northwind_policy):
     policy = northwind_policy.for_product("MM-MACBOOK-AIR-M4-13")
     assert policy.product_description == "Apple M4 · 16GB memory · 256GB SSD · Space Gray"
-    assert policy.image_emoji == "💻"
-    assert policy.product_color == "#eaf0fb"
+    assert policy.image_url.startswith("https://images.unsplash.com/")
+    assert policy.product_image_url == policy.image_url
     assert policy.color == "gray"
 
 
@@ -82,8 +82,7 @@ def test_offer_attributes_describe_the_selected_product(northwind_policy):
         ),
     )
     attributes = offer.line_items[0].attributes
-    assert attributes["image_emoji"] == "💻"
-    assert attributes["color"] == "#eaf0fb"
+    assert attributes["image_url"].startswith("https://images.unsplash.com/")
     assert attributes["color_name"] == "gray"
     assert attributes["specs"] == "Apple M4 · 16GB memory · 256GB SSD · Space Gray"
     assert attributes["category"] == "Electronics"

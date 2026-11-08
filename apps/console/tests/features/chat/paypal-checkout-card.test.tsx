@@ -63,7 +63,7 @@ const ARGS = {
           quantity: 12,
           unit_price_cents: 28050,
           warranty_addon_cents: 0,
-          attributes: { color: "#eef2ed", image_emoji: "🎧", condition: "new" },
+          attributes: { image_url: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500", condition: "new" },
         },
       ],
       totals: {

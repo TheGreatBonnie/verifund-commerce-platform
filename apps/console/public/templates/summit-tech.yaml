@@ -1,237 +1,46 @@
 seller_id: summit-tech
 name: Summit Tech Supply
 tagline: Practical business technology with dependable stock
-categories: [consumer-electronics, office-equipment]
-list_unit_price_cents: 18900
-floor_unit_price_cents: 14500
-initial_unit_price_cents: 17900
-concession_ladder_cents: [17900, 16800, 15400]
-base_warranty_months: 12
-warranty_addons_cents: {12: 0, 24: 900, 36: 1800}
-returns_days: 30
-delivery_days: 5
+categories:
+- accessories
+- consumer-electronics
+- creative tools
+- ergonomic chair
+- gaming
+- gaming pc
+- keyboard
+- laptop
+- laptop accessory
+- macbook
+- mouse
+- office accessory
+- office-equipment
+- standing desk
+list_unit_price_cents: 139499
+floor_unit_price_cents: 125549
+initial_unit_price_cents: 136709
+concession_ladder_cents:
+- 17900
+- 16800
+- 15400
+base_warranty_months: 48
+warranty_addons_cents:
+  12: 0
+  24: 900
+  36: 1800
+returns_days: 75
+delivery_days: 9
 stock_on_hand: 20
 incoming_stock: 10
 incoming_days: 7
 split_shipment: true
 sustainability_certified: true
 rating: 4.7
-products:
-  - sku: MM-MACBOOK-AIR-M4-13
-    name: MacBook Air M4 13-inch
-    category: Electronics
-    description: Apple M4 · 16GB memory · 256GB SSD · Space Gray
-    image_emoji: 💻
-    color: "#eaf0fb"
-    list_unit_price_cents: 104900
-    original_unit_price_cents: 119900
-    floor_unit_price_cents: 95000
-    initial_unit_price_cents: 101900
-    concession_ladder_cents: [101900, 99900, 97900]
-    base_warranty_months: 12
-    warranty_addons_cents: {12: 0, 24: 1200, 36: 2400}
-    returns_days: 30
-    delivery_days: 5
-    stock_on_hand: 9
-    incoming_stock: 5
-    incoming_days: 6
-    rating: 4.7
-    reviews: "684"
-    tag: Business pick
-  - sku: MM-WIRELESS-HEADPHONES
-    name: Wireless Noise-Canceling Headphones
-    category: Electronics
-    description: Adaptive audio · 30-hour battery · Wireless
-    image_emoji: 🎧
-    color: "#f1edff"
-    list_unit_price_cents: 21900
-    original_unit_price_cents: 24900
-    floor_unit_price_cents: 18000
-    initial_unit_price_cents: 20900
-    concession_ladder_cents: [20900, 19900, 18900]
-    base_warranty_months: 24
-    warranty_addons_cents: {24: 0, 36: 1200}
-    returns_days: 30
-    delivery_days: 5
-    stock_on_hand: 18
-    incoming_stock: 8
-    incoming_days: 5
-    rating: 4.7
-    reviews: "684"
-    tag: Business audio
-  - sku: MM-ERGONOMIC-MESH-CHAIR
-    name: Ergonomic Mesh Office Chair
-    category: Home & Living
-    description: Adjustable lumbar support · Breathable mesh
-    image_emoji: 🪑
-    color: "#e7f7f2"
-    list_unit_price_cents: 29900
-    original_unit_price_cents: 34900
-    floor_unit_price_cents: 25000
-    initial_unit_price_cents: 28900
-    concession_ladder_cents: [28900, 27900, 26500]
-    base_warranty_months: 24
-    warranty_addons_cents: {24: 0, 36: 1500}
-    returns_days: 30
-    delivery_days: 7
-    stock_on_hand: 14
-    incoming_stock: 6
-    incoming_days: 8
-    rating: 4.7
-    reviews: "512"
-    tag: Office essential
-  - sku: MM-SMARTWATCH-SERIES-10
-    name: Smartwatch Series 10
-    category: Electronics
-    description: Health tracking · GPS · All-day battery
-    image_emoji: ⌚
-    color: "#fff3e7"
-    list_unit_price_cents: 41900
-    original_unit_price_cents: 44900
-    floor_unit_price_cents: 36500
-    initial_unit_price_cents: 39900
-    concession_ladder_cents: [39900, 38900, 37900]
-    base_warranty_months: 12
-    warranty_addons_cents: {12: 0, 24: 1000}
-    returns_days: 30
-    delivery_days: 4
-    stock_on_hand: 16
-    incoming_stock: 5
-    incoming_days: 6
-    rating: 4.6
-    reviews: "428"
-    tag: Wearable tech
-  - sku: MM-ERGOLIFT-STANDING-DESK
-    name: ErgoLift Standing Desk
-    category: Home & Living
-    description: Electric height adjustment · Memory presets
-    image_emoji: 🪵
-    color: "#edf6fa"
-    list_unit_price_cents: 47900
-    original_unit_price_cents: 52900
-    floor_unit_price_cents: 41500
-    initial_unit_price_cents: 45900
-    concession_ladder_cents: [45900, 44900, 43500]
-    base_warranty_months: 24
-    warranty_addons_cents: {24: 0, 36: 2200}
-    returns_days: 30
-    delivery_days: 8
-    stock_on_hand: 10
-    incoming_stock: 6
-    incoming_days: 7
-    rating: 4.7
-    reviews: "236"
-    tag: Office essential
-  - sku: MM-MIRRORLESS-CREATOR-CAMERA
-    name: Mirrorless Creator Camera
-    category: Electronics
-    description: 4K video · Interchangeable lens · Compact body
-    image_emoji: 📷
-    color: "#f8eef2"
-    list_unit_price_cents: 86900
-    original_unit_price_cents: 99900
-    floor_unit_price_cents: 78500
-    initial_unit_price_cents: 83900
-    concession_ladder_cents: [83900, 81900, 79900]
-    base_warranty_months: 12
-    warranty_addons_cents: {12: 0, 24: 1800}
-    returns_days: 30
-    delivery_days: 5
-    stock_on_hand: 8
-    incoming_stock: 4
-    incoming_days: 8
-    rating: 4.6
-    reviews: "192"
-    tag: Creator gear
-  - sku: MM-USB-C-DOCK-12IN1
-    name: USB-C Docking Station 12-in-1
-    category: Electronics
-    description: Dual display output · 100W power delivery · Gigabit Ethernet
-    image_emoji: 🔌
-    color: "#edf3f4"
-    list_unit_price_cents: 15900
-    original_unit_price_cents: 18900
-    floor_unit_price_cents: 12500
-    initial_unit_price_cents: 14900
-    concession_ladder_cents: [14900, 13900, 13200]
-    base_warranty_months: 12
-    warranty_addons_cents: {12: 0, 24: 700}
-    returns_days: 30
-    delivery_days: 4
-    stock_on_hand: 32
-    incoming_stock: 12
-    incoming_days: 5
-    rating: 4.7
-    reviews: "364"
-    tag: Workstation
-  - sku: MM-PORTABLE-SSD-2TB
-    name: Portable SSD 2TB
-    category: Electronics
-    description: USB-C · Up to 1,050 MB/s · Rugged aluminum enclosure
-    image_emoji: 💾
-    color: "#f1eee7"
-    list_unit_price_cents: 13900
-    original_unit_price_cents: 16900
-    floor_unit_price_cents: 10900
-    initial_unit_price_cents: 12900
-    concession_ladder_cents: [12900, 12200, 11500]
-    base_warranty_months: 12
-    warranty_addons_cents: {12: 0, 24: 500}
-    returns_days: 30
-    delivery_days: 4
-    stock_on_hand: 28
-    incoming_stock: 10
-    incoming_days: 6
-    rating: 4.8
-    reviews: "518"
-    tag: Fast storage
-  - sku: MM-4K-MONITOR-27
-    name: 27-inch 4K USB-C Monitor
-    category: Electronics
-    description: 4K UHD · USB-C hub · Adjustable stand
-    image_emoji: 🖥️
-    color: "#eaf0fb"
-    list_unit_price_cents: 37900
-    original_unit_price_cents: 44900
-    floor_unit_price_cents: 32000
-    initial_unit_price_cents: 35900
-    concession_ladder_cents: [35900, 34900, 33500]
-    base_warranty_months: 24
-    warranty_addons_cents: {24: 0, 36: 1800}
-    returns_days: 30
-    delivery_days: 6
-    stock_on_hand: 12
-    incoming_stock: 6
-    incoming_days: 8
-    rating: 4.6
-    reviews: "287"
-    tag: Display pick
-  - sku: MM-MECH-KEYBOARD
-    name: Mechanical Keyboard
-    category: Electronics
-    description: Hot-swappable switches · Compact layout · USB-C
-    image_emoji: ⌨️
-    color: "#f4edf0"
-    list_unit_price_cents: 9900
-    original_unit_price_cents: 12900
-    floor_unit_price_cents: 7400
-    initial_unit_price_cents: 9200
-    concession_ladder_cents: [9200, 8700, 8200]
-    base_warranty_months: 12
-    warranty_addons_cents: {12: 0, 24: 500}
-    returns_days: 30
-    delivery_days: 4
-    stock_on_hand: 40
-    incoming_stock: 15
-    incoming_days: 5
-    rating: 4.7
-    reviews: "793"
-    tag: Desk setup
-
 mandate:
   version: 1
   auto_accept: true
-  allowed_currencies: ["USD"]
+  allowed_currencies:
+  - USD
   max_total_cents: 500000
   min_warranty_months: 0
   max_warranty_months: 24
@@ -239,3 +48,1283 @@ mandate:
   max_returns_days: 60
   max_inspection_period_hours: 72
   max_dispute_window_hours: 168
+products:
+- sku: EX-ADVANCED-WORKSTATION-LAPTOP
+  name: Advanced Workstation Laptop
+  category: Laptop
+  description: A powerful workstation laptop built for intensive creative tasks and
+    complex workflows.
+  list_unit_price_cents: 139499
+  original_unit_price_cents: 167398
+  initial_unit_price_cents: 136709
+  floor_unit_price_cents: 125549
+  concession_ladder_cents:
+  - 136709
+  - 131129
+  - 125549
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 12555
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1522199755839-a2bacb67c546?w=500
+  rating: 4.7
+  reviews: '94'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-BACKLIT-OFFICE-KEYBOARD
+  name: Backlit Office Keyboard
+  category: Keyboard
+  description: Quiet and comfortable keyboard with subtle backlighting for office
+    use.
+  list_unit_price_cents: 5579
+  original_unit_price_cents: 6694
+  initial_unit_price_cents: 5467
+  floor_unit_price_cents: 5021
+  concession_ladder_cents:
+  - 5467
+  - 5244
+  - 5021
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 502
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1601445638532-3c6f6c3aa1d6?w=500
+  rating: 4.4
+  reviews: '172'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-BLUETOOTH-SPEAKER
+  name: Bluetooth Speaker
+  category: Office Accessory
+  description: Portable Bluetooth speaker with excellent sound quality for your workspace.
+  list_unit_price_cents: 5579
+  original_unit_price_cents: 6694
+  initial_unit_price_cents: 5467
+  floor_unit_price_cents: 5021
+  concession_ladder_cents:
+  - 5467
+  - 5244
+  - 5021
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 502
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500
+  rating: 4.6
+  reviews: '178'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-BUDGET-GAMING-PC
+  name: Budget Gaming PC
+  category: Gaming PC
+  description: Affordable gaming desktop offering solid performance for esports and
+    casual gaming.
+  list_unit_price_cents: 111599
+  original_unit_price_cents: 133918
+  initial_unit_price_cents: 109367
+  floor_unit_price_cents: 100439
+  concession_ladder_cents:
+  - 109367
+  - 104903
+  - 100439
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 10044
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1660855551740-4474188debdb?w=500
+  rating: 4.3
+  reviews: '132'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-BUDGET-LAPTOP-101
+  name: Budget Laptop 101
+  category: Laptop
+  description: Affordable laptop perfect for everyday tasks and basic computing.
+  list_unit_price_cents: 46499
+  original_unit_price_cents: 55798
+  initial_unit_price_cents: 45569
+  floor_unit_price_cents: 41849
+  concession_ladder_cents:
+  - 45569
+  - 43709
+  - 41849
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 4185
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=500
+  rating: 4.0
+  reviews: '108'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-BUDGET-WIRED-MOUSE
+  name: Budget Wired Mouse
+  category: Mouse
+  description: Reliable wired mouse offering simplicity and precision at an affordable
+    price.
+  list_unit_price_cents: 1859
+  original_unit_price_cents: 2230
+  initial_unit_price_cents: 1821
+  floor_unit_price_cents: 1673
+  concession_ladder_cents:
+  - 1821
+  - 1747
+  - 1673
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 167
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=500
+  rating: 4.2
+  reviews: '156'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-COMPACT-GAMING-PC
+  name: Compact Gaming PC
+  category: Gaming PC
+  description: Small form factor gaming PC that delivers high performance without
+    taking up much space.
+  list_unit_price_cents: 139499
+  original_unit_price_cents: 167398
+  initial_unit_price_cents: 136709
+  floor_unit_price_cents: 125549
+  concession_ladder_cents:
+  - 136709
+  - 131129
+  - 125549
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 12555
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1587202372775-e229f172b9d7?w=500
+  rating: 4.6
+  reviews: '126'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-COMPACT-STANDING-DESK
+  name: Compact Standing Desk
+  category: Standing Desk
+  description: Perfect for home offices; offers easy adjustment in a compact form.
+  list_unit_price_cents: 33479
+  original_unit_price_cents: 40174
+  initial_unit_price_cents: 32809
+  floor_unit_price_cents: 30131
+  concession_ladder_cents:
+  - 32809
+  - 31470
+  - 30131
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 3013
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1632923946204-a7bc5c848ca6?w=500
+  rating: 4.4
+  reviews: '138'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-CONVERTIBLE-2-IN-1-LAPTOP
+  name: Convertible 2-in-1 Laptop
+  category: Laptop
+  description: Versatile laptop with touchscreen and 360-degree hinge functionality.
+  list_unit_price_cents: 102299
+  original_unit_price_cents: 122758
+  initial_unit_price_cents: 100253
+  floor_unit_price_cents: 92069
+  concession_ladder_cents:
+  - 100253
+  - 96161
+  - 92069
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 9207
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1544731612-de7f96afe55f?w=500
+  rating: 4.4
+  reviews: '110'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-DESKTOP-WEBCAM
+  name: Desktop Webcam
+  category: Office Accessory
+  description: High-definition webcam for video conferencing and streaming.
+  list_unit_price_cents: 8369
+  original_unit_price_cents: 10042
+  initial_unit_price_cents: 8201
+  floor_unit_price_cents: 7532
+  concession_ladder_cents:
+  - 8201
+  - 7866
+  - 7532
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 753
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1623949556303-b0d17d198863?w=500
+  rating: 4.4
+  reviews: '180'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-DIGITAL-DRAWING-TABLET
+  name: Digital Drawing Tablet
+  category: Creative Tools
+  description: Ideal for digital artists; includes a stylus and customizable shortcuts.
+  list_unit_price_cents: 8369
+  original_unit_price_cents: 10042
+  initial_unit_price_cents: 8201
+  floor_unit_price_cents: 7532
+  concession_ladder_cents:
+  - 8201
+  - 7866
+  - 7532
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 753
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500
+  rating: 4.6
+  reviews: '196'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ENTERPRISE-ULTRABOOK
+  name: Enterprise Ultrabook
+  category: Laptop
+  description: Premium ultrabook optimized for business security and performance.
+  list_unit_price_cents: 130199
+  original_unit_price_cents: 156238
+  initial_unit_price_cents: 127595
+  floor_unit_price_cents: 117179
+  concession_ladder_cents:
+  - 127595
+  - 122387
+  - 117179
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 11718
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1504707748692-419802cf939d?w=500
+  rating: 4.6
+  reviews: '112'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGO-DELUXE-CHAIR
+  name: Ergo Deluxe Chair
+  category: Ergonomic Chair
+  description: Premium ergonomic chair with multiple adjustable features for personalized
+    comfort.
+  list_unit_price_cents: 30689
+  original_unit_price_cents: 36826
+  initial_unit_price_cents: 30075
+  floor_unit_price_cents: 27620
+  concession_ladder_cents:
+  - 30075
+  - 28847
+  - 27620
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 2762
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://plus.unsplash.com/premium_photo-1681558314227-33174756677d?w=500
+  rating: 4.9
+  reviews: '148'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGO-DESK-LAMP
+  name: Ergo Desk Lamp
+  category: Office Accessory
+  description: Adjustable LED desk lamp with multiple brightness levels to reduce
+    eye strain during long work sessions.
+  list_unit_price_cents: 7439
+  original_unit_price_cents: 8926
+  initial_unit_price_cents: 7290
+  floor_unit_price_cents: 6695
+  concession_ladder_cents:
+  - 7290
+  - 6992
+  - 6695
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 670
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1523380262778-076eb862d38f?w=500
+  rating: 4.4
+  reviews: '100'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGO-DESK-LAMP-2
+  name: Ergo Desk Lamp
+  category: Office Accessory
+  description: Adjustable LED desk lamp to reduce eye strain during extended working
+    hours.
+  list_unit_price_cents: 7439
+  original_unit_price_cents: 8926
+  initial_unit_price_cents: 7290
+  floor_unit_price_cents: 6695
+  concession_ladder_cents:
+  - 7290
+  - 6992
+  - 6695
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 670
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1619608135352-868e8313e121?w=500
+  rating: 4.4
+  reviews: '174'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGO-STANDING-DESK
+  name: Ergo Standing Desk
+  category: Standing Desk
+  description: Adjustable standing desk designed to improve posture and reduce the
+    risks of prolonged sitting.
+  list_unit_price_cents: 37199
+  original_unit_price_cents: 44638
+  initial_unit_price_cents: 36455
+  floor_unit_price_cents: 33479
+  concession_ladder_cents:
+  - 36455
+  - 34967
+  - 33479
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 3348
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1622126755582-16754165dce8?w=500
+  rating: 4.6
+  reviews: '88'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGO-STANDING-DESK-2
+  name: Ergo Standing Desk
+  category: Standing Desk
+  description: Adjustable standing desk designed to improve posture and productivity.
+  list_unit_price_cents: 37199
+  original_unit_price_cents: 44638
+  initial_unit_price_cents: 36455
+  floor_unit_price_cents: 33479
+  concession_ladder_cents:
+  - 36455
+  - 34967
+  - 33479
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 3348
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1623679072629-3aaa0192a391?w=500
+  rating: 4.6
+  reviews: '134'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGO-WIRELESS-MOUSE
+  name: Ergo Wireless Mouse
+  category: Mouse
+  description: Ergonomically designed mouse for comfortable use during long work sessions.
+  list_unit_price_cents: 3719
+  original_unit_price_cents: 4462
+  initial_unit_price_cents: 3644
+  floor_unit_price_cents: 3347
+  concession_ladder_cents:
+  - 3644
+  - 3495
+  - 3347
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 335
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=500
+  rating: 4.4
+  reviews: '152'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGONOMIC-FOOT-REST
+  name: Ergonomic Foot Rest
+  category: Office Accessory
+  description: Designed to relieve foot strain and improve posture during long hours
+    at your desk.
+  list_unit_price_cents: 2324
+  original_unit_price_cents: 2788
+  initial_unit_price_cents: 2277
+  floor_unit_price_cents: 2091
+  concession_ladder_cents:
+  - 2277
+  - 2184
+  - 2091
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 209
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://plus.unsplash.com/premium_photo-1681426775958-4e7ba85a77f1?w=500
+  rating: 4.2
+  reviews: '190'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGONOMIC-KEYBOARD
+  name: Ergonomic Keyboard
+  category: Keyboard
+  description: Keyboard designed to reduce strain and provide a comfortable typing
+    experience.
+  list_unit_price_cents: 6509
+  original_unit_price_cents: 7810
+  initial_unit_price_cents: 6378
+  floor_unit_price_cents: 5858
+  concession_ladder_cents:
+  - 6378
+  - 6118
+  - 5858
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 586
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500
+  rating: 4.5
+  reviews: '168'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ERGOPRO-STANDING-DESK
+  name: ErgoPro Standing Desk
+  category: Standing Desk
+  description: High-capacity standing desk with customizable settings for optimal
+    comfort.
+  list_unit_price_cents: 41849
+  original_unit_price_cents: 50218
+  initial_unit_price_cents: 41012
+  floor_unit_price_cents: 37664
+  concession_ladder_cents:
+  - 41012
+  - 39338
+  - 37664
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 3766
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1699831112447-9c8c803f584b?w=500
+  rating: 4.5
+  reviews: '140'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-EXECUTIVE-ERGONOMIC-CHAIR
+  name: Executive Ergonomic Chair
+  category: Ergonomic Chair
+  description: High-back chair designed for executives with comfort and style in mind.
+  list_unit_price_cents: 27899
+  original_unit_price_cents: 33478
+  initial_unit_price_cents: 27341
+  floor_unit_price_cents: 25109
+  concession_ladder_cents:
+  - 27341
+  - 26225
+  - 25109
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 2511
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://plus.unsplash.com/premium_photo-1661542322251-db8b9bdf8e30?w=500
+  rating: 4.7
+  reviews: '144'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-GAMING-BEAST-PC
+  name: Gaming Beast PC
+  category: Gaming PC
+  description: Ultimate gaming desktop with a top-tier GPU and CPU for an immersive
+    gaming experience.
+  list_unit_price_cents: 185999
+  original_unit_price_cents: 223198
+  initial_unit_price_cents: 182279
+  floor_unit_price_cents: 167399
+  concession_ladder_cents:
+  - 182279
+  - 174839
+  - 167399
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 16740
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1587202372634-32705e3bf49c?w=500
+  rating: 4.9
+  reviews: '86'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-GAMING-BEAST-PC-2
+  name: Gaming Beast PC
+  category: Gaming PC
+  description: High-end gaming desktop with a top-tier GPU and CPU for immersive gameplay.
+  list_unit_price_cents: 185999
+  original_unit_price_cents: 223198
+  initial_unit_price_cents: 182279
+  floor_unit_price_cents: 167399
+  concession_ladder_cents:
+  - 182279
+  - 174839
+  - 167399
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 16740
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1572314493295-09c6d5ec3cdf?w=500
+  rating: 4.9
+  reviews: '124'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-GAMING-WIRELESS-MOUSE
+  name: Gaming Wireless Mouse
+  category: Mouse
+  description: Responsive and accurate gaming mouse with adjustable DPI settings.
+  list_unit_price_cents: 5579
+  original_unit_price_cents: 6694
+  initial_unit_price_cents: 5467
+  floor_unit_price_cents: 5021
+  concession_ladder_cents:
+  - 5467
+  - 5244
+  - 5021
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 502
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1563297007-0686b7003af7?w=500
+  rating: 4.6
+  reviews: '154'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-LAPTOP-COOLING-PAD
+  name: Laptop Cooling Pad
+  category: Laptop Accessory
+  description: Enhance your laptop's performance by preventing overheating with this
+    cooling pad.
+  list_unit_price_cents: 3254
+  original_unit_price_cents: 3904
+  initial_unit_price_cents: 3188
+  floor_unit_price_cents: 2928
+  concession_ladder_cents:
+  - 3188
+  - 3058
+  - 2928
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 293
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1619953942547-233eab5a70d6?w=500
+  rating: 4.5
+  reviews: '192'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-MECHANICAL-GAMING-KEYBOARD
+  name: Mechanical Gaming Keyboard
+  category: Keyboard
+  description: RGB backlit mechanical keyboard with fast response times for gaming
+    enthusiasts.
+  list_unit_price_cents: 8369
+  original_unit_price_cents: 10042
+  initial_unit_price_cents: 8201
+  floor_unit_price_cents: 7532
+  concession_ladder_cents:
+  - 8201
+  - 7866
+  - 7532
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 753
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1595225476474-87563907a212?w=500
+  rating: 4.7
+  reviews: '166'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-MESH-ERGONOMIC-CHAIR
+  name: Mesh Ergonomic Chair
+  category: Ergonomic Chair
+  description: Breathable mesh chair providing excellent posture support and flexibility.
+  list_unit_price_cents: 18599
+  original_unit_price_cents: 22318
+  initial_unit_price_cents: 18227
+  floor_unit_price_cents: 16739
+  concession_ladder_cents:
+  - 18227
+  - 17483
+  - 16739
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 1674
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1594235048794-fae8583a5af5?w=500
+  rating: 4.5
+  reviews: '146'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-MULTI-PORT-USB-HUB
+  name: Multi-Port USB Hub
+  category: Accessories
+  description: Expand your connectivity with a multi-port USB hub for all your devices.
+  list_unit_price_cents: 3719
+  original_unit_price_cents: 4462
+  initial_unit_price_cents: 3644
+  floor_unit_price_cents: 3347
+  concession_ladder_cents:
+  - 3644
+  - 3495
+  - 3347
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 335
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1625961332771-3f40b0e2bdcf?w=500
+  rating: 4.4
+  reviews: '200'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-OVERCLOCKED-GAMING-PC
+  name: Overclocked Gaming PC
+  category: Gaming PC
+  description: Performance-tuned gaming desktop designed for extreme gaming and streaming.
+  list_unit_price_cents: 232499
+  original_unit_price_cents: 278998
+  initial_unit_price_cents: 227849
+  floor_unit_price_cents: 209249
+  concession_ladder_cents:
+  - 227849
+  - 218549
+  - 209249
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 20925
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1587202372634-32705e3bf49c?w=500
+  rating: 4.7
+  reviews: '130'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-PERFORMANCE-LAPTOP-X
+  name: Performance Laptop X
+  category: Laptop
+  description: A powerful machine built for professionals and gamers alike.
+  list_unit_price_cents: 120899
+  original_unit_price_cents: 145078
+  initial_unit_price_cents: 118481
+  floor_unit_price_cents: 108809
+  concession_ladder_cents:
+  - 118481
+  - 113645
+  - 108809
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 10881
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=500
+  rating: 4.7
+  reviews: '106'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-PORTABLE-POWER-BANK
+  name: Portable Power Bank
+  category: Accessories
+  description: High capacity power bank to keep your devices charged on the go.
+  list_unit_price_cents: 3719
+  original_unit_price_cents: 4462
+  initial_unit_price_cents: 3644
+  floor_unit_price_cents: 3347
+  concession_ladder_cents:
+  - 3644
+  - 3495
+  - 3347
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 335
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500
+  rating: 4.3
+  reviews: '188'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-PRECISION-WIRELESS-MOUSE
+  name: Precision Wireless Mouse
+  category: Mouse
+  description: High-precision wireless mouse with customizable buttons and an ergonomic
+    design for comfort.
+  list_unit_price_cents: 4649
+  original_unit_price_cents: 5578
+  initial_unit_price_cents: 4556
+  floor_unit_price_cents: 4184
+  concession_ladder_cents:
+  - 4556
+  - 4370
+  - 4184
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 418
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1586349906319-48d20e9d17e5?w=500
+  rating: 4.5
+  reviews: '92'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-PRECISION-WIRELESS-MOUSE-2
+  name: Precision Wireless Mouse
+  category: Mouse
+  description: High-precision wireless mouse with customizable buttons for productivity.
+  list_unit_price_cents: 4649
+  original_unit_price_cents: 5578
+  initial_unit_price_cents: 4556
+  floor_unit_price_cents: 4184
+  concession_ladder_cents:
+  - 4556
+  - 4370
+  - 4184
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 418
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=500
+  rating: 4.5
+  reviews: '150'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-PRO-BUSINESS-LAPTOP
+  name: Pro Business Laptop
+  category: Laptop
+  description: High performance laptop designed for professional multitasking and
+    business applications.
+  list_unit_price_cents: 92999
+  original_unit_price_cents: 111598
+  initial_unit_price_cents: 91139
+  floor_unit_price_cents: 83699
+  concession_ladder_cents:
+  - 91139
+  - 87419
+  - 83699
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 8370
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500
+  rating: 4.5
+  reviews: '82'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-PRO-BUSINESS-LAPTOP-2
+  name: Pro Business Laptop
+  category: Laptop
+  description: High performance laptop designed for multitasking and business applications.
+  list_unit_price_cents: 92999
+  original_unit_price_cents: 111598
+  initial_unit_price_cents: 91139
+  floor_unit_price_cents: 83699
+  concession_ladder_cents:
+  - 91139
+  - 87419
+  - 83699
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 8370
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=500
+  rating: 4.5
+  reviews: '102'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-SMART-HEIGHT-ADJUSTABLE-DESK
+  name: Smart Height Adjustable Desk
+  category: Standing Desk
+  description: Standing desk with memory presets and smooth electronic adjustment.
+  list_unit_price_cents: 46499
+  original_unit_price_cents: 55798
+  initial_unit_price_cents: 45569
+  floor_unit_price_cents: 41849
+  concession_ladder_cents:
+  - 45569
+  - 43709
+  - 41849
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 4185
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1622131815452-cc00d8d89f02?w=500
+  rating: 4.7
+  reviews: '136'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ULTRA-SLIM-LAPTOP
+  name: Ultra Slim Laptop
+  category: Laptop
+  description: Lightweight laptop with a sleek design and long battery life.
+  list_unit_price_cents: 83699
+  original_unit_price_cents: 100438
+  initial_unit_price_cents: 82025
+  floor_unit_price_cents: 75329
+  concession_ladder_cents:
+  - 82025
+  - 78677
+  - 75329
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 7533
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=500
+  rating: 4.3
+  reviews: '104'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR
+  name: UltraComfort Ergonomic Chair
+  category: Ergonomic Chair
+  description: Ergonomic office chair with customizable lumbar support for optimal
+    comfort during long hours.
+  list_unit_price_cents: 23249
+  original_unit_price_cents: 27898
+  initial_unit_price_cents: 22784
+  floor_unit_price_cents: 20924
+  concession_ladder_cents:
+  - 22784
+  - 21854
+  - 20924
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 2092
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1580480055273-228ff5388ef8?w=500
+  rating: 4.8
+  reviews: '90'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR-2
+  name: UltraComfort Ergonomic Chair
+  category: Ergonomic Chair
+  description: Ergonomic chair with advanced lumbar support for long hours of work.
+  list_unit_price_cents: 23249
+  original_unit_price_cents: 27898
+  initial_unit_price_cents: 22784
+  floor_unit_price_cents: 20924
+  concession_ladder_cents:
+  - 22784
+  - 21854
+  - 20924
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 2092
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1681418659069-eef28d44aeab?w=500
+  rating: 4.8
+  reviews: '142'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-VR-HEADSET
+  name: VR Headset
+  category: Gaming
+  description: Step into the world of virtual reality with this immersive VR headset.
+  list_unit_price_cents: 27899
+  original_unit_price_cents: 33478
+  initial_unit_price_cents: 27341
+  floor_unit_price_cents: 25109
+  concession_ladder_cents:
+  - 27341
+  - 26225
+  - 25109
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 2511
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1622979135225-d2ba269cf1ac?w=500
+  rating: 4.7
+  reviews: '198'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-VR-READY-GAMING-PC
+  name: VR Ready Gaming PC
+  category: Gaming PC
+  description: Optimized for virtual reality experiences with advanced cooling and
+    performance.
+  list_unit_price_cents: 204599
+  original_unit_price_cents: 245518
+  initial_unit_price_cents: 200507
+  floor_unit_price_cents: 184139
+  concession_ladder_cents:
+  - 200507
+  - 192323
+  - 184139
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 18414
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1593640408182-31c70c8268f5?w=500
+  rating: 4.8
+  reviews: '128'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-WIRELESS-CHARGING-PAD
+  name: Wireless Charging Pad
+  category: Office Accessory
+  description: Fast wireless charger for smartphones and wearable devices.
+  list_unit_price_cents: 2789
+  original_unit_price_cents: 3346
+  initial_unit_price_cents: 2733
+  floor_unit_price_cents: 2510
+  concession_ladder_cents:
+  - 2733
+  - 2621
+  - 2510
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 251
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1622445275463-afa2ab738c34?w=500
+  rating: 4.5
+  reviews: '176'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-WIRELESS-COMPACT-KEYBOARD
+  name: Wireless Compact Keyboard
+  category: Keyboard
+  description: Portable, wireless keyboard perfect for on-the-go productivity.
+  list_unit_price_cents: 4649
+  original_unit_price_cents: 5578
+  initial_unit_price_cents: 4556
+  floor_unit_price_cents: 4184
+  concession_ladder_cents:
+  - 4556
+  - 4370
+  - 4184
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 418
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500
+  rating: 4.3
+  reviews: '170'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false
+- sku: EX-WIRELESS-PRESENTER
+  name: Wireless Presenter
+  category: Office Accessory
+  description: Convenient wireless presenter ideal for meetings and presentations.
+  list_unit_price_cents: 2789
+  original_unit_price_cents: 3346
+  initial_unit_price_cents: 2733
+  floor_unit_price_cents: 2510
+  concession_ladder_cents:
+  - 2733
+  - 2621
+  - 2510
+  base_warranty_months: 48
+  warranty_addons_cents:
+    '48': 0
+    '60': 251
+  returns_days: 75
+  delivery_days: 9
+  stock_on_hand: 10
+  incoming_stock: 3
+  incoming_days: 7
+  image_url: https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=500
+  rating: 4.3
+  reviews: '194'
+  tag: Business pick
+  sustainability_certified: false
+  color_name: white
+  split_shipment: false

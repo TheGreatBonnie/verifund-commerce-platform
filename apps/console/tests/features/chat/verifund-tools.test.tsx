@@ -35,7 +35,7 @@ const agreement = {
       quantity: 12,
       unit_price_cents: 10000,
       warranty_addon_cents: 0,
-      attributes: { image_emoji: "🎧", condition: "new" },
+      attributes: { image_url: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500", condition: "new" },
     },
   ],
   shipping_cents: 3400,

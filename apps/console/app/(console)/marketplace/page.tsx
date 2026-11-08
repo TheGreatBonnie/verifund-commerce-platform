@@ -173,9 +173,8 @@ function MarketplaceProductCard({
     <article className="mm-product-card mm-marketplace-product-card">
       <div
         className="mm-product-art mm-marketplace-product-art"
-        style={{ backgroundColor: product.color }}
       >
-        <span aria-hidden="true">{product.image_emoji}</span>
+        {product.image_url ? <img src={product.image_url} alt={product.name} /> : null}
         <small>{product.tag}</small>
         <button
           type="button"

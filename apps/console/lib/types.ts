@@ -245,8 +245,7 @@ export type MarketplaceProduct = {
   name: string;
   category: string;
   description: string;
-  image_emoji: string;
-  color: string;
+  image_url: string;
   original_unit_price_cents: number | null;
   rating: number;
   reviews: string;

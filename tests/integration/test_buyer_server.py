@@ -14,14 +14,18 @@ from tests.support.servers import run_uvicorn
 
 @pytest.fixture
 async def buyer_server(tmp_path: Path):
+    from tests.support.servers import _free_port
+
+    port = _free_port()
     settings = Settings(
         host="127.0.0.1",
-        port=9100,
+        port=port,
+        public_base_url=f"http://127.0.0.1:{port}",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'buyer.db'}",
         checkpoint_path=tmp_path / "checkpoints.db",
     )
     app = create_app(settings, MemorySaver(), FakeServices())
-    async with run_uvicorn(app, 9100) as base_url:
+    async with run_uvicorn(app, port) as base_url:
         yield base_url
 
 

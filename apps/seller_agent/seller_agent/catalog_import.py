@@ -41,8 +41,7 @@ class ImportProduct(BaseModel):
     stock_on_hand: int = Field(default=0, ge=0)
     incoming_stock: int = Field(default=0, ge=0)
     incoming_days: int | None = None
-    image_emoji: str = "📦"
-    color: str = "#eef2ed"
+    image_url: str = ""
     rating: float | None = Field(default=None, ge=0.0, le=5.0)
     reviews: str = ""
     tag: str = ""

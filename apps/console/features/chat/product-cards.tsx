@@ -22,8 +22,7 @@ type SearchProduct = {
   name?: string;
   category?: string;
   description?: string;
-  image_emoji?: string;
-  color?: string;
+  image_url?: string;
   unit_price_cents?: number;
   original_unit_price_cents?: number | null;
   currency?: string;
@@ -137,12 +136,8 @@ function ProductCard({
 
   return (
     <li className="mm-product-card mm-product-search-card">
-      <div
-        className="mm-product-art mm-product-search-art"
-        style={{ backgroundColor: product.color }}
-        aria-hidden="true"
-      >
-        <span>{product.image_emoji ?? "📦"}</span>
+      <div className="mm-product-art mm-product-search-art" aria-hidden="true">
+        {product.image_url ? <img src={product.image_url} alt={product.name ?? ""} /> : null}
         {badgeLabel(product) ? <small>{badgeLabel(product)}</small> : null}
       </div>
 

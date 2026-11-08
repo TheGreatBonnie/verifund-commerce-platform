@@ -481,20 +481,15 @@ function ProductSummary({ agreement }: { agreement: any }) {
   ].filter((chip): chip is string => Boolean(chip));
   const visible = chips.slice(0, 4);
   const overflow = chips.length - visible.length;
-  const tileColor = hexColor(attrs.color);
+
 
   return (
     <div className="mm-product" data-testid="product-summary">
-      <div
-        className="mm-product-tile"
-        style={tileColor ? { backgroundColor: tileColor } : undefined}
-      >
+      <div className="mm-product-tile">
         {attrs.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={String(attrs.image_url)} alt={String(name)} />
-        ) : (
-          <span aria-hidden="true">{attrs.image_emoji || "📦"}</span>
-        )}
+        ) : null}
       </div>
       <div className="mm-product-body">
         <h4 className="mm-product-name">

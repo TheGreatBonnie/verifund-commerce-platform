@@ -31,7 +31,7 @@ def _v2_offer():
             "binding_version": 2,
             "line_items": [
                 offer.line_items[0].model_copy(
-                    update={"attributes": {"color": "#eaf0fb", "image_emoji": "💻"}}
+                    update={"attributes": {"image_url": "https://images.unsplash.com/photo-x?w=500", "color_name": "gray"}}
                 )
             ],
         }
@@ -89,16 +89,16 @@ def test_v2_binding_binds_attributes_and_version():
     binding = canonical_offer_binding(offer)
     assert binding["binding_version"] == 2
     assert binding["line_items"][0]["attributes"] == {
-        "color": "#eaf0fb",
-        "image_emoji": "💻",
+        "image_url": "https://images.unsplash.com/photo-x?w=500",
+        "color_name": "gray",
     }
     assert offer_hash(binding_from_award(_award_from(offer, 2))) == offer_hash(
         binding
     )
     mutated = _award_from(offer, 2)
     mutated["line_items"][0]["attributes"] = {
-        "color": "#000000",
-        "image_emoji": "💻",
+        "image_url": "https://images.unsplash.com/photo-y?w=500",
+        "color_name": "gray",
     }
     assert offer_hash(binding_from_award(mutated)) != offer_hash(binding)
 

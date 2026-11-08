@@ -18,7 +18,7 @@ const MACBOOK = {
   name: "MacBook Air M4 13-inch",
   category: "Electronics",
   description: "Apple M4 · 16GB memory · 256GB SSD · Space Gray",
-  image_emoji: "💻",
+  image_url: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
   unit_price_cents: 99900,
   original_unit_price_cents: 119900,
   currency: "USD",
@@ -44,7 +44,7 @@ const MONITOR = {
   name: "27-inch 4K USB-C Monitor",
   category: "Electronics",
   description: "4K UHD · USB-C hub · Height adjustable",
-  image_emoji: "🖥️",
+  image_url: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
   unit_price_cents: 49900,
   original_unit_price_cents: null,
   currency: "USD",
@@ -135,7 +135,7 @@ describe("product search cards", () => {
 
     const art = container.querySelector(".mm-product-art");
     expect(art).not.toBeNull();
-    expect(art?.textContent).toContain("💻");
+    expect(art?.querySelector("img")).not.toBeNull();
     expect(art?.textContent).toContain("In stock");
 
     expect(container.querySelector(".mm-product-category")?.textContent).toBe(

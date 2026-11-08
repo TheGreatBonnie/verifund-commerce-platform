@@ -2,7 +2,7 @@
 # Upload a .json or .yaml file with this shape. All fields are required unless
 # marked optional. Amounts are integer cents. Invariants enforced on import:
 # floor_unit_price_cents <= initial_unit_price_cents <= list_unit_price_cents.
-version: 1                 # required; currently 1
+version: 2                 # required; v2 uses a URL for product imagery
 currency: USD              # optional; ISO 4217
 products:                  # required; 1..1000 entries
   - sku: EX-EXAMPLE-1            # required; unique (re-import upserts by SKU)
@@ -21,8 +21,7 @@ products:                  # required; 1..1000 entries
     stock_on_hand: 10                 # optional; default 0
     incoming_stock: 4                 # optional; default 0
     incoming_days: 7                  # optional; expected restock horizon
-    image_emoji: "📦"                 # optional
-    color: "#eef2ed"                  # optional; hex
+    image_url: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500"  # optional; https image URL
     rating: 4.5                       # optional; 0.0..5.0
     reviews: "120"                    # optional; free text
     tag: "Popular"                    # optional

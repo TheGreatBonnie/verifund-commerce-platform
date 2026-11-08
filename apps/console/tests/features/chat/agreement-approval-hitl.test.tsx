@@ -24,9 +24,8 @@ const agreement = {
       unit_price_cents: 10000,
       warranty_addon_cents: 0,
       attributes: {
-        color: "#eef2ed",
         color_name: "black",
-        image_emoji: "🎧",
+        image_url: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
         condition: "new",
         specs: "Adaptive audio · 30-hour battery",
       },
@@ -41,7 +40,7 @@ const agreement = {
         quantity: 12,
         unit_price_cents: 10000,
         warranty_addon_cents: 0,
-        attributes: { image_emoji: "🎧", condition: "new" },
+        attributes: { image_url: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500", condition: "new" },
       },
     ],
     totals: {

@@ -204,7 +204,7 @@ async def test_purchase_order_report_carries_settlement_fields():
     assert report.total_cents == 123400
 
 
-ATTRIBUTES = {"color": "#eaf0fb", "image_emoji": "💻"}
+ATTRIBUTES = {"image_url": "https://images.unsplash.com/photo-x?w=500", "color_name": "gray"}
 
 
 def test_build_award_request_preserves_attributes_and_binding_version():

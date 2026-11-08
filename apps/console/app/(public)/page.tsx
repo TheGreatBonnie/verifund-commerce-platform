@@ -29,9 +29,8 @@ type HomeProduct = {
   name: string;
   category: string;
   desc: string;
-  emoji: string;
+  image_url: string;
   tag: string;
-  color: string;
   price: number;
   original: number;
   rating: string;
@@ -46,9 +45,8 @@ function toHomeProduct(product: MarketplaceProduct): HomeProduct {
     name: product.name,
     category: product.category,
     desc: product.description,
-    emoji: product.image_emoji ?? "📦",
+    image_url: product.image_url ?? "",
     tag: product.tag ?? "Available",
-    color: product.color ?? "#eef2ed",
     price: Math.round((product.unit_price_cents ?? 0) / 100),
     original: Math.round((product.original_unit_price_cents ?? 0) / 100),
     rating: String(product.rating ?? ""),
@@ -264,8 +262,8 @@ export default function Home() {
         <div className="mm-product-grid">
           {products.slice(0, 5).map((product) => (
             <article className="mm-product-card" key={product.id}>
-              <div className="mm-product-art" style={{ backgroundColor: product.color }} aria-hidden="true">
-                <span>{product.emoji}</span>
+              <div className="mm-product-art" aria-hidden="true">
+                {product.image_url ? <img src={product.image_url} alt={product.name} /> : null}
                 <small>{product.tag}</small>
               </div>
               <div className="mm-product-info">

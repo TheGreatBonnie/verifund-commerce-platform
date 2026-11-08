@@ -1,4 +1,4 @@
-version: 1
+version: 2
 currency: USD
 products:
 - sku: EX-LAPTOP-M4
@@ -22,8 +22,7 @@ products:
   stock_on_hand: 25
   incoming_stock: 10
   incoming_days: 7
-  image_emoji: 💻
-  color: '#eaf0fb'
+  image_url: https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500
   rating: 4.6
   reviews: '230'
   tag: Popular
@@ -48,8 +47,7 @@ products:
   stock_on_hand: 40
   incoming_stock: 0
   incoming_days: null
-  image_emoji: 🎧
-  color: '#f1edff'
+  image_url: https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500
   rating: 4.7
   reviews: 1.1k
   tag: Best deal
@@ -74,8 +72,7 @@ products:
   stock_on_hand: 16
   incoming_stock: 5
   incoming_days: 10
-  image_emoji: 🪑
-  color: '#e7f7f2'
+  image_url: https://images.unsplash.com/photo-1592078615290-033ee584e267?w=500
   rating: 4.5
   reviews: '640'
   tag: Negotiable
@@ -99,8 +96,7 @@ products:
   stock_on_hand: 34
   incoming_stock: 10
   incoming_days: 4
-  image_emoji: 💾
-  color: '#f1eee7'
+  image_url: https://images.unsplash.com/photo-1662601326685-fe26f65cdb17?w=500
   rating: 4.8
   reviews: '905'
   tag: Fast delivery

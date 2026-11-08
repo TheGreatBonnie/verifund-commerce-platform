@@ -173,6 +173,12 @@ class FakeRegistry:
     ) -> list[SellerEndpoint]:
         return list(self._endpoints.values())
 
+    async def poll_registry(self) -> dict[str, SellerEndpoint]:
+        return dict(self._endpoints)
+
+    async def close(self) -> None:
+        return None
+
     def endpoint(self, seller_id: str) -> SellerEndpoint:
         return self._endpoints[seller_id]
 
