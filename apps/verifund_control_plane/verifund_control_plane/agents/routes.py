@@ -17,6 +17,7 @@ from verifund_control_plane.agents.credentials import (
 from verifund_control_plane.agents.lifecycle import activate_agent, confirm_policy
 from verifund_control_plane.agents.registry_sync import publish_agent
 from verifund_control_plane.errors import VerifundError
+from verifund_control_plane.onboarding.service import advance_step, require_step
 from verifund_control_plane.tenancy.identity import require_identity
 
 router = APIRouter()
@@ -117,6 +118,7 @@ async def test_agent(agent_id: str, request: Request) -> dict:
     identity = await require_seller_agent_admin(request)
     agent = await require_own_agent(request, agent_id, identity)
     store = request.app.state.tenancy
+    await require_step(store, identity.tenant_id, "catalog")
 
     credential = await issue_credential(
         store, identity.tenant_id, agent_id, ["a2a:test"])
@@ -151,6 +153,8 @@ async def test_agent(agent_id: str, request: Request) -> dict:
     )
     if not passed:
         await store.set_agent_status(agent_id, "configuring")
+    else:
+        await advance_step(store, identity.tenant_id, "verification")
     return {"passed": passed, "checks": checks, "run_id": run["id"]}
 
 
@@ -203,6 +207,7 @@ async def create_agent_route(request: Request, response: Response,
     idempotency_key = _idem_key(request)
     import uuid
     profile = await store.get_seller_profile_by_organization(identity.tenant_id)
+    await require_step(store, identity.tenant_id, "profile")
     seller_id = (profile or {}).get("seller_id") or uuid.uuid4().hex
     agent_id = f"agent_{seller_id}"
 
@@ -239,6 +244,7 @@ async def create_agent_route(request: Request, response: Response,
         action="agent.created", resource_id=agent["id"],
         payload={"idempotency_key": idempotency_key, "agent_id": agent["id"]},
     )
+    await advance_step(store, identity.tenant_id, "config")
     return {"agent_id": agent["id"], "status": "draft",
             **runtime_response.json()}
 
@@ -290,6 +296,7 @@ async def update_agent_config(agent_id: str, body: ConfigBody,
     identity = await require_seller_agent_admin(request)
     agent = await require_own_agent(request, agent_id, identity)
     store = request.app.state.tenancy
+    await require_step(store, identity.tenant_id, "agent")
     runtime_response = await _forward_config(request, agent_id, identity, body, agent)
     if runtime_response.status_code == 409:
         detail = runtime_response.json()
@@ -300,6 +307,7 @@ async def update_agent_config(agent_id: str, body: ConfigBody,
             "runtime_error", runtime_response.text, status_code=502)
     snapshot = runtime_response.json()
     await _record_hashes(request, store, identity, agent_id, agent, snapshot)
+    await advance_step(store, identity.tenant_id, "catalog")
     return snapshot
 
 
@@ -319,6 +327,8 @@ async def update_agent_policies(agent_id: str, body: ConfigBody,
 @router.post("/v1/seller/catalog/import")
 async def catalog_import_route(body: CatalogImportBody, request: Request) -> dict:
     identity = await require_seller_agent_admin(request)
+    store = request.app.state.tenancy
+    await require_step(store, identity.tenant_id, "config")
     if len(body.document.encode(errors="ignore")) > 2 * 1024 * 1024:
         raise VerifundError("too_large", "document exceeds 2 MB", status_code=413)
     runtime_response = await _call_runtime(

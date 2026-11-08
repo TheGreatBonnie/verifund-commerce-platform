@@ -2,6 +2,43 @@ from __future__ import annotations
 
 from verifund_control_plane.errors import VerifundError
 
+STEP_ORDER = ["profile", "agent", "config", "catalog", "test", "verification", "activation"]
+
+
+async def require_step(store, organization_id: str, required: str) -> dict:
+    """Enforce strict onboarding order. Legacy seeded profile w/o row is allowed."""
+    onboarding = await store.get_onboarding(organization_id)
+    if onboarding is None:
+        profile = await store.get_seller_profile_by_organization(organization_id)
+        if profile is None:
+            raise VerifundError(
+                "onboarding_incomplete",
+                f"onboarding step {required!r} requires profile complete",
+                status_code=409,
+                details={"current_step": None, "missing": "profile"},
+            )
+        return {}
+    current = onboarding.get("current_step")
+    idx = STEP_ORDER.index(current) if current in STEP_ORDER else -1
+    if idx < STEP_ORDER.index(required):
+        raise VerifundError(
+            "onboarding_incomplete",
+            f"onboarding step {required!r} requires step {current!r} complete",
+            status_code=409,
+            details={"current_step": current, "missing": required},
+        )
+    return onboarding
+
+
+async def advance_step(store, organization_id: str, next_step: str) -> dict:
+    onboarding = await store.get_onboarding(organization_id)
+    if onboarding is None:
+        return {}
+    current = onboarding.get("current_step")
+    if current in STEP_ORDER and STEP_ORDER.index(next_step) > STEP_ORDER.index(current):
+        return await store.upsert_onboarding(organization_id, "in_progress", next_step)
+    return onboarding
+
 # Spec §9.3: (no profile) -> unverified on onboarding; then:
 # unverified -> pending (submit), rejected -> pending (reapply),
 # pending -> verified/rejected (admin), verified -> suspended (admin),
@@ -162,10 +199,10 @@ async def save_profile_and_continue(
 
     onboarding = await store.get_onboarding(organization_id)
     current = (onboarding or {}).get("current_step")
-    # Do not regress submitted/verified workflows; advance early steps to verification.
+    # Advance early steps to agent (strict sequence); never regress later steps.
     if current in (None, "profile"):
         onboarding = await store.upsert_onboarding(
-            organization_id, "in_progress", "verification"
+            organization_id, "in_progress", "agent"
         )
     else:
         onboarding = await store.get_onboarding(organization_id)

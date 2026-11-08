@@ -73,7 +73,7 @@ async def test_profile_route_saves_and_advances(sandbox_client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["profile"]["display_name"] == "Seller One Inc"
-    assert body["onboarding"]["current_step"] == "verification"
+    assert body["onboarding"]["current_step"] == "agent"
 
 
 async def test_submit_route_auto_approves_in_sandbox(sandbox_client):
@@ -124,3 +124,12 @@ async def test_verification_submit_requires_payout_email(sandbox_client):
         headers=headers,
     )
     assert r.status_code == 422, r.text
+
+
+async def test_agent_create_blocked_before_profile(sandbox_client):
+    client, headers = sandbox_client
+    # Business org exists (seeded) but no onboarding yet — agent creation
+    # must be blocked until POST /v1/seller/onboarding creates the profile.
+    r = await client.post("/v1/agents", json={}, headers=headers)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "onboarding_incomplete"

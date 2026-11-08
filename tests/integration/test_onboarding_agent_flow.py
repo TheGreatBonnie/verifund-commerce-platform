@@ -189,7 +189,10 @@ async def test_create_agent_uses_opaque_uuid_for_org_without_profile(stack):
     app = stack["cp_app"]
     app.state.clerk_authenticator = (
         lambda request: {"sub": "user_noprof", "org_id": "org_noprof", "org_role": "org:admin"})
-    r = await cp.post("/v1/agents", json={}, headers={"authorization": "Bearer noprof"})
+    headers = {"authorization": "Bearer noprof"}
+    r = await cp.post("/v1/seller/onboarding", headers=headers)
+    assert r.status_code == 201, r.text
+    r = await cp.post("/v1/agents", json={}, headers=headers)
     assert r.status_code == 201, r.text
     agent_id = r.json()["agent_id"]
     assert agent_id.startswith("agent_")
