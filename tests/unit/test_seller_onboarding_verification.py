@@ -33,7 +33,7 @@ async def _seed(repo):
 async def test_submit_verification_pending_without_auto_approve(repo):
     org, user = await _seed(repo)
     profile = await submit_verification(
-        repo, org["id"], user["id"], {"note": "docs"}, auto_approve_sandbox=False
+        repo, org["id"], user["id"], {"note": "docs"}, payout_email="seller@paypal.example", auto_approve_sandbox=False
     )
     assert profile["verification_status"] == "pending"
     onboarding = await repo.get_onboarding(org["id"])
@@ -44,7 +44,7 @@ async def test_submit_verification_pending_without_auto_approve(repo):
 async def test_submit_verification_auto_approves_in_sandbox(repo):
     org, user = await _seed(repo)
     profile = await submit_verification(
-        repo, org["id"], user["id"], {"note": "docs"}, auto_approve_sandbox=True
+        repo, org["id"], user["id"], {"note": "docs"}, payout_email="seller@paypal.example", auto_approve_sandbox=True
     )
     assert profile["verification_status"] == "verified"
     onboarding = await repo.get_onboarding(org["id"])
@@ -54,7 +54,7 @@ async def test_submit_verification_auto_approves_in_sandbox(repo):
 
 async def test_submit_verification_invalid_state(repo):
     org, user = await _seed(repo)
-    await submit_verification(repo, org["id"], user["id"], {}, auto_approve_sandbox=False)
+    await submit_verification(repo, org["id"], user["id"], {}, payout_email="seller@paypal.example", auto_approve_sandbox=False)
     with pytest.raises(VerifundError) as exc:
-        await submit_verification(repo, org["id"], user["id"], {}, auto_approve_sandbox=False)
+        await submit_verification(repo, org["id"], user["id"], {}, payout_email="seller@paypal.example", auto_approve_sandbox=False)
     assert exc.value.code == "invalid_state"

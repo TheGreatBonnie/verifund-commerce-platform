@@ -86,7 +86,7 @@ async def test_submit_route_auto_approves_in_sandbox(sandbox_client):
     )
     r = await client.post(
         "/v1/seller/verification/submit",
-        json={"documents": {"note": "sandbox"}},
+        json={"documents": {"note": "sandbox"}, "payout_email": "seller@paypal.example"},
         headers=headers,
     )
     assert r.status_code == 200, r.text
@@ -103,8 +103,24 @@ async def test_submit_route_pending_when_not_sandbox(pending_client):
     )
     r = await client.post(
         "/v1/seller/verification/submit",
-        json={"documents": {"note": "review"}},
+        json={"documents": {"note": "review"}, "payout_email": "seller@paypal.example"},
         headers=headers,
     )
     assert r.status_code == 200, r.text
     assert r.json()["verification_status"] == "pending"
+
+
+async def test_verification_submit_requires_payout_email(sandbox_client):
+    client, headers = sandbox_client
+    await client.post("/v1/seller/onboarding", headers=headers)
+    await client.post(
+        "/v1/seller/onboarding/profile",
+        json={"display_name": "Seller One Inc"},
+        headers=headers,
+    )
+    r = await client.post(
+        "/v1/seller/verification/submit",
+        json={"documents": {"note": "x"}},
+        headers=headers,
+    )
+    assert r.status_code == 422, r.text

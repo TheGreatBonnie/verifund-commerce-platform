@@ -43,15 +43,20 @@ async def create_onboarding(store, organization_id: str, actor_user_id: str) -> 
 
 async def submit_verification(
     store, organization_id: str, submitted_by: str, documents: list | dict,
-    *, auto_approve_sandbox: bool = False,
+    *, payout_email: str = "", auto_approve_sandbox: bool = False,
 ) -> dict:
     profile = await store.get_seller_profile_by_organization(organization_id)
     if profile is None:
         raise VerifundError("not_found", "seller profile not found", status_code=404)
     if profile["verification_status"] not in SUBMIT_FROM:
         raise VerifundError("invalid_state", "cannot submit for verification", status_code=409)
+    if not payout_email.strip():
+        raise VerifundError("invalid_argument", "payout_email is required", status_code=422)
+    # Persist payout_email alongside documents for the review/approve step.
+    stored_documents = dict(documents) if isinstance(documents, dict) else {"items": documents}
+    stored_documents["payout_email"] = payout_email.strip()
     await store.set_verification_status(profile["seller_id"], "pending")
-    await store.create_verification(organization_id, submitted_by, documents)
+    await store.create_verification(organization_id, submitted_by, stored_documents)
     await store.upsert_onboarding(organization_id, "submitted", "verification")
     await store.record_audit(
         scope="organization",
@@ -60,7 +65,7 @@ async def submit_verification(
         actor_type="user",
         action="seller.verification.submitted",
         resource_id=profile["seller_id"],
-        payload={"documents": documents},
+        payload={"documents": stored_documents},
     )
     if auto_approve_sandbox:
         approved = await decide_verification(
@@ -100,6 +105,29 @@ async def decide_verification(
     await store.decide_verification_row(
         profile["organization_id"], decision, reviewer_user_id, note
     )
+    if decision == "verified":
+        try:
+            from sqlalchemy import select as _select
+            async with store.engine.connect() as _conn:
+                _res = await _conn.execute(
+                    _select(store.seller_verifications).order_by(
+                        store.seller_verifications.c.id.desc()
+                    )
+                )
+                for _row in _res.fetchall():
+                    _docs = _row._mapping.get("documents") or {}
+                    if isinstance(_docs, dict) and _docs.get("payout_email"):
+                        await store.upsert_payment_account(
+                            organization_id=profile["organization_id"],
+                            provider="paypal",
+                            provider_account_id=str(_docs["payout_email"]),
+                            account_type="payout",
+                            status="active",
+                            credentials_reference=f"secret:{profile['seller_id']}",
+                        )
+                        break
+        except Exception:  # noqa: BLE001 - payout write must not block verification
+            pass
     action = (
         "seller.verification.approved"
         if decision == "verified"

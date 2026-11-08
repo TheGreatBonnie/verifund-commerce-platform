@@ -80,13 +80,14 @@ export async function saveProfileAction(
 
 export async function submitVerificationAction(
   documents: Record<string, unknown> | unknown[],
+  payoutEmail?: string,
 ): Promise<ActionResult<Record<string, unknown>>> {
   await auth.protect();
   try {
     const response = await controlPlaneForUser("/v1/seller/verification/submit", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ documents }),
+      body: JSON.stringify({ documents, payout_email: payoutEmail ?? "" }),
     });
     if (!response.ok) return { ok: false, ...(await readControlPlaneError(response)) };
     revalidateOnboarding();

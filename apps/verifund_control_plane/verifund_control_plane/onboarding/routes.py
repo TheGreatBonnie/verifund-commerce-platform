@@ -16,6 +16,7 @@ router = APIRouter()
 
 class VerificationSubmit(BaseModel):
     documents: list | dict = Field(default_factory=list)
+    payout_email: str = Field(min_length=3, max_length=254)
 
 
 class ProfileSave(BaseModel):
@@ -69,5 +70,9 @@ async def submit(request: Request, body: VerificationSubmit) -> dict:
         identity.tenant_id,
         identity.user_id,
         body.documents,
-        auto_approve_sandbox=bool(getattr(settings, "is_sandbox", False)),
+        payout_email=body.payout_email,
+        auto_approve_sandbox=bool(
+            getattr(settings, "verifund_auto_verify", False)
+            or getattr(settings, "is_sandbox", False)
+        ),
     )
