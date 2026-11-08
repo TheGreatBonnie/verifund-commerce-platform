@@ -10,6 +10,8 @@ ALLOWED_REQUESTED_CHANGE_KEYS = {
     "delivery_days",
 }
 
+ALLOWED_STRATEGIES = {"collaborative", "competitive", "compromise", "value-based"}
+
 
 @dataclass(frozen=True)
 class RejectResult:
@@ -23,6 +25,7 @@ class AllowedBuyerCounter:
     target_unit_price_cents: int
     requested_changes: dict[str, int | bool]
     rationale: str = ""
+    strategy: str = "collaborative"
 
 
 def validate_requested_changes(
@@ -69,7 +72,10 @@ def constrain_buyer_counter(
     allowed_warranty_months: list[int],
     allow_split: bool,
     rationale: str = "",
+    strategy: str = "collaborative",
 ) -> tuple[AllowedBuyerCounter | None, RejectResult | None]:
+    if strategy not in ALLOWED_STRATEGIES:
+        return None, RejectResult("unsupported_constraint", f"unknown strategy: {strategy!r}")
     if target_unit_price_cents not in allowed_targets:
         return None, RejectResult(
             "unsupported_constraint", "counter target is outside allowed list"
@@ -79,4 +85,4 @@ def constrain_buyer_counter(
     )
     if err is not None or normalized is None:
         return None, RejectResult("unsupported_constraint", err or "invalid requested changes")
-    return AllowedBuyerCounter(target_unit_price_cents, normalized, rationale), None
+    return AllowedBuyerCounter(target_unit_price_cents, normalized, rationale, strategy), None

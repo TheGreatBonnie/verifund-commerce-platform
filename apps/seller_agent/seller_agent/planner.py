@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict
 SELLER_SYSTEM_PROMPT = """You are an autonomous seller agent in MarketMesh.
 Choose exactly one action from the allowed options. Never invent a price or warranty
 that is not in the allowed list. The buyer's maximum budget is not available to you.
-Return a concise rationale for the audit trail. Prefer a final offer when concession
+Choose a negotiation strategy (collaborative, competitive, compromise, value-based)
+each round and explain it in rationale. Return a concise rationale for the audit trail. Prefer a final offer when concession
 options are exhausted. You may only choose propose, counter, accept, or reject."""
 
 
@@ -21,6 +22,7 @@ class SellerDecision(BaseModel):
     unit_price_cents: int
     warranty_months: int
     rationale: str
+    strategy: Literal["collaborative", "competitive", "compromise", "value-based"] = "collaborative"
 
 
 class SellerDecisionContext(BaseModel):
