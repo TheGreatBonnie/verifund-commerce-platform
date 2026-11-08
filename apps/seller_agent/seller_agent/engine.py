@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from commerce_core.contracts import OfferStatus
+
 from seller_agent.planner import SellerDecision
 
 

@@ -9,13 +9,13 @@ from commerce_core.negotiation.money import (
 
 
 def sample_offer(**updates):
-    data = dict(
-        offer_id="offer-1",
-        request_id="rfq-1",
-        seller_id="seller-a",
-        seller_name="Seller A",
-        seller_rating=4.5,
-        line_items=[
+    data = {
+        "offer_id": "offer-1",
+        "request_id": "rfq-1",
+        "seller_id": "seller-a",
+        "seller_name": "Seller A",
+        "seller_rating": 4.5,
+        "line_items": [
             OfferLineItem(
                 sku="SKU",
                 name="Item",
@@ -25,19 +25,19 @@ def sample_offer(**updates):
                 warranty_addon_cents=50,
             )
         ],
-        subtotal_cents=2100,
-        shipping_cents=100,
-        tax_cents=20,
-        fees_cents=5,
-        total_cents=2225,
-        delivery_days=3,
-        warranty_months=12,
-        returns_days=30,
-        valid_until=datetime.now(UTC) + timedelta(days=1),
-        terms=OfferTerms(),
-        status=OfferStatus.PROPOSED,
-        round=1,
-    )
+        "subtotal_cents": 2100,
+        "shipping_cents": 100,
+        "tax_cents": 20,
+        "fees_cents": 5,
+        "total_cents": 2225,
+        "delivery_days": 3,
+        "warranty_months": 12,
+        "returns_days": 30,
+        "valid_until": datetime.now(UTC) + timedelta(days=1),
+        "terms": OfferTerms(),
+        "status": OfferStatus.PROPOSED,
+        "round": 1,
+    }
     data.update(updates)
     return Offer(**data)
 

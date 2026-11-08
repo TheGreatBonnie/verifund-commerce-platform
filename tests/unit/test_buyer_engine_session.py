@@ -1,7 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
 from buyer_agent.engine_session import BuyerNegotiationSessionEngine
-from commerce_core.contracts import Mandate, Offer, OfferLineItem, OfferStatus, OfferTerms, Preferences
+from commerce_core.contracts import (
+    Mandate,
+    Offer,
+    OfferLineItem,
+    OfferStatus,
+    OfferTerms,
+    Preferences,
+)
 
 
 def mandate():

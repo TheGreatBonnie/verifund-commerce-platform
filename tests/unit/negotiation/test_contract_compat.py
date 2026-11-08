@@ -1,6 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
-from commerce_core.contracts import AcceptOffer, CounterOffer, Offer, OfferLineItem, OfferStatus, OfferTerms
+from commerce_core.contracts import (
+    AcceptOffer,
+    CounterOffer,
+    Offer,
+    OfferLineItem,
+    OfferStatus,
+    OfferTerms,
+)
 
 
 def test_additive_contract_fields_are_optional():

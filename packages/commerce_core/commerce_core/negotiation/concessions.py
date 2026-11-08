@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 ALLOWED_REQUESTED_CHANGE_KEYS = {
     "warranty_months",
     "split_shipment",
