@@ -4,9 +4,9 @@ from commerce_core.scoring import (
 )
 
 
-def test_circuitforge_wins_final_comparison(mandate, final_offers):
+def test_northwind_wins_final_comparison(mandate, final_offers):
     ranking = rank_offers(mandate, final_offers)
-    assert ranking[0].offer.seller_id == "circuitforge"
+    assert ranking[0].offer.seller_id == "northwind-audio"
     assert ranking[0].score > ranking[1].score
 
 

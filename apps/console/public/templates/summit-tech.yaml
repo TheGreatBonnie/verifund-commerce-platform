@@ -19,22 +19,21 @@ categories:
 list_unit_price_cents: 139499
 floor_unit_price_cents: 125549
 initial_unit_price_cents: 136709
-concession_ladder_cents:
-- 17900
-- 16800
-- 15400
+concession_ladder_cents: &id001
+- 136709
+- 131129
+- 125549
 base_warranty_months: 48
-warranty_addons_cents:
-  12: 0
-  24: 900
-  36: 1800
+warranty_addons_cents: &id002
+  '48': 0
+  '60': 12555
 returns_days: 75
 delivery_days: 9
-stock_on_hand: 20
-incoming_stock: 10
+stock_on_hand: 10
+incoming_stock: 3
 incoming_days: 7
-split_shipment: true
-sustainability_certified: true
+split_shipment: false
+sustainability_certified: false
 rating: 4.7
 mandate:
   version: 1
@@ -58,14 +57,9 @@ products:
   original_unit_price_cents: 167398
   initial_unit_price_cents: 136709
   floor_unit_price_cents: 125549
-  concession_ladder_cents:
-  - 136709
-  - 131129
-  - 125549
+  concession_ladder_cents: *id001
   base_warranty_months: 48
-  warranty_addons_cents:
-    '48': 0
-    '60': 12555
+  warranty_addons_cents: *id002
   returns_days: 75
   delivery_days: 9
   stock_on_hand: 10

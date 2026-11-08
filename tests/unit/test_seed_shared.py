@@ -37,12 +37,12 @@ async def test_seed_seller_rows(engine):
         inventory = (await conn.execute(text(
             "SELECT COUNT(*) FROM inventory WHERE organization_id='org-northwind'"
         ))).scalar_one()
-    assert count == 10
+    assert count == 45
     assert config.seller_id == "northwind-audio"
     assert config.status == "active"
     assert config.card_hash and config.policy_hash
-    assert products == 10
-    assert inventory == 10
+    assert products == 45
+    assert inventory == 45
 
 
 async def test_seed_seller_rows_is_idempotent(engine):
@@ -63,4 +63,4 @@ async def test_seed_seller_rows_is_idempotent(engine):
             "SELECT COUNT(*) FROM products WHERE organization_id='org-northwind'"
         ))).scalar_one()
     assert configs == 1
-    assert products == 10
+    assert products == 45

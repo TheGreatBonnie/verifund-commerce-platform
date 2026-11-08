@@ -18,7 +18,7 @@ from tests.support.a2a import send_purchase_order
 POLICY_PATH = Path(
     "docs/templates/northwind.yaml"
 )
-PRODUCT_SKU = "MM-WIRELESS-HEADPHONES"
+PRODUCT_SKU = "EX-NOISE-CANCELLING-HEADPHONES"
 QUANTITY = 12
 
 
@@ -40,7 +40,7 @@ def build_offer(*, valid_until: datetime, suffix: str) -> Offer:
         unit_price_cents=quote.base_unit_price_cents,
         list_unit_price_cents=policy.list_unit_price_cents,
         warranty_addon_cents=quote.warranty_addon_cents,
-        attributes={"color": policy.color},
+        attributes={"color_name": policy.color},
     )
     return Offer(
         offer_id=f"offer-{suffix}",
