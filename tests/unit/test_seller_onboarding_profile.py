@@ -44,14 +44,14 @@ async def _seed_business(repo, clerk_org_id="org_acme"):
     return org, user
 
 
-async def test_save_profile_and_continue_advances_to_verification(repo):
+async def test_save_profile_and_continue_advances_to_agent(repo):
     org, user = await _seed_business(repo)
     await create_onboarding(repo, org["id"], user["id"])
     result = await save_profile_and_continue(
         repo, org["id"], user["id"], "Acme Industrial"
     )
     assert result["profile"]["display_name"] == "Acme Industrial"
-    assert result["onboarding"]["current_step"] == "verification"
+    assert result["onboarding"]["current_step"] == "agent"
     assert result["onboarding"]["status"] == "in_progress"
 
 

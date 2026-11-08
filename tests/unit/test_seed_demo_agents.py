@@ -21,7 +21,8 @@ async def store(tmp_path):
     await engine.dispose()
 
 
-async def test_seed_demo_agents(store):
+async def test_seed_demo_agents(store, monkeypatch):
+    monkeypatch.setenv("MARKETMESH_SEED_DEMO", "1")
     await seed_demo_agents(store, Settings())
 
     agent = await store.get_agent("agent_northwind-audio")
@@ -44,7 +45,8 @@ async def test_seed_demo_agents(store):
     assert "a2a:test" in seller_credential["scopes"]
 
 
-async def test_seed_demo_agents_is_idempotent(store):
+async def test_seed_demo_agents_is_idempotent(store, monkeypatch):
+    monkeypatch.setenv("MARKETMESH_SEED_DEMO", "1")
     await seed_demo_agents(store, Settings())
     await seed_demo_agents(store, Settings())
     agents = await store.list_agents()
