@@ -72,9 +72,9 @@ export default function MarketplacePage() {
   };
 
   return (
-    <div className="mm-marketplace-page">
+    <div className="mm-marketplace-page" suppressHydrationWarning>
       <header className="mm-marketplace-header">
-        <div>
+        <div suppressHydrationWarning>
           <p className="mm-kicker">Discover &amp; compare</p>
           <h1>Marketplace</h1>
           <p className="mm-marketplace-description">
@@ -126,15 +126,15 @@ export default function MarketplacePage() {
         </button>
       </section>
 
-      <div className="mm-marketplace-results" aria-live="polite">
+      <div className="mm-marketplace-results" aria-live="polite" suppressHydrationWarning>
         <span>Showing <strong>{visibleProducts.length}</strong> products</span>
         <span>Live seller listings · prices shown in USD</span>
       </div>
 
       {catalogQuery.isLoading ? (
-        <div className="mm-marketplace-empty" aria-busy="true">Loading live seller catalogs…</div>
+        <div className="mm-marketplace-empty" aria-busy="true" suppressHydrationWarning>Loading live seller catalogs…</div>
       ) : catalogQuery.error ? (
-        <div className="mm-marketplace-empty" role="alert">
+        <div className="mm-marketplace-empty" role="alert" suppressHydrationWarning>
           <h2>Marketplace catalog unavailable</h2>
           <p>{catalogQuery.error.message}</p>
           <Button type="button" variant="outline" size="sm" onClick={() => void catalogQuery.refetch()}>Retry</Button>
@@ -150,7 +150,7 @@ export default function MarketplacePage() {
           ))}
         </section>
       ) : (
-        <div className="mm-marketplace-empty" role="status">
+        <div className="mm-marketplace-empty" role="status" suppressHydrationWarning>
           <Search size={24} aria-hidden="true" />
           <h2>No products found</h2>
           <p>Try another search or category.</p>

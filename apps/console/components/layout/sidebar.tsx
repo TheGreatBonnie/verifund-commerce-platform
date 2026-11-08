@@ -59,8 +59,8 @@ export function Sidebar() {
   }, []);
 
   return (
-    <aside className="mm-sidebar" aria-label="Primary navigation">
-      <div className="mm-brand">
+    <aside className="mm-sidebar" aria-label="Primary navigation" suppressHydrationWarning>
+      <div className="mm-brand" suppressHydrationWarning>
         <svg viewBox="0 0 32 32" className="mm-brand-mark" aria-hidden="true">
           <circle cx="7" cy="8" r="3.2" />
           <circle cx="25" cy="7" r="2.4" />
@@ -68,7 +68,7 @@ export function Sidebar() {
           <circle cx="7" cy="23" r="2.4" />
           <path d="M10 9.3 21.5 7.9M9.4 10.5l11.4 12M23.5 9.2l-1.2 12.5M9.3 21.7l-1.2-11" />
         </svg>
-        <div>
+        <div suppressHydrationWarning>
           <span className="mm-wordmark">MarketMesh</span>
           <span className="mm-wordmark-sub">open agent exchange</span>
         </div>
@@ -95,7 +95,7 @@ export function Sidebar() {
       </nav>
 
       <section className="mm-sidebar-promo" aria-labelledby="sidebar-promo-title">
-        <div className="mm-sidebar-promo-head">
+        <div className="mm-sidebar-promo-head" suppressHydrationWarning>
           <span className="mm-sidebar-promo-icon" aria-hidden="true">
             <Bot size={18} strokeWidth={1.7} />
           </span>
@@ -113,7 +113,7 @@ export function Sidebar() {
         </Button>
       </section>
 
-      <div className="mm-sidebar-footer">
+      <div className="mm-sidebar-footer" suppressHydrationWarning>
         <span className="mm-registry-status" aria-live="polite">
           <span
             className={`mm-health-dot ${

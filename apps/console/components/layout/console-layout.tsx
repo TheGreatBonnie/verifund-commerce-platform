@@ -22,10 +22,10 @@ export function ConsoleLayout({
     <CopilotProvider>
       <QueryProvider>
         <div className={threadsEnabled ? "mm-app-frame" : undefined} suppressHydrationWarning>
-          <div className="mm-shell" style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "stretch" }}>
+          <div className="mm-shell" style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "stretch" }} suppressHydrationWarning>
             <SkipLink />
             <Sidebar />
-            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }} suppressHydrationWarning>
               <header
                 title={userId ?? undefined}
                 style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "8px 16px", borderBottom: "1px solid var(--rule)" }}

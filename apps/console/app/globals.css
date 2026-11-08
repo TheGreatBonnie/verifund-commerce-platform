@@ -257,6 +257,17 @@
   opacity: 0.5;
 }
 
+/* Seller onboarding action buttons — Deep Forest Green bg */
+.mm-seller-main .mm-button {
+  background: var(--signal); /* #1f6b4a Deep Forest Green */
+  border-color: var(--signal);
+  color: var(--wire-ink);
+}
+.mm-seller-main .mm-button:hover:not(:disabled) {
+  background: var(--signal-deep); /* #145039 Dark Forest Green */
+  border-color: var(--signal-deep);
+}
+
 .mm-button-outline {
   border-color: var(--rule-strong);
   background: transparent;
