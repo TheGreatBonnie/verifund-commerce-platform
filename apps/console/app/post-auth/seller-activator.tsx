@@ -110,7 +110,7 @@ export function SellerActivator() {
           {existingOrgs.length === 0 && (
             <div style={{ marginTop: 16 }}>
               <p style={{ margin: "0 0 8px", fontWeight: 500 }}>Or create one with Clerk:</p>
-              <CreateOrganization />
+              <CreateOrganization afterCreateOrganizationUrl="/seller/onboarding" />
             </div>
           )}
           <div style={{ marginTop: 16 }}>
@@ -148,7 +148,7 @@ export function SellerActivator() {
           </Button>
           <div>
             <p style={{ margin: "0 0 8px", fontWeight: 500, fontSize: 14 }}>Or use Clerk&apos;s organization creator:</p>
-            <CreateOrganization />
+            <CreateOrganization afterCreateOrganizationUrl="/seller/onboarding" />
           </div>
         </div>
       </Panel>
