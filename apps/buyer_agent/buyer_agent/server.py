@@ -48,13 +48,28 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        poll_task = None
         try:
             await configure_sqlite(engine)
             store = getattr(services, "store", None)
             if store is not None:
                 await store.create_schema()
+            registry_client = getattr(services, "registry", None)
+            if registry_client is not None:
+                await registry_client.poll_registry()
+                import asyncio
+                poll_interval = getattr(settings, "buyer_registry_poll_seconds", 30)
+
+                async def _poller():
+                    while True:
+                        await asyncio.sleep(poll_interval)
+                        await registry_client.poll_registry()
+
+                poll_task = asyncio.create_task(_poller())
             yield
         finally:
+            if poll_task is not None:
+                poll_task.cancel()
             registry = getattr(services, "registry", None)
             if owns_services and registry is not None:
                 await registry.close()

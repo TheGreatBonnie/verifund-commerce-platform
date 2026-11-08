@@ -74,6 +74,42 @@ class RegistryClient:
                 f"seller {seller_id!r} was not discovered or failed validation"
             ) from None
 
+    async def poll_registry(self) -> dict[str, SellerEndpoint]:
+        """Fetch GET /v1/sellers, validate cards, atomically swap _endpoints.
+
+        On registry failure (HTTP error, bad JSON) keep the last known map.
+        """
+        import logging
+        try:
+            response = await self.http.get(f"{self.registry_url}/v1/sellers")
+            response.raise_for_status()
+            entries = response.json().get("sellers", [])
+        except (httpx.HTTPError, ValueError) as exc:
+            logging.getLogger(__name__).warning("registry poll failed: %s", exc)
+            return self._endpoints
+        new_endpoints: dict[str, SellerEndpoint] = {}
+        for entry in entries:
+            seller_id, card_url = entry["seller_id"], entry["card_url"]
+            self.fetch_calls += 1
+            try:
+                card = await fetch_agent_card(card_url, client=self.http, allowed_hosts=self.allowed_card_hosts)
+            except Exception as exc:  # noqa: BLE001
+                await self._trace_invalid(entry, str(exc))
+                continue
+            if validate_agent_card(card):
+                continue
+            token = self.seller_tokens.get(seller_id)
+            if not token:
+                continue
+            metadata = card_commerce_metadata(card)
+            new_endpoints[seller_id] = SellerEndpoint(
+                seller_id=seller_id, name=card.name, card_url=card_url, card=card,
+                token=token, rating=float(metadata["rating"]),
+                sustainability_certified=bool(metadata["sustainability_certified"]),
+            )
+        self._endpoints = new_endpoints
+        return self._endpoints
+
     async def discover(
         self, category: str, product_sku: str | None = None
     ) -> list[SellerEndpoint]:
