@@ -128,6 +128,31 @@ describe("product search cards", () => {
     await waitFor(() => expect(hooks.runAgent).toHaveBeenCalledTimes(1));
   });
 
+  it("renders marketplace-aligned art, price, and action layout", () => {
+    const { container } = render(
+      <ProductSearchCards status="complete" result={PAYLOAD} />,
+    );
+
+    const art = container.querySelector(".mm-product-art");
+    expect(art).not.toBeNull();
+    expect(art?.textContent).toContain("💻");
+    expect(art?.textContent).toContain("In stock");
+
+    expect(container.querySelector(".mm-product-category")?.textContent).toBe(
+      "Electronics",
+    );
+    expect(container.querySelector("del")?.textContent).toBe("$1,199.00");
+    expect(container.querySelector(".mm-marketplace-rating")).not.toBeNull();
+
+    const buttons = screen.getAllByRole("button", {
+      name: /ask agent to negotiate/i,
+    });
+    expect(buttons.length).toBe(2);
+    for (const button of buttons) {
+      expect(button).toHaveClass("mm-product-action");
+    }
+  });
+
   it("renders an empty state when no products match", () => {
     render(
       <ProductSearchCards

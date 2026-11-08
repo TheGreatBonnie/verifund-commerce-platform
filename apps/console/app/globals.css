@@ -766,110 +766,84 @@ paypal-button {
   text-transform: uppercase;
 }
 
-.mm-product-grid {
+/* Chat product cards reuse the shared .mm-product-* rules (marketplace,
+   public home). These selectors only scope the chat layout: single-column
+   grid inside the rail, compact art, and details styling. */
+.mm-product-search .mm-product-grid {
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.mm-product-card {
-  background: #fbf9ee;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--signal);
-  border-radius: var(--radius);
+.mm-product-search-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  height: 100%;
+  transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
-.mm-product-card-head {
-  align-items: flex-start;
+.mm-product-search-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 3px 4px 0 rgba(23, 26, 22, 0.08);
+}
+
+.mm-product-search-art {
+  min-height: 96px;
+  flex: none;
+}
+
+.mm-product-search-art > span {
+  font-size: 36px;
+}
+
+.mm-product-search-card .mm-product-info {
   display: flex;
-  gap: 8px;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
 }
 
-.mm-product-emoji {
-  font-size: 20px;
-  line-height: 1.2;
+.mm-product-search-card .mm-product-info h3 {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
-.mm-product-name {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0;
+.mm-product-search-card .mm-product-description {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
-.mm-product-seller,
-.mm-product-description,
-.mm-product-meta,
-.mm-product-rationale {
-  color: var(--ink-soft);
-  font-size: 11px;
-  line-height: 1.4;
-  margin: 0;
+.mm-product-search-card .mm-product-meta {
+  min-width: 0;
 }
 
-.mm-product-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-}
-
-.mm-product-price {
-  margin-left: auto;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.mm-product-price strong {
-  display: block;
-  font-size: 13px;
-}
-
-.mm-product-was {
-  color: var(--ink-soft);
-  font-size: 10px;
-  text-decoration: line-through;
-}
-
-.mm-product-actions {
-  align-items: flex-start;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-}
-
-.mm-product-negotiate {
-  background: var(--signal);
-  border: 1px solid var(--signal);
-  border-radius: var(--radius);
-  color: #fff;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 7px 10px;
-}
-
-.mm-product-negotiate:disabled {
-  cursor: progress;
-  opacity: 0.55;
+.mm-product-search-action {
+  margin-top: auto;
+  padding-top: 6px;
 }
 
 .mm-product-details {
-  font-size: 11px;
+  margin-top: 8px;
+  font-size: 10px;
 }
 
 .mm-product-details summary {
-  color: var(--ink-soft);
+  color: var(--muted);
   cursor: pointer;
 }
 
 .mm-product-details ul {
   margin: 6px 0 0;
   padding-left: 16px;
+}
+
+.mm-product-rationale {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  margin: 4px 0 0;
 }
 
 .mm-product-error {

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Handshake, Star } from "lucide-react";
 import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
+import { Button } from "@/components/ui/button";
 import { parseVerifundToolResult } from "./verifund-tools";
 
 type ProductOffer = {
@@ -78,6 +80,11 @@ function availability(product: SearchProduct): string {
   }`;
 }
 
+function badgeLabel(product: SearchProduct): string | null {
+  const available = (product.offers ?? []).filter((offer) => offer.available);
+  return available.length ? "In stock" : null;
+}
+
 function negotiateIntent(product: SearchProduct): string {
   const currency = offerCurrency(product);
   const offers = (product.offers ?? [])
@@ -129,47 +136,52 @@ function ProductCard({
   const offers = product.offers ?? [];
 
   return (
-    <li className="mm-product-card">
-      <div className="mm-product-card-head">
-        <span className="mm-product-emoji" aria-hidden="true">
-          {product.image_emoji ?? "📦"}
-        </span>
-        <div>
-          <p className="mm-product-name">{product.name ?? product.sku}</p>
-          <p className="mm-product-seller">{sellerName(product)}</p>
-        </div>
+    <li className="mm-product-card mm-product-search-card">
+      <div
+        className="mm-product-art mm-product-search-art"
+        style={{ backgroundColor: product.color }}
+        aria-hidden="true"
+      >
+        <span>{product.image_emoji ?? "📦"}</span>
+        {badgeLabel(product) ? <small>{badgeLabel(product)}</small> : null}
+      </div>
+
+      <div className="mm-product-info">
+        {product.category ? (
+          <p className="mm-product-category">{product.category}</p>
+        ) : null}
+        <h3>{product.name ?? product.sku}</h3>
+        {product.description ? (
+          <p className="mm-product-description">{product.description}</p>
+        ) : null}
         <div className="mm-product-price">
           <strong>{price}</strong>
-          {product.original_unit_price_cents ? (
-            <span className="mm-product-was">{original}</span>
-          ) : null}
+          {product.original_unit_price_cents ? <del>{original}</del> : null}
         </div>
-      </div>
-
-      <div className="mm-product-meta">
-        <span>{availability(product)}</span>
-        {product.category ? <span>{product.category}</span> : null}
-        {typeof product.rating === "number" ? (
-          <span>
-            {product.rating.toFixed(1)} ★
-            {product.reviews ? ` · ${product.reviews}` : ""}
-          </span>
-        ) : null}
-      </div>
-
-      {product.description ? (
-        <p className="mm-product-description">{product.description}</p>
-      ) : null}
-
-      <div className="mm-product-actions">
-        <button
-          type="button"
-          className="mm-product-negotiate"
-          onClick={() => onNegotiate(product)}
-          disabled={disabled}
-        >
-          Ask agent to negotiate
-        </button>
+        <div className="mm-product-meta">
+          {typeof product.rating === "number" ? (
+            <span className="mm-marketplace-rating">
+              <Star size={12} aria-hidden="true" fill="currentColor" />
+              {product.rating.toFixed(1)}{" "}
+              <span>({product.reviews || "new"})</span>
+            </span>
+          ) : null}
+          <span>{availability(product)}</span>
+          <span>{sellerName(product)}</span>
+        </div>
+        <div className="mm-product-search-action">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mm-product-action mm-button-signal"
+            onClick={() => onNegotiate(product)}
+            disabled={disabled}
+            leftIcon={<Handshake size={13} aria-hidden="true" />}
+          >
+            Ask agent to negotiate
+          </Button>
+        </div>
         <details className="mm-product-details">
           <summary>View details</summary>
           <ul>
