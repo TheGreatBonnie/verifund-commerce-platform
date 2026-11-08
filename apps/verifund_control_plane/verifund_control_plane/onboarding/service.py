@@ -25,7 +25,8 @@ async def create_onboarding(store, organization_id: str, actor_user_id: str) -> 
     existing = await store.get_seller_profile_by_organization(organization_id)
     if existing:
         return existing
-    seller_id = await store.unique_seller_id(org["slug"] or org["name"])
+    import uuid
+    seller_id = uuid.uuid4().hex
     profile = await store.upsert_seller_profile(organization_id, seller_id, org["name"])
     await store.upsert_onboarding(organization_id, "in_progress", "profile")
     await store.record_audit(

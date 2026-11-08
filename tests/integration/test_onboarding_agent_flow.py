@@ -178,3 +178,19 @@ async def test_cross_tenant_status_is_404(stack):
 
     r = await cp.get(f"/v1/agents/{agent_id}/status", headers=other_headers)
     assert r.status_code == 404
+
+
+async def test_create_agent_uses_opaque_uuid_for_org_without_profile(stack):
+    cp = stack["cp"]
+    store = stack["cp_app"].state.tenancy
+    user = await store.upsert_user("user_noprof", "noprof@example.com", "NoProf")
+    org = await store.upsert_organization("org_noprof", "NoProf", "noprof")
+    await store.upsert_membership(org["id"], user["id"], "org:admin", "mem_noprof")
+    app = stack["cp_app"]
+    app.state.clerk_authenticator = (
+        lambda request: {"sub": "user_noprof", "org_id": "org_noprof", "org_role": "org:admin"})
+    r = await cp.post("/v1/agents", json={}, headers={"authorization": "Bearer noprof"})
+    assert r.status_code == 201, r.text
+    agent_id = r.json()["agent_id"]
+    assert agent_id.startswith("agent_")
+    assert len(agent_id.removeprefix("agent_")) == 32

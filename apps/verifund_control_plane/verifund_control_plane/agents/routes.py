@@ -201,8 +201,9 @@ async def create_agent_route(request: Request, response: Response,
     identity = await require_seller_agent_admin(request)
     store = request.app.state.tenancy
     idempotency_key = _idem_key(request)
+    import uuid
     profile = await store.get_seller_profile_by_organization(identity.tenant_id)
-    seller_id = (profile or {}).get("seller_id") or identity.tenant_id[:64]
+    seller_id = (profile or {}).get("seller_id") or uuid.uuid4().hex
     agent_id = f"agent_{seller_id}"
 
     existing = [a for a in await store.list_agents(identity.tenant_id)
