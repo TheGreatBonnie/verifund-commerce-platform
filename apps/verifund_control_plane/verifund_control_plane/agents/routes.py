@@ -175,6 +175,25 @@ async def issue(request: Request, agent_id: str, body: IssueRequest) -> dict:
     return {"credential": raw}
 
 
+class InternalTokenBody(BaseModel):
+    seller_id: str = Field(min_length=1)
+
+
+@router.post("/v1/internal/agent-token")
+async def internal_agent_token(request: Request, body: InternalTokenBody) -> dict:
+    settings = request.app.state.settings
+    if request.headers.get("X-Internal-Token") != getattr(settings, "buyer_internal_token", ""):
+        raise VerifundError("unauthorized", "invalid internal token", status_code=401)
+    store = request.app.state.tenancy
+    agent = await store.get_agent(f"agent_{body.seller_id}")
+    if agent is None:
+        raise VerifundError("not_found", "agent not found", status_code=404)
+    if agent["status"] != "active":
+        raise VerifundError("agent_not_active", "agent is not active", status_code=403)
+    raw = await issue_credential(store, agent["organization_id"], agent["id"], ["a2a:call"])
+    return {"agent_id": agent["id"], "token": raw, "scopes": ["a2a:call"]}
+
+
 async def _forward_config(request: Request, agent_id: str, identity,
                           body: ConfigBody, agent: dict):
     # seller_id is anchored to policy_ref ("{seller_id}/vN"); keep it stable.

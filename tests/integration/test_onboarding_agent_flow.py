@@ -245,3 +245,20 @@ async def test_activate_issues_a2a_call_credential(stack):
     store = stack["cp_app"].state.tenancy
     creds = [c for c in await store.list_credentials(aid) if c["status"] == "active"]
     assert any("a2a:call" in (c["scopes"] if isinstance(c["scopes"], list) else _json.loads(c["scopes"])) for c in creds)
+
+async def test_internal_exchange_returns_a2a_call_token(stack):
+    cp, h = stack["cp"], stack["headers"]
+    r = await cp.post("/v1/agents", json={"display_name": "Acme"}, headers=h)
+    aid = r.json()["agent_id"]
+    await cp.patch(f"/v1/agents/{aid}/config", json={"instructions": "x"}, headers=h)
+    await cp.post("/v1/seller/catalog/import", json={"document": EXAMPLE}, headers=h)
+    await cp.post(f"/v1/agents/{aid}/test", json={}, headers=h)
+    await cp.post(f"/v1/agents/{aid}/activate", json={}, headers=h)
+    profile_seller_id = aid.removeprefix("agent_")
+    r = await cp.post("/v1/internal/agent-token", json={"seller_id": profile_seller_id},
+                      headers={"X-Internal-Token": stack["cp_app"].state.settings.buyer_internal_token})
+    assert r.status_code == 200, r.text
+    raw = r.json()["token"]
+    from verifund_control_plane.agents.credentials import verify_credential
+    v = await verify_credential(stack["cp_app"].state.tenancy, raw, purpose="a2a:call")
+    assert v["agent_id"] == aid
