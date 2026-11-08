@@ -38,8 +38,16 @@ def build_agent_card(
         AgentSkill(
             id="commerce.negotiate",
             name="Negotiate an offer",
-            description="Counter or accept structured offers.",
-            tags=["commerce", "negotiation"],
+            description="Counter or accept structured offers (strategy-aware, catalog-grounded).",
+            tags=["commerce", "negotiation", "strategy"],
+            input_modes=["application/json"],
+            output_modes=["application/json"],
+        ),
+        AgentSkill(
+            id="commerce.negotiate.tradeoff",
+            name="Propose trade-offs",
+            description="Propose non-price trade-offs (warranty, shipping, delivery, split) when price is stuck.",
+            tags=["commerce", "negotiation", "tradeoff", "strategy"],
             input_modes=["application/json"],
             output_modes=["application/json"],
         ),
@@ -84,6 +92,11 @@ def build_agent_card(
                     params={
                         "rating": policy.rating,
                         "sustainability_certified": policy.sustainability_certified,
+                        "negotiation": {
+                            "strategies": ["collaborative", "competitive", "compromise", "value-based"],
+                            "tradeoff_terms": ["warranty_months", "split_shipment", "shipping_cents", "delivery_days"],
+                            "max_tradeoffs": 2,
+                        },
                     },
                 )
             ],
