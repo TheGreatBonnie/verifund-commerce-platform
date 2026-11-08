@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from scripts.seed_shared import seed_seller_rows
 
-PROFILE = "apps/seller_agent/seller_agent/profiles/northwind.yaml"
+PROFILE = "docs/templates/northwind.yaml"
 
 
 @pytest_asyncio.fixture

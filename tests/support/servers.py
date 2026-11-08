@@ -43,7 +43,7 @@ async def seller_runtime(tmp_path):
         port=9201,
         public_base_url="http://127.0.0.1:9201",
         profile_path=Path(
-            "apps/seller_agent/seller_agent/profiles/northwind.yaml"
+            "docs/templates/northwind.yaml"
         ),
         seller_token="test-seller-token",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'seller.db'}",

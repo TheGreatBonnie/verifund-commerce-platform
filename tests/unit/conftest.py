@@ -12,10 +12,8 @@ from commerce_core.pricing import Quote, SellerPolicy, load_policy
 
 PROFILE_DIR = (
     Path(__file__).resolve().parents[2]
-    / "apps"
-    / "seller_agent"
-    / "seller_agent"
-    / "profiles"
+    / "docs"
+    / "templates"
 )
 
 

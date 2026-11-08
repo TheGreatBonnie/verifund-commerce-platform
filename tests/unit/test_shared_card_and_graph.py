@@ -3,7 +3,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from seller_agent.card import build_agent_card
 from seller_agent.graph import build_graph
 
-PROFILE = "apps/seller_agent/seller_agent/profiles/northwind.yaml"
+PROFILE = "docs/templates/northwind.yaml"
 
 
 def test_card_advertises_shared_url_and_tenant():

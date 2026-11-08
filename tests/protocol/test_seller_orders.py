@@ -16,7 +16,7 @@ from commerce_core.pricing import load_policy
 from tests.support.a2a import send_purchase_order
 
 POLICY_PATH = Path(
-    "apps/seller_agent/seller_agent/profiles/northwind.yaml"
+    "docs/templates/northwind.yaml"
 )
 PRODUCT_SKU = "MM-WIRELESS-HEADPHONES"
 QUANTITY = 12
