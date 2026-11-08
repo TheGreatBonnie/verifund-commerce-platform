@@ -9,6 +9,7 @@ export function VerificationSubmitForm() {
   const router = useRouter();
   const [confirmed, setConfirmed] = useState(false);
   const [note, setNote] = useState("");
+  const [payoutEmail, setPayoutEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -21,12 +22,19 @@ export function VerificationSubmitForm() {
           setError("Please confirm your business details before submitting.");
           return;
         }
+        if (!payoutEmail.includes("@")) {
+          setError("A valid PayPal payout email is required.");
+          return;
+        }
         startTransition(async () => {
-          const result = await submitVerificationAction({
-            confirmed: true,
-            note: note.trim() || undefined,
-            submitted_via: "seller_onboarding_wizard",
-          });
+          const result = await submitVerificationAction(
+            {
+              confirmed: true,
+              note: note.trim() || undefined,
+              submitted_via: "seller_onboarding_wizard",
+            },
+            payoutEmail.trim()
+          );
           if (!result.ok) {
             setError(result.error);
             return;
@@ -48,6 +56,16 @@ export function VerificationSubmitForm() {
           onChange={(event) => setConfirmed(event.target.checked)}
         />
         <span>I confirm the business information provided for this seller account is accurate.</span>
+      </label>
+      <label className="mm-seller-field" style={{ margin: 0 }}>
+        <span>PayPal payout email (required)</span>
+        <input
+          type="email"
+          required
+          value={payoutEmail}
+          onChange={(event) => setPayoutEmail(event.target.value)}
+          placeholder="seller@paypal.example"
+        />
       </label>
       <label className="mm-seller-field" style={{ margin: 0 }}>
         <span>Reference note (optional)</span>

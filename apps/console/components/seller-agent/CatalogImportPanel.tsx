@@ -112,6 +112,18 @@ export function CatalogImportPanel(_: CatalogImportPanelProps) {
         <a className="mm-button mm-button-ghost mm-button-sm" href="/example-catalog-template.yaml" download>
           Download template (YAML)
         </a>
+        <a className="mm-button mm-button-ghost mm-button-sm" href="/templates/northwind.yaml" download>
+          Template: northwind.yaml
+        </a>
+        <a className="mm-button mm-button-ghost mm-button-sm" href="/templates/circuitforge.yaml" download>
+          Template: circuitforge.yaml
+        </a>
+        <a className="mm-button mm-button-ghost mm-button-sm" href="/templates/aurora.yaml" download>
+          Template: aurora.yaml
+        </a>
+        <a className="mm-button mm-button-ghost mm-button-sm" href="/templates/summit-tech.yaml" download>
+          Template: summit-tech.yaml
+        </a>
       </div>
 
       <label className="mm-seller-field" style={{ margin: 0 }}>
