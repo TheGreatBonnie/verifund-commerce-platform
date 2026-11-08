@@ -195,3 +195,7 @@ funds only and is disabled by default.
 2. Walk steps: profile → create agent → config → catalog import (JSON/YAML, examples in `docs/templates/`) → test → verification + payout email → activate.
 3. The seller appears in the buyer marketplace within 30 s (registry poll).
 4. For the legacy 4-seller demo: `make seed-demo` (requires a running stack).
+
+### Dynamic seller auth (buyer tokens)
+
+After a seller activates, the buyer obtains its `a2a:call` token from `POST /v1/internal/agent-token` (gated by `BUYER_INTERNAL_TOKEN`, per-seller, long-lived until revoke). The buyer polls the registry every 30 s and exchanges on demand — no `BUYER_SELLER_TOKENS` env needed. Suspend/revoke evicts the cached token on the next poll.

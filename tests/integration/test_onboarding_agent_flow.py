@@ -262,3 +262,22 @@ async def test_internal_exchange_returns_a2a_call_token(stack):
     from verifund_control_plane.agents.credentials import verify_credential
     v = await verify_credential(stack["cp_app"].state.tenancy, raw, purpose="a2a:call")
     assert v["agent_id"] == aid
+
+async def test_activate_exchange_verify_loop(stack):
+    cp, h = stack["cp"], stack["headers"]
+    r = await cp.post("/v1/agents", json={"display_name": "Acme"}, headers=h)
+    aid = r.json()["agent_id"]
+    await cp.patch(f"/v1/agents/{aid}/config", json={"instructions": "x"}, headers=h)
+    await cp.post("/v1/seller/catalog/import", json={"document": EXAMPLE}, headers=h)
+    await cp.post(f"/v1/agents/{aid}/test", json={}, headers=h)
+    await cp.post(f"/v1/agents/{aid}/activate", json={}, headers=h)
+    ex = await cp.post("/v1/internal/agent-token", json={"seller_id": aid.removeprefix("agent_")},
+                       headers={"X-Internal-Token": stack["cp_app"].state.settings.buyer_internal_token})
+    assert ex.status_code == 200, ex.text
+    from verifund_control_plane.agents.credentials import verify_credential
+    v = await verify_credential(stack["cp_app"].state.tenancy, ex.json()["token"], purpose="a2a:call")
+    assert v["agent_id"] == aid
+    await stack["cp_app"].state.tenancy.set_agent_status(aid, "suspended")
+    ex2 = await cp.post("/v1/internal/agent-token", json={"seller_id": aid.removeprefix("agent_")},
+                        headers={"X-Internal-Token": stack["cp_app"].state.settings.buyer_internal_token})
+    assert ex2.status_code == 403
