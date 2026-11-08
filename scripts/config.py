@@ -37,87 +37,42 @@ def _port(name: str, default: int) -> int:
 class SellerConfig:
     seller_id: str
     profile: str
-    port_var: str
     token_var: str
-    database_var: str
-    default_port: int
     default_token: str
-    default_database: str
-
-    @property
-    def port(self) -> int:
-        return _port(self.port_var, self.default_port)
 
     @property
     def token(self) -> str:
         return _env(self.token_var, self.default_token)
 
     @property
-    def database_url(self) -> str:
-        return _env(self.database_var, self.default_database)
-
-    @property
     def profile_path(self) -> Path:
         return ROOT / "apps/seller_agent/seller_agent/profiles" / self.profile
-
-    @property
-    def base_url(self) -> str:
-        override = os.environ.get(
-            f"{self.seller_id.upper().replace('-', '_')}_PUBLIC_BASE_URL"
-        )
-        if override:
-            return override.rstrip("/")
-        return f"http://127.0.0.1:{self.port}"
-
-    @property
-    def card_url(self) -> str:
-        return f"{self.base_url}/.well-known/agent-card.json"
-
-    @property
-    def log_name(self) -> str:
-        return f"seller-{self.seller_id}"
 
 
 SELLERS = (
     SellerConfig(
         seller_id="northwind-audio",
         profile="northwind.yaml",
-        port_var="NORTHWIND_PORT",
         token_var="SELLER_NORTHWIND_TOKEN",
-        database_var="NORTHWIND_DATABASE_URL",
-        default_port=9201,
         default_token="dev-northwind",
-        default_database="sqlite+aiosqlite:///./data/northwind.db",
     ),
     SellerConfig(
         seller_id="circuitforge",
         profile="circuitforge.yaml",
-        port_var="CIRCUITFORGE_PORT",
         token_var="SELLER_CIRCUITFORGE_TOKEN",
-        database_var="CIRCUITFORGE_DATABASE_URL",
-        default_port=9202,
         default_token="dev-circuitforge",
-        default_database="sqlite+aiosqlite:///./data/circuitforge.db",
     ),
     SellerConfig(
         seller_id="aurora-supply",
         profile="aurora.yaml",
-        port_var="AURORA_PORT",
         token_var="SELLER_AURORA_TOKEN",
-        database_var="AURORA_DATABASE_URL",
-        default_port=9203,
         default_token="dev-aurora",
-        default_database="sqlite+aiosqlite:///./data/aurora.db",
     ),
     SellerConfig(
         seller_id="summit-tech",
         profile="summit-tech.yaml",
-        port_var="SUMMIT_TECH_PORT",
         token_var="SELLER_SUMMIT_TECH_TOKEN",
-        database_var="SUMMIT_TECH_DATABASE_URL",
-        default_port=9204,
         default_token="dev-summit-tech",
-        default_database="sqlite+aiosqlite:///./data/summit-tech.db",
     ),
 )
 

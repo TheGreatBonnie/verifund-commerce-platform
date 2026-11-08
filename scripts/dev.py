@@ -257,25 +257,6 @@ def registry_environment(mode: str) -> dict[str, str]:
     return env
 
 
-def seller_environment(mode: str, seller, verifund_mode: str = "sandbox") -> dict[str, str]:
-    env = _base_env(mode)
-    env.update(
-        {
-            "PORT": str(seller.port),
-            "SELLER_PORT": str(seller.port),
-            "PROFILE_PATH": str(seller.profile_path),
-            "PUBLIC_BASE_URL": seller.base_url,
-            "SELLER_TOKEN": seller.token,
-            "DATABASE_URL": seller.database_url,
-            "SELLER_DATABASE_URL": seller.database_url,
-            "VERIFUND_MODE": verifund_mode,
-        }
-    )
-    if verifund_mode != "off":
-        env["VERIFUND_URL"] = config.verifund_url()
-    return env
-
-
 def shared_seller_environment(
     mode: str, verifund_mode: str = "sandbox"
 ) -> dict[str, str]:
@@ -352,15 +333,10 @@ def allowed_card_hosts_json() -> str:
         if isinstance(configured_hosts, list)
         else {"127.0.0.1", "localhost"}
     )
-    for url in (shared_seller_url(), *(seller.base_url for seller in SELLERS)):
-        hostname = urlsplit(url).hostname
-        if hostname:
-            hosts.add(hostname)
+    shared_hostname = urlsplit(shared_seller_url()).hostname
+    if shared_hostname:
+        hosts.add(shared_hostname)
     return json.dumps(sorted(hosts))
-
-
-def seller_auth_environment() -> dict[str, str]:
-    return {seller.token_var: seller.token for seller in SELLERS}
 
 
 def orchestrator_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, str]:

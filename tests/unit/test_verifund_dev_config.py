@@ -177,7 +177,7 @@ def test_fake_mode_wires_buyer_seller_orchestrator_and_agent(monkeypatch):
         buyer["VERIFUND_AGENT_INTERNAL_TOKEN"] == "agent-internal-token"
     )
 
-    seller = dev.seller_environment("scripted", config.SELLERS[0], "fake")
+    seller = dev.shared_seller_environment("scripted", "fake")
     assert seller["VERIFUND_MODE"] == "fake"
     assert seller["VERIFUND_URL"] == "http://control:9300"
 
