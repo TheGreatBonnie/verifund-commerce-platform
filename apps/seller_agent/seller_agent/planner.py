@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from commerce_core.contracts import RFQ, CounterOffer, Mandate, Offer
 from commerce_core.pricing import SellerPolicy
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool as lc_tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict
 
@@ -121,26 +122,99 @@ class ScriptedSellerPlanner:
 
 
 class NebiusSellerPlanner:
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        self.llm = ChatOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            temperature=0.2,
-            timeout=30,
-            max_retries=1,
-        ).with_structured_output(SellerDecision)
+    def __init__(self, api_key: str, base_url: str, model: str, stock: dict | None = None, policy: SellerPolicy | None = None) -> None:
+        common: dict[str, Any] = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": model,
+            "temperature": 0.2,
+            "timeout": 30,
+            "max_retries": 1,
+        }
+        self.base_llm = ChatOpenAI(**common)
+        self.llm = ChatOpenAI(**common).with_structured_output(SellerDecision)
+        self.tools = build_seller_tools(stock or {}, policy)
 
     async def decide(self, context: SellerDecisionContext) -> SellerDecision:
+        messages: list[Any] = [
+            SystemMessage(content=SELLER_SYSTEM_PROMPT),
+            HumanMessage(content=context.model_dump_json()),
+        ]
+        try:
+            bound = self.base_llm.bind_tools(self.tools)
+            for _ in range(2):
+                response = await bound.ainvoke(messages)
+                tool_calls = getattr(response, "tool_calls", None) or []
+                if not tool_calls:
+                    break
+                messages.append(response)
+                tool_by_name = {t.name: t for t in self.tools}
+                for call in tool_calls[:2]:
+                    name = call.get("name") if isinstance(call, dict) else getattr(call, "name", "")
+                    args = call.get("args") if isinstance(call, dict) else getattr(call, "args", {})
+                    tool_fn = tool_by_name.get(name)
+                    try:
+                        result = await tool_fn.ainvoke(args) if tool_fn is not None else {"status": "unavailable"}
+                    except Exception:  # noqa: BLE001
+                        result = {"status": "unavailable"}
+                    messages.append(ToolMessage(content=str(result), tool_call_id=call.get("id", "x") if isinstance(call, dict) else "x"))
+        except Exception:  # noqa: BLE001, S110
+            pass
         return cast(
             SellerDecision,
-            await self.llm.ainvoke(
-                [
-                    SystemMessage(content=SELLER_SYSTEM_PROMPT),
-                    HumanMessage(content=context.model_dump_json()),
-                ]
-            ),
+            await self.llm.ainvoke(messages),
         )
+
+
+def get_stock(sku: str, stock: dict) -> dict:
+    """Read-only inventory lookup; empty+continue on miss (never raises)."""
+    try:
+        entry = (stock or {}).get(sku) if isinstance(stock, dict) else None
+        if entry is None:
+            return {"status": "unavailable", "sku": sku}
+        if isinstance(entry, dict):
+            return {"status": "ok", "sku": sku, "on_hand": int(entry.get("on_hand", 0)), "incoming": int(entry.get("incoming", 0)), "incoming_days": entry.get("incoming_days")}
+        return {"status": "ok", "sku": sku, "on_hand": int(entry)}
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "sku": sku}
+
+
+def get_policy_bounds(sku: str, policy: SellerPolicy | None) -> dict:
+    """Read-only policy bounds for SKU; empty+continue if foreign SKU or no policy."""
+    try:
+        if policy is None or str(getattr(policy, "sku", "") or "") != sku:
+            return {"status": "unavailable", "sku": sku}
+        ladders = list(policy.concession_ladder_cents or [])
+        ladder_str = [policy.initial_unit_price_cents, *ladders] if policy.initial_unit_price_cents not in ladders else ladders
+        return {
+            "status": "ok",
+            "sku": sku,
+            "floor_unit_price_cents": policy.floor_unit_price_cents,
+            "allowed_prices": ladder_str,
+            "allowed_warranty_months": sorted(int(k) for k in (policy.warranty_addons_cents or {})),
+            "max_rounds": policy.max_rounds,
+            "stock_on_hand": policy.stock_on_hand,
+        }
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "sku": sku}
+
+
+def build_seller_tools(stock: dict, policy: SellerPolicy | None):
+    """LangChain tools bound to inventory + policy snapshots."""
+
+    @lc_tool
+    def get_stock_tool(sku: str) -> dict:
+        """Return inventory (on_hand/incoming) for SKU, or unavailable."""
+        return get_stock(sku, stock or {})
+
+    @lc_tool
+    def get_policy_bounds_tool(sku: str) -> dict:
+        """Return floor/ladder/warranties/max_rounds for SKU, or unavailable."""
+        return get_policy_bounds(sku, policy)
+
+    get_stock_tool.name = "get_stock"  # type: ignore[attr-defined]
+    get_policy_bounds_tool.name = "get_policy_bounds"  # type: ignore[attr-defined]
+    return [get_stock_tool, get_policy_bounds_tool]
 
 
 def select_seller_planner(

@@ -9,7 +9,8 @@ from commerce_core.contracts import (
     Offer,
     Preferences,
 )
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool as lc_tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -113,7 +114,7 @@ class ScriptedBuyerPlanner:
 
 
 class NebiusBuyerPlanner:
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
+    def __init__(self, api_key: str, base_url: str, model: str, catalog_products: list[dict] | None = None) -> None:
         common: dict[str, Any] = {
             "api_key": api_key,
             "base_url": base_url,
@@ -122,11 +123,13 @@ class NebiusBuyerPlanner:
             "timeout": 45,
             "max_retries": 1,
         }
+        self.base_llm = ChatOpenAI(**common)
         self.brief_llm = ChatOpenAI(**common).with_structured_output(Mandate)
         self.counter_llm = ChatOpenAI(**common).with_structured_output(
             CounterChoice
         )
         self.explain_llm = ChatOpenAI(**common)
+        self.tools = build_buyer_tools(catalog_products or [])
 
     async def parse_brief(self, text: str, products: list[dict] | None = None) -> Mandate:
         prompt_text = text
@@ -159,21 +162,41 @@ class NebiusBuyerPlanner:
         allowed: list[int],
         round_number: int,
     ) -> CounterChoice:
+        messages: list[Any] = [
+            SystemMessage(content=BUYER_SYSTEM_PROMPT),
+            HumanMessage(
+                content=(
+                    f"Allowed counter targets: {allowed}. "
+                    f"Round: {round_number}. Offer: "
+                    f"{offer.model_dump_json()}. Mandate: "
+                    f"{mandate.model_dump_json()}"
+                )
+            ),
+        ]
+        # Bounded tool-use: max 2 read-only calls, empty+continue, then structured output.
+        try:
+            bound = self.base_llm.bind_tools(self.tools)
+            for _ in range(2):
+                response = await bound.ainvoke(messages)
+                tool_calls = getattr(response, "tool_calls", None) or []
+                if not tool_calls:
+                    break
+                messages.append(response)
+                tool_by_name = {t.name: t for t in self.tools}
+                for call in tool_calls[:2]:
+                    name = call.get("name") if isinstance(call, dict) else getattr(call, "name", "")
+                    args = call.get("args") if isinstance(call, dict) else getattr(call, "args", {})
+                    tool_fn = tool_by_name.get(name)
+                    try:
+                        result = await tool_fn.ainvoke(args) if tool_fn is not None else {"status": "unavailable"}
+                    except Exception:  # noqa: BLE001
+                        result = {"status": "unavailable"}
+                    messages.append(ToolMessage(content=str(result), tool_call_id=call.get("id", "x") if isinstance(call, dict) else "x"))
+        except Exception:  # noqa: BLE001, S110
+            pass
         return cast(
             CounterChoice,
-            await self.counter_llm.ainvoke(
-                [
-                    SystemMessage(content=BUYER_SYSTEM_PROMPT),
-                    HumanMessage(
-                        content=(
-                            f"Allowed counter targets: {allowed}. "
-                            f"Round: {round_number}. Offer: "
-                            f"{offer.model_dump_json()}. Mandate: "
-                            f"{mandate.model_dump_json()}"
-                        )
-                    ),
-                ]
-            ),
+            await self.counter_llm.ainvoke(messages),
         )
 
     async def explain_award(self, award: AwardPackage) -> str:
@@ -240,7 +263,6 @@ def retrieve_candidates(brief_text: str, products: list[dict], limit: int = 3) -
         description = str(product.get("description") or "").casefold()
         category = str(product.get("category") or "").casefold()
         seller = str(product.get("seller") or "").casefold()
-        haystack = " ".join([name, description, category, seller])
         score = 0
         for token in tokens:
             matched = False
@@ -249,11 +271,7 @@ def retrieve_candidates(brief_text: str, products: list[dict], limit: int = 3) -
                     score += 4
                     matched = True
                     break
-                elif _whole_word_contains(description, expansion):
-                    score += 2
-                    matched = True
-                    break
-                elif _whole_word_contains(category, expansion):
+                elif _whole_word_contains(description, expansion) or _whole_word_contains(category, expansion):
                     score += 2
                     matched = True
                     break
@@ -268,6 +286,85 @@ def retrieve_candidates(brief_text: str, products: list[dict], limit: int = 3) -
         scored.append((score, str(product.get("sku") or ""), dict(product)))
     scored.sort(key=lambda row: (-row[0], row[1]))
     return [row[2] for row in scored[: max(1, limit)]]
+
+
+def search_products(query: str, products: list[dict], category: str | None = None, max_unit_price_cents: int | None = None) -> list[dict]:
+    """Read-only catalog search (substring + synonyms); returns ranked copies, never invents."""
+    pool = products or []
+    if category:
+        pool = [p for p in pool if str(p.get("category") or "").casefold() == category.casefold()]
+    if max_unit_price_cents is not None:
+        pool = [p for p in pool if int(p.get("unit_price_cents") or 0) <= max_unit_price_cents]
+    return retrieve_candidates(query, pool)
+
+
+def get_market_price(sku: str, products: list[dict]) -> dict:
+    """Read-only market aggregate for one SKU."""
+    prices: list[int] = []
+    for p in products or []:
+        if str(p.get("sku") or "") != sku:
+            continue
+        candidates: list[int] = []
+        val = p.get("unit_price_cents")
+        if isinstance(val, int) and val > 0:
+            candidates.append(val)
+        for offer in p.get("offers") or []:
+            if isinstance(offer, dict) and isinstance(offer.get("unit_price_cents"), int):
+                candidates.append(int(offer["unit_price_cents"]))
+        if candidates:
+            prices.append(min(candidates))
+    if not prices:
+        return {"status": "unavailable", "sku": sku}
+    prices.sort()
+    return {"status": "ok", "sku": sku, "min_unit_price_cents": prices[0], "count": len(prices)}
+
+
+def get_seller_summary(seller_id: str, products: list[dict]) -> dict:
+    for p in products or []:
+        if str(p.get("seller_id") or "") == seller_id or str(p.get("seller") or "") == seller_id:
+            return {
+                "status": "ok",
+                "seller_id": seller_id,
+                "name": str(p.get("seller") or ""),
+                "rating": p.get("rating"),
+                "sustainability_certified": bool(p.get("sustainability_certified", False)),
+                "delivery_days": p.get("delivery_days"),
+            }
+    return {"status": "unavailable", "seller_id": seller_id}
+
+
+def build_buyer_tools(products: list[dict]):
+    """LangChain tools bound to a catalog snapshot (max 2 calls/decision enforced by caller)."""
+    snapshot = list(products or [])
+
+    @lc_tool
+    def search_products_tool(query: str, category: str | None = None, max_unit_price_cents: int | None = None) -> list[dict]:
+        """Search catalog (substring). Returns ranked copies; empty when no match."""
+        try:
+            return search_products(query, snapshot, category=category, max_unit_price_cents=max_unit_price_cents)
+        except Exception:  # noqa: BLE001
+            return []
+
+    @lc_tool
+    def get_market_price_tool(sku: str) -> dict:
+        """Return min market price + count for SKU, or unavailable."""
+        try:
+            return get_market_price(sku, snapshot)
+        except Exception:  # noqa: BLE001
+            return {"status": "unavailable", "sku": sku}
+
+    @lc_tool
+    def get_seller_summary_tool(seller_id: str) -> dict:
+        """Return validated rating/cert/delivery for seller, or unavailable."""
+        try:
+            return get_seller_summary(seller_id, snapshot)
+        except Exception:  # noqa: BLE001
+            return {"status": "unavailable", "seller_id": seller_id}
+
+    search_products_tool.name = "search_products"  # type: ignore[attr-defined]
+    get_market_price_tool.name = "get_market_price"  # type: ignore[attr-defined]
+    get_seller_summary_tool.name = "get_seller_summary"  # type: ignore[attr-defined]
+    return [search_products_tool, get_market_price_tool, get_seller_summary_tool]
 
 
 def mandate_from_text(text: str, products: list[dict] | None = None) -> Mandate:
