@@ -1,4 +1,4 @@
-.PHONY: setup dev dev-scripted seed reset test lint e2e demo down \
+.PHONY: setup dev dev-scripted seed seed-demo reset test lint e2e demo down \
 	verifund-smoke verifund-e2e verifund-demo verifund-preflight \
 	verifund-sandbox-smoke
 
@@ -16,6 +16,9 @@ dev-scripted:
 
 seed:
 	uv run python scripts/seed.py
+
+seed-demo:
+	MARKETMESH_SEED_DEMO=1 uv run python scripts/seed.py
 
 reset:
 	rm -f data/*.db data/*.db-wal data/*.db-shm

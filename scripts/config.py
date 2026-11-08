@@ -33,58 +33,7 @@ def _port(name: str, default: int) -> int:
         return default
 
 
-@dataclass(frozen=True)
-class SellerConfig:
-    seller_id: str
-    profile: str
-    token_var: str
-    default_token: str
-
-    @property
-    def token(self) -> str:
-        return _env(self.token_var, self.default_token)
-
-    @property
-    def profile_path(self) -> Path:
-        return ROOT / "apps/seller_agent/seller_agent/profiles" / self.profile
-
-
-SELLERS = (
-    SellerConfig(
-        seller_id="northwind-audio",
-        profile="northwind.yaml",
-        token_var="SELLER_NORTHWIND_TOKEN",
-        default_token="dev-northwind",
-    ),
-    SellerConfig(
-        seller_id="circuitforge",
-        profile="circuitforge.yaml",
-        token_var="SELLER_CIRCUITFORGE_TOKEN",
-        default_token="dev-circuitforge",
-    ),
-    SellerConfig(
-        seller_id="aurora-supply",
-        profile="aurora.yaml",
-        token_var="SELLER_AURORA_TOKEN",
-        default_token="dev-aurora",
-    ),
-    SellerConfig(
-        seller_id="summit-tech",
-        profile="summit-tech.yaml",
-        token_var="SELLER_SUMMIT_TECH_TOKEN",
-        default_token="dev-summit-tech",
-    ),
-)
-
 VERIFUND_MODES = {"off", "fake", "sandbox"}
-
-SELLER_PAYOUT_EMAILS = {
-    "northwind-audio": "seller-northwind@example.com",
-    "circuitforge": "seller-circuitforge@example.com",
-    "aurora-supply": "seller-aurora@example.com",
-    "summit-tech": "seller-summit@example.com",
-}
-
 
 def verifund_mode() -> str:
     mode = _env("VERIFUND_MODE", "sandbox").strip().lower()
@@ -228,21 +177,6 @@ def verifund_inspection_window_hours() -> int:
         return int(default)
 
 
-def seller_payout_emails() -> str:
-    configured = _env("VERIFUND_SELLER_PAYOUT_EMAILS", "").strip()
-    if not configured:
-        return json.dumps(SELLER_PAYOUT_EMAILS, sort_keys=True)
-    try:
-        overrides = json.loads(configured)
-    except json.JSONDecodeError:
-        return configured
-    if not isinstance(overrides, dict):
-        return configured
-    merged = dict(SELLER_PAYOUT_EMAILS)
-    merged.update({str(key): str(value) for key, value in overrides.items()})
-    return json.dumps(merged, sort_keys=True)
-
-
 def paypal_env() -> str:
     return _env("PAYPAL_ENV", "sandbox")
 
@@ -306,21 +240,6 @@ def nebius_model() -> str:
         "NEBIUS_MODEL",
         "deepseek-ai/DeepSeek-V4-Flash-0731",
     ).strip()
-
-
-def seller_tokens_json() -> str:
-    configured = _env("BUYER_SELLER_TOKENS", "").strip()
-
-    tokens = {seller.seller_id: buyer_agent_token() for seller in SELLERS}
-    if configured:
-        try:
-            overrides = json.loads(configured)
-        except json.JSONDecodeError:
-            return configured
-        if not isinstance(overrides, dict):
-            return configured
-        tokens.update(overrides)
-    return json.dumps(tokens)
 
 
 def shared_seller_port() -> int:

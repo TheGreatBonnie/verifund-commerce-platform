@@ -118,22 +118,6 @@ def test_verifund_agent_storage_defaults_survive_restarts(monkeypatch):
     )
 
 
-def test_payout_map_keeps_defaults_and_applies_overrides(monkeypatch):
-    monkeypatch.setenv(
-        "VERIFUND_SELLER_PAYOUT_EMAILS",
-        '{"northwind-audio":"pay@northwind.test"}',
-    )
-    emails = json.loads(config.seller_payout_emails())
-    assert emails["northwind-audio"] == "pay@northwind.test"
-    assert emails["summit-tech"] == "seller-summit@example.com"
-    assert len(emails) == 4
-
-
-def test_invalid_payout_json_is_passed_through_for_startup_validation(monkeypatch):
-    monkeypatch.setenv("VERIFUND_SELLER_PAYOUT_EMAILS", "{broken")
-    assert config.seller_payout_emails() == "{broken"
-
-
 def test_receipt_key_defaults(monkeypatch):
     clear(monkeypatch, "VERIFUND_RECEIPT_KEYS")
     assert json.loads(config.verifund_receipt_keys()) == {
@@ -280,10 +264,7 @@ def test_control_plane_environment_uses_fake_defaults(monkeypatch):
     assert env["VERIFUND_MODE"] == "fake"
     assert env["VERIFUND_INSPECTION_WINDOW_HOURS"] == "0"
     assert env["VERIFUND_ALLOW_PUBLIC_BIND"] == "0"
-    assert (
-        json.loads(env["VERIFUND_SELLER_PAYOUT_EMAILS"])["northwind-audio"]
-        == "seller-northwind@example.com"
-    )
+    assert "VERIFUND_SELLER_PAYOUT_EMAILS" not in env
 
 def test_buyer_environment_has_no_seller_tokens(monkeypatch):
     monkeypatch.delenv("BUYER_SELLER_TOKENS", raising=False)
@@ -291,3 +272,11 @@ def test_buyer_environment_has_no_seller_tokens(monkeypatch):
     assert "BUYER_SELLER_TOKENS" not in env
     assert env["BUYER_REGISTRY_POLL_SECONDS"] == "30"
     assert env["REGISTRY_URL"] == config.registry_url()
+
+def test_config_no_longer_exports_seed_tuple():
+    assert not hasattr(config, "SELLERS"), "SELLERS must be deleted"
+
+def test_seed_script_has_own_local_seed_list():
+    import pathlib
+    source = pathlib.Path("scripts/seed.py").read_text(encoding="utf-8")
+    assert "SEED_SELLERS" in source

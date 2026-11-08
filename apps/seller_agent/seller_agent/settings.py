@@ -44,9 +44,7 @@ class Settings(BaseSettings):
         default=2.0,
         validation_alias=AliasChoices("SELLER_EVIDENCE_SWEEP_SECONDS"),
     )
-    profile_path: Path = Path(
-        "apps/seller_agent/seller_agent/profiles/northwind.yaml"
-    )
+    profile_path: Path = Path("docs/templates/northwind.yaml")
     public_base_url: str = "http://127.0.0.1:9201"
     seller_token: str = "dev-seller"
     database_url: str = Field(

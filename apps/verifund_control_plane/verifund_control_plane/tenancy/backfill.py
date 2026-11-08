@@ -57,7 +57,12 @@ async def seed_demo_agents(store, settings) -> None:
     used by the demo buyer, and one active seller agent per configured seller
     token, with the static seller token registered as an ``a2a:test``
     credential (never as an ``a2a:call`` credential).
+
+    Seller seeding is disabled by default (dynamic onboarding is the source
+    of truth); set ``MARKETMESH_SEED_DEMO=1`` (as ``make seed-demo`` does) to
+    enable it.
     """
+    import os as _os
     buyer_org = await store.ensure_seed_buyer_organization(BUYER_ID)
     await _ensure_agent(
         store,
@@ -77,6 +82,8 @@ async def seed_demo_agents(store, settings) -> None:
         )
 
     seller_tokens = getattr(settings, "seller_tokens", {}) or {}
+    if _os.environ.get("MARKETMESH_SEED_DEMO") != "1":
+        seller_tokens = {}
     for seller_id, token in seller_tokens.items():
         org = await store.ensure_seed_organization(
             seller_id=seller_id, kind="business", verified=True)

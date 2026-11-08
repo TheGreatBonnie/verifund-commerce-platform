@@ -15,13 +15,39 @@ import httpx
 from commerce_core.pricing import load_policy
 from config import (
     ROOT,
-    SELLERS,
     admin_token,
     buyer_agent_token,
     registry_url,
     shared_seller_db_url,
     shared_seller_url,
     verifund_database_url,
+)
+
+SEED_SELLERS = (
+    SimpleNamespace(
+        seller_id="northwind-audio",
+        profile="northwind.yaml",
+        token="dev-northwind",
+        profile_path=ROOT / "docs/templates" / "northwind.yaml",
+    ),
+    SimpleNamespace(
+        seller_id="circuitforge",
+        profile="circuitforge.yaml",
+        token="dev-circuitforge",
+        profile_path=ROOT / "docs/templates" / "circuitforge.yaml",
+    ),
+    SimpleNamespace(
+        seller_id="aurora-supply",
+        profile="aurora.yaml",
+        token="dev-aurora",
+        profile_path=ROOT / "docs/templates" / "aurora.yaml",
+    ),
+    SimpleNamespace(
+        seller_id="summit-tech",
+        profile="summit-tech.yaml",
+        token="dev-summit-tech",
+        profile_path=ROOT / "docs/templates" / "summit-tech.yaml",
+    ),
 )
 try:
     from .seed_shared import seed_seller_rows
@@ -48,12 +74,12 @@ async def seed_control_plane() -> tuple[dict[str, str], dict]:
     try:
         await repo.create_schema()
         demo = SimpleNamespace(
-            seller_tokens={seller.seller_id: seller.token for seller in SELLERS},
+            seller_tokens={seller.seller_id: seller.token for seller in SEED_SELLERS},
             buyer_agent_token=buyer_agent_token(),
         )
         await seed_demo_agents(repo, demo)
         organizations: dict[str, str] = {}
-        for seller in SELLERS:
+        for seller in SEED_SELLERS:
             profile = await repo.get_seller_profile(seller.seller_id)
             if profile is not None:
                 organizations[seller.seller_id] = profile["organization_id"]
@@ -69,7 +95,7 @@ async def seed_catalogs(organizations: dict[str, str]) -> list[tuple[str, int]]:
     try:
         await configure_shared_engine(engine)
         await create_shared_schema(engine)
-        for seller in SELLERS:
+        for seller in SEED_SELLERS:
             organization_id = organizations.get(seller.seller_id)
             if not organization_id:
                 print(
@@ -104,7 +130,7 @@ def write_demo_credentials(
             "status": "active",
             "scopes": ["a2a:call"],
         }
-    for seller in SELLERS:
+    for seller in SEED_SELLERS:
         organization_id = organizations.get(seller.seller_id)
         if not organization_id:
             continue
@@ -159,7 +185,7 @@ async def main() -> int:
 
     try:
         with httpx.Client(timeout=20.0) as client:
-            for seller in SELLERS:
+            for seller in SEED_SELLERS:
                 row = register_seller(
                     client,
                     seller,
@@ -173,7 +199,7 @@ async def main() -> int:
         print(
             f"Registry is not available at {registry}: {exc}\n"
             "Start the registry and sellers before seeding "
-            "(or run `make dev`, which seeds automatically).",
+            "(run `make dev` first, then `make seed-demo`).",
             file=sys.stderr,
         )
         return 1
