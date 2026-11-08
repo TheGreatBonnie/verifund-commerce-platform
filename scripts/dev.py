@@ -463,6 +463,9 @@ def control_plane_environment(llm: str, mode: str) -> dict[str, str]:
     env.update(
         {
             "VERIFUND_MODE": mode,
+            "SELLER_SHARED_URL": shared_seller_url(),
+            "SELLER_AGENT_URL": shared_seller_url(),  # legacy alias
+            "AGENTS_PUBLIC_BASE_URL": shared_seller_url(),
             "HOST": _env_value("HOST", "127.0.0.1"),
             "VERIFUND_PORT": str(verifund_port()),
             "VERIFUND_PUBLIC_BASE_URL": verifund_public_base_url(),

@@ -32,7 +32,6 @@ delivery_days: 9
 stock_on_hand: 10
 incoming_stock: 3
 incoming_days: 7
-split_shipment: false
 sustainability_certified: false
 rating: 4.7
 mandate:
@@ -71,7 +70,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-BACKLIT-OFFICE-KEYBOARD
   name: Backlit Office Keyboard
   category: Keyboard
@@ -100,7 +98,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-BLUETOOTH-SPEAKER
   name: Bluetooth Speaker
   category: Office Accessory
@@ -128,7 +125,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-BUDGET-GAMING-PC
   name: Budget Gaming PC
   category: Gaming PC
@@ -157,7 +153,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-BUDGET-LAPTOP-101
   name: Budget Laptop 101
   category: Laptop
@@ -185,7 +180,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-BUDGET-WIRED-MOUSE
   name: Budget Wired Mouse
   category: Mouse
@@ -214,7 +208,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-COMPACT-GAMING-PC
   name: Compact Gaming PC
   category: Gaming PC
@@ -243,7 +236,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-COMPACT-STANDING-DESK
   name: Compact Standing Desk
   category: Standing Desk
@@ -271,7 +263,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-CONVERTIBLE-2-IN-1-LAPTOP
   name: Convertible 2-in-1 Laptop
   category: Laptop
@@ -299,7 +290,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-DESKTOP-WEBCAM
   name: Desktop Webcam
   category: Office Accessory
@@ -327,7 +317,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-DIGITAL-DRAWING-TABLET
   name: Digital Drawing Tablet
   category: Creative Tools
@@ -355,7 +344,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ENTERPRISE-ULTRABOOK
   name: Enterprise Ultrabook
   category: Laptop
@@ -383,7 +371,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGO-DELUXE-CHAIR
   name: Ergo Deluxe Chair
   category: Ergonomic Chair
@@ -412,7 +399,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGO-DESK-LAMP
   name: Ergo Desk Lamp
   category: Office Accessory
@@ -441,7 +427,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGO-DESK-LAMP-2
   name: Ergo Desk Lamp
   category: Office Accessory
@@ -470,7 +455,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGO-STANDING-DESK
   name: Ergo Standing Desk
   category: Standing Desk
@@ -499,7 +483,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGO-STANDING-DESK-2
   name: Ergo Standing Desk
   category: Standing Desk
@@ -527,7 +510,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGO-WIRELESS-MOUSE
   name: Ergo Wireless Mouse
   category: Mouse
@@ -555,7 +537,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGONOMIC-FOOT-REST
   name: Ergonomic Foot Rest
   category: Office Accessory
@@ -584,7 +565,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGONOMIC-KEYBOARD
   name: Ergonomic Keyboard
   category: Keyboard
@@ -613,7 +593,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ERGOPRO-STANDING-DESK
   name: ErgoPro Standing Desk
   category: Standing Desk
@@ -642,7 +621,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-EXECUTIVE-ERGONOMIC-CHAIR
   name: Executive Ergonomic Chair
   category: Ergonomic Chair
@@ -670,7 +648,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-GAMING-BEAST-PC
   name: Gaming Beast PC
   category: Gaming PC
@@ -699,7 +676,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-GAMING-BEAST-PC-2
   name: Gaming Beast PC
   category: Gaming PC
@@ -727,7 +703,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-GAMING-WIRELESS-MOUSE
   name: Gaming Wireless Mouse
   category: Mouse
@@ -755,7 +730,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-LAPTOP-COOLING-PAD
   name: Laptop Cooling Pad
   category: Laptop Accessory
@@ -784,7 +758,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-MECHANICAL-GAMING-KEYBOARD
   name: Mechanical Gaming Keyboard
   category: Keyboard
@@ -813,7 +786,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-MESH-ERGONOMIC-CHAIR
   name: Mesh Ergonomic Chair
   category: Ergonomic Chair
@@ -841,7 +813,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-MULTI-PORT-USB-HUB
   name: Multi-Port USB Hub
   category: Accessories
@@ -869,7 +840,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-OVERCLOCKED-GAMING-PC
   name: Overclocked Gaming PC
   category: Gaming PC
@@ -897,7 +867,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-PERFORMANCE-LAPTOP-X
   name: Performance Laptop X
   category: Laptop
@@ -925,7 +894,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-PORTABLE-POWER-BANK
   name: Portable Power Bank
   category: Accessories
@@ -953,7 +921,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-PRECISION-WIRELESS-MOUSE
   name: Precision Wireless Mouse
   category: Mouse
@@ -982,7 +949,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-PRECISION-WIRELESS-MOUSE-2
   name: Precision Wireless Mouse
   category: Mouse
@@ -1010,7 +976,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-PRO-BUSINESS-LAPTOP
   name: Pro Business Laptop
   category: Laptop
@@ -1039,7 +1004,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-PRO-BUSINESS-LAPTOP-2
   name: Pro Business Laptop
   category: Laptop
@@ -1067,7 +1031,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-SMART-HEIGHT-ADJUSTABLE-DESK
   name: Smart Height Adjustable Desk
   category: Standing Desk
@@ -1095,7 +1058,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ULTRA-SLIM-LAPTOP
   name: Ultra Slim Laptop
   category: Laptop
@@ -1123,7 +1085,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR
   name: UltraComfort Ergonomic Chair
   category: Ergonomic Chair
@@ -1152,7 +1113,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR-2
   name: UltraComfort Ergonomic Chair
   category: Ergonomic Chair
@@ -1180,7 +1140,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-VR-HEADSET
   name: VR Headset
   category: Gaming
@@ -1208,7 +1167,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-VR-READY-GAMING-PC
   name: VR Ready Gaming PC
   category: Gaming PC
@@ -1237,7 +1195,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-WIRELESS-CHARGING-PAD
   name: Wireless Charging Pad
   category: Office Accessory
@@ -1265,7 +1222,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-WIRELESS-COMPACT-KEYBOARD
   name: Wireless Compact Keyboard
   category: Keyboard
@@ -1293,7 +1249,6 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false
 - sku: EX-WIRELESS-PRESENTER
   name: Wireless Presenter
   category: Office Accessory
@@ -1321,4 +1276,3 @@ products:
   tag: Business pick
   sustainability_certified: false
   color_name: white
-  split_shipment: false

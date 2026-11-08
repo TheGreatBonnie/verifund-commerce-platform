@@ -69,7 +69,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ADVANCED-WORKSTATION-LAPTOP
   name: Advanced Workstation Laptop
   category: Laptop
@@ -98,7 +97,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-BACKLIT-OFFICE-KEYBOARD
   name: Backlit Office Keyboard
   category: Keyboard
@@ -127,7 +125,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-BLUETOOTH-SPEAKER
   name: Bluetooth Speaker
   category: Office Accessory
@@ -155,7 +152,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-BUDGET-LAPTOP-101
   name: Budget Laptop 101
   category: Laptop
@@ -183,7 +179,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-COMPACT-STANDING-DESK
   name: Compact Standing Desk
   category: Standing Desk
@@ -211,7 +206,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-CONVERTIBLE-2-IN-1-LAPTOP
   name: Convertible 2-in-1 Laptop
   category: Laptop
@@ -239,7 +233,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-CURVED-OFFICE-MONITOR
   name: Curved Office Monitor
   category: Monitor
@@ -268,7 +261,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-DESKTOP-WEBCAM
   name: Desktop Webcam
   category: Office Accessory
@@ -296,7 +288,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-DIGITAL-DRAWING-TABLET
   name: Digital Drawing Tablet
   category: Creative Tools
@@ -324,7 +315,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ELITE-GAMING-MONITOR
   name: Elite Gaming Monitor
   category: Monitor
@@ -353,7 +343,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ENTERPRISE-ULTRABOOK
   name: Enterprise Ultrabook
   category: Laptop
@@ -381,7 +370,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ERGO-DELUXE-CHAIR
   name: Ergo Deluxe Chair
   category: Ergonomic Chair
@@ -410,7 +398,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ERGO-DESK-LAMP
   name: Ergo Desk Lamp
   category: Office Accessory
@@ -439,7 +426,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ERGO-DESK-LAMP-2
   name: Ergo Desk Lamp
   category: Office Accessory
@@ -468,7 +454,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ERGO-STANDING-DESK
   name: Ergo Standing Desk
   category: Standing Desk
@@ -497,7 +482,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ERGO-STANDING-DESK-2
   name: Ergo Standing Desk
   category: Standing Desk
@@ -525,7 +509,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ERGONOMIC-FOOT-REST
   name: Ergonomic Foot Rest
   category: Office Accessory
@@ -554,7 +537,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ERGOPRO-STANDING-DESK
   name: ErgoPro Standing Desk
   category: Standing Desk
@@ -583,7 +565,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-EXECUTIVE-ERGONOMIC-CHAIR
   name: Executive Ergonomic Chair
   category: Ergonomic Chair
@@ -611,7 +592,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-LAPTOP-COOLING-PAD
   name: Laptop Cooling Pad
   category: Laptop Accessory
@@ -640,7 +620,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MACBOOK-AIR
   name: MacBook Air
   category: MacBook
@@ -669,7 +648,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MACBOOK-AIR-2
   name: MacBook Air
   category: MacBook
@@ -697,7 +675,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MACBOOK-AIR-M2
   name: MacBook Air M2
   category: MacBook
@@ -725,7 +702,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MACBOOK-PRO
   name: MacBook Pro
   category: MacBook
@@ -754,7 +730,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MACBOOK-PRO-13
   name: MacBook Pro 13"
   category: MacBook
@@ -782,7 +757,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MACBOOK-PRO-16
   name: MacBook Pro 16"
   category: MacBook
@@ -810,7 +784,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MESH-ERGONOMIC-CHAIR
   name: Mesh Ergonomic Chair
   category: Ergonomic Chair
@@ -838,7 +811,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-MULTI-PORT-USB-HUB
   name: Multi-Port USB Hub
   category: Accessories
@@ -866,7 +838,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-NOISE-CANCELLING-HEADPHONES
   name: Noise Cancelling Headphones
   category: Audio
@@ -894,7 +865,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-PERFORMANCE-LAPTOP-X
   name: Performance Laptop X
   category: Laptop
@@ -922,7 +892,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-PORTABLE-POWER-BANK
   name: Portable Power Bank
   category: Accessories
@@ -950,7 +919,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-PORTABLE-SSD-1TB
   name: Portable SSD 1TB
   category: Storage
@@ -978,7 +946,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-PRO-BUSINESS-LAPTOP
   name: Pro Business Laptop
   category: Laptop
@@ -1007,7 +974,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-PRO-BUSINESS-LAPTOP-2
   name: Pro Business Laptop
   category: Laptop
@@ -1035,7 +1001,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-PROFESSIONAL-COLOR-MONITOR
   name: Professional Color Monitor
   category: Monitor
@@ -1064,7 +1029,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-REFURBISHED-MACBOOK-PRO
   name: Refurbished MacBook Pro
   category: MacBook
@@ -1092,7 +1056,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-SMART-HEIGHT-ADJUSTABLE-DESK
   name: Smart Height Adjustable Desk
   category: Standing Desk
@@ -1120,7 +1083,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-SMARTWATCH-SERIES-5
   name: Smartwatch Series 5
   category: Wearable
@@ -1148,7 +1110,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ULTRA-SLIM-LAPTOP
   name: Ultra Slim Laptop
   category: Laptop
@@ -1176,7 +1137,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR
   name: UltraComfort Ergonomic Chair
   category: Ergonomic Chair
@@ -1205,7 +1165,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR-2
   name: UltraComfort Ergonomic Chair
   category: Ergonomic Chair
@@ -1233,7 +1192,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-ULTRAWIDE-MONITOR
   name: UltraWide Monitor
   category: Monitor
@@ -1262,7 +1220,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-WIRELESS-CHARGING-PAD
   name: Wireless Charging Pad
   category: Office Accessory
@@ -1290,7 +1247,6 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 - sku: EX-WIRELESS-PRESENTER
   name: Wireless Presenter
   category: Office Accessory
@@ -1318,7 +1274,5 @@ products:
   tag: Popular
   sustainability_certified: true
   color_name: black
-  split_shipment: true
 incoming_stock: 4
 incoming_days: 5
-split_shipment: true

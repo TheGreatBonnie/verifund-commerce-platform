@@ -28,23 +28,28 @@ export default async function AgentSetupStepPage() {
 
   const { agentId, status, card } = ctx;
   const cardUrl = card?.card_url ?? null;
+  // agentId is derived from seller_id optimistically (planned ID).
+  // Only treat it as existing once the backend status fetch succeeds,
+  // otherwise the CP returns 404 "agent not found" for config saves.
+  const existingAgentId = status ? agentId : null;
 
   return (
     <main className="mm-seller-main">
       <OnboardingStepper />
       <Panel kicker="Seller onboarding · Agent setup" title="Your seller agent">
         <AgentIdentityPanel
-          agentId={agentId}
+          agentId={existingAgentId}
           status={status?.status ?? null}
           initialName={status?.name ?? ctx.onboarding.profile?.display_name ?? ""}
           cardUrl={cardUrl}
+          configVersion={status?.config_version ?? null}
         />
       </Panel>
 
       <Panel kicker="Agent behavior" title="Instructions">
-        {agentId ? (
+        {existingAgentId ? (
           <InstructionEditor
-            agentId={agentId}
+            agentId={existingAgentId}
             initialInstructions={status?.instructions ?? ""}
             configVersion={status?.config_version ?? null}
           />
@@ -54,9 +59,9 @@ export default async function AgentSetupStepPage() {
       </Panel>
 
       <Panel kicker="Agent behavior" title="Capabilities">
-        {agentId ? (
+        {existingAgentId ? (
           <CapabilityGrid
-            agentId={agentId}
+            agentId={existingAgentId}
             initialAllowlist={status?.tool_allowlist ?? null}
             configVersion={status?.config_version ?? null}
           />

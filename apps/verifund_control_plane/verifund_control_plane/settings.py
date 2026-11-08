@@ -37,7 +37,8 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:3000", validation_alias="VERIFUND_CONSOLE_BASE_URL"
     )
     seller_agent_url: str = Field(
-        default="http://127.0.0.1:9201", validation_alias="SELLER_AGENT_URL"
+        default="http://127.0.0.1:9200",
+        validation_alias=AliasChoices("SELLER_SHARED_URL", "SELLER_AGENT_URL"),
     )
     seller_internal_token: str | None = Field(
         default=None, validation_alias="SELLER_INTERNAL_TOKEN"
@@ -59,8 +60,8 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:9100", validation_alias="REGISTRY_URL"
     )
     agents_public_base_url: str = Field(
-        default="https://agents.verifund.com",
-        validation_alias="AGENTS_PUBLIC_BASE_URL",
+        default="http://127.0.0.1:9200",
+        validation_alias=AliasChoices("AGENTS_PUBLIC_BASE_URL", "SELLER_SHARED_URL", "SELLER_AGENT_URL"),
     )
     allow_public_bind: bool = Field(
         default=False, validation_alias="VERIFUND_ALLOW_PUBLIC_BIND"

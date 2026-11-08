@@ -6,11 +6,11 @@ import { cn } from "@/lib/cn";
 
 const STEPS = [
   "profile",
-  "verification",
-  "integrations",
   "agent_setup",
   "policies",
+  "integrations",
   "testing",
+  "verification",
   "activation",
 ] as const;
 

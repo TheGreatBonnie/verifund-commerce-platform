@@ -66,7 +66,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ADVANCED-WORKSTATION-LAPTOP
   name: Advanced Workstation Laptop
   category: Laptop
@@ -95,7 +94,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-BACKLIT-OFFICE-KEYBOARD
   name: Backlit Office Keyboard
   category: Keyboard
@@ -124,7 +122,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-BLUETOOTH-SPEAKER
   name: Bluetooth Speaker
   category: Office Accessory
@@ -152,7 +149,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-BUDGET-GAMING-PC
   name: Budget Gaming PC
   category: Gaming PC
@@ -181,7 +177,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-BUDGET-LAPTOP-101
   name: Budget Laptop 101
   category: Laptop
@@ -209,7 +204,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-BUDGET-WIRED-MOUSE
   name: Budget Wired Mouse
   category: Mouse
@@ -238,7 +232,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-COMPACT-GAMING-PC
   name: Compact Gaming PC
   category: Gaming PC
@@ -267,7 +260,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-CONVERTIBLE-2-IN-1-LAPTOP
   name: Convertible 2-in-1 Laptop
   category: Laptop
@@ -295,7 +287,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-CURVED-OFFICE-MONITOR
   name: Curved Office Monitor
   category: Monitor
@@ -324,7 +315,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-DESKTOP-WEBCAM
   name: Desktop Webcam
   category: Office Accessory
@@ -352,7 +342,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ELITE-GAMING-MONITOR
   name: Elite Gaming Monitor
   category: Monitor
@@ -381,7 +370,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ENTERPRISE-ULTRABOOK
   name: Enterprise Ultrabook
   category: Laptop
@@ -409,7 +397,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ERGO-DESK-LAMP
   name: Ergo Desk Lamp
   category: Office Accessory
@@ -438,7 +425,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ERGO-DESK-LAMP-2
   name: Ergo Desk Lamp
   category: Office Accessory
@@ -467,7 +453,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ERGO-WIRELESS-MOUSE
   name: Ergo Wireless Mouse
   category: Mouse
@@ -495,7 +480,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ERGONOMIC-FOOT-REST
   name: Ergonomic Foot Rest
   category: Office Accessory
@@ -524,7 +508,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ERGONOMIC-KEYBOARD
   name: Ergonomic Keyboard
   category: Keyboard
@@ -553,7 +536,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-GAMING-BEAST-PC
   name: Gaming Beast PC
   category: Gaming PC
@@ -582,7 +564,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-GAMING-BEAST-PC-2
   name: Gaming Beast PC
   category: Gaming PC
@@ -610,7 +591,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-GAMING-WIRELESS-MOUSE
   name: Gaming Wireless Mouse
   category: Mouse
@@ -638,7 +618,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-MACBOOK-AIR
   name: MacBook Air
   category: MacBook
@@ -667,7 +646,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-MACBOOK-AIR-2
   name: MacBook Air
   category: MacBook
@@ -695,7 +673,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-MACBOOK-AIR-M2
   name: MacBook Air M2
   category: MacBook
@@ -723,7 +700,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-MACBOOK-PRO
   name: MacBook Pro
   category: MacBook
@@ -752,7 +728,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-MACBOOK-PRO-13
   name: MacBook Pro 13"
   category: MacBook
@@ -780,7 +755,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-MACBOOK-PRO-16
   name: MacBook Pro 16"
   category: MacBook
@@ -808,7 +782,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-MECHANICAL-GAMING-KEYBOARD
   name: Mechanical Gaming Keyboard
   category: Keyboard
@@ -837,7 +810,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-NOISE-CANCELLING-HEADPHONES
   name: Noise Cancelling Headphones
   category: Audio
@@ -865,7 +837,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-OVERCLOCKED-GAMING-PC
   name: Overclocked Gaming PC
   category: Gaming PC
@@ -893,7 +864,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-PERFORMANCE-LAPTOP-X
   name: Performance Laptop X
   category: Laptop
@@ -921,7 +891,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-PORTABLE-SSD-1TB
   name: Portable SSD 1TB
   category: Storage
@@ -949,7 +918,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-PRECISION-WIRELESS-MOUSE
   name: Precision Wireless Mouse
   category: Mouse
@@ -978,7 +946,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-PRECISION-WIRELESS-MOUSE-2
   name: Precision Wireless Mouse
   category: Mouse
@@ -1006,7 +973,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-PRO-BUSINESS-LAPTOP-2
   name: Pro Business Laptop
   category: Laptop
@@ -1034,7 +1000,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-PROFESSIONAL-COLOR-MONITOR
   name: Professional Color Monitor
   category: Monitor
@@ -1063,7 +1028,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-REFURBISHED-MACBOOK-PRO
   name: Refurbished MacBook Pro
   category: MacBook
@@ -1091,7 +1055,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-SMARTWATCH-SERIES-5
   name: Smartwatch Series 5
   category: Wearable
@@ -1119,7 +1082,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ULTRA-SLIM-LAPTOP
   name: Ultra Slim Laptop
   category: Laptop
@@ -1147,7 +1109,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-ULTRAWIDE-MONITOR
   name: UltraWide Monitor
   category: Monitor
@@ -1176,7 +1137,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-VR-HEADSET
   name: VR Headset
   category: Gaming
@@ -1204,7 +1164,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-VR-READY-GAMING-PC
   name: VR Ready Gaming PC
   category: Gaming PC
@@ -1233,7 +1192,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-WIRELESS-CHARGING-PAD
   name: Wireless Charging Pad
   category: Office Accessory
@@ -1261,7 +1219,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-WIRELESS-COMPACT-KEYBOARD
   name: Wireless Compact Keyboard
   category: Keyboard
@@ -1289,7 +1246,6 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 - sku: EX-WIRELESS-PRESENTER
   name: Wireless Presenter
   category: Office Accessory
@@ -1317,7 +1273,5 @@ products:
   tag: Value pick
   sustainability_certified: false
   color_name: gray
-  split_shipment: false
 incoming_stock: 6
 incoming_days: 3
-split_shipment: false

@@ -34,7 +34,6 @@ delivery_days: 7
 stock_on_hand: 8
 incoming_stock: 2
 incoming_days: 10
-split_shipment: true
 sustainability_certified: true
 rating: 4.6
 mandate:
@@ -73,7 +72,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-BUDGET-GAMING-PC
   name: Budget Gaming PC
   category: Gaming PC
@@ -102,7 +100,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-BUDGET-WIRED-MOUSE
   name: Budget Wired Mouse
   category: Mouse
@@ -131,7 +128,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-COMPACT-GAMING-PC
   name: Compact Gaming PC
   category: Gaming PC
@@ -160,7 +156,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-COMPACT-STANDING-DESK
   name: Compact Standing Desk
   category: Standing Desk
@@ -188,7 +183,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-CURVED-OFFICE-MONITOR
   name: Curved Office Monitor
   category: Monitor
@@ -217,7 +211,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-DIGITAL-DRAWING-TABLET
   name: Digital Drawing Tablet
   category: Creative Tools
@@ -245,7 +238,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ELITE-GAMING-MONITOR
   name: Elite Gaming Monitor
   category: Monitor
@@ -274,7 +266,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ERGO-DELUXE-CHAIR
   name: Ergo Deluxe Chair
   category: Ergonomic Chair
@@ -303,7 +294,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ERGO-STANDING-DESK
   name: Ergo Standing Desk
   category: Standing Desk
@@ -332,7 +322,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ERGO-STANDING-DESK-2
   name: Ergo Standing Desk
   category: Standing Desk
@@ -360,7 +349,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ERGO-WIRELESS-MOUSE
   name: Ergo Wireless Mouse
   category: Mouse
@@ -388,7 +376,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ERGONOMIC-KEYBOARD
   name: Ergonomic Keyboard
   category: Keyboard
@@ -417,7 +404,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ERGOPRO-STANDING-DESK
   name: ErgoPro Standing Desk
   category: Standing Desk
@@ -446,7 +432,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-EXECUTIVE-ERGONOMIC-CHAIR
   name: Executive Ergonomic Chair
   category: Ergonomic Chair
@@ -474,7 +459,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-GAMING-BEAST-PC
   name: Gaming Beast PC
   category: Gaming PC
@@ -503,7 +487,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-GAMING-BEAST-PC-2
   name: Gaming Beast PC
   category: Gaming PC
@@ -531,7 +514,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-GAMING-WIRELESS-MOUSE
   name: Gaming Wireless Mouse
   category: Mouse
@@ -559,7 +541,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-LAPTOP-COOLING-PAD
   name: Laptop Cooling Pad
   category: Laptop Accessory
@@ -588,7 +569,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MACBOOK-AIR
   name: MacBook Air
   category: MacBook
@@ -617,7 +597,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MACBOOK-AIR-2
   name: MacBook Air
   category: MacBook
@@ -645,7 +624,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MACBOOK-AIR-M2
   name: MacBook Air M2
   category: MacBook
@@ -673,7 +651,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MACBOOK-PRO
   name: MacBook Pro
   category: MacBook
@@ -702,7 +679,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MACBOOK-PRO-13
   name: MacBook Pro 13"
   category: MacBook
@@ -730,7 +706,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MACBOOK-PRO-16
   name: MacBook Pro 16"
   category: MacBook
@@ -758,7 +733,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MECHANICAL-GAMING-KEYBOARD
   name: Mechanical Gaming Keyboard
   category: Keyboard
@@ -787,7 +761,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MESH-ERGONOMIC-CHAIR
   name: Mesh Ergonomic Chair
   category: Ergonomic Chair
@@ -815,7 +788,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-MULTI-PORT-USB-HUB
   name: Multi-Port USB Hub
   category: Accessories
@@ -843,7 +815,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-NOISE-CANCELLING-HEADPHONES
   name: Noise Cancelling Headphones
   category: Audio
@@ -871,7 +842,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-OVERCLOCKED-GAMING-PC
   name: Overclocked Gaming PC
   category: Gaming PC
@@ -899,7 +869,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-PORTABLE-POWER-BANK
   name: Portable Power Bank
   category: Accessories
@@ -927,7 +896,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-PORTABLE-SSD-1TB
   name: Portable SSD 1TB
   category: Storage
@@ -955,7 +923,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-PRECISION-WIRELESS-MOUSE
   name: Precision Wireless Mouse
   category: Mouse
@@ -984,7 +951,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-PRECISION-WIRELESS-MOUSE-2
   name: Precision Wireless Mouse
   category: Mouse
@@ -1012,7 +978,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-PRO-BUSINESS-LAPTOP
   name: Pro Business Laptop
   category: Laptop
@@ -1041,7 +1006,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-PROFESSIONAL-COLOR-MONITOR
   name: Professional Color Monitor
   category: Monitor
@@ -1070,7 +1034,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-REFURBISHED-MACBOOK-PRO
   name: Refurbished MacBook Pro
   category: MacBook
@@ -1098,7 +1061,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-SMART-HEIGHT-ADJUSTABLE-DESK
   name: Smart Height Adjustable Desk
   category: Standing Desk
@@ -1126,7 +1088,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-SMARTWATCH-SERIES-5
   name: Smartwatch Series 5
   category: Wearable
@@ -1154,7 +1115,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR
   name: UltraComfort Ergonomic Chair
   category: Ergonomic Chair
@@ -1183,7 +1143,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR-2
   name: UltraComfort Ergonomic Chair
   category: Ergonomic Chair
@@ -1211,7 +1170,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-ULTRAWIDE-MONITOR
   name: UltraWide Monitor
   category: Monitor
@@ -1240,7 +1198,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-VR-HEADSET
   name: VR Headset
   category: Gaming
@@ -1268,7 +1225,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-VR-READY-GAMING-PC
   name: VR Ready Gaming PC
   category: Gaming PC
@@ -1297,7 +1253,6 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
 - sku: EX-WIRELESS-COMPACT-KEYBOARD
   name: Wireless Compact Keyboard
   category: Keyboard
@@ -1325,4 +1280,3 @@ products:
   tag: Negotiable
   sustainability_certified: true
   color_name: silver
-  split_shipment: true
