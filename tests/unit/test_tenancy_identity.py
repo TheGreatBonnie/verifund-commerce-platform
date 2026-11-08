@@ -150,3 +150,14 @@ def test_default_authenticator_rejects_token_from_unknown_origin(clerk_keys, tmp
     with pytest.raises(VerifundError) as exc_info:
         _default_authenticator(_auth_request(token), settings)
     assert exc_info.value.status_code == 401
+
+
+async def test_resolve_identity_fake_branch_returns_dev_org(monkeypatch, client):
+    monkeypatch.setenv("MARKETMESH_DEV_IDENTITY", "fake")
+    app = client._transport.app
+    store = app.state.tenancy
+    from verifund_control_plane.tenancy.identity import resolve_identity
+    ident = await resolve_identity(store, {"sub": "user_x"}, app.state.settings)
+    assert ident.clerk_org_id == "org_dev_fake"
+    assert ident.role == "org:admin"
+    assert "org:agents:manage" in ident.permissions

@@ -196,6 +196,12 @@ class Settings(BaseSettings):
     )
     clerk_secret_key: str = Field(default="", validation_alias="CLERK_SECRET_KEY")
     clerk_jwt_key: str = Field(default="", validation_alias="CLERK_JWT_KEY")
+    marketmesh_dev_identity: str = Field(
+        default="", validation_alias="MARKETMESH_DEV_IDENTITY"
+    )
+    verifund_auto_verify: bool = Field(
+        default=False, validation_alias="VERIFUND_AUTO_VERIFY"
+    )
 
     @property
     def is_sandbox(self) -> bool:

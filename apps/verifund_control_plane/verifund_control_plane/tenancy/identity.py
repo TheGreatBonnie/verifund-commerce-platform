@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -38,6 +39,30 @@ def _identity(
 
 
 async def resolve_identity(store, payload: dict, settings, directory=None) -> Identity:
+    if os.environ.get("MARKETMESH_DEV_IDENTITY") == "fake":
+        if (getattr(settings, "clerk_secret_key", "") or "").startswith("sk_live_"):
+            raise VerifundError(
+                "misconfigured",
+                "fake identity requires sk_test_ Clerk key",
+                status_code=500,
+            )
+        user = await store.upsert_user(
+            "user_dev_fake_clerk", "dev-fake@marketmesh.dev", "Dev Fake"
+        )
+        org = await store.upsert_organization(
+            "org_dev_fake", "Dev Fake Business", "dev-fake"
+        )
+        await store.upsert_membership(org["id"], user["id"], "org:admin")
+        return Identity(
+            user_id=user["id"],
+            clerk_user_id="user_dev_fake_clerk",
+            tenant_id=org["id"],
+            clerk_org_id="org_dev_fake",
+            role="org:admin",
+            permissions=ROLE_PERMISSIONS["org:admin"],
+            is_platform_admin=False,
+            organization_status="active",
+        )
     if directory is None:
         directory = getattr(settings, "clerk_directory", None)
     if directory is None:
