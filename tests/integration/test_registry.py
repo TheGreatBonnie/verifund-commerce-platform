@@ -79,6 +79,18 @@ async def test_register_and_discover(registry_client, seller_card_json):
     assert products.json()["products"][0]["seller_id"] == "northwind-audio"
 
 
+async def test_registration_derives_categories_from_catalog(registry_client):
+    response = await registry_client.post(
+        "/v1/sellers",
+        json={
+            "card_url": "http://127.0.0.1:9201/.well-known/agent-card.json",
+        },
+        headers={"Authorization": "Bearer test-admin"},
+    )
+    assert response.status_code == 201
+    assert response.json()["categories"] == ["consumer-electronics"]
+
+
 async def test_registry_rejects_bad_admin_token(
     registry_client, seller_card_json
 ):

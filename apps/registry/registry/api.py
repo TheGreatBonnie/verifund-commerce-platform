@@ -29,7 +29,8 @@ class SellerCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     seller_id: str | None = None
     card_url: str
-    categories: list[str] = Field(min_length=1)
+    # Optional: when omitted, categories are derived from the fetched catalog.
+    categories: list[str] = Field(default_factory=list)
     organization_id: str | None = None
     verified: bool = True
     card_json: dict[str, Any] | None = None
@@ -252,11 +253,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 listings = await _fetch_catalog(body.card_url)
             except (httpx.HTTPError, TypeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail=f"seller catalog unavailable: {exc}") from exc
+        categories = body.categories or sorted(
+            {
+                str(item["category"])
+                for item in listings
+                if item.get("category")
+            }
+        )
         row = await store.upsert(
             seller_id=seller_id,
             name=name,
             card_url=body.card_url,
-            categories=body.categories,
+            categories=categories,
             card_json=card_json,
             card_hash=canonical_card_hash(card_json),
             healthy=True,

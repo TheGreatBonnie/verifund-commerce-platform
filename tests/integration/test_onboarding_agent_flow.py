@@ -41,9 +41,13 @@ async def stack(tmp_path):
     published: list[dict] = []
 
     def registry_handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/agents" and request.method == "POST":
+        if request.method == "POST" and request.url.path in {
+            "/v1/agents", "/v1/sellers"
+        }:
             import json as _json
-            published.append(_json.loads(request.content))
+            published.append(
+                {"path": request.url.path, **_json.loads(request.content)}
+            )
             return httpx.Response(201, json={"published": True})
         return httpx.Response(404, json={"code": "not_found"})
 
@@ -150,8 +154,29 @@ async def test_full_onboarding_saga_reaches_active(stack):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "active"
     published = stack["published"]
-    assert published and published[0]["agent_id"] == agent_id
-    assert published[0]["card_url"] == "https://agents.verifund.com/acme/a2a"
+    assert published and published[0]["path"] == "/v1/sellers"
+    assert published[0]["seller_id"] == "acme"
+    assert published[0]["card_url"] == (
+        "https://agents.verifund.com/acme/.well-known/agent-card.json"
+    )
+
+    # Activation must make the public seller card and catalog reachable;
+    # the registry fetches both while indexing the seller's listings.
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=stack["seller_app"]),
+        base_url="http://seller-shared",
+    ) as seller:
+        card = await seller.get("/acme/.well-known/agent-card.json")
+        assert card.status_code == 200, card.text
+        catalog = await seller.get("/acme/api/catalog")
+        assert catalog.status_code == 200, catalog.text
+        assert catalog.json()["products"]
+
+    # Retrying activation republishes instead of failing, so a registry reset
+    # can be repaired without recreating the seller.
+    r = await cp.post(f"/v1/agents/{agent_id}/activate", json={}, headers=h)
+    assert r.status_code == 200, r.text
+    assert len(stack["published"]) == 2
 
     r = await cp.get(f"/v1/agents/{agent_id}/status", headers=h)
     assert r.json()["status"] == "active"

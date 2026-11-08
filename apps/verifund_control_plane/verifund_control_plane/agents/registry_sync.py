@@ -16,6 +16,24 @@ async def publish_agent(client, agent, card) -> None:
     )
 
 
+async def publish_seller(client, *, seller_id: str, card_url: str,
+                         organization_id: str | None) -> None:
+    """Project an activated seller into the marketplace registry.
+
+    The registry fetches the seller card and public catalog from ``card_url``
+    and stores the catalog listings that back ``GET /v1/products``.
+    """
+    response = await client.post(
+        "/v1/sellers",
+        json={
+            "seller_id": seller_id,
+            "card_url": card_url,
+            "organization_id": organization_id,
+        },
+    )
+    response.raise_for_status()
+
+
 async def unpublish_agent(client, agent_id) -> None:
     await client.post(
         "/v1/agents",

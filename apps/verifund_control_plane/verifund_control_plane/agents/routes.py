@@ -15,7 +15,7 @@ from verifund_control_plane.agents.credentials import (
     verify_credential,
 )
 from verifund_control_plane.agents.lifecycle import activate_agent, confirm_policy
-from verifund_control_plane.agents.registry_sync import publish_agent
+from verifund_control_plane.agents.registry_sync import publish_seller
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.onboarding.service import advance_step, require_step
 from verifund_control_plane.tenancy.identity import require_identity
@@ -430,9 +430,14 @@ async def catalog_import_route(body: CatalogImportBody, request: Request) -> dic
 @router.post("/v1/agents/{agent_id}/activate")
 async def activate_agent_route(agent_id: str, request: Request) -> dict:
     identity = await require_seller_agent_admin(request)
-    await require_own_agent(request, agent_id, identity)
+    agent = await require_own_agent(request, agent_id, identity)
     store = request.app.state.tenancy
-    activated = await activate_agent(store, agent_id)
+    # Activation is idempotent for already-active agents so a failed registry
+    # publish can be retried without recreating the seller.
+    if agent["status"] == "active":
+        activated = agent
+    else:
+        activated = await activate_agent(store, agent_id)
     existing_creds = [c for c in await store.list_credentials(agent_id) if c["status"] == "active"]
     has_call = any(
         "a2a:call" in (c["scopes"] if isinstance(c["scopes"], list) else json.loads(c["scopes"]))
@@ -460,14 +465,25 @@ async def activate_agent_route(agent_id: str, request: Request) -> dict:
         allowlist=allowlist, base_url=base_url, seller_id=seller_id)
     registry_url = getattr(settings, "registry_url", "http://127.0.0.1:9100")
 
+    # The shared seller runtime only serves its public card and catalog while
+    # the config is active; the registry fetches both during registration.
+    runtime_response = await _call_runtime(
+        request, f"/internal/agents/{agent_id}/activate",
+        headers={"x-org-id": identity.tenant_id, "x-agent-id": agent_id})
+    if runtime_response.status_code >= 400:
+        raise VerifundError(
+            "runtime_error",
+            f"seller runtime activation failed: {runtime_response.text}",
+            status_code=502)
+
+    card_url = f"{base_url.rstrip('/')}/{seller_id}/.well-known/agent-card.json"
+
     async def _publish(client):
-        await publish_agent(
+        await publish_seller(
             client,
-            {"id": agent_id, "name": name,
-             "organization_id": identity.tenant_id},
-            {"card_url": f"{base_url}/{seller_id}/a2a",
-             "skills": [s["id"] for s in card["skills"]],
-             "card_json": card},
+            seller_id=seller_id,
+            card_url=card_url,
+            organization_id=identity.tenant_id,
         )
 
     try:
@@ -480,7 +496,7 @@ async def activate_agent_route(agent_id: str, request: Request) -> dict:
                                          timeout=httpx.Timeout(10.0)) as client:
                 await _publish(client)
         published = True
-    except Exception as e:  # noqa: BLE001 - activation already committed; sweep repairs later
+    except Exception as e:  # noqa: BLE001 - activation already committed; retry activation to republish
         published = False
         await store.record_audit(
             scope="agents", organization_id=identity.tenant_id,

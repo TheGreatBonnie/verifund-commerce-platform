@@ -153,6 +153,19 @@ async def get_agent_config(agent_id: str, request: Request,
     return snapshot.__dict__
 
 
+@router.post("/agents/{agent_id}/activate")
+async def activate_agent_config(agent_id: str, request: Request,
+                                _=Depends(_require_internal_token)):  # noqa: B008
+    org = _org(request)
+    store = get_store(request, org, agent_id)
+    snapshot = await store.activate_config(agent_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "unknown_agent", "message": "unknown agent"})
+    return snapshot.__dict__
+
+
 async def _verify(settings, request: Request, token: str, *,
                   purpose: str = "a2a:call") -> dict[str, Any] | None:
     """Verify a machine credential against the control plane.

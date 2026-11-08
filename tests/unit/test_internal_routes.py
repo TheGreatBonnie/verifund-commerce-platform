@@ -114,3 +114,43 @@ async def test_agent_configs_roundtrip_and_cross_org_hidden(client):
     r = await client.get(f"/internal/agent-configs/{AGENT}",
                          headers=h(org=ORG_B, agent="agent_other"))
     assert r.status_code == 404
+
+
+async def test_activate_config_makes_public_card_and_catalog_available(client):
+    body = {"agent_id": AGENT, "organization_id": ORG,
+            "seller_id": "demo", "name": "Demo"}
+    assert (await client.post("/internal/agent-configs",
+                              json=body, headers=h())).status_code == 200
+    doc = json.dumps({"version": 1, "products": [
+        {"sku": "T1", "name": "Thing", "category": "c",
+         "list_unit_price_cents": 100,
+         "initial_unit_price_cents": 90,
+         "floor_unit_price_cents": 80,
+         "stock_on_hand": 2}]})
+    assert (await client.post("/internal/catalog/import",
+                              json={"document": doc},
+                              headers=h())).status_code == 200
+
+    # Draft configs are not discoverable through the public seller surface.
+    assert (await client.get("/demo/api/catalog")).status_code == 404
+
+    r = await client.post(f"/internal/agents/{AGENT}/activate", headers=h())
+    assert r.status_code == 200
+    assert r.json()["status"] == "active"
+
+    card = await client.get("/demo/.well-known/agent-card.json")
+    assert card.status_code == 200
+    catalog = await client.get("/demo/api/catalog")
+    assert catalog.status_code == 200
+    assert catalog.json()["products"][0]["sku"] == "T1"
+
+
+async def test_activate_config_is_org_scoped(client):
+    body = {"agent_id": AGENT, "organization_id": ORG,
+            "seller_id": "demo", "name": "Demo"}
+    await client.post("/internal/agent-configs", json=body, headers=h())
+
+    r = await client.post(f"/internal/agents/{AGENT}/activate",
+                          headers=h(org=ORG_B))
+
+    assert r.status_code == 404

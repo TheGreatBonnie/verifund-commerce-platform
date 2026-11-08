@@ -174,6 +174,19 @@ class OrgScopedStore(SellerStore):
             )).first()
         return _snapshot(row) if row else None
 
+    async def activate_config(self, agent_id: str) -> ConfigSnapshot | None:
+        """Mark a tenant's seller config active so public discovery can use it."""
+        current = await self.get_config(agent_id)
+        if current is None:
+            return None
+        async with self.engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE seller_configs SET status='active', updated_at=:now "
+                "WHERE agent_id=:a AND organization_id=:o"),
+                {"a": agent_id, "o": self.organization_id,
+                 "now": datetime.now(UTC).isoformat()})
+        return await self.get_config(agent_id)
+
     async def upsert_config(self, agent_id: str, up: ConfigUpsert, *,
                             seller_id: str, name: str, tagline: str = "") -> ConfigSnapshot:
         current = await self.get_config(agent_id)

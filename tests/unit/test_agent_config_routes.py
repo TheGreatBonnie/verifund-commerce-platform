@@ -70,6 +70,15 @@ async def client(tmp_path):
         if path == "/internal/catalog/import":
             return httpx.Response(200, json={"inserted": 2, "updated": 0,
                                              "replaced": 0, "errors": []})
+        if (path.startswith("/internal/agents/")
+                and path.endswith("/activate")
+                and request.method == "POST"):
+            agent_id = path.split("/")[3]
+            config = runtime_state["configs"].get((org, agent_id))
+            if config is None:
+                return httpx.Response(404, json={"code": "unknown_agent"})
+            config["status"] = "active"
+            return httpx.Response(200, json=config)
         if path == "/internal/test-suite":
             import json as _json
             body = _json.loads(request.read())
@@ -85,9 +94,13 @@ async def client(tmp_path):
         return httpx.Response(404, json={"code": "not_found"})
 
     def registry_handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/agents" and request.method == "POST":
+        if request.method == "POST" and request.url.path in {
+            "/v1/agents", "/v1/sellers"
+        }:
             import json as _json
-            published.append(_json.loads(request.content))
+            published.append(
+                {"path": request.url.path, **_json.loads(request.content)}
+            )
             return httpx.Response(201, json={"ok": True})
         return httpx.Response(404, json={"code": "not_found"})
 
@@ -218,10 +231,25 @@ async def test_full_flow_reaches_active_and_publishes_card(client, identities):
                           headers=identities["admin_headers"])
     assert r.status_code == 200
     assert r.json()["status"] == "active"
+    assert r.json()["registry_published"] is True
     published = client._published
-    assert published and published[0]["agent_id"] == "agent_acme"
-    assert published[0]["card_url"] == "https://agents.verifund.com/acme/a2a"
-    assert published[0]["published"] is True
+    assert published and published[0]["path"] == "/v1/sellers"
+    assert published[0]["seller_id"] == "acme"
+    assert published[0]["organization_id"] == identities["org_id"]
+    assert published[0]["card_url"] == (
+        "https://agents.verifund.com/acme/.well-known/agent-card.json"
+    )
+    config = client._runtime_state["configs"][
+        (identities["org_id"], "agent_acme")
+    ]
+    assert config["status"] == "active"
+
+    # Re-activating an already-active agent republishes instead of failing,
+    # so a registry reset can be repaired by retrying activation.
+    r = await client.post("/v1/agents/agent_acme/activate", json={},
+                          headers=identities["admin_headers"])
+    assert r.status_code == 200
+    assert len(client._published) == 2
 
 
 async def test_activation_blocked_before_passing_test(client, identities):
