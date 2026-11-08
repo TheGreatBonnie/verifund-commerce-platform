@@ -780,7 +780,9 @@ paypal-button {
 .mm-product-search-card {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  width: 100%;
+  max-width: 340px;
+  justify-self: start;
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
@@ -789,13 +791,15 @@ paypal-button {
   box-shadow: 3px 4px 0 rgba(23, 26, 22, 0.08);
 }
 
-.mm-product-search-art {
-  min-height: 96px;
+/* Shared .mm-product-art is defined later in the file, so these
+   chat overrides need higher specificity to shrink the band. */
+.mm-product-search-card .mm-product-search-art {
+  min-height: 72px;
   flex: none;
 }
 
-.mm-product-search-art > span {
-  font-size: 36px;
+.mm-product-search-card .mm-product-search-art > span {
+  font-size: 28px;
 }
 
 .mm-product-search-card .mm-product-info {
@@ -803,34 +807,77 @@ paypal-button {
   flex: 1;
   flex-direction: column;
   min-width: 0;
+  padding: 8px 2px 2px;
 }
 
 .mm-product-search-card .mm-product-info h3 {
+  min-height: 0;
+  margin: 4px 0 2px;
+  font-size: 13px;
+  line-height: 1.35;
   min-width: 0;
   overflow-wrap: break-word;
+}
+
+/* Higher-contrast text: shared rules use --muted at 9px, which washes
+   out on the panel background. Ink-soft/signal-deep stay legible. */
+.mm-product-search-card .mm-product-category {
+  color: var(--signal-deep);
+  font-size: 10px;
 }
 
 .mm-product-search-card .mm-product-description {
+  min-height: 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.4;
   min-width: 0;
   overflow-wrap: break-word;
 }
 
+.mm-product-search-card .mm-product-price {
+  margin-top: 6px;
+  gap: 6px;
+}
+
+.mm-product-search-card .mm-product-price strong {
+  font-size: 14px;
+}
+
+.mm-product-search-card .mm-product-price del {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
 .mm-product-search-card .mm-product-meta {
+  gap: 3px;
+  margin: 5px 0 8px;
+  color: var(--ink-soft);
+  font-size: 10px;
   min-width: 0;
+}
+
+.mm-product-search-card .mm-marketplace-rating {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.mm-product-search-card .mm-marketplace-rating > span {
+  color: var(--ink-soft);
 }
 
 .mm-product-search-action {
   margin-top: auto;
-  padding-top: 6px;
+  padding-top: 4px;
 }
 
 .mm-product-details {
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 10px;
 }
 
 .mm-product-details summary {
-  color: var(--muted);
+  color: var(--ink-soft);
   cursor: pointer;
 }
 
@@ -840,7 +887,7 @@ paypal-button {
 }
 
 .mm-product-rationale {
-  color: var(--muted);
+  color: var(--ink-soft);
   font-size: 10px;
   line-height: 1.4;
   margin: 4px 0 0;
