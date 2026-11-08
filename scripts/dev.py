@@ -251,7 +251,7 @@ def registry_environment(mode: str) -> dict[str, str]:
             "REGISTRY_DATABASE_URL": _registry_database(),
             "REGISTRY_ADMIN_TOKEN": admin_token(),
             "ALLOWED_CARD_HOSTS": allowed_card_hosts_json(),
-            "ALLOWED_CARD_URLS": allowed_card_urls_json(),
+            "ALLOWED_CARD_URLS": _env_value("ALLOWED_CARD_URLS", "[]"),
         }
     )
     return env
@@ -289,7 +289,9 @@ def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, st
             "REGISTRY_URL": registry_url(),
             "BUYER_DATABASE_URL": _buyer_database(),
             "BUYER_CHECKPOINT_PATH": _checkpoint_path(),
-            "BUYER_SELLER_TOKENS": seller_tokens_json(),
+            "BUYER_REGISTRY_POLL_SECONDS": _env_value(
+                "BUYER_REGISTRY_POLL_SECONDS", "30"
+            ),
             "BUYER_CONSOLE_API_TOKEN": _env_value(
                 "BUYER_CONSOLE_API_TOKEN", "dev-console"
             ),
@@ -308,14 +310,14 @@ def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, st
 
 
 def allowed_card_urls_json() -> str:
-    urls = {shared_card_url(seller.seller_id) for seller in SELLERS}
     configured = _env_value("ALLOWED_CARD_URLS", "")
     try:
         configured_urls = json.loads(configured) if configured else []
     except (json.JSONDecodeError, TypeError):
         configured_urls = []
-    if isinstance(configured_urls, list):
-        urls.update(url for url in configured_urls if isinstance(url, str))
+    urls = {
+        url for url in configured_urls if isinstance(url, str)
+    } if isinstance(configured_urls, list) else set()
     return json.dumps(sorted(urls))
 
 
@@ -400,7 +402,11 @@ AGENT_FORBIDDEN_ENV = (
     "PAYPAL_WEBHOOK_ID",
     "PAYPAL_PLATFORM_EMAIL",
     "PAYPAL_BUYER_EMAIL",
-) + tuple(seller.token_var for seller in SELLERS)
+    "SELLER_NORTHWIND_TOKEN",
+    "SELLER_CIRCUITFORGE_TOKEN",
+    "SELLER_AURORA_TOKEN",
+    "SELLER_SUMMIT_TECH_TOKEN",
+)
 
 
 def verifund_enabled(mode: str) -> bool:
@@ -475,6 +481,8 @@ def control_plane_environment(llm: str, mode: str) -> dict[str, str]:
                 verifund_inspection_window_hours()
             ),
             "VERIFUND_FAKE_WEBHOOK_SECRET": verifund_fake_webhook_secret(),
+            "VERIFUND_AUTO_VERIFY": _env_value("VERIFUND_AUTO_VERIFY", "0"),
+            "MARKETMESH_DEV_IDENTITY": _env_value("MARKETMESH_DEV_IDENTITY", ""),
             "VERIFUND_SELLER_PAYOUT_EMAILS": seller_payout_emails(),
             "PAYPAL_ENV": paypal_env(),
             "PAYPAL_API_BASE": paypal_api_base(),
@@ -486,21 +494,6 @@ def control_plane_environment(llm: str, mode: str) -> dict[str, str]:
         }
     )
     return env
-
-def run_seed(mode: str) -> None:
-    print("Seeding seller catalogs and registry...")
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts/seed.py")],
-        cwd=ROOT,
-        env=_base_env(mode),
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            "Seed failed. Inspect .dev-logs for the running services."
-        )
-
 
 def _write_pids(
     children: list[Child], mode: str, verifund_mode: str = "sandbox"
@@ -619,7 +612,9 @@ def run_stack(scripted: bool, settlement_mode: str = "off") -> int:
             log_path=shared.log_path,
         )
 
-        run_seed(mode)
+        print(
+            f"  onboard      http://127.0.0.1:{console_port()}/seller/onboarding  (no sellers seeded)"
+        )
 
         buyer = start_child(
             "buyer",

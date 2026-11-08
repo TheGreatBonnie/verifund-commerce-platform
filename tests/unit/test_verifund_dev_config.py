@@ -14,12 +14,7 @@ def clear(monkeypatch, *names: str) -> None:
 def test_registry_environment_allows_default_seller_card_urls(monkeypatch):
     clear(monkeypatch, "ALLOWED_CARD_URLS", "SELLER_SHARED_URL")
     env = dev.registry_environment("scripted")
-    assert json.loads(env["ALLOWED_CARD_URLS"]) == [
-        "http://127.0.0.1:9200/aurora-supply/.well-known/agent-card.json",
-        "http://127.0.0.1:9200/circuitforge/.well-known/agent-card.json",
-        "http://127.0.0.1:9200/northwind-audio/.well-known/agent-card.json",
-        "http://127.0.0.1:9200/summit-tech/.well-known/agent-card.json",
-    ]
+    assert json.loads(env["ALLOWED_CARD_URLS"]) == []
 
 
 def test_shared_seller_environment(monkeypatch):
@@ -289,3 +284,10 @@ def test_control_plane_environment_uses_fake_defaults(monkeypatch):
         json.loads(env["VERIFUND_SELLER_PAYOUT_EMAILS"])["northwind-audio"]
         == "seller-northwind@example.com"
     )
+
+def test_buyer_environment_has_no_seller_tokens(monkeypatch):
+    monkeypatch.delenv("BUYER_SELLER_TOKENS", raising=False)
+    env = dev.buyer_environment("scripted", "sandbox")
+    assert "BUYER_SELLER_TOKENS" not in env
+    assert env["BUYER_REGISTRY_POLL_SECONDS"] == "30"
+    assert env["REGISTRY_URL"] == config.registry_url()
