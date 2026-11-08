@@ -52,6 +52,35 @@ class CatalogImportBody(BaseModel):
     replace_catalog: bool = False
 
 
+def generate_instructions(
+    *,
+    name: str | None,
+    tagline: str | None,
+    allowlist: list[str] | None,
+    max_discount_bps: int | None,
+    autonomy_mode: str | None,
+    categories: list[str] | None = None,
+) -> str:
+    """Deterministic template draft (no LLM call); policy bounds always win."""
+    display = (name or "Seller agent").strip() or "Seller agent"
+    cats = ", ".join(categories or []) or "your catalog"
+    caps = ", ".join(allowlist or []) or "catalog search and quoting"
+    discount = "10%" if max_discount_bps is None else f"{(max_discount_bps / 100):.2f}%".rstrip("0").rstrip(".")
+    mode = autonomy_mode or "policy_bounded"
+    text = (
+        f"You are {display}'s seller agent. "
+        f"{tagline.strip() + '. ' if tagline and tagline.strip() else ''}"
+        f"Present as a trusted seller for {cats}. "
+        f"Capabilities: {caps}. "
+        "Qualify first: ask quantity, use case, deadline, and budget before quoting. "
+        "Never go below your floor; concede in small steps toward the listed ladder. "
+        f"Mode: {mode}. Max discount: {discount}. "
+        "Offer the warranty extension before increasing discount. "
+        "Keep evidence ready for verification."
+    )
+    return text[:4096]
+
+
 def _idem_key(request: Request) -> str | None:
     key = (request.headers.get("idempotency-key") or "").strip()
     return key[:128] or None
@@ -307,6 +336,36 @@ async def _record_hashes(request: Request, store, identity, agent_id: str,
         seller_id=seller_id,
     )
     await store.set_card_hash(agent_id, _card_hash(card))
+
+
+@router.post("/v1/agents/{agent_id}/instructions/generate")
+async def generate_agent_instructions(agent_id: str, request: Request) -> dict:
+    identity = await require_seller_agent_admin(request)
+    agent = await require_own_agent(request, agent_id, identity)
+    store = request.app.state.tenancy
+    profile = await store.get_seller_profile_by_organization(identity.tenant_id)
+    snapshot_resp = await _call_runtime(
+        request, f"/internal/agent-configs/{agent_id}",
+        headers={"x-org-id": identity.tenant_id, "x-agent-id": agent_id}, method="GET", timeout=5.0,
+    )
+    snapshot = snapshot_resp.json() if snapshot_resp.status_code < 400 else {}
+    try:
+        cats = snapshot.get("categories") or []
+        # Runtime returns product categories when configured; fall back to generic
+        if not cats:
+            cats = sorted({c for c in ((profile or {}).get("categories") or [])})
+    except Exception:
+        cats = []
+    name = snapshot.get("name") or (profile or {}).get("name") or agent.get("name") or "Seller agent"
+    text = generate_instructions(
+        name=name,
+        tagline=snapshot.get("tagline") or ((profile or {}).get("tagline") or ""),
+        allowlist=snapshot.get("tool_allowlist") or [],
+        max_discount_bps=snapshot.get("max_discount_bps"),
+        autonomy_mode=snapshot.get("autonomy_mode"),
+        categories=list(cats),
+    )
+    return {"instructions": text, "agent_id": agent_id}
 
 
 @router.patch("/v1/agents/{agent_id}/config")

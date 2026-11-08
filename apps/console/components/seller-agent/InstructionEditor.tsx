@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import { saveConfigAction } from "@/app/(seller-onboarding)/seller/onboarding/actions";
+import { generateInstructionsAction, saveConfigAction } from "@/app/(seller-onboarding)/seller/onboarding/actions";
 
 type InstructionEditorProps = {
   agentId: string;
@@ -22,6 +22,8 @@ export function InstructionEditor({
   const [instructions, setInstructions] = useState(initialInstructions ?? "");
   const [version, setVersion] = useState(configVersion ?? null);
   const [saved, setSaved] = useState<number | null>(null);
+  const [generated, setGenerated] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -101,6 +103,32 @@ export function InstructionEditor({
         <Button type="submit" loading={pending} disabled={remaining < 0}>
           Save instructions
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          loading={generating}
+          onClick={() => {
+            setError(null);
+            setGenerating(true);
+            void (async () => {
+              const result = await generateInstructionsAction(agentId);
+              setGenerating(false);
+              if (result.ok) {
+                setInstructions(result.data.instructions);
+                setGenerated(true);
+                setSaved(null);
+              } else {
+                setError(result.error);
+              }
+            })();
+          }}
+        >
+          Auto-generate from catalog
+        </Button>
+        {generated ? (
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>Generated — review, then Save</span>
+        ) : null}
         {saved != null ? (
           <span style={{ fontSize: 11, color: "var(--muted)" }}>
             Saved · config v{saved}

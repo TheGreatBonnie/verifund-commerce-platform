@@ -144,6 +144,15 @@ export async function importCatalog(
   });
 }
 
+export async function generateInstructions(
+  agentId: string,
+): Promise<{ instructions: string; agent_id: string }> {
+  return request<{ instructions: string; agent_id: string }>(
+    `/v1/agents/${encodeURIComponent(agentId)}/instructions/generate`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+  );
+}
+
 export async function runAgentTests(agentId: string): Promise<TestRun> {
   return request<TestRun>(
     `/v1/agents/${encodeURIComponent(agentId)}/test`,

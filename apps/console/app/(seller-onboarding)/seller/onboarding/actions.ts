@@ -6,6 +6,7 @@ import { controlPlaneForUser } from "@/lib/control-plane";
 import {
   activateAgent,
   createAgent,
+  generateInstructions,
   importCatalog,
   runAgentTests,
   saveConfig,
@@ -189,6 +190,18 @@ export async function importCatalogAction(
         errors,
       };
     }
+    return { ok: false, ...asFriendlyError(err) };
+  }
+}
+
+export async function generateInstructionsAction(
+  agentId: string,
+): Promise<ActionResult<{ instructions: string; agent_id: string }>> {
+  await auth.protect();
+  try {
+    const data = await generateInstructions(agentId);
+    return { ok: true, data };
+  } catch (err) {
     return { ok: false, ...asFriendlyError(err) };
   }
 }

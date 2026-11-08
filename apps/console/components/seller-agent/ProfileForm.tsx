@@ -29,7 +29,7 @@ export function ProfileForm({ initialDisplayName }: Props) {
             setError(result.error);
             return;
           }
-          router.push("/seller/onboarding/verification");
+          router.push("/seller/onboarding/agent_setup");
           router.refresh();
         });
       }}
