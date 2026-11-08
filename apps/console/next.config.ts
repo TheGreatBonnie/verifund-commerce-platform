@@ -9,7 +9,9 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://challenges.cloudflare.com https://*.protect.clerk.com https://www.paypal.com https://www.sandbox.paypal.com https://c.paypal.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https://img.clerk.com https://www.paypal.com https://www.sandbox.paypal.com https://www.paypalobjects.com",
+  // Seller catalogs import arbitrary image_url values, so images may come from
+  // any HTTPS host (e.g. images.unsplash.com). Images cannot execute script.
+  "img-src 'self' data: https:",
   "font-src 'self' data:",
   "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* wss://realtime.intelligence.copilotkit.ai https://*.clerk.accounts.dev https://*.protect.clerk.com:* https://www.paypal.com https://www.sandbox.paypal.com https://api-m.paypal.com https://api-m.sandbox.paypal.com https://c.paypal.com",
   "frame-src https://challenges.cloudflare.com https://*.protect.clerk.com https://www.paypal.com https://www.sandbox.paypal.com",

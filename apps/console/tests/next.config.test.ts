@@ -48,9 +48,6 @@ describe("next.config", () => {
         "https://*.protect.clerk.com:*",
       ]),
     );
-    expect(readDirective(csp, "img-src")).toContain(
-      "https://img.clerk.com",
-    );
     expect(readDirective(csp, "worker-src")).toEqual(
       expect.arrayContaining(["'self'", "blob:"]),
     );
@@ -88,8 +85,16 @@ describe("next.config", () => {
         "https://c.paypal.com",
       ]),
     );
-    expect(readDirective(csp, "img-src")).toEqual(
-      expect.arrayContaining(["https://www.paypalobjects.com"]),
-    );
+  });
+
+  it("allows product images hosted by sellers in img-src", async () => {
+    const csp = await readCsp();
+
+    // Seller catalogs import arbitrary image_url values (the bundled templates
+    // use images.unsplash.com and plus.unsplash.com), so the policy must not
+    // restrict images to a fixed host list.
+    const imgSrc = readDirective(csp, "img-src");
+    expect(imgSrc).toContain("https:");
+    expect(imgSrc).toEqual(expect.arrayContaining(["'self'", "data:"]));
   });
 });

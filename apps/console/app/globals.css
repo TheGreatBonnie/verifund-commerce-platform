@@ -4863,7 +4863,16 @@ paypal-button {
   display: grid;
   min-height: 128px;
   place-items: center;
+  overflow: hidden;
   border: 1px solid rgba(23, 26, 22, 0.05);
+}
+
+.mm-product-art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .mm-product-art > span {
