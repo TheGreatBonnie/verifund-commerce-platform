@@ -134,6 +134,7 @@ async def _record_decision(
     rationale: str,
     fallback_used: bool = False,
     seller_id: str | None = None,
+    strategy: str | None = None,
 ) -> dict:
     payload = {
         "source": source,
@@ -141,6 +142,8 @@ async def _record_decision(
         "rationale": rationale,
         "fallback_used": fallback_used,
     }
+    if strategy is not None:
+        payload["strategy"] = strategy
     trace = getattr(services, "trace", None)
     if trace is not None:
         recorder = getattr(trace, "record", None)
@@ -397,6 +400,7 @@ async def _choose_counter(
                     rationale=choice.rationale,
                     fallback_used=False,
                     seller_id=seller_id,
+                    strategy=choice.strategy,
                 )
             )
             return choice, False, trace
@@ -414,6 +418,7 @@ async def _choose_counter(
             rationale="Planner failed or proposed an invalid target; used the deterministic allowed target.",
             fallback_used=True,
             seller_id=seller_id,
+            strategy=fallback.strategy,
         )
     )
     trace.append(
