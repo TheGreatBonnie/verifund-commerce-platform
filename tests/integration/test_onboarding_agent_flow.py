@@ -230,3 +230,18 @@ async def test_fake_identity_full_saga(monkeypatch, stack):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "active"
     assert r.json()["registry_published"] is True
+
+async def test_activate_issues_a2a_call_credential(stack):
+    import json as _json
+    cp, h = stack["cp"], stack["headers"]
+    r = await cp.post("/v1/agents", json={"display_name": "Acme"}, headers=h)
+    aid = r.json()["agent_id"]
+    await cp.patch(f"/v1/agents/{aid}/config", json={"instructions": "x"}, headers=h)
+    await cp.post("/v1/seller/catalog/import", json={"document": EXAMPLE}, headers=h)
+    await cp.post(f"/v1/agents/{aid}/test", json={}, headers=h)
+    r = await cp.post(f"/v1/agents/{aid}/activate", json={}, headers=h)
+    assert r.status_code == 200, r.text
+    assert "credential" not in r.json()
+    store = stack["cp_app"].state.tenancy
+    creds = [c for c in await store.list_credentials(aid) if c["status"] == "active"]
+    assert any("a2a:call" in (c["scopes"] if isinstance(c["scopes"], list) else _json.loads(c["scopes"])) for c in creds)

@@ -164,6 +164,10 @@ class Settings(BaseSettings):
         default="dev-buyer-agent",
         validation_alias=AliasChoices("BUYER_AGENT_TOKEN"),
     )
+    buyer_internal_token: str = Field(
+        default="dev-buyer-internal",
+        validation_alias="BUYER_INTERNAL_TOKEN",
+    )
 
     reconciler_enabled: bool = Field(
         default=True, validation_alias="VERIFUND_RECONCILER_ENABLED"

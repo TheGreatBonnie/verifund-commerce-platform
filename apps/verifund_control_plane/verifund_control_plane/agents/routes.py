@@ -355,6 +355,13 @@ async def activate_agent_route(agent_id: str, request: Request) -> dict:
     await require_own_agent(request, agent_id, identity)
     store = request.app.state.tenancy
     activated = await activate_agent(store, agent_id)
+    existing_creds = [c for c in await store.list_credentials(agent_id) if c["status"] == "active"]
+    has_call = any(
+        "a2a:call" in (c["scopes"] if isinstance(c["scopes"], list) else json.loads(c["scopes"]))
+        for c in existing_creds
+    )
+    if not has_call:
+        await issue_credential(store, identity.tenant_id, agent_id, ["a2a:call"])
     profile = await store.get_seller_profile_by_organization(identity.tenant_id)
     seller_id = (profile or {}).get("seller_id") or agent_id
     settings = request.app.state.settings
