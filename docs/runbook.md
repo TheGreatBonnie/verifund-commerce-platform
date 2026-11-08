@@ -188,3 +188,10 @@ development tokens outside localhost, or treat the approval receipt as verified 
 There is no live payment processing, real fulfillment, tenant isolation, or
 production secret management in this codebase. Verifund moves PayPal Sandbox
 funds only and is disabled by default.
+
+## Onboarding a seller after `make dev`
+
+1. Open http://127.0.0.1:3000/seller/onboarding (Clerk org) or set `MARKETMESH_DEV_IDENTITY=fake` for local/CI.
+2. Walk steps: profile → create agent → config → catalog import (JSON/YAML, examples in `docs/templates/`) → test → verification + payout email → activate.
+3. The seller appears in the buyer marketplace within 30 s (registry poll).
+4. For the legacy 4-seller demo: `make seed-demo` (requires a running stack).

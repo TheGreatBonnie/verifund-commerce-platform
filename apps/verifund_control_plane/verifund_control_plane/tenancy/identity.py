@@ -168,6 +168,10 @@ def _default_authenticator(request: Request, settings) -> dict:
 
 async def require_identity(request: Request) -> Identity:
     authenticator = getattr(request.app.state, "clerk_authenticator", None)
+    if os.environ.get("MARKETMESH_DEV_IDENTITY") == "fake":
+        return await resolve_identity(
+            request.app.state.tenancy, {}, request.app.state.settings
+        )
     payload = (
         authenticator(request)
         if authenticator is not None

@@ -197,3 +197,36 @@ async def test_create_agent_uses_opaque_uuid_for_org_without_profile(stack):
     agent_id = r.json()["agent_id"]
     assert agent_id.startswith("agent_")
     assert len(agent_id.removeprefix("agent_")) == 32
+
+
+async def test_fake_identity_full_saga(monkeypatch, stack):
+    monkeypatch.setenv("MARKETMESH_DEV_IDENTITY", "fake")
+    cp = stack["cp"]
+    # remove clerk authenticator so the fake branch in require_identity is used
+    stack["cp_app"].state.clerk_authenticator = None
+    stack["cp_app"].state.settings.verifund_auto_verify = True
+    headers = {"authorization": "Bearer fake"}
+    r = await cp.post("/v1/seller/onboarding", headers=headers)
+    assert r.status_code == 201, r.text
+    seller_id = r.json()["profile"]["seller_id"]
+    assert len(seller_id) == 32  # opaque uuid from Task 2
+    r = await cp.post("/v1/seller/onboarding/profile", json={"display_name": "Fake Co"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["onboarding"]["current_step"] == "agent"
+    r = await cp.post("/v1/agents", json={"display_name": "Fake Co"}, headers=headers)
+    assert r.status_code == 201, r.text
+    agent_id = r.json()["agent_id"]
+    assert agent_id == f"agent_{seller_id}"
+    r = await cp.patch(f"/v1/agents/{agent_id}/config", json={"instructions": "Be crisp."}, headers=headers)
+    assert r.status_code == 200, r.text
+    r = await cp.post("/v1/seller/catalog/import", json={"document": EXAMPLE}, headers=headers)
+    assert r.status_code == 200, r.text
+    r = await cp.post(f"/v1/agents/{agent_id}/test", json={}, headers=headers)
+    assert r.status_code == 200, r.text
+    r = await cp.post("/v1/seller/verification/submit", json={"documents": {"kyc": "doc"}, "payout_email": "dev@paypal.example"}, headers=headers)
+    # sandbox auto-approve in fake mode resolves to verified
+    assert r.status_code == 200, r.text
+    r = await cp.post(f"/v1/agents/{agent_id}/activate", json={}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "active"
+    assert r.json()["registry_published"] is True
