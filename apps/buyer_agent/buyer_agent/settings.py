@@ -56,12 +56,6 @@ class Settings(BaseSettings):
         default="deepseek-ai/DeepSeek-V4-Flash-0731",
         validation_alias=AliasChoices("NEBIUS_MODEL"),
     )
-    seller_tokens: dict[str, str] = Field(
-        default_factory=dict,
-        validation_alias=AliasChoices(
-            "BUYER_SELLER_TOKENS", "SELLER_TOKENS"
-        ),
-    )
     buyer_internal_token: str = Field(
         default="dev-buyer-internal",
         validation_alias=AliasChoices("BUYER_INTERNAL_TOKEN"),

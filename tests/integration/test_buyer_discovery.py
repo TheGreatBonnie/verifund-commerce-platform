@@ -85,15 +85,23 @@ async def buyer_services(tmp_path: Path, seller_cards: dict[str, dict]):
         )
         trace = TraceStore(engine)
         await trace.create_schema()
+        for seller_id in ("northwind-audio", "circuitforge", "aurora-supply"):
+            mock.post("http://cp.test/v1/internal/agent-token").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "agent_id": f"agent_{seller_id}",
+                        "token": f"{seller_id}-token",
+                        "scopes": ["a2a:call"],
+                    },
+                )
+            )
         client = httpx.AsyncClient()
         registry = RegistryClient(
             registry_url="http://registry.test",
             allowed_card_hosts=("127.0.0.1",),
-            seller_tokens={
-                "northwind-audio": "northwind-token",
-                "circuitforge": "circuitforge-token",
-                "aurora-supply": "aurora-token",
-            },
+            control_plane_url="http://cp.test",
+            buyer_internal_token="dev-buyer-internal",
             trace=trace,
             client=client,
         )

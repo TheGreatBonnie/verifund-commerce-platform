@@ -49,7 +49,6 @@ class RegistryClient:
         *,
         registry_url: str,
         allowed_card_hosts: tuple[str, ...],
-        seller_tokens: dict[str, str] | None = None,
         control_plane_url: str = "",
         buyer_internal_token: str = "",
         seller_internal_token: str = "",
@@ -58,7 +57,6 @@ class RegistryClient:
     ) -> None:
         self.registry_url = registry_url.rstrip("/")
         self.allowed_card_hosts = allowed_card_hosts
-        self.seller_tokens = dict(seller_tokens or {})
         self.control_plane_url = (control_plane_url or "").rstrip("/")
         self.buyer_internal_token = buyer_internal_token
         self.seller_internal_token = seller_internal_token
@@ -66,7 +64,7 @@ class RegistryClient:
         self.http = client or httpx.AsyncClient(timeout=10.0)
         self.fetch_calls = 0
         self._endpoints: dict[str, SellerEndpoint] = {}
-        self._token_cache: dict[str, str] = dict(self.seller_tokens)
+        self._token_cache: dict[str, str] = {}
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -81,7 +79,7 @@ class RegistryClient:
 
     async def _exchange_token(self, seller_id: str) -> str | None:
         if not self.control_plane_url or not self.buyer_internal_token:
-            return self.seller_tokens.get(seller_id)
+            return None
         import logging
         try:
             resp = await self.http.post(
@@ -98,7 +96,7 @@ class RegistryClient:
             return tok
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             logging.getLogger(__name__).warning("token exchange failed for %s: %s", seller_id, exc)
-            return self._token_cache.get(seller_id) or self.seller_tokens.get(seller_id)
+            return self._token_cache.get(seller_id)
 
     async def poll_registry(self) -> dict[str, SellerEndpoint]:
         """Fetch GET /v1/sellers, validate cards, atomically swap _endpoints.
@@ -133,7 +131,7 @@ class RegistryClient:
                 token=token, rating=float(metadata["rating"]),
                 sustainability_certified=bool(metadata["sustainability_certified"]),
             )
-        self._token_cache = {k: v for k, v in self._token_cache.items() if k in new_endpoints or k in self.seller_tokens}
+        self._token_cache = {k: v for k, v in self._token_cache.items() if k in new_endpoints}
         self._endpoints = new_endpoints
         return self._endpoints
 

@@ -54,15 +54,9 @@ class BuyerServices:
 
 def build_services(settings: Settings, engine: AsyncEngine) -> BuyerServices:
     store = BuyerStore(engine)
-    import logging as _logging
-    if getattr(settings, "seller_tokens", None):
-        _logging.getLogger(__name__).warning(
-            "BUYER_SELLER_TOKENS is deprecated; buyer discovery is registry-driven"
-        )
     registry = RegistryClient(
         registry_url=settings.registry_url,
         allowed_card_hosts=settings.allowed_card_hosts,
-        seller_tokens=settings.seller_tokens,
         control_plane_url=getattr(settings, "verifund_url", ""),
         buyer_internal_token=getattr(settings, "buyer_internal_token", ""),
         seller_internal_token=getattr(settings, "seller_internal_token", ""),
