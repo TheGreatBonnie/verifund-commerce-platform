@@ -62,6 +62,10 @@ class Settings(BaseSettings):
             "BUYER_SELLER_TOKENS", "SELLER_TOKENS"
         ),
     )
+    buyer_internal_token: str = Field(
+        default="dev-buyer-internal",
+        validation_alias=AliasChoices("BUYER_INTERNAL_TOKEN"),
+    )
     buyer_registry_poll_seconds: int = Field(
         default=30,
         validation_alias=AliasChoices("BUYER_REGISTRY_POLL_SECONDS"),

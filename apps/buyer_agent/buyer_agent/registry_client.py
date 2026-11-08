@@ -49,19 +49,24 @@ class RegistryClient:
         *,
         registry_url: str,
         allowed_card_hosts: tuple[str, ...],
-        seller_tokens: dict[str, str],
+        seller_tokens: dict[str, str] | None = None,
+        control_plane_url: str = "",
+        buyer_internal_token: str = "",
         seller_internal_token: str = "",
         trace: TraceStore | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.registry_url = registry_url.rstrip("/")
         self.allowed_card_hosts = allowed_card_hosts
-        self.seller_tokens = seller_tokens
+        self.seller_tokens = dict(seller_tokens or {})
+        self.control_plane_url = (control_plane_url or "").rstrip("/")
+        self.buyer_internal_token = buyer_internal_token
         self.seller_internal_token = seller_internal_token
         self.trace = trace
         self.http = client or httpx.AsyncClient(timeout=10.0)
         self.fetch_calls = 0
         self._endpoints: dict[str, SellerEndpoint] = {}
+        self._token_cache: dict[str, str] = dict(self.seller_tokens)
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -73,6 +78,27 @@ class RegistryClient:
             raise KeyError(
                 f"seller {seller_id!r} was not discovered or failed validation"
             ) from None
+
+    async def _exchange_token(self, seller_id: str) -> str | None:
+        if not self.control_plane_url or not self.buyer_internal_token:
+            return self.seller_tokens.get(seller_id)
+        import logging
+        try:
+            resp = await self.http.post(
+                f"{self.control_plane_url}/v1/internal/agent-token",
+                json={"seller_id": seller_id},
+                headers={"X-Internal-Token": self.buyer_internal_token},
+            )
+            if resp.status_code in (401, 403, 404):
+                self._token_cache.pop(seller_id, None)
+                return None
+            resp.raise_for_status()
+            tok = resp.json()["token"]
+            self._token_cache[seller_id] = tok
+            return tok
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            logging.getLogger(__name__).warning("token exchange failed for %s: %s", seller_id, exc)
+            return self._token_cache.get(seller_id) or self.seller_tokens.get(seller_id)
 
     async def poll_registry(self) -> dict[str, SellerEndpoint]:
         """Fetch GET /v1/sellers, validate cards, atomically swap _endpoints.
@@ -98,7 +124,7 @@ class RegistryClient:
                 continue
             if validate_agent_card(card):
                 continue
-            token = self.seller_tokens.get(seller_id)
+            token = self._token_cache.get(seller_id) or await self._exchange_token(seller_id)
             if not token:
                 continue
             metadata = card_commerce_metadata(card)
@@ -107,6 +133,7 @@ class RegistryClient:
                 token=token, rating=float(metadata["rating"]),
                 sustainability_certified=bool(metadata["sustainability_certified"]),
             )
+        self._token_cache = {k: v for k, v in self._token_cache.items() if k in new_endpoints or k in self.seller_tokens}
         self._endpoints = new_endpoints
         return self._endpoints
 
@@ -140,7 +167,7 @@ class RegistryClient:
             if errors:
                 await self._trace_invalid(result, "; ".join(errors))
                 continue
-            token = self.seller_tokens.get(seller_id)
+            token = self._token_cache.get(seller_id) or await self._exchange_token(seller_id)
             if not token:
                 raise ValueError(
                     f"missing buyer credential for seller {seller_id}"

@@ -63,6 +63,8 @@ def build_services(settings: Settings, engine: AsyncEngine) -> BuyerServices:
         registry_url=settings.registry_url,
         allowed_card_hosts=settings.allowed_card_hosts,
         seller_tokens=settings.seller_tokens,
+        control_plane_url=getattr(settings, "verifund_url", ""),
+        buyer_internal_token=getattr(settings, "buyer_internal_token", ""),
         seller_internal_token=getattr(settings, "seller_internal_token", ""),
         trace=store.trace,
     )
