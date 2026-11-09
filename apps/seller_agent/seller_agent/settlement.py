@@ -77,11 +77,13 @@ def encode_payload(payload: dict[str, Any]) -> bytes:
 
 
 class SellerSettlementClient:
-    """Control-plane seller API client using internal service auth.
+    """Control-plane seller API client using dynamic agent credentials.
 
-    Migrated routes require `X-Verifund-Internal-Token` plus explicit seller
-    context (`X-Seller-Org-Id` and/or `X-Seller-Id`). Legacy per-transaction
-    bearer seller tokens are not accepted.
+    A per-seller ``vf_agent_*`` credential is exchanged on demand via
+    ``POST /v1/internal/seller-settlement-token`` (gated by the seller
+    service token the app already holds) and cached per seller —
+    mirroring the buyer/seller A2A token exchange. The credential is
+    presented as a Bearer token; no static settlement secret is stored.
     """
 
     def __init__(
@@ -94,9 +96,46 @@ class SellerSettlementClient:
         self.base_url = base_url.rstrip("/")
         self.internal_token = internal_token
         self._client = httpx.AsyncClient(timeout=timeout_seconds)
+        self._token_cache: dict[str, str] = {}
 
     async def close(self) -> None:
         await self._client.aclose()
+
+    async def _exchange_settlement_token(self, seller_id: str) -> str:
+        cached = self._token_cache.get(seller_id)
+        if cached:
+            return cached
+        if not self.internal_token:
+            raise SettlementError(
+                "unauthorized", "seller settlement token exchange is not configured"
+            )
+        response = await self._client.post(
+            f"{self.base_url}/v1/internal/seller-settlement-token",
+            json={"seller_id": seller_id},
+            headers={"X-Internal-Token": self.internal_token},
+        )
+        if response.status_code >= 400:
+            if response.status_code in (401, 403, 404):
+                self._token_cache.pop(seller_id, None)
+            raise SettlementError(
+                "unauthorized" if response.status_code == 401 else "invalid_request",
+                "seller settlement token exchange failed",
+                status_code=response.status_code,
+            )
+        token = response.json().get("token")
+        if not isinstance(token, str) or not token:
+            raise SettlementError("invalid_request", "no settlement token returned")
+        self._token_cache[seller_id] = token
+        return token
+
+    async def _auth_headers(
+        self, *, seller_id: str, organization_id: str | None = None
+    ) -> dict[str, str]:
+        token = await self._exchange_settlement_token(seller_id)
+        headers = {"Authorization": f"Bearer {token}", "x-seller-id": seller_id}
+        if organization_id:
+            headers["x-seller-org-id"] = organization_id
+        return headers
 
     def _headers(
         self, *, organization_id: str | None = None, seller_id: str | None = None
@@ -117,11 +156,18 @@ class SellerSettlementClient:
         organization_id: str | None = None,
         seller_id: str | None = None,
     ) -> dict[str, Any]:
+        headers = (
+            await self._auth_headers(
+                seller_id=seller_id, organization_id=organization_id
+            )
+            if seller_id
+            else self._headers(
+                organization_id=organization_id, seller_id=seller_id
+            )
+        )
         response = await self._client.get(
             f"{self.base_url}/seller/transactions/{transaction_id}",
-            headers=self._headers(
-                organization_id=organization_id, seller_id=seller_id
-            ),
+            headers=headers,
         )
         if response.status_code >= 400:
             raise SettlementError(
@@ -169,8 +215,14 @@ class SellerSettlementClient:
                 data["reference_type"] = reference_type
         response = await self._client.post(
             f"{self.base_url}/seller/transactions/{transaction_id}/evidence",
-            headers=self._headers(
-                organization_id=organization_id, seller_id=seller_id
+            headers=(
+                await self._auth_headers(
+                    seller_id=seller_id, organization_id=organization_id
+                )
+                if seller_id
+                else self._headers(
+                    organization_id=organization_id, seller_id=seller_id
+                )
             ),
             data=data,
             files=files,
@@ -191,11 +243,18 @@ class SellerSettlementClient:
         organization_id: str | None = None,
         seller_id: str | None = None,
     ) -> tuple[bytes, str]:
+        headers = (
+            await self._auth_headers(
+                seller_id=seller_id, organization_id=organization_id
+            )
+            if seller_id
+            else self._headers(
+                organization_id=organization_id, seller_id=seller_id
+            )
+        )
         response = await self._client.get(
             f"{self.base_url}/seller/transactions/{transaction_id}/evidence/{evidence_id}",
-            headers=self._headers(
-                organization_id=organization_id, seller_id=seller_id
-            ),
+            headers=headers,
         )
         if response.status_code >= 400:
             raise SettlementError(

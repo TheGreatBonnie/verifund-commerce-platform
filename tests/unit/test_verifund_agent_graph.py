@@ -588,14 +588,43 @@ async def test_completed_checkout_rejects_an_unfunded_server_settlement() -> Non
         Command(resume=funding_decision().model_dump(mode="json")), runtime
     )
     # The relayed projection claims FUNDED; the authoritative settlement does
-    # not. The graph must trust the server, not the card.
+    # not. The graph must trust the server, not the card — and re-present
+    # checkout instead of failing the task terminally.
     buyer.settlement_state = "FUNDING_PENDING"
 
-    with pytest.raises(VerifundProtocolError, match="checkout is not settled"):
-        await graph.ainvoke(
-            Command(resume=checkout_decision().model_dump(mode="json")),
-            runtime,
-        )
+    result = await graph.ainvoke(
+        Command(resume=checkout_decision().model_dump(mode="json")),
+        runtime,
+    )
+    stop = result["__interrupt__"][0].value
+    assert stop["reason"] == "funding_checkout_required"
+
+
+async def test_completed_checkout_without_order_or_capture_represents_checkout() -> None:
+    buyer = Buyer()
+    graph = build_graph(MemorySaver())
+    runtime = config(buyer)
+    await reach_funding_approval(graph, runtime, checkout_mode="embedded")
+    await graph.ainvoke(
+        Command(resume=funding_decision().model_dump(mode="json")), runtime
+    )
+    buyer.settlement_state = "FUNDED"
+
+    result = await graph.ainvoke(
+        Command(
+            resume={
+                "status": "completed",
+                "transaction_id": "vf_1",
+                "order_id": None,
+                "capture_id": None,
+                "projection": {},
+                "idempotency_key": "checkout:vf_1",
+            }
+        ),
+        runtime,
+    )
+    stop = result["__interrupt__"][0].value
+    assert stop["reason"] == "funding_checkout_required"
 
 
 async def test_canceled_checkout_cancels_the_run() -> None:

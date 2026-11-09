@@ -38,26 +38,52 @@ def order() -> Order:
 
 @respx.mock
 async def test_get_transaction_uses_internal_service_auth():
+    mock_exchange = respx.post(
+        "http://control/v1/internal/seller-settlement-token"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "agent_id": "agent_northwind",
+                "token": "vf_agent_raw",
+                "scopes": ["txn:read", "evidence:write"],
+            },
+        )
+    )
     route = respx.get(
         "http://control/seller/transactions/vf_1"
     ).mock(return_value=httpx.Response(200, json={"state": "AWARDED"}))
-    client = SellerSettlementClient("http://control", internal_token="secret")
+    client = SellerSettlementClient("http://control", internal_token="bootstrap-secret")
     projection = await client.get_transaction(
         "vf_1",
         organization_id="org_test",
         seller_id="northwind-audio",
     )
     assert projection["state"] == "AWARDED"
+    exchange = mock_exchange.calls[0].request
+    assert exchange.headers["X-Internal-Token"] == "bootstrap-secret"
     request = route.calls[0].request
-    assert request.headers["x-verifund-internal-token"] == "secret"
+    assert request.headers["Authorization"] == "Bearer vf_agent_raw"
     assert request.headers["x-seller-org-id"] == "org_test"
     assert request.headers["x-seller-id"] == "northwind-audio"
-    assert "authorization" not in request.headers
+    assert "x-verifund-internal-token" not in request.headers
     await client.close()
 
 
 @respx.mock
 async def test_upload_evidence_posts_multipart_without_leaking_the_token():
+    respx.post(
+        "http://control/v1/internal/seller-settlement-token"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "agent_id": "agent_northwind",
+                "token": "vf_agent_raw",
+                "scopes": ["txn:read", "evidence:write"],
+            },
+        )
+    )
     route = respx.post(
         "http://control/seller/transactions/vf_1/evidence"
     ).mock(return_value=httpx.Response(201, json={"evidence_id": "ev_1"}))
@@ -74,10 +100,10 @@ async def test_upload_evidence_posts_multipart_without_leaking_the_token():
     )
     assert response["evidence_id"] == "ev_1"
     request = route.calls[0].request
-    assert request.headers["x-verifund-internal-token"] == "secret"
+    assert request.headers["Authorization"] == "Bearer vf_agent_raw"
     assert request.headers["x-seller-org-id"] == "org_test"
     assert request.headers["x-seller-id"] == "northwind-audio"
-    assert "authorization" not in request.headers
+    assert "x-verifund-internal-token" not in request.headers
     assert b'name="requirement_id"' in request.content
     assert b"shipment_manifest" in request.content
     assert b'name="kind"' not in request.content

@@ -107,6 +107,74 @@ async def test_award_projection_hash_matches_the_canonical_terms(api):
     assert projection.recompute_hash() == body["agreement_hash"]
 
 
+async def test_award_accepts_a2a_float_encoded_numbers(api):
+    # A2A/protobuf envelopes decode JSON numbers as floats (e.g. 32.0), but
+    # Pydantic keeps requirement expected_value as float while coercing core
+    # award fields to int. The stored digest and the projection recompute must
+    # canonicalize both forms identically.
+    payload = award_payload()
+    payload["quantity"] = 12.0
+    payload["offer_round"] = 1.0
+    payload["inspection_period_hours"] = 48.0
+    payload["requirements"] = [
+        {
+            "requirement_id": "hardware",
+            "title": "Hardware diagnostic report",
+            "description": "Diagnostic report showing at least 32 GB of RAM.",
+            "owner": "seller",
+            "kind": "other",
+            "source": "file",
+            "accepted_formats": ["application/pdf"],
+            "required": True,
+            "checks": [
+                {
+                    "check_id": "ram_gte_32gb",
+                    "description": "At least 32 GB of RAM.",
+                    "expected_value": 32.0,
+                    "operator": "gte",
+                    "unit": "GB",
+                    "verification_method": "deterministic",
+                    "ai_derived": False,
+                }
+            ],
+        },
+        {
+            "requirement_id": "delivery_confirmation",
+            "title": "Delivery confirmation",
+            "description": "Carrier delivery confirmation for the shipment.",
+            "owner": "system",
+            "kind": "delivery_confirmation",
+            "source": "reference",
+            "required": True,
+            "checks": [
+                {
+                    "check_id": "delivered",
+                    "description": "Carrier marks the shipment delivered.",
+                    "operator": "exists",
+                    "verification_method": "deterministic",
+                    "ai_derived": False,
+                }
+            ],
+        },
+    ]
+    payload["offer_hash"] = offer_hash(binding_from_award(payload))
+
+    response = await api.post(
+        "/awards",
+        json=payload,
+        headers={
+            **OPS,
+            **ACTOR,
+            "idempotency-key": "award:run-1:offer-1:a2a-floats",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    projection = AgreementProjection.model_validate(body["agreement"])
+    assert projection.recompute_hash() == body["agreement_hash"]
+
+
 async def test_award_is_idempotent(api):
     first = await create_award(api)
     second = await create_award(api)

@@ -190,3 +190,79 @@ def test_buyer_settlement_internal_token_setting(monkeypatch):
     monkeypatch.setenv("VERIFUND_BUYER_SETTLEMENT_INTERNAL_TOKEN", "secret-token")
     s = Settings(_env_file=None)
     assert s.buyer_settlement_internal_token == "secret-token"
+
+
+async def test_authorize_buyer_agreement_claims_unlinked_profile_for_clerk_user(tenancy):
+    """A Clerk buyer whose user is not yet linked can adopt an
+    unlinked (agent-seeded) buyer profile on first decision, mirroring
+    the live HITL flow where the agreement buyer_id is the agent's
+    synthetic id (``buyer_agent``) and the human approver is a real
+    Clerk user with no link yet."""
+    from verifund_control_plane.api.buyer_auth import authorize_buyer_agreement
+
+    ten, _core = tenancy
+    org = await ten.upsert_organization("org_agent", "Agent Buyer Org", "agent-buyer")
+    await ten.upsert_buyer_profile(org["id"], "buyer_agent")
+    await ten.upsert_user("user_human", "human@example.com", "Human")
+    # Personal-org style identity: no Clerk org_id, role org:buyer via
+    # ensure_personal_organization fallback in resolve_identity.
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            tenancy=ten,
+            settings=SimpleNamespace(
+                buyer_settlement_internal_token=None,
+                clerk_secret_key="",
+            ),
+            clerk_authenticator=lambda request: {
+                "sub": "user_human",
+                "email": "human@example.com",
+            },
+        )
+    )
+    request = Req(headers={"authorization": "Bearer t"}, app=app)
+    agreement = SimpleNamespace(buyer_id="buyer_agent")
+    principal = await authorize_buyer_agreement(
+        request, agreement, required_scope="agreement:decide"
+    )
+    assert principal.buyer_id == "buyer_agent"
+    assert principal.clerk_user_id == "user_human"
+    profile = await ten.get_buyer_profile("buyer_agent")
+    assert profile["clerk_user_id"] == "user_human"
+
+
+async def test_authorize_buyer_agreement_allows_second_unlinked_variant_for_linked_user(tenancy):
+    """Buyer-agent mandates use varying synthetic buyer ids
+    (``buyer_agent``, ``BUYER-AGENT-001``, ...). A Clerk user already
+    linked to one variant must still be able to approve an agreement
+    whose buyer profile is a different, unlinked variant (live
+    ``agr_60cd65b0...`` -> 404)."""
+    from verifund_control_plane.api.buyer_auth import authorize_buyer_agreement
+
+    ten, _core = tenancy
+    org1 = await ten.upsert_organization("org_a1", "Buyer Org 1", "buyer-1")
+    await ten.upsert_buyer_profile(
+        org1["id"], "buyer_agent", clerk_user_id="user_human"
+    )
+    org2 = await ten.upsert_organization("org_a2", "Buyer Org 2", "buyer-2")
+    await ten.upsert_buyer_profile(org2["id"], "BUYER-AGENT-001")
+    await ten.upsert_user("user_human", "human@example.com", "Human")
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            tenancy=ten,
+            settings=SimpleNamespace(
+                buyer_settlement_internal_token=None,
+                clerk_secret_key="",
+            ),
+            clerk_authenticator=lambda request: {
+                "sub": "user_human",
+                "email": "human@example.com",
+            },
+        )
+    )
+    request = Req(headers={"authorization": "Bearer t"}, app=app)
+    agreement = SimpleNamespace(buyer_id="BUYER-AGENT-001")
+    principal = await authorize_buyer_agreement(
+        request, agreement, required_scope="agreement:decide"
+    )
+    assert principal.buyer_id == "BUYER-AGENT-001"
+    assert principal.clerk_user_id == "user_human"

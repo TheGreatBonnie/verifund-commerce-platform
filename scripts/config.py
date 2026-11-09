@@ -264,6 +264,13 @@ def seller_internal_token() -> str:
     return _env("SELLER_INTERNAL_TOKEN", "dev-seller-internal")
 
 
+def verifund_settlement_internal_token() -> str:
+    # Legacy static fallback kept for backwards compatibility; the seller
+    # now exchanges per-seller dynamic credentials. Unset means the seller
+    # uses the exchange endpoint gated by SELLER_INTERNAL_TOKEN.
+    return _env("VERIFUND_SETTLEMENT_INTERNAL_TOKEN", "")
+
+
 def seller_checkpoint_path() -> str:
     return _env("SELLER_CHECKPOINT_PATH", "./data/seller-checkpoints.sqlite")
 

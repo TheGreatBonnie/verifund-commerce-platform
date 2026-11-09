@@ -24,6 +24,8 @@ import {
 } from "@/app/actions";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import type { SettlementProjection, SettlementReceipt } from "@/lib/types";
+import { evidenceCounts } from "@/lib/format";
+export { evidenceCounts };
 import {
   approveAgreement,
   rejectAgreement,
@@ -98,6 +100,7 @@ export const paypalCheckoutArgsSchema = z.object({
 
 export const agreementApprovalArgsSchema = z.object({
   agreement: z.record(z.unknown()),
+  agreement_id: z.string().min(1).optional(),
   review_url: z.string().optional(),
   version: z.number().int().positive().optional(),
   digest: z.string().optional(),
@@ -264,7 +267,7 @@ export function AgreementReviewLinkFromResult({ result }: { result: unknown }) {
 export function bilateralReviewStatus(
   args: Pick<
     FundingApprovalArgs,
-    "agreement" | "buyer_review" | "seller_decision"
+    "agreement" | "buyer_review" | "seller_decision" | "agreement_version" | "agreement_hash"
   >,
 ): "ready" | "buyer_pending" | "seller_pending" | "mismatch" {
   const { agreement, buyer_review, seller_decision } = args;
@@ -274,9 +277,16 @@ export function bilateralReviewStatus(
   if (!seller_decision || seller_decision.status !== "accepted") {
     return "seller_pending";
   }
+  // The HITL args carry the binding at the top level (agreement_version /
+  // agreement_hash) as well as nested inside `agreement`. The orchestrator's
+  // LLM relay can drop the nested copy (same class as the earlier
+  // agreement_id drop), so the top level is authoritative when present.
+  const expectedVersion =
+    args.agreement_version ?? agreement.agreement_version;
+  const expectedHash = args.agreement_hash ?? agreement.agreement_hash;
   const bound = (review: ReviewDecision) =>
-    review.agreement_version === agreement.agreement_version &&
-    review.agreement_hash === agreement.agreement_hash;
+    review.agreement_version === expectedVersion &&
+    review.agreement_hash === expectedHash;
   if (!bound(buyer_review) || !bound(seller_decision)) return "mismatch";
   return "ready";
 }
@@ -293,8 +303,10 @@ export function fundingDecision(
   if (
     args.agreement.run_id !== args.run_id ||
     args.agreement.transaction_id !== args.transaction_id ||
-    args.agreement.agreement_version !== args.agreement_version ||
-    args.agreement.agreement_hash !== args.agreement_hash
+    (args.agreement.agreement_version != null &&
+      args.agreement.agreement_version !== args.agreement_version) ||
+    (args.agreement.agreement_hash != null &&
+      args.agreement.agreement_hash !== args.agreement_hash)
   ) {
     throw new Error("The agreement is bound to another run or version.");
   }
@@ -597,6 +609,14 @@ export function FundingApprovalCard({
   const [note, setNote] = useState("");
   const readiness = bilateralReviewStatus(args);
   const ready = readiness === "ready";
+  // The LLM relay may drop the nested binding fields; show the top-level
+  // binding (which the backend validates) in the agreement summary.
+  const displayAgreement = {
+    ...args.agreement,
+    agreement_version:
+      args.agreement_version ?? args.agreement.agreement_version,
+    agreement_hash: args.agreement_hash ?? args.agreement.agreement_hash,
+  } as VerifundAgreement;
   return (
     <section
       className="mm-approval"
@@ -606,7 +626,7 @@ export function FundingApprovalCard({
       <p className="mm-kicker">Verifund · human funding approval</p>
       <h3 id="verifund-funding-title">{args.message}</h3>
       <AgreementReviewCard
-        agreement={args.agreement}
+        agreement={displayAgreement}
         buyerReview={args.buyer_review}
         sellerDecision={args.seller_decision}
       />
@@ -734,20 +754,20 @@ export function EvidenceSummaryCard({
 }) {
   if (!projection) return null;
   const evidence = projection.evidence;
+  const counts = evidenceCounts(evidence);
+  const reasons = (projection.verification?.reasons ?? []) as string[];
   return (
     <section className="mm-approval" data-testid="verifund-evidence">
       <p className="mm-kicker">Verifund · evidence review</p>
       <p>
-        {evidence
-          ? `${evidence.received.length}/${evidence.required.length} required evidence items received`
+        {counts
+          ? `${counts.received}/${counts.required} required evidence items received`
           : "No evidence has been reported."}
       </p>
       {projection.verification ? (
         <p>
           Verification: {projection.verification.status}
-          {projection.verification.reasons.length
-            ? ` · ${projection.verification.reasons.join(", ")}`
-            : ""}
+          {reasons.length ? ` · ${reasons.join(", ")}` : ""}
         </p>
       ) : null}
     </section>
@@ -1070,7 +1090,7 @@ export function AgreementApprovalHitlCard({
   const [error, setError] = useState<string | null>(null);
 
   const a = (args?.agreement ?? {}) as Record<string, any>;
-  const id = String(a.agreement_id ?? a.id ?? "");
+  const id = String(args?.agreement_id ?? a.agreement_id ?? a.id ?? "");
   const version = Number(args?.version ?? a.current_version ?? a.agreement_version ?? 1);
   const hash = String(args?.digest ?? a.agreement_hash ?? a.version?.agreement_hash ?? "");
   const handle: ResumeHandle | null =
@@ -1341,7 +1361,7 @@ export function AgreementApprovalHitlCard({
         <button
           type="button"
           className="mm-button mm-button-signal mm-approval-primary"
-          disabled={pending}
+          disabled={pending || !id}
           onClick={() => decide(approveAgreement, "APPROVE")}
         >
           {pending ? "Working…" : "Approve"}
@@ -1349,7 +1369,7 @@ export function AgreementApprovalHitlCard({
         <button
           type="button"
           className="mm-button mm-button-outline-danger"
-          disabled={pending}
+          disabled={pending || !id}
           onClick={() => decide(rejectAgreement, "REJECT")}
         >
           Reject
@@ -1357,12 +1377,18 @@ export function AgreementApprovalHitlCard({
         <button
           type="button"
           className="mm-button mm-button-outline"
-          disabled={pending}
+          disabled={pending || !id}
           onClick={() => decide(requestChangesAgreement, "REQUEST_CHANGES")}
         >
           Request changes
         </button>
       </div>
+
+      {!id ? (
+        <p role="alert" data-testid="agreement-hitl-missing-id">
+          Agreement id is missing — please re-present the approval card.
+        </p>
+      ) : null}
 
       {error ? (
         <p role="alert" data-testid="agreement-hitl-error">

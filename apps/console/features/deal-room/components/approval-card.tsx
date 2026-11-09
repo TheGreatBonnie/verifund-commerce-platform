@@ -38,7 +38,7 @@ export function ApprovalCard({
       30_000,
     );
     return () => window.clearInterval(timer);
-  }, [award?.winner.valid_until]);
+  }, [award?.winner?.valid_until]);
 
   useEffect(() => {
     approveRef.current?.focus();

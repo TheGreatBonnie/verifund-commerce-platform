@@ -86,3 +86,34 @@ export const offerStatus = (status?: string) => {
   };
   return labels[status ?? ""] ?? "Open";
 };
+
+/**
+ * Derive evidence counts from either shape the console may receive:
+ * - legacy `{ required: string[], received: string[] }`
+ * - backend `EvidenceSummary { requirements: [{ status, submissions }], items }`
+ * Returns `null` when there is nothing to report (null, `{}`, or zero requirements).
+ */
+export const evidenceCounts = (
+  evidence: unknown,
+): { required: number; received: number } | null => {
+  if (!evidence || typeof evidence !== "object") return null;
+  const ev = evidence as Record<string, any>;
+  if (Array.isArray(ev.required) && Array.isArray(ev.received)) {
+    const required = ev.required.length;
+    if (required === 0) return null;
+    return { required, received: ev.received.length };
+  }
+  if (Array.isArray(ev.requirements)) {
+    const requirements = ev.requirements as Array<Record<string, any>>;
+    const required = requirements.length;
+    if (required === 0) return null;
+    const received = requirements.filter((r) => {
+      if (!r) return false;
+      if (typeof r.status === "string") return r.status !== "not_submitted";
+      if (Array.isArray(r.submissions)) return r.submissions.length > 0;
+      return false;
+    }).length;
+    return { required, received };
+  }
+  return null;
+};

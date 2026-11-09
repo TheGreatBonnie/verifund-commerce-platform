@@ -49,20 +49,39 @@ async function recordDecision(
     },
   );
   if (!decisionRes.ok) {
-    return { error: "decision_failed", decisionRecorded: false };
+    return {
+      error: await decisionErrorDetail(decisionRes),
+      decisionRecorded: false,
+    };
   }
   return { decisionRecorded: true };
 }
 
-async function errorDetail(response: Response): Promise<string> {
+async function errorDetail(
+  response: Response,
+  fallback = `orchestrator returned ${response.status}`,
+): Promise<string> {
   const text = await response.text();
   try {
-    const body = JSON.parse(text) as { detail?: unknown };
+    const body = JSON.parse(text) as {
+      detail?: unknown;
+      error?: { message?: unknown; code?: unknown };
+    };
+    if (typeof body.error?.message === "string" && body.error.message) {
+      return body.error.message;
+    }
+    if (typeof body.error?.code === "string" && body.error.code) {
+      return body.error.code;
+    }
     if (typeof body.detail === "string" && body.detail) return body.detail;
   } catch {
     // Keep the raw body when the orchestrator does not return JSON.
   }
-  return text || `orchestrator returned ${response.status}`;
+  return text || fallback;
+}
+
+async function decisionErrorDetail(response: Response): Promise<string> {
+  return errorDetail(response, "decision_failed");
 }
 
 async function resumeOrchestrator(

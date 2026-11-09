@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 
@@ -659,44 +660,81 @@ async def await_checkout(
     state: VerifundState, config: RunnableConfig
 ) -> dict[str, Any]:
     value = interrupt(checkout_payload(state))
-    decision = CheckoutDecision.model_validate(value)
     agreement = _agreement(state)
-    if decision.transaction_id != agreement.transaction_id:
-        raise VerifundProtocolError(
-            "checkout decision does not match the agreement"
-        )
-    if decision.status == "canceled":
-        return {
-            "checkout_decision": decision.model_dump(mode="json"),
-            "stage": "funding_canceled",
+    while True:
+        decision = CheckoutDecision.model_validate(value)
+        if decision.transaction_id != agreement.transaction_id:
+            raise VerifundProtocolError(
+                "checkout decision does not match the agreement"
+            )
+        if decision.status == "canceled":
+            return {
+                "checkout_decision": decision.model_dump(mode="json"),
+                "stage": "funding_canceled",
+            }
+        if decision.status == "fallback":
+            return {
+                "checkout_decision": decision.model_dump(mode="json"),
+                "stage": "checkout_fallback",
+            }
+        # A `completed` decision without order/capture ids is an empty LLM
+        # relay of the card result — the capture never reached us. Re-present
+        # checkout rather than advancing on an unverifiable claim.
+        if decision.status == "completed" and (
+            not decision.order_id or not decision.capture_id
+        ):
+            payload = {
+                **checkout_payload(state),
+                "message": (
+                    "The previous checkout result was missing its PayPal "
+                    "order/capture ids. Complete the PayPal checkout to "
+                    "fund this transaction."
+                ),
+            }
+            value = interrupt(payload)
+            continue
+        # The card's projection is advisory: nested fields can be lost when the
+        # orchestrator LLM relays the HITL result. Read the settlement from the
+        # Buyer, refreshed from the control plane, before advancing. Poll
+        # briefly: the PayPal capture can settle moments after the card
+        # reports completion. Failing the task terminally here strands the
+        # run even though funding settles right after.
+        projection: dict[str, Any] | None = None
+        for attempt in range(5):
+            settlement = await _buyer(config).get_settlement(
+                state.get("run_id") or agreement.run_id,
+                refresh=True,
+            )
+            projection = settlement.get("projection") or {}
+            if projection.get("transaction_id") != agreement.transaction_id:
+                raise VerifundProtocolError(
+                    "checkout settlement does not match the agreement"
+                )
+            if projection.get("state") == TransactionState.FUNDED.value:
+                break
+            if attempt < 4:
+                await asyncio.sleep(1)
+        if projection is not None and (
+            projection.get("state") == TransactionState.FUNDED.value
+        ):
+            recorded = decision.model_dump(mode="json")
+            recorded["projection"] = projection
+            return {
+                "checkout_decision": recorded,
+                "projection": projection,
+                "funding_projection": projection,
+                "stage": "funded",
+            }
+        # Still not settled: re-present checkout so the human can retry
+        # instead of failing the A2A task terminally.
+        payload = {
+            **checkout_payload(state),
+            "message": (
+                "The PayPal checkout has not settled yet. Please complete "
+                "the checkout to fund this transaction."
+            ),
         }
-    if decision.status == "fallback":
-        return {
-            "checkout_decision": decision.model_dump(mode="json"),
-            "stage": "checkout_fallback",
-        }
-    # The card's projection is advisory: nested fields can be lost when the
-    # orchestrator LLM relays the HITL result. Read the settlement from the
-    # Buyer, refreshed from the control plane, before advancing.
-    settlement = await _buyer(config).get_settlement(
-        state.get("run_id") or agreement.run_id,
-        refresh=True,
-    )
-    projection = settlement.get("projection") or {}
-    if projection.get("transaction_id") != agreement.transaction_id:
-        raise VerifundProtocolError(
-            "checkout settlement does not match the agreement"
-        )
-    if projection.get("state") != TransactionState.FUNDED.value:
-        raise VerifundProtocolError("checkout is not settled")
-    recorded = decision.model_dump(mode="json")
-    recorded["projection"] = projection
-    return {
-        "checkout_decision": recorded,
-        "projection": projection,
-        "funding_projection": projection,
-        "stage": "funded",
-    }
+        value = interrupt(payload)
 
 
 async def cancel_checkout_transaction(
@@ -715,19 +753,22 @@ async def await_funding_settlement(
     state: VerifundState, config: RunnableConfig
 ) -> dict[str, Any]:
     value = interrupt(funding_pending_payload(state))
-    projection = (value or {}).get("projection") or {}
     agreement = _agreement(state)
-    if projection.get("transaction_id") != agreement.transaction_id:
-        raise VerifundProtocolError(
-            "funding settlement does not match the agreement"
-        )
-    if projection.get("state") != TransactionState.FUNDED.value:
-        raise VerifundProtocolError("funding is not settled")
-    return {
-        "projection": projection,
-        "funding_projection": projection,
-        "stage": "funded",
-    }
+    while True:
+        projection = (value or {}).get("projection") or {}
+        if projection.get("transaction_id") != agreement.transaction_id:
+            raise VerifundProtocolError(
+                "funding settlement does not match the agreement"
+            )
+        if projection.get("state") == TransactionState.FUNDED.value:
+            return {
+                "projection": projection,
+                "funding_projection": projection,
+                "stage": "funded",
+            }
+        # Not settled yet: keep waiting at the pending checkpoint rather
+        # than failing the task terminally.
+        value = interrupt(funding_pending_payload(state))
 
 
 async def request_purchase_order(

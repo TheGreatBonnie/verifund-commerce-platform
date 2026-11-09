@@ -141,6 +141,38 @@ describe("agreement review actions", () => {
     });
   });
 
+  it("surfaces the control plane error instead of decision_failed", async () => {
+    controlPlaneForUserMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          error: {
+            code: "forbidden",
+            message: "buyer access denied",
+            retryable: false,
+            details: {},
+            request_id: null,
+          },
+        },
+        403,
+      ),
+    );
+
+    const result = await approveAgreement(
+      "agr_1",
+      1,
+      HASH,
+      "",
+      "buyer-decision:vf_1:1",
+      HANDLE,
+    );
+
+    expect(result).toEqual({
+      decisionRecorded: false,
+      error: "buyer access denied",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("does not pretend to resume when the review link has no handle", async () => {
     controlPlaneForUserMock.mockResolvedValueOnce(
       jsonResponse({ status: "CHANGES_REQUESTED", version: 1 }),

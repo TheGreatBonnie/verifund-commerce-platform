@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any
 
+from verifund_contracts.models import canonical_json, sha256_hex
 
-def canonical_json(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-
-
-def sha256_hex(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+__all__ = ["agreement_hash", "canonical_json", "sha256_hex"]
 
 
 def agreement_hash(agreement_id: str, version: int, terms: dict[str, Any]) -> str:

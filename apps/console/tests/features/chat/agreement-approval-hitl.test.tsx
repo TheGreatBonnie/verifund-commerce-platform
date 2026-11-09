@@ -93,6 +93,18 @@ describe("AgreementApprovalHitlCard", () => {
     expect(panel).toHaveTextContent("Delivery confirmation");
   });
 
+  it("uses the top-level agreement_id when the nested one is dropped", () => {
+    const nestedWithoutId = { ...agreement };
+    delete (nestedWithoutId as any).agreement_id;
+    render(
+      <AgreementApprovalHitlCard
+        args={{ ...args, agreement: nestedWithoutId, agreement_id: "agr_1" } as any}
+        respond={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Approval applies only to agreement agr_1/)).toBeInTheDocument();
+  });
+
   it("renders the agreement's remedy rather than demo copy", () => {
     render(<AgreementApprovalHitlCard args={args as any} respond={vi.fn()} />);
     const returns = screen

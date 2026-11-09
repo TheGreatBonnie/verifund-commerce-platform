@@ -7,7 +7,7 @@ import type {
   SettlementReceipt,
   SettlementReviewReason,
 } from "@/lib/types";
-import { money, formatDateTime } from "@/lib/format";
+import { money, formatDateTime, evidenceCounts } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Status } from "@/components/ui/status";
 
@@ -50,6 +50,8 @@ export function TransactionRoom({
   const funding = settlement.funding;
   const verification = settlement.verification;
   const evidence = settlement.evidence;
+  const evidenceCount = evidenceCounts(evidence);
+  const evidenceItems = (evidence as any)?.items ?? [];
   const overrideAllowed = verification?.override_allowed ?? false;
   const canRelease = settlement.allowed_actions?.includes("release");
   const canRetryPayout = settlement.allowed_actions?.includes("retry_payout");
@@ -91,13 +93,13 @@ export function TransactionRoom({
       {/* Evidence */}
       <section>
         <h2 className="text-lg font-semibold">Evidence</h2>
-        {evidence && (
+        {evidenceCount ? (
           <>
             <div className="text-sm">
-              {evidence.received.length} of {evidence.required.length} evidence items
+              {evidenceCount.received} of {evidenceCount.required} evidence items
             </div>
             <ul>
-              {evidence.items.map((item) => (
+              {evidenceItems.map((item: any) => (
                 <li key={item.evidence_id}>
                   <a href={evidenceUrl(item.evidence_id)} className="underline">
                     {item.original_filename}
@@ -108,6 +110,8 @@ export function TransactionRoom({
             </ul>
             {/* received kinds rendered in items above */}
           </>
+        ) : (
+          <div className="text-sm">No evidence has been reported.</div>
         )}
       </section>
 

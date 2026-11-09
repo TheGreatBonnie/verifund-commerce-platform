@@ -180,3 +180,33 @@ async def test_clerk_auth_resolves_principal(seeded_seller):
     assert principal.organization_id == org["id"]
     assert principal.actor == f"user:{user['id']}"
     assert "txn:read" in principal.scopes
+
+
+async def test_agent_credential_resolves_principal(seeded_seller):
+    from verifund_control_plane.agents.credentials import issue_credential
+
+    ten, _core, org = seeded_seller
+    agent = await ten.create_agent(
+        organization_id=org["id"],
+        name="Northwind Agent",
+        created_by="seed",
+        policy_ref="northwind/v1",
+        policy_version="1",
+        policy_hash="0" * 64,
+        agent_id="agent_northwind",
+    )
+    await ten.set_agent_status("agent_northwind", "active")
+    raw = await issue_credential(ten, org["id"], "agent_northwind", ["txn:read", "evidence:write"])
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            tenancy=ten,
+            settings=SimpleNamespace(
+                settlement_internal_token=None, seller_internal_token=None
+            ),
+        )
+    )
+    request = Req(headers={"authorization": f"Bearer {raw}", "x-seller-id": "northwind"}, app=app)
+    principal = await resolve_seller_principal(request, required_scope="txn:read")
+    assert principal.seller_id == "northwind"
+    assert principal.organization_id == org["id"]
+    assert principal.auth_kind == "internal_service"

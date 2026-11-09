@@ -453,6 +453,7 @@ async def test_lifecycle_defers_the_buyer_decision_to_the_human_approval() -> No
     assert result["seller_decision"]["status"] == "accepted"
     assert result["buyer_review"] is None
     assert result["hitl"]["tool"] == "request_verifund_agreement_approval"
+    assert result["hitl"]["args"]["agreement_id"] == AGREEMENT.agreement_id
     assert result["hitl"]["args"]["handle"] == {
         "task_id": "vf-task-1",
         "context_id": "vf-context-1",

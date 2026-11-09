@@ -468,6 +468,7 @@ def control_plane_environment(llm: str, mode: str) -> dict[str, str]:
             ),
             "VERIFUND_OPS_TOKEN": verifund_ops_token(),
             "VERIFUND_SELLER_TOKEN_SECRET": verifund_seller_token_secret(),
+            "SELLER_INTERNAL_TOKEN": seller_internal_token(),
             "VERIFUND_LINK_SECRET": verifund_link_secret(),
             "VERIFUND_RECEIPT_KEYS": verifund_receipt_keys(),
             "VERIFUND_RECEIPT_ACTIVE_KID": verifund_receipt_active_kid(),

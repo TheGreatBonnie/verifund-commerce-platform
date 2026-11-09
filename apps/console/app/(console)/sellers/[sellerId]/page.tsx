@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useRegistry } from "@/features/sellers/use-registry";
 import { fetchSellerDashboard } from "@/lib/api";
-import { formatDateTime, shortId } from "@/lib/format";
+import { formatDateTime, shortId, evidenceCounts } from "@/lib/format";
 
 function currency(cents: number, code = "USD") {
   return new Intl.NumberFormat("en-US", {
@@ -177,14 +177,17 @@ export default function SellerDetailPage() {
               <div className="mm-seller-table-scroll">
                 <table className="mm-seller-data-table">
                   <thead><tr><th>Transaction</th><th>State</th><th>Amount</th><th>Evidence</th></tr></thead>
-                  <tbody>{(dashboard.settlement ?? []).map((item) => (
+                  <tbody>{(dashboard.settlement ?? []).map((item) => {
+                    const counts = evidenceCounts(item.evidence);
+                    return (
                     <tr key={item.transaction_id}>
                       <td className="mm-seller-mono">{shortId(item.transaction_id, 14)}</td>
                       <td><span className="mm-seller-status-tag">{item.state}</span></td>
                       <td>{item.amount_cents != null ? currency(item.amount_cents, item.currency ?? "USD") : "—"}</td>
-                      <td>{item.evidence ? `${item.evidence.received.length}/${item.evidence.required.length}` : "—"}</td>
+                      <td>{counts ? `${counts.received}/${counts.required}` : "—"}</td>
                     </tr>
-                  ))}</tbody>
+                    );
+                  })}</tbody>
                 </table>
               </div>
             ) : <p className="mm-seller-no-activity">No settlements recorded yet.</p>}

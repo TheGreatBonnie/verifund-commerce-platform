@@ -223,6 +223,38 @@ async def internal_agent_token(request: Request, body: InternalTokenBody) -> dic
     return {"agent_id": agent["id"], "token": raw, "scopes": ["a2a:call"]}
 
 
+@router.post("/v1/internal/seller-settlement-token")
+async def internal_seller_settlement_token(request: Request, body: InternalTokenBody) -> dict:
+    """Mint a per-seller settlement credential on demand.
+
+    Gated by the seller shared service token (``SELLER_INTERNAL_TOKEN``,
+    the bootstrap secret the seller app already holds). Mirrors the
+    buyer/seller A2A token exchange: a fresh ``vf_agent_*`` is minted
+    per seller and presented as a Bearer credential to the seller API.
+    """
+    settings = request.app.state.settings
+    expected = (
+        getattr(settings, "seller_internal_token", None)
+        or getattr(settings, "settlement_internal_token", None)
+    )
+    if not expected or request.headers.get("X-Internal-Token") != expected:
+        raise VerifundError("unauthorized", "invalid internal token", status_code=401)
+    store = request.app.state.tenancy
+    agent = await store.get_agent(f"agent_{body.seller_id}")
+    if agent is None:
+        raise VerifundError("not_found", "agent not found", status_code=404)
+    if agent["status"] != "active":
+        raise VerifundError("agent_not_active", "agent is not active", status_code=403)
+    raw = await issue_credential(
+        store, agent["organization_id"], agent["id"], ["txn:read", "evidence:write"]
+    )
+    return {
+        "agent_id": agent["id"],
+        "token": raw,
+        "scopes": ["txn:read", "evidence:write"],
+    }
+
+
 BUYER_AGENT_ID = "agent_marketmesh_buyer"
 
 

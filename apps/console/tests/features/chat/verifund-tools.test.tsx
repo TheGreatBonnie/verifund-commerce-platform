@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgreementReviewCard,
   AgreementReviewLinkFromResult,
+  EvidenceSummaryCard,
   FundingApprovalCard,
   ReceiptCard,
   bilateralReviewStatus,
@@ -96,6 +97,39 @@ describe("verifund chat tools", () => {
         }),
       ),
     ).toBe("mismatch");
+  });
+
+  it("stays ready when the LLM drops the nested agreement version but the top-level binding still matches both reviews", () => {
+    const live = fundingArgs();
+    const relayed = {
+      ...live,
+      agreement: { ...live.agreement, agreement_version: undefined },
+    } as any;
+    expect(bilateralReviewStatus(relayed)).toBe("ready");
+    expect(() =>
+      fundingDecision(relayed, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
+  it("stays ready when the LLM drops the nested agreement hash but the top-level binding still matches both reviews", () => {
+    const live = fundingArgs();
+    const relayed = {
+      ...live,
+      agreement: { ...live.agreement, agreement_hash: undefined },
+    } as any;
+    expect(bilateralReviewStatus(relayed)).toBe("ready");
+    expect(() =>
+      fundingDecision(relayed, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
+  it("still reports mismatch when a review is bound to different terms than the top-level binding", () => {
+    const live = fundingArgs();
+    const tampered = {
+      ...live,
+      seller_decision: { ...live.seller_decision, agreement_hash: "b".repeat(64) },
+    } as any;
+    expect(bilateralReviewStatus(tampered)).toBe("mismatch");
   });
 
   it("accepts persisted funding payloads without line-item attributes", () => {
@@ -341,5 +375,53 @@ describe("verifund chat tools", () => {
     );
     expect(screen.getByText("Verified receipt")).toBeInTheDocument();
     expect(screen.getByText(/dev-1/)).toBeInTheDocument();
+  });
+
+  it("renders the backend EvidenceSummary shape without crashing", () => {
+    render(
+      <EvidenceSummaryCard
+        projection={
+          {
+            evidence: {
+              requirements: [
+                { requirement_id: "r1", status: "pass", submissions: [] },
+                { requirement_id: "r2", status: "not_submitted", submissions: [] },
+              ],
+              deadline: null,
+              items: [],
+            },
+            verification: { status: "pending", reasons: [] },
+          } as any
+        }
+      />,
+    );
+    expect(screen.getByTestId("verifund-evidence")).toBeInTheDocument();
+    expect(screen.getByText(/1\/2 required evidence items received/i)).toBeInTheDocument();
+  });
+
+  it("handles empty backend evidence and bare objects without crashing", () => {
+    const { rerender } = render(
+      <EvidenceSummaryCard
+        projection={{ evidence: { requirements: [], deadline: null, items: [] } } as any}
+      />,
+    );
+    expect(screen.getByTestId("verifund-evidence")).toBeInTheDocument();
+    rerender(<EvidenceSummaryCard projection={{ evidence: {} } as any} />);
+    expect(screen.getByTestId("verifund-evidence")).toBeInTheDocument();
+    expect(screen.getByText("No evidence has been reported.")).toBeInTheDocument();
+  });
+
+  it("tolerates verification without a reasons array", () => {
+    render(
+      <EvidenceSummaryCard
+        projection={
+          {
+            evidence: { requirements: [], items: [] },
+            verification: { status: "pending" },
+          } as any
+        }
+      />,
+    );
+    expect(screen.getByText(/Verification: pending/)).toBeInTheDocument();
   });
 });

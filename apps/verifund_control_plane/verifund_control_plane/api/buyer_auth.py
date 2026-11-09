@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import hmac
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -98,16 +99,66 @@ async def resolve_buyer_principal(request: Request, *, required_scope: str) -> B
     )
     if has_act:
         scopes.update({"txn:act", "agreement:decide"})
-    principal = await _principal_for_clerk_user(
-        request.app.state.tenancy,
-        identity.clerk_user_id,
+    frozen_scopes = frozenset(scopes)
+    if required_scope and required_scope not in frozen_scopes:
+        raise VerifundError("forbidden", "insufficient scope", status_code=403)
+    store = request.app.state.tenancy
+    profile = await store.get_buyer_profile_by_clerk_user_id(identity.clerk_user_id)
+    if profile is not None:
+        return BuyerPrincipal(
+            buyer_id=profile["buyer_id"],
+            clerk_user_id=identity.clerk_user_id,
+            actor=f"user:{identity.user_id}",
+            auth_kind="clerk",
+            scopes=frozen_scopes,
+        )
+    # No linked buyer profile yet. Return a provisional principal (empty
+    # buyer_id) so authorize_* helpers can claim an unlinked agent-seeded
+    # profile for this resource; they fail closed (404) when the resource
+    # belongs to a different, already-linked buyer.
+    return BuyerPrincipal(
+        buyer_id="",
+        clerk_user_id=identity.clerk_user_id,
         actor=f"user:{identity.user_id}",
         auth_kind="clerk",
-        scopes=frozenset(scopes),
+        scopes=frozen_scopes,
     )
-    if required_scope and required_scope not in principal.scopes:
-        raise VerifundError("forbidden", "insufficient scope", status_code=403)
-    return principal
+
+
+async def _maybe_claim_buyer_profile(
+    request: Request, principal: BuyerPrincipal, buyer_id: str
+) -> BuyerPrincipal | None:
+    """Authorize a Clerk user for an unlinked agent-seeded buyer profile.
+
+    Buyer-agent awards create agreements with varying synthetic buyer ids
+    (``buyer_agent``, ``BUYER-AGENT-001``, ...) whose profiles have
+    ``clerk_user_id=NULL``. The human approving in the console is a real
+    Clerk user who may already be linked to a different variant
+    (``buyer_profiles.clerk_user_id`` is unique, so one user can only
+    persistently link one variant). The first Clerk user to act on an
+    unlinked variant adopts it for this decision; users linked to a
+    different, already-claimed profile fail closed.
+    Returns the updated principal on claim/owner match, else None.
+    """
+    if principal.auth_kind != "clerk":
+        return None
+    if principal.buyer_id == buyer_id:
+        return principal
+    if not principal.clerk_user_id or not buyer_id:
+        return None
+    store = request.app.state.tenancy
+    profile = await store.get_buyer_profile(buyer_id)
+    if profile is None:
+        return None
+    existing = profile.get("clerk_user_id")
+    if existing and existing != principal.clerk_user_id:
+        return None
+    if not existing and not principal.buyer_id:
+        # Provisional (never-linked) user: persist the adoption.
+        await store.link_buyer_profile_clerk_user(buyer_id, principal.clerk_user_id)
+    # Already-linked user acting on a second unlinked variant: authorize
+    # ephemerally without persisting (would violate the unique link).
+    return dataclasses.replace(principal, buyer_id=buyer_id)
 
 
 def buyer_owns_transaction(principal: BuyerPrincipal, record: Any) -> bool:
@@ -122,8 +173,15 @@ async def authorize_buyer_transaction(
         record = await request.app.state.repo.get_transaction(transaction_id)
     except VerifundError:
         raise VerifundError("not_found", "transaction not found", status_code=404) from None
-    if record is None or not buyer_owns_transaction(principal, record):
+    if record is None:
         raise VerifundError("not_found", "transaction not found", status_code=404)
+    if not buyer_owns_transaction(principal, record):
+        claimed = await _maybe_claim_buyer_profile(
+            request, principal, record.buyer_id
+        )
+        if claimed is None:
+            raise VerifundError("not_found", "transaction not found", status_code=404)
+        principal = claimed
     return principal, record
 
 
@@ -135,6 +193,13 @@ async def authorize_buyer_agreement(
     request: Request, agreement: Any, *, required_scope: str
 ) -> BuyerPrincipal:
     principal = await resolve_buyer_principal(request, required_scope=required_scope)
-    if agreement is None or not buyer_owns_agreement(principal, agreement):
+    if agreement is None:
         raise VerifundError("not_found", "agreement not found", status_code=404)
-    return principal
+    if buyer_owns_agreement(principal, agreement):
+        return principal
+    claimed = await _maybe_claim_buyer_profile(
+        request, principal, agreement.buyer_id
+    )
+    if claimed is None or not buyer_owns_agreement(claimed, agreement):
+        raise VerifundError("not_found", "agreement not found", status_code=404)
+    return claimed

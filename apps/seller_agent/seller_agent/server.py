@@ -52,7 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.verifund_mode != "off":
         settlement_client = SellerSettlementClient(
             settings.verifund_url,
-            internal_token=settings.verifund_settlement_internal_token,
+            internal_token=settings.internal_api_token,
             timeout_seconds=settings.verifund_timeout_seconds,
         )
         evidence_outbox = EvidenceOutbox(

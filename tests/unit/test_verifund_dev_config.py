@@ -24,12 +24,41 @@ def test_shared_seller_environment(monkeypatch):
         "SELLER_SHARED_URL",
         "SELLER_INTERNAL_TOKEN",
         "SELLER_CHECKPOINT_PATH",
+        "VERIFUND_SETTLEMENT_INTERNAL_TOKEN",
+        "SETTLEMENT_INTERNAL_TOKEN",
     )
     env = dev.shared_seller_environment("scripted")
     assert env["PORT"] == "9200"
     assert env["SELLER_CONFIG_SOURCE"] == "shared"
     assert env["SELLER_SHARED_DB_URL"].endswith("sellers.db")
     assert env["PUBLIC_BASE_URL"] == "http://127.0.0.1:9200"
+    assert env["SELLER_INTERNAL_TOKEN"] == "dev-seller-internal"
+    assert "VERIFUND_SETTLEMENT_INTERNAL_TOKEN" not in env
+
+
+def test_settlement_internal_token_config_falls_back_to_seller_token(monkeypatch):
+    clear(
+        monkeypatch,
+        "VERIFUND_SETTLEMENT_INTERNAL_TOKEN",
+        "SETTLEMENT_INTERNAL_TOKEN",
+    )
+    monkeypatch.setenv("SELLER_INTERNAL_TOKEN", "dev-seller-internal")
+    assert config.verifund_settlement_internal_token() == ""
+    monkeypatch.setenv(
+        "VERIFUND_SETTLEMENT_INTERNAL_TOKEN", "explicit-settlement"
+    )
+    assert config.verifund_settlement_internal_token() == "explicit-settlement"
+
+
+def test_control_plane_environment_sets_settlement_token(monkeypatch):
+    clear(
+        monkeypatch,
+        "SELLER_INTERNAL_TOKEN",
+        "VERIFUND_SETTLEMENT_INTERNAL_TOKEN",
+        "SETTLEMENT_INTERNAL_TOKEN",
+    )
+    env = dev.control_plane_environment("scripted", "sandbox")
+    assert "VERIFUND_SETTLEMENT_INTERNAL_TOKEN" not in env
     assert env["SELLER_INTERNAL_TOKEN"] == "dev-seller-internal"
 
 

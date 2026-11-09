@@ -59,6 +59,41 @@ async def _principal_for_org(
 
 async def resolve_seller_principal(request: Request, *, required_scope: str) -> SellerPrincipal:
     settings = request.app.state.settings
+    store = request.app.state.tenancy
+    provided = request.headers.get("authorization", "")
+    # Dynamic per-agent credential (`vf_agent_*` issued via
+    # POST /v1/internal/seller-settlement-token): mirrors the buyer/seller
+    # A2A token exchange. Verified against the credential store; the
+    # seller org comes from the credential, not client headers.
+    if provided.startswith("Bearer ") and provided[7:].startswith("vf_agent_"):
+        from verifund_control_plane.agents.credentials import verify_credential
+
+        verified = await verify_credential(store, provided[7:], purpose="a2a:call")
+        scopes_raw = verified.get("scopes") or []
+        if isinstance(scopes_raw, str):
+            import json
+
+            scopes_raw = json.loads(scopes_raw)
+        scopes = frozenset(scopes_raw) if scopes_raw else _INTERNAL_SCOPES
+        principal = await _principal_for_org(
+            store,
+            verified["organization_id"],
+            actor=f"agent:{verified['agent_id']}",
+            auth_kind="internal_service",
+            scopes=scopes,
+        )
+        header_seller = request.headers.get("x-seller-id")
+        if header_seller and header_seller != principal.seller_id:
+            raise VerifundError("forbidden", "seller access denied", status_code=403)
+        header_org = request.headers.get("x-seller-org-id")
+        if header_org and header_org != principal.organization_id:
+            raise VerifundError("forbidden", "seller access denied", status_code=403)
+        if required_scope and required_scope not in principal.scopes:
+            # Agent credentials minted for settlement carry txn:read;
+            # evidence writes need explicit scope.
+            raise VerifundError("forbidden", "insufficient scope", status_code=403)
+        return principal
+
     internal = request.headers.get("x-verifund-internal-token")
     if internal is not None:
         if not _constant_time_eq(internal, _expected_internal_token(settings)):

@@ -218,10 +218,13 @@ protocol instead of the legacy order flow.
   frontend tool with hitl.args unchanged and wait for the card.
   When the card returns, call verifund_checkout with the exact
   status, transaction_id, idempotency_key, order_id, capture_id,
-  and projection from the card result. The verifund agent verifies
+  and projection from the card result. Never call verifund_checkout
+  unless the card result itself has status completed with a real
+  order_id and capture_id; free-form confirmation text is not a
+  checkout result. The verifund agent verifies
   the settlement with the Buyer; never substitute or invent a
-  funded state. Never call verifund_evidence_review immediately
-  after the card; the checkout result already resumes the task.
+  funded state. If the checkout result is missing order/capture
+  ids, re-present the checkout card instead of recording it.
   Never call verifund_evidence_review while settlement is pending;
   resume on the next status refresh instead.
 - After funding, call verifund_evidence_review with the same

@@ -951,6 +951,7 @@ class VerifundLifecycle:
                 review_url = self._review_url(agreement, handle)
                 view["agreement_review"] = {
                     "review_url": review_url,
+                    "agreement_id": agreement.get("agreement_id"),
                     "version": (
                         agreement.get("agreement_version")
                         or result.agreement_version
@@ -969,6 +970,7 @@ class VerifundLifecycle:
                     "tool": "request_verifund_agreement_approval",
                     "args": {
                         "agreement": agreement,
+                        "agreement_id": agreement.get("agreement_id"),
                         "review_url": review_url,
                         "version": (
                             agreement.get("agreement_version")

@@ -12,6 +12,20 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 URL = "http://control/seller/transactions/vf_1/evidence"
+EXCHANGE = "http://control/v1/internal/seller-settlement-token"
+
+
+def mock_exchange():
+    return respx.post(EXCHANGE).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "agent_id": "agent_northwind-audio",
+                "token": "vf_agent_raw",
+                "scopes": ["txn:read", "evidence:write"],
+            },
+        )
+    )
 
 
 @pytest.fixture
@@ -60,6 +74,7 @@ async def test_enqueue_is_idempotent_per_transaction_and_kind(store):
 
 @respx.mock
 async def test_run_once_uploads_due_evidence_and_marks_it_sent(store):
+    mock_exchange()
     route = respx.post(URL).mock(
         return_value=httpx.Response(201, json={"evidence_id": "ev_1"})
     )
@@ -75,10 +90,10 @@ async def test_run_once_uploads_due_evidence_and_marks_it_sent(store):
 
     assert result == {"sent": 1, "retried": 0, "failed": 0}
     request = route.calls[0].request
-    assert request.headers["x-verifund-internal-token"] == "secret"
+    assert request.headers["Authorization"] == "Bearer vf_agent_raw"
     assert request.headers["x-seller-org-id"] == "org_test"
     assert request.headers["x-seller-id"] == "northwind-audio"
-    assert "authorization" not in request.headers
+    assert "x-verifund-internal-token" not in request.headers
     assert b'name="requirement_id"' in request.content
     assert b"shipment_manifest" in request.content
     assert b'name="kind"' not in request.content
@@ -91,6 +106,7 @@ async def test_run_once_uploads_due_evidence_and_marks_it_sent(store):
 
 @respx.mock
 async def test_run_once_backs_off_after_a_transient_failure(store):
+    mock_exchange()
     route = respx.post(URL).mock(return_value=httpx.Response(503))
     client = SellerSettlementClient(
         "http://control", internal_token="secret"
@@ -117,6 +133,7 @@ async def test_run_once_backs_off_after_a_transient_failure(store):
 
 @respx.mock
 async def test_run_once_marks_permanent_failures(store):
+    mock_exchange()
     respx.post(URL).mock(return_value=httpx.Response(422))
     client = SellerSettlementClient(
         "http://control", internal_token="secret"

@@ -348,11 +348,12 @@ export type SettlementProjection = {
     eta?: string | null;
   } | null;
   evidence: {
-    required: string[];
-    received: string[];
-    complete: boolean;
+    required?: string[];
+    received?: string[];
+    complete?: boolean;
     deadline?: string | null;
-    items: SettlementEvidenceItem[];
+    items?: SettlementEvidenceItem[];
+    requirements?: Array<{ requirement_id?: string; status?: string; submissions?: unknown[] }>;
   } | null;
   verification: {
     status: string;
