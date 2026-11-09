@@ -58,6 +58,7 @@ async def api(tmp_path):
         evidence_dir=tmp_path / "evidence",
         reconciler_enabled=False,
         public_base_url="http://test",
+        tenancy_enabled=False,
     )
     app = create_app(settings, clock=lambda: NOW)
     async with app.router.lifespan_context(app):

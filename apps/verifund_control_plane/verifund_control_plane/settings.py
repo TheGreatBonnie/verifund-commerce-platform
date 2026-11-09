@@ -189,7 +189,7 @@ class Settings(BaseSettings):
     fake_payment_scenario: str = Field(
         default="success", validation_alias="VERIFUND_FAKE_SCENARIO"
     )
-    tenancy_enabled: bool = Field(default=False, validation_alias="VERIFUND_TENANCY_ENABLED")
+    tenancy_enabled: bool = Field(default=True, validation_alias="VERIFUND_TENANCY_ENABLED")
     clerk_webhook_secret: str = Field(
         default="", validation_alias="CLERK_WEBHOOK_SIGNING_SECRET"
     )

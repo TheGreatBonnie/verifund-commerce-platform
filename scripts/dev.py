@@ -478,6 +478,7 @@ def control_plane_environment(llm: str, mode: str) -> dict[str, str]:
             ),
             "VERIFUND_FAKE_WEBHOOK_SECRET": verifund_fake_webhook_secret(),
             "VERIFUND_AUTO_VERIFY": _env_value("VERIFUND_AUTO_VERIFY", "0"),
+            "VERIFUND_TENANCY_ENABLED": _env_value("VERIFUND_TENANCY_ENABLED", "true"),
             "MARKETMESH_DEV_IDENTITY": _env_value("MARKETMESH_DEV_IDENTITY", ""),
             "PAYPAL_ENV": paypal_env(),
             "PAYPAL_API_BASE": paypal_api_base(),
