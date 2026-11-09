@@ -9,6 +9,8 @@ from verifund_contracts.models import (
 )
 from verifund_contracts.terms import validate_requirements
 
+from verifund_control_plane.agreements.models import AgreementError
+
 
 def _iso(value: datetime) -> str:
     if value.tzinfo is None:
@@ -18,13 +20,19 @@ def _iso(value: datetime) -> str:
 
 def validate_award(award: AwardRequest, now: datetime) -> None:
     if now > award.offer_valid_until:
-        raise ValueError("offer_expired")
+        raise AgreementError(
+            "offer_expired",
+            f"offer expired at {_iso(award.offer_valid_until)}",
+        )
     if award.currency != "USD":
-        raise ValueError("invalid_terms")
+        raise AgreementError("invalid_terms", "only USD is supported")
     if award.delivery_days < 1:
-        raise ValueError("invalid_terms")
+        raise AgreementError("invalid_terms", "delivery_days must be positive")
     if EvidenceKind.DELIVERY_CONFIRMATION not in award.evidence_required:
-        raise ValueError("invalid_terms")
+        raise AgreementError(
+            "invalid_terms",
+            "delivery confirmation evidence is required",
+        )
 
 
 def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:

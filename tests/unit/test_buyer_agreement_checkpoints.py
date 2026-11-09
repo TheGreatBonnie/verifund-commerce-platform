@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -17,6 +17,7 @@ from buyer_agent.graph import (
     report_buyer_review,
     report_seller_review,
     seller_decision_matches,
+    settlement_award_route,
 )
 from verifund_contracts import AgreementProjection, AgreementReviewResult
 
@@ -363,6 +364,40 @@ async def test_create_settlement_award_rejects_a_mismatched_agreement(
     monkeypatch.setattr("buyer_agent.graph.interrupt", fake_interrupt)
     with pytest.raises(AgreementProtocolError):
         await create_settlement_award(_buyer_state(), _config(SimpleNamespace()))
+
+
+def test_settlement_award_route_ends_expired_offers() -> None:
+    assert settlement_award_route({"stage": "offer_expired"}) == "expired"
+    assert settlement_award_route({"stage": "approved"}) == "continue"
+
+
+async def test_create_settlement_award_stops_before_an_expired_offer(
+    monkeypatch,
+) -> None:
+    interrupted = False
+
+    def fake_interrupt(value: Any) -> dict:
+        nonlocal interrupted
+        interrupted = True
+        return {}
+
+    monkeypatch.setattr("buyer_agent.graph.interrupt", fake_interrupt)
+
+    winner = dict(state()["award"]["winner"])
+    winner["valid_until"] = (
+        datetime.now(UTC) - timedelta(minutes=1)
+    ).isoformat().replace("+00:00", "Z")
+    expired = _buyer_state(award={"winner": winner})
+
+    result_value = await create_settlement_award(expired, _config(SimpleNamespace()))
+
+    assert interrupted is False
+    assert result_value["stage"] == "offer_expired"
+    assert result_value["error"]["code"] == "offer_expired"
+    assert result_value["error"]["retryable"] is False
+    message = result_value["messages"][-1].content
+    assert "expired" in message.lower()
+    assert "re-run" in message.lower()
 
 
 async def test_report_buyer_review_accepts_the_canonical_agreement() -> None:

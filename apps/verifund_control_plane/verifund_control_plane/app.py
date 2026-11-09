@@ -8,12 +8,17 @@ from fastapi import FastAPI
 
 from verifund_control_plane.agents import routes as agent_routes
 from verifund_control_plane.agreements import routes as agreement_routes
+from verifund_control_plane.agreements.models import AgreementError, to_verifund_error
 from verifund_control_plane.agreements.repository import AgreementRepository
 from verifund_control_plane.agreements.service import AgreementService
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
 from verifund_control_plane.api import buyer, checkout, fulfillment, health, ops, seller, webhooks
 from verifund_control_plane.db import configure_sqlite, create_engine
-from verifund_control_plane.errors import VerifundError, verifund_error_handler
+from verifund_control_plane.errors import (
+    VerifundError,
+    error_response,
+    verifund_error_handler,
+)
 from verifund_control_plane.evidence import EvidenceStore
 from verifund_control_plane.onboarding import routes as onboarding_routes
 from verifund_control_plane.paypal.fake import FakePaymentPort
@@ -35,6 +40,12 @@ from verifund_control_plane.tokens import (
     LinkSigner,
     SellerTokenService,
 )
+
+
+async def agreement_error_handler(request, exc: Exception):
+    if not isinstance(exc, AgreementError):
+        raise exc
+    return error_response(to_verifund_error(exc), request)
 
 
 def create_app(
@@ -218,6 +229,7 @@ def create_app(
     app.state.tracking = tracking
     app.state.reconciler = reconciler
     app.add_exception_handler(VerifundError, verifund_error_handler)
+    app.add_exception_handler(AgreementError, agreement_error_handler)
     app.include_router(health.router)
     app.include_router(ops.router)
     app.include_router(ops.router, prefix="/ops")

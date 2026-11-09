@@ -115,6 +115,31 @@ async def test_award_is_idempotent(api):
     assert len(txns) == 1
 
 
+async def test_expired_award_returns_conflict(api):
+    payload = award_payload()
+    payload["offer_valid_until"] = (
+        (NOW - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+    )
+    payload["offer_hash"] = offer_hash(binding_from_award(payload))
+
+    response = await api.post(
+        "/awards",
+        json=payload,
+        headers={
+            **OPS,
+            **ACTOR,
+            "idempotency-key": "award:run-1:offer-1:expired",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "offer_expired"
+    assert error["retryable"] is False
+    txns = (await api.get("/transactions", headers=OPS)).json()
+    assert txns == []
+
+
 async def test_accept_requires_hash_and_seller(api):
     award = await create_award(api)
     bad = await api.post(

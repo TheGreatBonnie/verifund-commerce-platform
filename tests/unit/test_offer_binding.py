@@ -118,3 +118,38 @@ def test_mutated_price_changes_hash():
     binding = canonical_offer_binding(offer)
     binding["line_items"][0]["unit_price_cents"] = 1100
     assert offer_hash(binding) != offer_hash(canonical_offer_binding(offer))
+
+
+def test_binding_from_award_normalizes_integral_floats():
+    """Protobuf/A2A envelopes decode every JSON number as a float.
+
+    The same award must therefore hash identically whether its numeric fields
+    arrive as ints or as integral floats.
+    """
+    offer = _offer()
+    award = _award_from(offer, 1)
+    float_award = {
+        **award,
+        "offer_round": 1.0,
+        "subtotal_cents": 2200.0,
+        "shipping_cents": 300.0,
+        "tax_cents": 150.0,
+        "fees_cents": 50.0,
+        "total_cents": 2700.0,
+        "delivery_days": 3.0,
+        "warranty_months": 12.0,
+        "returns_days": 30.0,
+        "line_items": [
+            {
+                **award["line_items"][0],
+                "quantity": 2.0,
+                "unit_price_cents": 1000.0,
+                "warranty_addon_cents": 100.0,
+            }
+        ],
+    }
+
+    assert binding_from_award(float_award) == binding_from_award(award)
+    assert offer_hash(binding_from_award(float_award)) == offer_hash(
+        binding_from_award(award)
+    )

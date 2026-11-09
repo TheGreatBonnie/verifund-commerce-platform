@@ -34,6 +34,23 @@ def _iso(value: datetime | str) -> str:
     return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _normalize_numbers(value: Any) -> Any:
+    """Collapse integral floats to ints so hashes survive JSON/A2A round trips.
+
+    Protobuf-backed A2A envelopes decode every JSON number as a float, while
+    Pydantic models normalize cents and quantities back to ints. Hashing the
+    raw wire form must therefore produce the same digest as the normalized
+    award.
+    """
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _normalize_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_numbers(item) for item in value]
+    return value
+
+
 def canonical_offer_binding(offer: Offer) -> dict[str, Any]:
     version = _version_of(offer)
     line_items = []
@@ -109,7 +126,7 @@ def binding_from_award(award: dict[str, Any]) -> dict[str, Any]:
     }
     if version >= 2:
         binding["binding_version"] = version
-    return binding
+    return _normalize_numbers(binding)
 
 
 def offer_hash(binding: dict[str, Any]) -> str:

@@ -134,3 +134,33 @@ class AgreementError(Exception):
         self.agreement_id = agreement_id
         self.version = version
         self.field = field
+
+
+AGREEMENT_ERROR_STATUS: dict[str, int] = {
+    "not_found": 404,
+    "forbidden": 403,
+    "unauthorized": 401,
+    "invalid_state": 409,
+    "hash_mismatch": 409,
+    "agreement_expired": 409,
+    "token_used": 409,
+    "token_revoked": 401,
+    "token_expired": 401,
+    "conflict": 409,
+    "offer_mismatch": 409,
+    "offer_expired": 409,
+    "invalid_request": 400,
+    "invalid_terms": 400,
+}
+
+
+def to_verifund_error(err: AgreementError):
+    """Translate a domain error into the control plane's error envelope."""
+    from verifund_control_plane.errors import VerifundError
+
+    return VerifundError(
+        err.code,
+        err.message,
+        status_code=AGREEMENT_ERROR_STATUS.get(err.code, 400),
+        details={"agreement_id": err.agreement_id, "version": err.version},
+    )

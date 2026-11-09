@@ -904,6 +904,13 @@ def approval_route(state: BuyerState) -> str:
     return "off"
 
 
+def settlement_award_route(state: BuyerState) -> str:
+    """End the run instead of asking for an agreement on an expired offer."""
+    if state.get("stage") == "offer_expired":
+        return "expired"
+    return "continue"
+
+
 def _shipping_address() -> ShippingAddress:
     return ShippingAddress(
         name="Demo Buyer",
@@ -1089,7 +1096,11 @@ def build_buyer_graph(services=None, checkpointer=None, *, planner=None):
             "rejected": "cancel_losers",
         },
     )
-    builder.add_edge("create_settlement_award", "await_seller_review")
+    builder.add_conditional_edges(
+        "create_settlement_award",
+        settlement_award_route,
+        {"continue": "await_seller_review", "expired": END},
+    )
     builder.add_edge("await_seller_review", "report_seller_review")
     builder.add_edge("report_seller_review", "precheck")
     builder.add_edge("precheck", "finalize")
@@ -1108,6 +1119,21 @@ async def create_settlement_award(state: BuyerState, config: dict) -> dict:
     award = build_award_request(
         run_id, state.get("mandate") or {}, state.get("award") or {}
     )
+    now = datetime.now(UTC)
+    valid_until = award.offer_valid_until
+    if valid_until.tzinfo is None:
+        valid_until = valid_until.replace(tzinfo=UTC)
+    if valid_until <= now:
+        message = (
+            "The selected offer expired before the agreement could be created. "
+            "Re-run the purchase request to get a fresh offer."
+        )
+        await _upsert(services, run_id, stage="offer_expired")
+        return {
+            "stage": "offer_expired",
+            "error": _error(message, code="offer_expired"),
+            "messages": [AIMessage(content=message)],
+        }
     seller_id = award.seller_id
     card_url = None
     for seller in state.get("sellers") or []:

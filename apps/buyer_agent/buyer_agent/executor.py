@@ -466,6 +466,11 @@ class BuyerExecutor(AgentExecutor):
                 final_message = "The award was rejected and no order was placed."
             elif stage == "no_award":
                 final_message = "No eligible award was found."
+            elif stage == "offer_expired":
+                final_message = (
+                    "The selected offer expired before the agreement could be "
+                    "created. Re-run the purchase request to get a fresh offer."
+                )
             else:
                 final_message = "The sourcing run finished."
 

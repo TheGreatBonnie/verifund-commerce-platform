@@ -7,6 +7,9 @@ import pytest
 from buyer_agent import console_api, settlement_api
 from buyer_agent.settlement import SettlementCoordinator
 from fastapi import FastAPI
+from verifund_contracts import VerifundError
+
+from tests.support.award_flow import award_payload
 
 
 class Settings:
@@ -403,3 +406,37 @@ async def test_advance_returns_409_without_a_pending_interrupt():
             json={"action": "refresh"},
         )
     assert response.status_code == 409
+
+
+class ExpiredAgreements:
+    async def create_agreement(self, run_id, request):
+        raise VerifundError(
+            "offer_expired",
+            "offer has expired",
+            status_code=409,
+            retryable=False,
+        )
+
+
+async def test_internal_agreement_create_preserves_the_domain_error():
+    app, *_ = build(cached=projection())
+    app.state.services.agreements = ExpiredAgreements()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://buyer"
+    ) as http:
+        response = await http.post(
+            "/internal/runs/run-1/settlement/agreement",
+            headers={"x-verifund-agent-token": "agent-internal"},
+            json={
+                "award": award_payload(),
+                "buyer_task_id": "buyer-task-1",
+                "buyer_context_id": "run-1",
+                "idempotency_key": "agreement:run-1:offer-1",
+            },
+        )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "offer_expired"
+    assert detail["retryable"] is False

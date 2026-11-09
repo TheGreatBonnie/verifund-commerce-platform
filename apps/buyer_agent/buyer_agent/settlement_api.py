@@ -368,6 +368,7 @@ from verifund_contracts import (
     BuyerPurchaseOrderRequest,
     FundingApprovalDecision,
     ReleaseApprovalDecision,
+    VerifundError,
 )
 
 from buyer_agent.agreement_service import AgreementBindingError
@@ -398,6 +399,19 @@ def _binding_error(exc: AgreementBindingError) -> HTTPException:
     )
 
 
+def _verifund_error(exc: VerifundError) -> HTTPException:
+    """Preserve a control-plane domain rejection instead of collapsing to 500."""
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={
+            "code": exc.code,
+            "message": exc.message,
+            "retryable": exc.retryable,
+            "details": exc.details,
+        },
+    )
+
+
 @router.get("/internal/runs/{run_id}/settlement")
 async def internal_get_settlement(
     run_id: str, request: Request, refresh: bool = False
@@ -424,6 +438,8 @@ async def internal_create_agreement(
         return await _agreements(request).create_agreement(run_id, body)
     except AgreementBindingError as exc:
         raise _binding_error(exc) from exc
+    except VerifundError as exc:
+        raise _verifund_error(exc) from exc
 
 
 @router.post("/internal/runs/{run_id}/settlement/approve-funding")

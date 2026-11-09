@@ -11,38 +11,21 @@ from verifund_contracts import (
     SellerAgreementDecisionRequest,
 )
 
-from verifund_control_plane.agreements.models import ActorContext, AgreementError
+from verifund_control_plane.agreements.models import (
+    ActorContext,
+    AgreementError,
+    to_verifund_error,
+)
 from verifund_control_plane.agreements.service import AgreementService
-from verifund_control_plane.api.buyer_auth import authorize_buyer_agreement, resolve_buyer_principal
+from verifund_control_plane.api.buyer_auth import authorize_buyer_agreement
 from verifund_control_plane.errors import VerifundError
 
 router = APIRouter(prefix="/agreements", tags=["agreements"])
 
-_STATUS = {
-    "not_found": 404,
-    "forbidden": 403,
-    "unauthorized": 401,
-    "invalid_state": 409,
-    "hash_mismatch": 409,
-    "agreement_expired": 409,
-    "token_used": 409,
-    "token_revoked": 401,
-    "token_expired": 401,
-    "conflict": 409,
-    "offer_mismatch": 409,
-    "offer_expired": 409,
-    "invalid_request": 400,
-}
-
 
 def _raise(err: AgreementError):
     """Translate domain errors into the control plane's VerifundError envelope."""
-    raise VerifundError(
-        err.code,
-        err.message,
-        status_code=_STATUS.get(err.code, 400),
-        details={"agreement_id": err.agreement_id, "version": err.version},
-    )
+    raise to_verifund_error(err)
 
 
 def get_actor(request: Request) -> ActorContext:

@@ -9,8 +9,10 @@ from verifund_contracts.models import (
 from verifund_control_plane.agreements.generator import (
     apply_change_set,
     build_terms,
+    validate_award,
     validate_terms,
 )
+from verifund_control_plane.agreements.models import AgreementError
 
 
 def _award():
@@ -148,3 +150,18 @@ def test_generator_rejects_floor_violating_catalog():
     award = _award().model_copy(update={"requirements": bad})
     with pytest.raises(ValueError):
         build_terms(award, datetime.now(UTC))
+
+
+def test_validate_award_rejects_expired_offers_with_a_domain_error():
+    import pytest
+
+    now = datetime.now(UTC)
+    award = _award().model_copy(
+        update={"offer_valid_until": now - timedelta(minutes=1)}
+    )
+
+    with pytest.raises(AgreementError) as excinfo:
+        validate_award(award, now)
+
+    assert excinfo.value.code == "offer_expired"
+    assert "expired" in excinfo.value.message.lower()
