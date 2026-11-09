@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useUser } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { UseAgentUpdate, useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
 import {
@@ -23,6 +24,7 @@ import { fetchRegistry, fetchTrace } from "@/lib/api";
 import { useRun } from "@/features/runs/use-run";
 import { config } from "@/lib/config";
 import { money, scoreLabel, stageLabel } from "@/lib/format";
+import { approverDisplayName } from "@/lib/clerk-display-name";
 import type {
   Award,
   BuyerState,
@@ -103,6 +105,8 @@ function errorText(error: BuyerState["error"]) {
 
 export function ConsoleShell() {
   const routeRunId = useParams()?.runId as string | undefined;
+  const { user } = useUser();
+  const approver = approverDisplayName(user);
   const { agent, isReady } = useAgent({
     agentId: "marketmesh_orchestrator",
     updates: [
@@ -291,7 +295,7 @@ export function ConsoleShell() {
       const payload = {
         approval: {
           approved,
-          approved_by: "Demo Buyer",
+          approved_by: approver,
           note,
         },
         task_id: buyerState.task_id,
@@ -311,7 +315,7 @@ export function ConsoleShell() {
         );
       }
     },
-    [agent, copilotkit, buyerState.task_id],
+    [agent, copilotkit, buyerState.task_id, approver],
   );
 
   const approvalElement =

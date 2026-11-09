@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
+import { approverDisplayName } from "@/lib/clerk-display-name";
 import {
   CopilotChat,
   useAgent,
@@ -188,6 +190,8 @@ export function Chat({
   onVerifundAction,
 }: ChatProps) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
+  const { user } = useUser();
+  const approver = approverDisplayName(user);
   const [registryNames, setRegistryNames] = useState<Map<string, string>>(
     () => new Map(),
   );
@@ -241,7 +245,7 @@ export function Chat({
                 onApprove={(note) =>
                   respond({
                     approved: true,
-                    approved_by: "Demo Buyer",
+                    approved_by: approver,
                     note,
                     task_id: args.task_id,
                   })
@@ -249,7 +253,7 @@ export function Chat({
                 onReject={(note) =>
                   respond({
                     approved: false,
-                    approved_by: "Demo Buyer",
+                    approved_by: approver,
                     note,
                     task_id: args.task_id,
                   })

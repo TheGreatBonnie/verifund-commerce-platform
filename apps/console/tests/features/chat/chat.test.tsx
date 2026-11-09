@@ -9,10 +9,15 @@ const hooks = vi.hoisted(() => ({
   addMessage: vi.fn(),
   runAgent: vi.fn(),
   fetchRegistry: vi.fn(),
+  useUser: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   fetchRegistry: hooks.fetchRegistry,
+}));
+
+vi.mock("@clerk/nextjs", () => ({
+  useUser: hooks.useUser,
 }));
 
 vi.mock("@copilotkit/react-core/v2", () => ({
@@ -29,6 +34,7 @@ vi.mock("@copilotkit/react-core/v2", () => ({
 
 import { Chat } from "@/features/chat/chat";
 
+hooks.useUser.mockReturnValue({ user: null });
 hooks.fetchRegistry.mockResolvedValue([]);
 
 function renderChat(

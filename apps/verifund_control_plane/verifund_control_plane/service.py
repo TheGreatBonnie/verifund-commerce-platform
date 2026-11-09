@@ -447,9 +447,7 @@ class VerifundService:
             )
 
             await resolve_payout_account_for_seller(self.tenancy, request.seller_id)
-        if self.settings.is_sandbox and not self.settings.payout_email_for(
-            request.seller_id
-        ):
+        if self.settings.is_sandbox and not await self._payout_email(request.seller_id):
             raise VerifundError(
                 "invalid_request",
                 f"no payout email configured for {request.seller_id}",
