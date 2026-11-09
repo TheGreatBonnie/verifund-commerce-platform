@@ -1,6 +1,3 @@
-import hashlib
-from typing import ClassVar
-
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 from verifund_control_plane.tenancy.backfill import seed_demo_agents
@@ -8,8 +5,7 @@ from verifund_control_plane.tenancy.repository import TenancyRepository
 
 
 class Settings:
-    seller_tokens: ClassVar[dict] = {"northwind-audio": "dev-northwind"}
-    buyer_agent_token = "dev-buyer-agent"
+    pass
 
 
 @pytest_asyncio.fixture
@@ -32,17 +28,19 @@ async def test_seed_demo_agents(store, monkeypatch):
     buyer = await store.get_agent("agent_marketmesh_buyer")
     assert buyer is not None and buyer["status"] == "active"
 
-    buyer_credential = await store.get_credential_by_hash(
-        hashlib.sha256(b"dev-buyer-agent").hexdigest())
-    assert buyer_credential is not None
-    assert buyer_credential["agent_id"] == "agent_marketmesh_buyer"
-    assert buyer_credential["scopes"] == ["a2a:call"]
+    creds = await store.list_credentials("agent_marketmesh_buyer")
+    active = [c for c in creds if c["status"] == "active"]
+    assert len(active) >= 1
+    assert active[0]["agent_id"] == "agent_marketmesh_buyer"
+    scopes = active[0]["scopes"]
+    assert "a2a:call" in scopes
 
-    seller_credential = await store.get_credential_by_hash(
-        hashlib.sha256(b"dev-northwind").hexdigest())
-    assert seller_credential is not None
-    assert seller_credential["agent_id"] == "agent_northwind-audio"
-    assert "a2a:test" in seller_credential["scopes"]
+    creds = await store.list_credentials("agent_northwind-audio")
+    active = [c for c in creds if c["status"] == "active"]
+    assert len(active) >= 1
+    assert active[0]["agent_id"] == "agent_northwind-audio"
+    scopes = active[0]["scopes"]
+    assert "a2a:test" in scopes
 
 
 async def test_seed_demo_agents_is_idempotent(store, monkeypatch):

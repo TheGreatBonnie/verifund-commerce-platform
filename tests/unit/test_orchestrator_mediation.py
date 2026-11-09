@@ -42,6 +42,7 @@ async def test_mediation_reuses_seller_task_and_returns_seller_ids(monkeypatch):
         seller_task_id="seller-task-7",
         seller_context_id="seller-context-4",
         seller_request={"schema": "counter", "payload": {}},
+        seller_token="vf_agent_test",
     )
 
     assert "error" not in result
@@ -83,6 +84,7 @@ async def test_mediation_resumes_the_buyer_on_the_thread_context(monkeypatch):
         buyer_a2a_url="http://buyer",
         seller_id="aurora-supply",
         seller_request={"schema": "counter", "payload": {}},
+        seller_token="vf_agent_test",
     )
 
     assert "error" not in result
@@ -117,3 +119,4 @@ async def test_orchestrator_tool_binds_configured_buyer_url(monkeypatch):
     assert observed["seller_id"] == "aurora-supply"
     assert observed["buyer_context_id"] == "thread-1"
     assert observed["seller_context_id"] == "thread-1"
+    assert observed["control_plane_url"] == Settings().verifund_control_plane_url

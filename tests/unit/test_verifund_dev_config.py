@@ -24,7 +24,6 @@ def test_shared_seller_environment(monkeypatch):
         "SELLER_SHARED_URL",
         "SELLER_INTERNAL_TOKEN",
         "SELLER_CHECKPOINT_PATH",
-        "BUYER_AGENT_TOKEN",
     )
     env = dev.shared_seller_environment("scripted")
     assert env["PORT"] == "9200"
@@ -193,10 +192,6 @@ def test_fake_mode_wires_buyer_seller_orchestrator_and_agent(monkeypatch):
 def test_agent_environment_is_least_privilege(monkeypatch):
     monkeypatch.setenv("VERIFUND_OPS_TOKEN", "ops-secret")
     monkeypatch.setenv("PAYPAL_CLIENT_SECRET", "paypal-secret")
-    monkeypatch.setenv("SELLER_NORTHWIND_TOKEN", "seller-secret")
-    monkeypatch.setenv(
-        "BUYER_SELLER_TOKENS", '{"northwind-audio":"seller-secret"}'
-    )
     monkeypatch.setenv("BUYER_INTERNAL_TOKEN", "buyer-internal-secret")
     clear(
         monkeypatch,
@@ -219,14 +214,11 @@ def test_agent_environment_is_least_privilege(monkeypatch):
     for name in (
         "VERIFUND_OPS_TOKEN",
         "PAYPAL_CLIENT_SECRET",
-        "SELLER_NORTHWIND_TOKEN",
-        "BUYER_SELLER_TOKENS",
         "BUYER_INTERNAL_TOKEN",
     ):
         assert name not in env
     assert "ops-secret" not in env.values()
     assert "paypal-secret" not in env.values()
-    assert "seller-secret" not in env.values()
     assert "buyer-internal-secret" not in env.values()
 
 

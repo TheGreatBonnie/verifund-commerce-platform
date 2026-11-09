@@ -51,18 +51,20 @@ async def _ensure_credential(store, *, organization_id: str, agent_id: str,
 
 
 async def seed_demo_agents(store, settings) -> None:
-    """Seed deterministic demo agents and credentials for local development.
+    """Seed deterministic demo agents for local development.
 
-    This runs only during empty-database bootstrap. It creates the buyer agent
-    used by the demo buyer, and one active seller agent per configured seller
-    token, with the static seller token registered as an ``a2a:test``
-    credential (never as an ``a2a:call`` credential).
+    This runs only during empty-database bootstrap. It creates the buyer
+    agent used by the demo buyer, and — when ``MARKETMESH_SEED_DEMO=1`` —
+    one active seller agent per legacy demo seller.
 
-    Seller seeding is disabled by default (dynamic onboarding is the source
-    of truth); set ``MARKETMESH_SEED_DEMO=1`` (as ``make seed-demo`` does) to
-    enable it.
+    No static tokens are seeded here: seller and buyer A2A credentials are
+    minted on demand via ``issue_credential`` / the internal exchange
+    endpoints. A fresh ``vf_agent_*`` is stored hash-only for each agent.
     """
     import os as _os
+
+    from verifund_control_plane.agents.credentials import issue_credential
+
     buyer_org = await store.ensure_seed_buyer_organization(BUYER_ID)
     await _ensure_agent(
         store,
@@ -71,20 +73,15 @@ async def seed_demo_agents(store, settings) -> None:
         name="MarketMesh Buyer",
         policy_ref="marketmesh-buyer/v1",
     )
-    buyer_token = getattr(settings, "buyer_agent_token", "") or ""
-    if buyer_token:
-        await _ensure_credential(
-            store,
-            organization_id=buyer_org["id"],
-            agent_id=BUYER_AGENT_ID,
-            token=buyer_token,
-            scopes=["a2a:call"],
-        )
+    # Buyer credential is issued on demand via /v1/internal/buyer-token;
+    # seed one active credential so verification passes before first exchange.
+    creds = [c for c in await store.list_credentials(BUYER_AGENT_ID) if c["status"] == "active"]
+    if not creds:
+        await issue_credential(store, buyer_org["id"], BUYER_AGENT_ID, ["a2a:call"])
 
-    seller_tokens = getattr(settings, "seller_tokens", {}) or {}
     if _os.environ.get("MARKETMESH_SEED_DEMO") != "1":
-        seller_tokens = {}
-    for seller_id, token in seller_tokens.items():
+        return
+    for seller_id in SEED_SELLERS:
         org = await store.ensure_seed_organization(
             seller_id=seller_id, kind="business", verified=True)
         agent_id = f"agent_{seller_id}"
@@ -95,13 +92,9 @@ async def seed_demo_agents(store, settings) -> None:
             name=seller_id,
             policy_ref=f"{seller_id}/v1",
         )
-        await _ensure_credential(
-            store,
-            organization_id=org["id"],
-            agent_id=agent_id,
-            token=token,
-            scopes=["a2a:test"],
-        )
+        creds = [c for c in await store.list_credentials(agent_id) if c["status"] == "active"]
+        if not creds:
+            await issue_credential(store, org["id"], agent_id, ["a2a:test"])
 
 
 async def _ensure_columns(conn) -> None:

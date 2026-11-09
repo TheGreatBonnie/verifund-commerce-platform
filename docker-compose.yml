@@ -45,7 +45,6 @@ services:
       SELLER_INTERNAL_TOKEN: ${SELLER_INTERNAL_TOKEN:-dev-seller-internal}
       SELLER_CHECKPOINT_PATH: /app/data/seller-checkpoints.sqlite
       PUBLIC_BASE_URL: http://seller-shared:9200
-      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
       VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       VERIFUND_URL: http://verifund:9300
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
@@ -77,11 +76,6 @@ services:
       VERIFUND_DATABASE_URL: sqlite+aiosqlite:////app/data/verifund.db
       SELLER_SHARED_DB_URL: sqlite+aiosqlite:////app/data/sellers.db
       SELLER_SHARED_URL: http://seller-shared:9200
-      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
-      SELLER_NORTHWIND_TOKEN: ${SELLER_NORTHWIND_TOKEN:-dev-northwind}
-      SELLER_CIRCUITFORGE_TOKEN: ${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}
-      SELLER_AURORA_TOKEN: ${SELLER_AURORA_TOKEN:-dev-aurora}
-      SELLER_SUMMIT_TECH_TOKEN: ${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}
     volumes:
       - marketmesh-data:/app/data
 
@@ -106,8 +100,8 @@ services:
       VERIFUND_TIMEOUT_SECONDS: ${VERIFUND_TIMEOUT_SECONDS:-20}
       VERIFUND_CONSOLE_BASE_URL: ${VERIFUND_CONSOLE_BASE_URL:-http://127.0.0.1:3000}
       BUYER_INTERNAL_TOKEN: ${BUYER_INTERNAL_TOKEN:-dev-buyer-internal}
+      VERIFUND_CONTROL_PLANE_URL: ${VERIFUND_CONTROL_PLANE_URL:-http://control-plane:9300}
       VERIFUND_AGENT_INTERNAL_TOKEN: ${VERIFUND_AGENT_INTERNAL_TOKEN:-dev-verifund-agent-internal}
-      BUYER_SELLER_TOKENS: '{"northwind-audio":"${SELLER_NORTHWIND_TOKEN:-dev-northwind}","circuitforge":"${SELLER_CIRCUITFORGE_TOKEN:-dev-circuitforge}","aurora-supply":"${SELLER_AURORA_TOKEN:-dev-aurora}","summit-tech":"${SELLER_SUMMIT_TECH_TOKEN:-dev-summit-tech}"}'
     ports:
       - "127.0.0.1:9100:9100"
     healthcheck:
@@ -130,7 +124,6 @@ services:
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       BUYER_A2A_URL: http://buyer:9100
       SELLER_SHARED_URL: http://seller-shared:9200
-      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
       BUYER_INTERNAL_URL: http://buyer:9100
       BUYER_INTERNAL_TOKEN: ${BUYER_INTERNAL_TOKEN:-dev-buyer-internal}
       VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
@@ -164,7 +157,6 @@ services:
       ORCHESTRATOR_AGUI_URL: http://orchestrator:9000
       REGISTRY_URL: http://registry:9105
       SELLER_SHARED_URL: http://seller-shared:9200
-      BUYER_AGENT_TOKEN: ${BUYER_AGENT_TOKEN:-dev-buyer-agent}
       MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
       VERIFUND_MODE: ${VERIFUND_MODE:-sandbox}
       NEXT_TELEMETRY_DISABLED: "1"

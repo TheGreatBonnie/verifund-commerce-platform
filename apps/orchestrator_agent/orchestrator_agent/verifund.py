@@ -38,12 +38,13 @@ from orchestrator_agent.mediation import (
     _buyer_response,
     _inject_settlement_token,
     _redact_settlement,
+    _resolve_caller_token,
     _resolve_seller_token,
     _resolve_settlement_token,
 )
 
 Sender = Callable[..., Awaitable[list]]
-TokenResolver = Callable[..., str]
+TokenResolver = Callable[..., Awaitable[str]]
 SettlementResolver = Callable[..., Awaitable[str]]
 
 
@@ -388,14 +389,25 @@ class SellerA2AClient:
         self,
         *,
         send: Sender = _a2a_send,
-        resolve_seller_token: TokenResolver = _resolve_seller_token,
+        control_plane_url: str = "",
+        buyer_internal_token: str = "",
+        caller_token: str | None = None,
         resolve_settlement_token: SettlementResolver = (
             _resolve_settlement_token
         ),
     ) -> None:
         self._send = send
-        self._resolve_seller_token = resolve_seller_token
+        self.control_plane_url = control_plane_url
+        self.buyer_internal_token = buyer_internal_token
+        self.caller_token = caller_token
         self._resolve_settlement_token = resolve_settlement_token
+
+    async def _caller_token(self, card_url: str, seller_id: str) -> str:
+        if self.caller_token:
+            return _resolve_seller_token(card_url, self.caller_token, seller_id)
+        return await _resolve_caller_token(
+            self.control_plane_url, self.buyer_internal_token
+        )
 
     async def review(
         self,
@@ -412,8 +424,8 @@ class SellerA2AClient:
         frames = await self._send(
             _base_url(card_url),
             message,
-            token=self._resolve_seller_token(
-                card_url, None, request.agreement.seller_id
+            token=await self._caller_token(
+                card_url, request.agreement.seller_id
             ),
         )
         for frame in frames:
@@ -486,7 +498,7 @@ class SellerA2AClient:
         frames = await self._send(
             _base_url(card_url),
             message,
-            token=self._resolve_seller_token(card_url, None, seller_id),
+            token=await self._caller_token(card_url, seller_id),
         )
         order = self._order_from_frames(frames)
         parsed = Order.model_validate(order)

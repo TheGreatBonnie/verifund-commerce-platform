@@ -223,6 +223,54 @@ async def internal_agent_token(request: Request, body: InternalTokenBody) -> dic
     return {"agent_id": agent["id"], "token": raw, "scopes": ["a2a:call"]}
 
 
+BUYER_AGENT_ID = "agent_marketmesh_buyer"
+
+
+@router.post("/v1/internal/buyer-token")
+async def internal_buyer_token(request: Request) -> dict:
+    """Mint a fresh caller credential for the buyer agent.
+
+    Gated by the same internal token as the seller exchange; lazily
+    ensures the deterministic buyer agent exists and is active.
+    """
+    settings = request.app.state.settings
+    if request.headers.get("X-Internal-Token") != getattr(
+        settings, "buyer_internal_token", ""
+    ):
+        raise VerifundError("unauthorized", "invalid internal token", status_code=401)
+    store = request.app.state.tenancy
+    from verifund_control_plane.tenancy.backfill import BUYER_ID, _ensure_agent
+
+    buyer_org = await store.ensure_seed_buyer_organization(BUYER_ID)
+    agent = await store.get_agent(BUYER_AGENT_ID)
+    if agent is None:
+        agent = await store.create_agent(
+            organization_id=buyer_org["id"],
+            name="MarketMesh Buyer",
+            created_by="buyer-token-exchange",
+            policy_ref="marketmesh-buyer/v1",
+            policy_version="1",
+            policy_hash="0" * 64,
+            agent_id=BUYER_AGENT_ID,
+        )
+        await store.set_agent_status(BUYER_AGENT_ID, "active")
+        agent = await store.get_agent(BUYER_AGENT_ID)
+    elif agent["status"] != "active":
+        # Reuse _ensure_agent semantics: reactivate the buyer agent
+        await _ensure_agent(
+            store,
+            organization_id=buyer_org["id"],
+            agent_id=BUYER_AGENT_ID,
+            name="MarketMesh Buyer",
+            policy_ref="marketmesh-buyer/v1",
+        )
+        agent = await store.get_agent(BUYER_AGENT_ID)
+    raw = await issue_credential(
+        store, agent["organization_id"], agent["id"], ["a2a:call"]
+    )
+    return {"agent_id": agent["id"], "token": raw, "scopes": ["a2a:call"]}
+
+
 async def _forward_config(request: Request, agent_id: str, identity,
                           body: ConfigBody, agent: dict):
     # seller_id is anchored to policy_ref ("{seller_id}/vN"); keep it stable.

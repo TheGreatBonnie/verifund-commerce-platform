@@ -264,10 +264,6 @@ def seller_internal_token() -> str:
     return _env("SELLER_INTERNAL_TOKEN", "dev-seller-internal")
 
 
-def buyer_agent_token() -> str:
-    return _env("BUYER_AGENT_TOKEN", "dev-buyer-agent")
-
-
 def seller_checkpoint_path() -> str:
     return _env("SELLER_CHECKPOINT_PATH", "./data/seller-checkpoints.sqlite")
 

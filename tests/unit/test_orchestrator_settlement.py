@@ -90,6 +90,7 @@ async def test_mediate_seller_call_injects_and_redacts_the_token(monkeypatch):
         settlement_secret_ref=REF,
         buyer_internal_url="http://buyer",
         buyer_internal_token="internal-token",
+        seller_token="vf_agent_test",
     )
 
     from commerce_core.a2a_parts import first_envelope
@@ -119,6 +120,7 @@ async def test_mediate_seller_call_keeps_legacy_requests_unmodified(monkeypatch)
         buyer_a2a_url="http://buyer-a2a",
         seller_request=ENVELOPE,
         seller_id="northwind-audio",
+        seller_token="vf_agent_test",
     )
     from commerce_core.a2a_parts import first_envelope
 

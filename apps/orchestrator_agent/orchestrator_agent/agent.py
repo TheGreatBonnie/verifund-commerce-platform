@@ -302,6 +302,7 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             buyer_internal_url=settings.buyer_internal_url,
             buyer_internal_token=settings.buyer_internal_token,
             buyer_internal_timeout_seconds=settings.buyer_internal_timeout_seconds,
+            control_plane_url=settings.verifund_control_plane_url,
         )
         if seller_name and isinstance(result, dict):
             result.setdefault("seller_name", seller_name)
@@ -384,7 +385,10 @@ def build_verifund_lifecycle(settings: Settings) -> VerifundLifecycle:
             token=settings.verifund_agent_a2a_token,
         ),
         buyer=BuyerA2AAgents(buyer_a2a_url=settings.buyer_a2a_url),
-        seller=SellerA2AClient(),
+        seller=SellerA2AClient(
+            control_plane_url=settings.verifund_control_plane_url,
+            buyer_internal_token=settings.buyer_internal_token,
+        ),
         buyer_internal_url=settings.buyer_internal_url,
         buyer_internal_token=settings.buyer_internal_token,
         buyer_internal_timeout_seconds=(

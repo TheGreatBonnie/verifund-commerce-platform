@@ -159,15 +159,6 @@ class Settings(BaseSettings):
     seller_payout_emails: dict[str, str] = Field(
         default_factory=dict, validation_alias="VERIFUND_SELLER_PAYOUT_EMAILS"
     )
-    seller_tokens: dict[str, str] = Field(
-        default_factory=dict,
-        validation_alias=AliasChoices(
-            "VERIFUND_SELLER_AGENT_TOKENS", "SELLER_AGENT_TOKENS"),
-    )
-    buyer_agent_token: str = Field(
-        default="dev-buyer-agent",
-        validation_alias=AliasChoices("BUYER_AGENT_TOKEN"),
-    )
     buyer_internal_token: str = Field(
         default="dev-buyer-internal",
         validation_alias="BUYER_INTERNAL_TOKEN",

@@ -17,21 +17,13 @@ class Settings(BaseSettings):
     )
     orchestrator_url: str = "http://127.0.0.1:9000"
     buyer_a2a_url: str = "http://127.0.0.1:9100"
-    seller_northwind_token: str = Field(
-        default="dev-northwind",
-        validation_alias=AliasChoices("SELLER_NORTHWIND_TOKEN"),
-    )
-    seller_circuitforge_token: str = Field(
-        default="dev-circuitforge",
-        validation_alias=AliasChoices("SELLER_CIRCUITFORGE_TOKEN"),
-    )
-    seller_aurora_token: str = Field(
-        default="dev-aurora",
-        validation_alias=AliasChoices("SELLER_AURORA_TOKEN"),
-    )
-    seller_summit_tech_token: str = Field(
-        default="dev-summit-tech",
-        validation_alias=AliasChoices("SELLER_SUMMIT_TECH_TOKEN"),
+    verifund_control_plane_url: str = Field(
+        default="http://127.0.0.1:9300",
+        validation_alias=AliasChoices(
+            "VERIFUND_CONTROL_PLANE_URL",
+            "CONTROL_PLANE_URL",
+            "VERIFUND_URL",
+        ),
     )
     llm_mode: str = Field(
         default="live",

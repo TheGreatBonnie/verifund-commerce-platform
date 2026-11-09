@@ -833,7 +833,7 @@ async def test_seller_purchase_order_injects_the_token_and_never_returns_it() ->
         ]
 
     client = SellerA2AClient(
-        send=send, resolve_settlement_token=resolve_token
+        send=send, resolve_settlement_token=resolve_token, caller_token="vf_agent_test"
     )
     result = await client.purchase_order(
         card_url="http://seller/.well-known/agent-card.json",

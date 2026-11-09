@@ -16,7 +16,6 @@ from commerce_core.pricing import load_policy
 from config import (
     ROOT,
     admin_token,
-    buyer_agent_token,
     registry_url,
     shared_seller_db_url,
     shared_seller_url,
@@ -73,10 +72,7 @@ async def seed_control_plane() -> tuple[dict[str, str], dict]:
     repo = TenancyRepository(engine)
     try:
         await repo.create_schema()
-        demo = SimpleNamespace(
-            seller_tokens={seller.seller_id: seller.token for seller in SEED_SELLERS},
-            buyer_agent_token=buyer_agent_token(),
-        )
+        demo = SimpleNamespace()
         await seed_demo_agents(repo, demo)
         organizations: dict[str, str] = {}
         for seller in SEED_SELLERS:
@@ -122,8 +118,14 @@ def write_demo_credentials(
 ) -> Path:
     path = Path("data/demo-credentials.json")
     tokens = {}
+    # Demo-credentials file is used only by VERIFUND_MODE=off verifier.
+    # Tokens here are locally generated, unique per seed run, and keyed by
+    # hash in this file. Dynamic modes (sandbox/fake) mint credentials via
+    # the control plane instead.
+    import secrets as _secrets
+
     if buyer:
-        buyer_token = buyer_agent_token()
+        buyer_token = "vf_agent_" + _secrets.token_urlsafe(32)
         tokens[_hash(buyer_token)] = {
             "organization_id": buyer["organization_id"],
             "agent_id": BUYER_AGENT_ID,

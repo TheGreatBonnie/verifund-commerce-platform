@@ -272,7 +272,6 @@ def shared_seller_environment(
             "PUBLIC_BASE_URL": shared_seller_url(),
             "SELLER_CHECKPOINT_PATH": seller_checkpoint_path(),
             "VERIFUND_MODE": verifund_mode,
-            "BUYER_AGENT_TOKEN": buyer_agent_token(),
         }
     )
     if verifund_mode != "off":
@@ -296,7 +295,6 @@ def buyer_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, st
                 "BUYER_CONSOLE_API_TOKEN", "dev-console"
             ),
             "SELLER_INTERNAL_TOKEN": seller_internal_token(),
-            "BUYER_AGENT_TOKEN": buyer_agent_token(),
             "ALLOWED_CARD_HOSTS": allowed_card_hosts_json(),
             "VERIFUND_MODE": verifund_mode,
         }
@@ -351,7 +349,6 @@ def orchestrator_environment(mode: str, verifund_mode: str = "sandbox") -> dict[
             "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
             "BUYER_A2A_URL": buyer_a2a_url(),
             "SELLER_SHARED_URL": shared_seller_url(),
-            "BUYER_AGENT_TOKEN": buyer_agent_token(),
             "COPILOTKIT_AGENT_MODEL": f"openai:{nebius_model()}",
             "OPENAI_BASE_URL": nebius_base_url(),
         }
@@ -361,6 +358,7 @@ def orchestrator_environment(mode: str, verifund_mode: str = "sandbox") -> dict[
     if verifund_mode != "off":
         env["BUYER_INTERNAL_URL"] = config.buyer_url()
         env["BUYER_INTERNAL_TOKEN"] = config.buyer_internal_token()
+        env["VERIFUND_CONTROL_PLANE_URL"] = config.verifund_url()
         env["VERIFUND_AGENT_URL"] = config.verifund_agent_url()
         env["VERIFUND_AGENT_CARD_URL"] = config.verifund_agent_card_url()
         env["VERIFUND_AGENT_A2A_TOKEN"] = config.verifund_agent_a2a_token()
@@ -379,7 +377,6 @@ def console_environment(mode: str) -> dict[str, str]:
             "ORCHESTRATOR_AGUI_URL": orchestrator_agui_url(),
             "REGISTRY_URL": registry_url(),
             "SELLER_SHARED_URL": shared_seller_url(),
-            "BUYER_AGENT_TOKEN": buyer_agent_token(),
             "NEXT_TELEMETRY_DISABLED": "1",
             "COPILOTKIT_TELEMETRY_DISABLED": "true",
             "VERIFUND_MODE": "sandbox",
@@ -402,10 +399,6 @@ AGENT_FORBIDDEN_ENV = (
     "PAYPAL_WEBHOOK_ID",
     "PAYPAL_PLATFORM_EMAIL",
     "PAYPAL_BUYER_EMAIL",
-    "SELLER_NORTHWIND_TOKEN",
-    "SELLER_CIRCUITFORGE_TOKEN",
-    "SELLER_AURORA_TOKEN",
-    "SELLER_SUMMIT_TECH_TOKEN",
 )
 
 
