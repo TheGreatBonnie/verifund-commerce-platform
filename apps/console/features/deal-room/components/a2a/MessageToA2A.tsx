@@ -7,6 +7,7 @@
 
 import React from "react";
 import { getAgentStyle, truncateTask } from "./agent-styles";
+import { useResolvedAgentName } from "./use-resolved-agent-name";
 
 type MessageActionRenderProps = {
   status?: string;
@@ -32,9 +33,9 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
     return null;
   }
 
-  const agentName = args.agentName;
+  const displayName = useResolvedAgentName(args.agentName) ?? args.agentName;
   const task = args.task;
-  const agentStyle = getAgentStyle(agentName);
+  const agentStyle = getAgentStyle(displayName);
 
   return (
     <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 my-2 a2a-message-enter a2a-message-card a2a-message-card-outgoing">
@@ -54,7 +55,7 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
               className={`px-3 py-1 rounded-full text-xs font-semibold border-2 ${agentStyle.bgColor} ${agentStyle.textColor} ${agentStyle.borderColor} flex items-center gap-1`}
             >
               <span>{agentStyle.icon}</span>
-              <span>{agentName}</span>
+              <span>{displayName}</span>
             </span>
             {agentStyle.framework && (
               <span className="text-[9px] text-gray-500 mt-0.5">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   CopilotChat,
   useAgent,
@@ -34,6 +34,7 @@ import {
   releaseDecision,
   verifundToolsEnabled,
 } from "./verifund-tools";
+import { fetchRegistry } from "@/lib/api";
 import { ProductSearchCards } from "./product-cards";
 import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
 import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
@@ -63,7 +64,14 @@ type ChatProps = {
 const SAMPLE_PROMPT =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
 
-function sellerName(sellerId?: string, cardUrl?: string) {
+function sellerName(
+  sellerId?: string,
+  cardUrl?: string,
+  resolvedName?: string | null,
+) {
+  // Prefer an explicit display name (tool arg or registry lookup) over the
+  // legacy slug/port maps; UUID seller ids otherwise leak into the UI.
+  if (resolvedName) return resolvedName;
   const names: Record<string, string> = {
     "northwind-audio": "Northwind Audio",
     circuitforge: "CircuitForge",
@@ -180,6 +188,27 @@ export function Chat({
   onVerifundAction,
 }: ChatProps) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
+  const [registryNames, setRegistryNames] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRegistry()
+      .then((sellers) => {
+        if (!cancelled) {
+          setRegistryNames(
+            new Map(sellers.map((seller) => [seller.seller_id, seller.name])),
+          );
+        }
+      })
+      .catch(() => {
+        // The slug/port fallback in sellerName still applies without the registry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useHumanInTheLoop(
     {
@@ -625,6 +654,7 @@ export function Chat({
     name: "mediate_seller_call",
     parameters: z.object({
       seller_id: z.string().optional(),
+      seller_name: z.string().optional(),
       seller_card_url: z.string(),
       seller_request: z.record(z.unknown()).optional(),
     }),
@@ -633,6 +663,8 @@ export function Chat({
       const agentName = sellerName(
         parameters.seller_id,
         parameters.seller_card_url,
+        parameters.seller_name ??
+          registryNames.get(parameters.seller_id ?? ""),
       );
       const outgoing = {
         agentName,

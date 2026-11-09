@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { CopilotChat } from "@copilotkit/react-core/v2";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +8,11 @@ const hooks = vi.hoisted(() => ({
   useRenderTool: vi.fn(),
   addMessage: vi.fn(),
   runAgent: vi.fn(),
+  fetchRegistry: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => ({
+  fetchRegistry: hooks.fetchRegistry,
 }));
 
 vi.mock("@copilotkit/react-core/v2", () => ({
@@ -23,6 +28,8 @@ vi.mock("@copilotkit/react-core/v2", () => ({
 }));
 
 import { Chat } from "@/features/chat/chat";
+
+hooks.fetchRegistry.mockResolvedValue([]);
 
 function renderChat(
   threadId?: string,
@@ -146,5 +153,78 @@ describe("chat thread wiring", () => {
 
     const copilotCall = vi.mocked(CopilotChat).mock.calls.at(-1);
     expect(copilotCall?.[0]).toMatchObject({ threadId: "thread-1" });
+  });
+});
+
+describe("chat seller naming", () => {
+  const NORTHWIND_ID = "33a492070e344199803b6d0f4331cee0";
+
+  beforeEach(() => {
+    hooks.useRenderTool.mockClear();
+    hooks.fetchRegistry.mockReset();
+    hooks.fetchRegistry.mockResolvedValue([
+      {
+        seller_id: NORTHWIND_ID,
+        name: "Northwind Audio",
+        card_url: `http://127.0.0.1:9200/${NORTHWIND_ID}/.well-known/agent-card.json`,
+        categories: ["Audio"],
+        card_hash: "hash",
+        last_seen_at: "now",
+        healthy: true,
+        last_error: null,
+      },
+    ]);
+  });
+
+  const mediateRender = async () => {
+    renderChat();
+    // Flush the registry fetch so registryNames settles, mirroring page load
+    // completing long before a mediation runs.
+    await act(async () => {});
+    return hooks.useRenderTool.mock.calls
+      .filter(([tool]) => tool.name === "mediate_seller_call")
+      .at(-1)?.[0].render;
+  };
+
+  it("shows the seller display name for UUID seller ids", async () => {
+    const renderTool = await mediateRender();
+
+    render(
+      renderTool({
+        parameters: {
+          seller_id: NORTHWIND_ID,
+          seller_card_url: `http://127.0.0.1:9200/${NORTHWIND_ID}/.well-known/agent-card.json`,
+          seller_request: { quantity: 1, product_hint: "MacBook Air" },
+        },
+        status: "complete",
+        result: JSON.stringify({
+          seller_result: { offers: [{ total_cents: 107999 }] },
+        }),
+      }),
+    );
+
+    expect((await screen.findAllByText("Northwind Audio")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(NORTHWIND_ID)).not.toBeInTheDocument();
+  });
+
+  it("prefers an explicit seller_name when the agent supplies one", async () => {
+    const renderTool = await mediateRender();
+
+    render(
+      renderTool({
+        parameters: {
+          seller_id: NORTHWIND_ID,
+          seller_name: "Northwind Audio Co.",
+          seller_card_url: `http://127.0.0.1:9200/${NORTHWIND_ID}/.well-known/agent-card.json`,
+          seller_request: { quantity: 1, product_hint: "MacBook Air" },
+        },
+        status: "complete",
+        result: JSON.stringify({
+          seller_result: { offers: [{ total_cents: 107999 }] },
+        }),
+      }),
+    );
+
+    expect((await screen.findAllByText("Northwind Audio Co.")).length).toBeGreaterThan(0);
   });
 });

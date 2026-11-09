@@ -75,6 +75,7 @@ mediate_seller_call with the following mappings:
 - seller_card_url = card_url
 - seller_request = request
 - seller_id = seller_id, when present
+- seller_name = seller_name, the seller's display name when present
 - seller_task_id = seller_task_id, when present
 - seller_context_id = seller_context_id, when present
 
@@ -277,6 +278,7 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
         seller_card_url: str,
         seller_request: dict | None = None,
         seller_id: str | None = None,
+        seller_name: str | None = None,
         seller_task_id: str | None = None,
         seller_context_id: str | None = None,
         settlement_secret_ref: dict | None = None,
@@ -287,7 +289,7 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             getattr(getattr(tool_context, "session", None), "id", None)
             or buyer_task_id
         )
-        return await _mediate_seller_call(
+        result = await _mediate_seller_call(
             buyer_task_id=buyer_task_id,
             seller_card_url=seller_card_url,
             buyer_a2a_url=settings.buyer_a2a_url,
@@ -301,6 +303,9 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             buyer_internal_token=settings.buyer_internal_token,
             buyer_internal_timeout_seconds=settings.buyer_internal_timeout_seconds,
         )
+        if seller_name and isinstance(result, dict):
+            result.setdefault("seller_name", seller_name)
+        return result
 
     return FunctionTool(mediate_seller_call)
 
