@@ -24,6 +24,9 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
   response,
   failed = false,
 }) => {
+  // Hook must be unconditionally called before any early return.
+  const displayName = useResolvedAgentName(args?.agentName) ?? args?.agentName;
+
   switch (status) {
     case "complete":
       break;
@@ -34,8 +37,6 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
   if (!args?.agentName) {
     return null;
   }
-
-  const displayName = useResolvedAgentName(args.agentName) ?? args.agentName;
   const agentStyle = getAgentStyle(displayName);
 
   return (
