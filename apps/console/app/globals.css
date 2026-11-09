@@ -778,22 +778,57 @@ paypal-button {
 }
 
 /* Chat product cards reuse the shared .mm-product-* rules (marketplace,
-   public home). These selectors only scope the chat layout: single-column
-   grid inside the rail, compact art, and details styling. */
+   public home). These selectors only scope the chat layout: a horizontal
+   flex track with snap scrolling and arrow controls. Flex (not grid)
+   because the shared .mm-product-grid rule would otherwise keep its
+   5-column template and squeeze cards into one narrow column. */
 .mm-product-search .mm-product-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 4px;
+  gap: 12px;
+}
+
+.mm-product-search .mm-product-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.mm-product-search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mm-product-search-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.mm-product-search-nav-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mm-product-search-nav-button:hover {
+  color: var(--signal-deep);
 }
 
 .mm-product-search-card {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 340px;
-  justify-self: start;
+  flex: 0 0 260px;
+  scroll-snap-align: start;
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
@@ -803,9 +838,10 @@ paypal-button {
 }
 
 /* Shared .mm-product-art is defined later in the file, so these
-   chat overrides need higher specificity to shrink the band. */
+   chat overrides need higher specificity to shape the band. A 16:10
+   box keeps object-fit: cover from slicing photos down to a strip. */
 .mm-product-search-card .mm-product-search-art {
-  min-height: 72px;
+  aspect-ratio: 16 / 10;
   flex: none;
 }
 

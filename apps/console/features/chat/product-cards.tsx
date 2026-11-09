@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Handshake, Star } from "lucide-react";
+import { useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Handshake, Star } from "lucide-react";
 import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
 import { Button } from "@/components/ui/button";
 import { parseVerifundToolResult } from "./verifund-tools";
@@ -264,17 +264,49 @@ export function ProductSearchCards({
   };
 
   const total = parsed.total_candidates ?? products.length;
+  const trackRef = useRef<HTMLUListElement>(null);
+
+  const scrollTrack = (direction: 1 | -1) => {
+    trackRef.current?.scrollBy({ left: direction * 288, behavior: "smooth" });
+  };
 
   return (
     <div className="mm-product-search">
-      <p className="mm-product-count">
-        {total > products.length
-          ? `Showing ${products.length} of ${total} matches`
-          : `${products.length} ${
-              products.length === 1 ? "match" : "matches"
-            }`}
-      </p>
-      <ul className="mm-product-grid">
+      <div className="mm-product-search-head">
+        <p className="mm-product-count">
+          {total > products.length
+            ? `Showing ${products.length} of ${total} matches`
+            : `${products.length} ${
+                products.length === 1 ? "match" : "matches"
+              }`}
+        </p>
+        {products.length > 1 ? (
+          <div className="mm-product-search-nav">
+            <button
+              type="button"
+              className="mm-product-search-nav-button"
+              aria-label="Previous products"
+              onClick={() => scrollTrack(-1)}
+            >
+              <ChevronLeft size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="mm-product-search-nav-button"
+              aria-label="Next products"
+              onClick={() => scrollTrack(1)}
+            >
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <ul
+        ref={trackRef}
+        className="mm-product-grid"
+        tabIndex={0}
+        aria-label="Recommended products"
+      >
         {products.map((product, index) => (
           <ProductCard
             key={product.sku ?? product.id ?? index}

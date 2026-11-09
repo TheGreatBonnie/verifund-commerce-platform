@@ -199,4 +199,30 @@ describe("product search cards", () => {
       screen.getByText("Marketplace catalog is unavailable"),
     ).toBeInTheDocument();
   });
+
+  it("scrolls the horizontal track with prev/next controls", () => {
+    const { container } = render(
+      <ProductSearchCards status="complete" result={PAYLOAD} />,
+    );
+    const track = container.querySelector(".mm-product-grid");
+    expect(track).not.toBeNull();
+    const scrollBy = vi.fn();
+    (track as HTMLElement).scrollBy = scrollBy;
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Next products" }),
+    );
+    expect(scrollBy).toHaveBeenCalledWith({
+      left: 288,
+      behavior: "smooth",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Previous products" }),
+    );
+    expect(scrollBy).toHaveBeenCalledWith({
+      left: -288,
+      behavior: "smooth",
+    });
+  });
 });
