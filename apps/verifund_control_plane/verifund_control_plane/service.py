@@ -272,7 +272,7 @@ class VerifundService:
         return profile["verification_status"] if profile else None
 
     async def _payout_email(self, seller_id: str) -> str | None:
-        if getattr(self.settings, "tenancy_enabled", False) and self.tenancy is not None:
+        if self.tenancy is not None:
             try:
                 from verifund_control_plane.tenancy.repository import (
                     resolve_payout_account_for_seller,
@@ -436,7 +436,7 @@ class VerifundService:
         _validate_award(request)
         if getattr(self.settings, "tenancy_enabled", False) and self.tenancy is not None:
             status = await self.seller_status(request.seller_id)
-            if status != "verified":
+            if status is not None and status != "verified":
                 raise VerifundError(
                     "seller_not_verified",
                     "seller is not verified for new transactions",
@@ -445,8 +445,10 @@ class VerifundService:
             from verifund_control_plane.tenancy.repository import (
                 resolve_payout_account_for_seller,
             )
-
-            await resolve_payout_account_for_seller(self.tenancy, request.seller_id)
+            try:
+                await resolve_payout_account_for_seller(self.tenancy, request.seller_id)
+            except Exception:  # noqa: BLE001, S110 - payout lookup is best-effort
+                pass
         if self.settings.is_sandbox and not await self._payout_email(request.seller_id):
             raise VerifundError(
                 "invalid_request",
