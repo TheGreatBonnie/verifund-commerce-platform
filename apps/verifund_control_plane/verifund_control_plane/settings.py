@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     registry_url: str = Field(
         default="http://127.0.0.1:9100", validation_alias="REGISTRY_URL"
     )
+    registry_admin_token: str = Field(
+        default="", validation_alias="REGISTRY_ADMIN_TOKEN"
+    )
     agents_public_base_url: str = Field(
         default="http://127.0.0.1:9200",
         validation_alias=AliasChoices("AGENTS_PUBLIC_BASE_URL", "SELLER_SHARED_URL", "SELLER_AGENT_URL"),

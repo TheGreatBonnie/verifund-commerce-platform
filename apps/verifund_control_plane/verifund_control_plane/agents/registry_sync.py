@@ -17,14 +17,17 @@ async def publish_agent(client, agent, card) -> None:
 
 
 async def publish_seller(client, *, seller_id: str, card_url: str,
-                         organization_id: str | None) -> None:
+                         organization_id: str | None,
+                         admin_token: str) -> None:
     """Project an activated seller into the marketplace registry.
 
     The registry fetches the seller card and public catalog from ``card_url``
     and stores the catalog listings that back ``GET /v1/products``.
+    ``POST /v1/sellers`` is admin-only, so the bearer token is required.
     """
     response = await client.post(
         "/v1/sellers",
+        headers={"authorization": f"Bearer {admin_token}"},
         json={
             "seller_id": seller_id,
             "card_url": card_url,

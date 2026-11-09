@@ -19,6 +19,7 @@ async def client(tmp_path):
         seller_internal_token="secret-token",
         seller_agent_url="http://runtime",
         registry_url="http://registry",
+        registry_admin_token="test-registry-admin",
         agents_public_base_url="https://agents.verifund.com",
     )
     clock = lambda: datetime.now(UTC)
@@ -94,6 +95,9 @@ async def client(tmp_path):
         return httpx.Response(404, json={"code": "not_found"})
 
     def registry_handler(request: httpx.Request) -> httpx.Response:
+        # /v1/sellers is an admin-only endpoint on the real registry.
+        if request.headers.get("authorization") != "Bearer test-registry-admin":
+            return httpx.Response(401, json={"detail": "unauthorized"})
         if request.method == "POST" and request.url.path in {
             "/v1/agents", "/v1/sellers"
         }:

@@ -484,6 +484,7 @@ async def activate_agent_route(agent_id: str, request: Request) -> dict:
             seller_id=seller_id,
             card_url=card_url,
             organization_id=identity.tenant_id,
+            admin_token=getattr(settings, "registry_admin_token", ""),
         )
 
     try:
