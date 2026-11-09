@@ -5,6 +5,8 @@ import { OrganizationSwitcher, UserButton, Show, SignInButton, SignUpButton } fr
 import { CopilotProvider, threadsEnabled } from "@/providers/copilot-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import { Sidebar } from "@/components/layout/sidebar";
+import { ModeToggle } from "@/components/layout/mode-toggle";
+import { usePathname } from "next/navigation";
 import { SkipLink } from "@/components/layout/skip-link";
 import { SellerLink } from "@/components/layout/seller-link";
 import { Button } from "@/components/ui/button";
@@ -18,13 +20,16 @@ export function ConsoleLayout({
   userId?: string;
   orgId?: string | null;
 }) {
+  const pathname = usePathname();
+  const chatOnly = pathname === "/chat";
+
   return (
     <CopilotProvider>
       <QueryProvider>
         <div className={threadsEnabled ? "mm-app-frame" : undefined} suppressHydrationWarning>
           <div className="mm-shell" style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "stretch" }} suppressHydrationWarning>
             <SkipLink />
-            <Sidebar />
+            {!chatOnly && <Sidebar />}
             <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }} suppressHydrationWarning>
               <header
                 title={userId ?? undefined}
@@ -48,6 +53,7 @@ export function ConsoleLayout({
                   </SignUpButton>
                 </Show>
                 <Show when="signed-in">
+                  <ModeToggle />
                   <SellerLink />
                   <OrganizationSwitcher
                     afterCreateOrganizationUrl="/"
@@ -57,7 +63,7 @@ export function ConsoleLayout({
                   <UserButton />
                 </Show>
               </header>
-              <main id="main-content" className="mm-console-main">
+              <main id="main-content" className={chatOnly ? "mm-console-main chat-only" : "mm-console-main"}>
                 {children}
               </main>
             </div>

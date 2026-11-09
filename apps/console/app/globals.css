@@ -510,6 +510,99 @@ paypal-button {
   padding: 16px 16px 0;
 }
 
+/* Chat-only route: chat fills the viewport, no app chrome. Height comes
+   from the flex chain (header -> main.chat-only -> drawer layout), not from
+   a fixed viewport height, so the page never scrolls. */
+.mm-chat-full {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.mm-console-main.chat-only {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mm-chat-full .mm-copilot-chat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mm-chat-full .mm-copilot-chat[data-testid="copilot-chat"] {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.mm-chat-full .mm-copilot-chat[data-testid="copilot-chat"] > :first-child {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Reserve the threads drawer's width as a fixed first column so the layout
+   doesn't shift when the client-only drawer mounts after hydration. On
+   mobile the drawer is an off-canvas overlay, so the column collapses. */
+.mm-chat-drawer-layout {
+  display: grid;
+  grid-template-columns: var(--cpk-drawer-reserved-width, 320px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  transition: grid-template-columns 0.2s ease;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mm-chat-drawer-layout > .mm-chat-full {
+  grid-column: 2;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .mm-chat-drawer-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mm-chat-drawer-layout > .mm-chat-full {
+    grid-column: auto;
+  }
+}
+
+.mm-chat-full .mm-chat {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Chat | App segmented mode switch in the console header. */
+.mm-mode-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+}
+
+.mm-mode-toggle-button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mm-mode-toggle-button.is-active {
+  background: var(--ink);
+  color: var(--panel);
+}
+
 .mm-rail-head {
   display: flex;
   align-items: flex-start;
@@ -602,6 +695,8 @@ paypal-button {
 
 .mm-chat-surface {
   display: flex;
+  flex: 1;
+  min-height: 0;
   padding-top: 8px;
 }
 

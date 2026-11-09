@@ -2,8 +2,15 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const clerk = vi.hoisted(() => ({ signedIn: true }));
+const nav = vi.hoisted(() => ({ pathname: "/marketplace" }));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => nav.pathname,
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({ isSignedIn: clerk.signedIn, orgId: "org_1" }),
   Show: ({ children, when }: { children?: React.ReactNode; when: string }) => {
     const visible = when === "signed-in" ? clerk.signedIn : !clerk.signedIn;
     return visible ? <>{children}</> : null;
@@ -30,6 +37,10 @@ vi.mock("@clerk/nextjs", () => ({
 vi.mock("@/providers/copilot-provider", () => ({
   CopilotProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   threadsEnabled: false,
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: undefined, isLoading: false }),
 }));
 
 vi.mock("@/providers/query-provider", () => ({
@@ -82,5 +93,24 @@ describe("ConsoleLayout", () => {
     expect(screen.queryByTestId("org-switcher")).not.toBeInTheDocument();
     expect(screen.queryByTestId("user-button")).not.toBeInTheDocument();
     expect(screen.getByText("content")).toBeInTheDocument();
+  });
+
+  it("hides the sidebar in chat-only mode", () => {
+    nav.pathname = "/chat";
+    render(
+      <ConsoleLayout userId="user_1" orgId="org_1">
+        <div>content</div>
+      </ConsoleLayout>,
+    );
+
+    expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
+    expect(screen.getByText("content")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Chat only" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Full app" }),
+    ).toBeInTheDocument();
+    expect(document.querySelector("main")?.classList).toContain("chat-only");
   });
 });

@@ -45,3 +45,41 @@ describe("chat recommendation track", () => {
     expect(card).not.toContain("max-width: 340px");
   });
 });
+
+describe("chat/app mode toggle", () => {
+  it("styles the segmented Chat | App control", () => {
+    const toggle = readRule(".mm-mode-toggle");
+    expect(toggle).toContain("display: flex");
+  });
+});
+
+describe("chat threads drawer layout", () => {
+  it("reserves the drawer column beside the chat", () => {
+    const layout = readRule(".mm-chat-drawer-layout");
+    expect(layout).toContain("display: grid");
+    expect(layout).toContain(
+      "var(--cpk-drawer-reserved-width, 320px)",
+    );
+  });
+});
+
+describe("chat full-viewport flex chain", () => {
+  it("fills the container width and viewport height", () => {
+    const full = readRule(".mm-chat-full");
+    expect(full).toContain("flex: 1");
+    expect(full).toContain("min-height: 0");
+    expect(full).not.toContain("max-width: 960px");
+    expect(full).not.toContain("height: 100dvh");
+
+    const layout = readRule(".mm-chat-drawer-layout");
+    expect(layout).toContain("flex: 1");
+    expect(layout).not.toContain("height: 100dvh");
+
+    const surface = readRule(".mm-chat-surface");
+    expect(surface).toContain("flex: 1");
+    expect(surface).toContain("min-height: 0");
+
+    const main = readRule(".mm-console-main.chat-only");
+    expect(main).toContain("padding: 0");
+  });
+});
