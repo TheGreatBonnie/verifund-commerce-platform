@@ -518,13 +518,39 @@ paypal-button {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   width: 100%;
 }
 
 .mm-console-main.chat-only {
+  /* Chat-only mode never scrolls at the page level: the app chrome is
+     hidden and the message list inside the chat is the only scroller, so
+     the input stays pinned at the bottom of the viewport. */
   padding: 0;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* In chat-only mode the shell itself is viewport-height and clipped, so a
+   long agent response scrolls the message list instead of the page. */
+.mm-app-frame:has(.mm-console-main.chat-only) {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.mm-app-frame:has(.mm-console-main.chat-only) .mm-shell {
+  min-height: 0;
+}
+
+/* The threads drawer is pinned to the viewport top and scrolls its own
+   thread list, independent of the chat message scroll. */
+.mm-chat-drawer-layout > copilotkit-threads-drawer {
+  position: sticky;
+  top: 0;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .mm-chat-full .mm-copilot-chat {
@@ -697,6 +723,9 @@ paypal-button {
   display: flex;
   flex: 1;
   min-height: 0;
+  /* When the agent response grows, the message area scrolls here instead of
+     pushing the input out — same role as .mm-chat-rail's own scroller. */
+  overflow-y: auto;
   padding-top: 8px;
 }
 

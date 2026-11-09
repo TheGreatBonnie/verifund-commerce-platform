@@ -200,6 +200,16 @@ describe("product search cards", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders results after the in-progress state without changing hook order", () => {
+    const { rerender } = render(
+      <ProductSearchCards status="inProgress" result={undefined} />,
+    );
+    expect(screen.getByText("Searching Marketplace…")).toBeInTheDocument();
+
+    rerender(<ProductSearchCards status="complete" result={PAYLOAD} />);
+    expect(screen.getByText("MacBook Air M4 13-inch")).toBeInTheDocument();
+  });
+
   it("scrolls the horizontal track with prev/next controls", () => {
     const { container } = render(
       <ProductSearchCards status="complete" result={PAYLOAD} />,

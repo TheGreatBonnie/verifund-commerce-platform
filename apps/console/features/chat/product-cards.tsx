@@ -213,6 +213,9 @@ export function ProductSearchCards({
   const { copilotkit } = useCopilotKit();
   const [isDispatching, setIsDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Hooks must run on every render, before the early returns below —
+  // otherwise the hook count changes when the tool call completes.
+  const trackRef = useRef<HTMLUListElement>(null);
   const parsed = parseVerifundToolResult(result) as SearchPayload | null;
 
   if (!parsed && (status === "inProgress" || status === "executing")) {
@@ -264,7 +267,6 @@ export function ProductSearchCards({
   };
 
   const total = parsed.total_candidates ?? products.length;
-  const trackRef = useRef<HTMLUListElement>(null);
 
   const scrollTrack = (direction: 1 | -1) => {
     trackRef.current?.scrollBy({ left: direction * 288, behavior: "smooth" });

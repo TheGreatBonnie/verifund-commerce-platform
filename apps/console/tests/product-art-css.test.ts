@@ -82,4 +82,36 @@ describe("chat full-viewport flex chain", () => {
     const main = readRule(".mm-console-main.chat-only");
     expect(main).toContain("padding: 0");
   });
+
+  it("pins the chat input: main never scrolls, messages do", () => {
+    // .mm-console-main has overflow: auto by default; in chat-only mode it
+    // must clip instead, or the whole page scrolls and pushes the input out
+    // of the viewport as the agent response grows.
+    const main = readRule(".mm-console-main.chat-only");
+    expect(main).toContain("min-height: 0");
+    expect(main).toContain("overflow: hidden");
+
+    // The message area is the only scrollable region, like the chat rail's
+    // internals (max-height + overflow-y: auto on .mm-chat-rail).
+    const surface = readRule(".mm-chat-surface");
+    expect(surface).toContain("overflow-y: auto");
+  });
+});
+
+describe("chat-app shell bounds", () => {
+  it("keeps the drawer pinned and the shell height bounded in chat-only mode", () => {
+    // min-height-only shells grow with content, so the page scrolls and both
+    // the input and the drawer drift out of the viewport.
+    const shell = readRule(".mm-app-frame:has(.mm-console-main.chat-only)");
+    expect(shell).toContain("height: 100dvh");
+    expect(shell).toContain("overflow: hidden");
+
+    const drawer = readRule(
+      ".mm-chat-drawer-layout > copilotkit-threads-drawer",
+    );
+    expect(drawer).toContain("position: sticky");
+    expect(drawer).toContain("top: 0");
+    expect(drawer).toContain("height: 100%");
+    expect(drawer).toContain("overflow-y: auto");
+  });
 });
