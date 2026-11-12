@@ -32,3 +32,5 @@ coverage.xml
 htmlcov/
 
 graphify-out/
+# Vercel project link
+.vercel/
