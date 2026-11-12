@@ -216,6 +216,33 @@ async def download_evidence(
 
 
 @router.post(
+    "/ops/shipments/{shipment_id}/poll",
+    dependencies=[Depends(require_ops)],
+)
+async def poll_shipment(shipment_id: str, request: Request) -> dict[str, Any]:
+    return await _service(request).poll_shipment_ops(shipment_id, actor=actor(request))
+
+
+@router.post(
+    "/ops/inspection/{inspection_id}/resolve",
+    dependencies=[Depends(require_ops)],
+)
+async def resolve_inspection(inspection_id: str, request: Request) -> dict[str, Any]:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    return await _service(request).resolve_inspection_ops(
+        inspection_id,
+        decision=str(body.get("decision") or body.get("resolution") or "").strip(),
+        rationale=str(body.get("rationale") or body.get("note") or ""),
+        actor=actor(request),
+    )
+
+
+@router.post(
     "/transactions/{transaction_id}/purchase-order",
     dependencies=[Depends(require_ops)],
 )

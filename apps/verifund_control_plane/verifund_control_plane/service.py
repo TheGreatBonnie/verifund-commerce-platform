@@ -1655,18 +1655,23 @@ class VerifundService:
 
         if record.state == TransactionState.DISPUTE_OPEN or (record.dispute or {}).get("status") == "open":
             add("DISPUTE_OPEN", "Dispute is open.", action_owner="reviewer")
-        if record.state == TransactionState.REVIEW_REQUIRED:
-            reasons = ((record.verification or {}).get("reasons")) or []
-            if "delivery_timeout" in reasons:
-                add("DELIVERY_TIMEOUT", "Carrier delivery/acceptance timed out.", action_owner="reviewer")
-            elif "weight_anomaly" in reasons:
-                add("WEIGHT_ANOMALY", "Shipment weight anomaly detected.", action_owner="reviewer")
-            else:
-                add("REVIEW_REQUIRED", "Manual or policy review is required.", action_owner="reviewer")
-        if record.state == TransactionState.REMEDIATION_REQUIRED:
-            add("REMEDIATION_REQUIRED", "Seller remediation is required.", action_owner="seller")
 
         verification = record.verification or {}
+        reasons = ((verification or {}).get("reasons")) or []
+        if record.state == TransactionState.REVIEW_REQUIRED:
+            if "delivery_timeout" in reasons:
+                add("DELIVERY_TIMEOUT", "Carrier delivery/acceptance timed out.", action_owner="reviewer")
+            if "weight_anomaly" in reasons:
+                add("WEIGHT_ANOMALY", "Shipment weight anomaly detected.", action_owner="reviewer")
+        if "weight_anomaly" in reasons and not any(getattr(b, "code", None) == "WEIGHT_ANOMALY" for b in blockers):
+            add("WEIGHT_ANOMALY", "Shipment weight anomaly detected.", action_owner="reviewer")
+        if "delivery_timeout" in reasons and not any(getattr(b, "code", None) == "DELIVERY_TIMEOUT" for b in blockers):
+            add("DELIVERY_TIMEOUT", "Carrier delivery/acceptance timed out.", action_owner="reviewer")
+        if record.state == TransactionState.REVIEW_REQUIRED and not blockers:
+            add("INSPECTION_REQUIRES_REVIEW", "Manual or policy review is required.", action_owner="reviewer")
+        if record.state == TransactionState.REMEDIATION_REQUIRED:
+            add("REQUIREMENT_INCOMPLETE", "Seller remediation is required.", action_owner="seller")
+
         reqs = verification.get("requirements") or []
         if projection_verification is not None and hasattr(projection_verification, "requirements"):
             reqs = list(getattr(projection_verification, "requirements") or [])
@@ -1677,47 +1682,70 @@ class VerifundService:
             elif isinstance(r, dict):
                 normalized.append(r)
             else:
-                # best-effort attribute extraction
                 normalized.append({
                     "requirement_id": getattr(r, "requirement_id", None),
                     "status": getattr(getattr(r, "status", None), "value", getattr(r, "status", None)),
                     "owner": getattr(r, "owner", None),
                     "reasons": getattr(r, "reasons", None) or [],
+                    "required": getattr(r, "required", True),
                 })
         for req in normalized:
             status = req.get("status")
             rid = req.get("requirement_id")
             owner = req.get("owner")
             required = req.get("required", True)
+            if not required or not rid:
+                continue
+            ao = "seller" if owner == "seller" else "reviewer"
             if status == "fail":
-                if required:
-                    blockers.append(_Blocker(code="REQUIREMENT_FAILED", message=f"Requirement {rid} failed.", requirement_id=rid, action_owner=("seller" if owner == "seller" else "reviewer"), severity="blocking"))
+                blockers.append(_Blocker(code=f"REQUIREMENT_INCOMPLETE:{rid}", message=f"Requirement {rid} is incomplete or failed.", requirement_id=rid, action_owner=ao, severity="blocking"))
             elif status == "review":
-                if required:
-                    blockers.append(_Blocker(code="REQUIREMENT_REVIEW", message=f"Requirement {rid} requires review.", requirement_id=rid, action_owner="reviewer", severity="blocking"))
+                blockers.append(_Blocker(code=f"REQUIREMENT_NEEDS_REVIEW:{rid}", message=f"Requirement {rid} requires review.", requirement_id=rid, action_owner="reviewer", severity="blocking"))
             elif status == "not_submitted":
-                if required:
-                    blockers.append(_Blocker(code="MISSING_EVIDENCE", message=f"Requirement {rid} is not submitted.", requirement_id=rid, action_owner=("seller" if owner == "seller" else "reviewer"), severity="blocking"))
+                blockers.append(_Blocker(code=f"REQUIREMENT_INCOMPLETE:{rid}", message=f"Requirement {rid} is not submitted.", requirement_id=rid, action_owner=ao, severity="blocking"))
             elif status == "pending_scan":
-                if required:
-                    blockers.append(_Blocker(code="PENDING_SCAN", message=f"Requirement {rid} is pending scan.", requirement_id=rid, action_owner="none", severity="blocking"))
+                blockers.append(_Blocker(code=f"REQUIREMENT_NEEDS_REVIEW:{rid}", message=f"Requirement {rid} is pending scan/review.", requirement_id=rid, action_owner="none", severity="blocking"))
 
-        # Inspection not elapsed is represented by verification reasons/state; also check inspection record if present
+        # Delivery/inspection context from authoritative records.
+        try:
+            shipment = await self.repo.get_shipment_by_transaction(record.transaction_id)
+            events = await self.repo.list_carrier_events(shipment["id"]) if shipment else []
+            pod = await self.repo.get_delivery_confirmation(shipment["id"]) if shipment else None
+            statuses = {e.get("normalized_status") for e in events}
+            if record.state not in {TransactionState.AWARDED, TransactionState.ACCEPTED, TransactionState.APPROVED, TransactionState.CANCELED}:
+                if "PICKED_UP" not in statuses and "CARRIER_ACCEPTED" not in statuses:
+                    # only block on missing acceptance once shipping is relevant and not timed out
+                    if shipment is not None and "DELIVERY_TIMEOUT" not in reasons:
+                        add("CARRIER_ACCEPTANCE_MISSING", "Carrier acceptance has not been confirmed.", action_owner="reviewer")
+                if not ({"DELIVERED", "DELIVERED_SIGNED"} & statuses):
+                    if shipment is not None and "DELIVERY_TIMEOUT" not in reasons:
+                        add("DELIVERY_NOT_VERIFIED", "Carrier delivery has not been verified.", action_owner="reviewer")
+                elif {"DELIVERED", "DELIVERED_SIGNED"} & statuses and pod is None:
+                    add("POD_MISSING", "Proof of delivery is missing.", action_owner="reviewer")
+        except Exception:
+            pass
+
         try:
             inspection = await self.repo.get_inspection_record(record.transaction_id) if hasattr(self.repo, "get_inspection_record") else None
         except Exception:
             inspection = None
-        if inspection and inspection.get("status") in {"open", "pending"}:
-            # if not yet resolved and deadline in future, treat as blocking
+        if inspection:
+            status = inspection.get("status")
             deadline = inspection.get("deadline_at")
-            if deadline:
-                try:
-                    from datetime import datetime
-                    dt = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
-                    if dt > self._now():
-                        add("INSPECTION_NOT_ELAPSED", "Inspection window has not elapsed.", action_owner="none")
-                except Exception:
-                    pass
+            if status in {"open", "pending"}:
+                # future deadline => inspection open; past unresolved => requires review
+                if deadline:
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+                        if dt > self._now():
+                            add("INSPECTION_OPEN", "Inspection window is still open.", action_owner="none")
+                        else:
+                            add("INSPECTION_REQUIRES_REVIEW", "Inspection deadline elapsed without a final resolution.", action_owner="reviewer")
+                    except Exception:
+                        add("INSPECTION_OPEN", "Inspection state is unresolved.", action_owner="reviewer")
+                else:
+                    add("INSPECTION_OPEN", "Inspection state is unresolved.", action_owner="reviewer")
 
         # Deduplicate by (code, requirement_id)
         seen = set()
@@ -1753,10 +1781,15 @@ class VerifundService:
             catalog = project_requirements(terms)
         except (ValidationError, ValueError):
             catalog = []
+        # Buyer-owned requirements/evidence must never be rendered in seller workspace.
+        seller_catalog = [r for r in catalog if getattr(r, "owner", None) != "buyer"]
+        seller_req_ids = {r.requirement_id for r in seller_catalog}
         items = await self.repo.list_evidence(transaction_id)
+        items = [i for i in items if (getattr(i, "requirement_id", None) in seller_req_ids or getattr(i, "requirement_id", None) is None)]
         stored_requirements = _requirement_results_from_stored(
             (record.verification or {}).get("requirements")
         )
+        stored_requirements = [r for r in stored_requirements if r.requirement_id in seller_req_ids or r.owner != "buyer"]
         deadlines = {
             key: (
                 datetime.fromisoformat(value)
@@ -1765,6 +1798,7 @@ class VerifundService:
             )
             for key, value in (record.deadlines or {}).items()
         }
+        blockers = await self._compute_blockers(record)
         return SellerProjection(
             transaction_id=record.transaction_id,
             run_id=record.run_id,
@@ -1789,11 +1823,11 @@ class VerifundService:
                 deadline=deadlines.get("evidence"),
                 items=items,
             ),
-            requirements=list(catalog),
+            requirements=list(seller_catalog),
             payout=_payout_projection(record.payout),
             dispute=_dispute_projection(record.dispute),
             deadlines=deadlines,
-            blockers=await self._compute_blockers(record),
+            blockers=blockers,
             allowed_actions=allowed_actions(record.state, "seller"),
             updated_at=record.updated_at,
         )
@@ -5172,3 +5206,244 @@ class VerifundService:
                 audit=AuditInput(actor, "receipt_backfilled"),
             )
         return True
+
+
+    async def get_inspection(self, transaction_id: str, *, buyer_id: str) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.buyer_id != buyer_id:
+            raise VerifundError("not_found", "transaction not found", status_code=404)
+        inspection = await self.repo.get_inspection_record(transaction_id)
+        if inspection is None:
+            raise VerifundError("not_found", "inspection not found", status_code=404)
+        # Normalize outcome/status for buyer view
+        out = dict(inspection)
+        if "decision" in out and "outcome" not in out:
+            out["outcome"] = out.get("decision")
+        return out
+
+    async def add_buyer_evidence(
+        self,
+        transaction_id: str,
+        *,
+        buyer_id: str,
+        agreement_hash: str,
+        requirement_id: str,
+        reference: str | None,
+        reference_type: str | None,
+        media_type: str | None,
+        original_filename: str | None,
+        data: bytes | None,
+        note: str | None,
+        captured_at: datetime | None,
+        agreement_version: int | None,
+        view_label: str | None = None,
+        actor: str,
+    ) -> EvidenceSubmission:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.buyer_id != buyer_id:
+            raise VerifundError("not_found", "transaction not found", status_code=404)
+        if record.agreement_hash != agreement_hash:
+            raise VerifundError("hash_mismatch", "agreement hash is stale", status_code=409)
+        terms = await self._agreement_terms(transaction_id)
+        try:
+            catalog = project_requirements(terms)
+        except (ValidationError, ValueError):
+            raise VerifundError("invalid_request", "agreement requirements are invalid", status_code=422) from None
+        requirement = next((entry for entry in catalog if entry.requirement_id == requirement_id), None)
+        if requirement is None:
+            raise VerifundError("invalid_request", f"unknown requirement_id for this agreement: {requirement_id}", status_code=422)
+        if getattr(requirement, "owner", None) != "buyer":
+            raise VerifundError("invalid_request", f"requirement {requirement_id} is not buyer-owned", status_code=422)
+        if agreement_version is not None and agreement_version != record.agreement_version:
+            raise VerifundError("hash_mismatch", "agreement version does not match the current terms", status_code=409)
+
+        required_views = list(getattr(requirement, "required_views", None) or [])
+        if required_views:
+            if not view_label or view_label not in required_views:
+                raise VerifundError("invalid_request", f"view_label must be one of {required_views} for {requirement_id}", status_code=422)
+
+        is_reference = requirement.source == "reference"
+        if is_reference:
+            if reference is None or reference_type not in {"tracking", "url"}:
+                raise VerifundError("invalid_request", f"{requirement_id} expects a reference artifact (reference, reference_type=tracking|url)", status_code=422)
+            if data is not None:
+                raise VerifundError("invalid_request", f"{requirement_id} expects a reference, not a file", status_code=422)
+            artifact_type = "reference"
+            payload = reference.encode("utf-8")
+            resolved_media_type = "text/plain"
+            resolved_filename = f"{requirement_id}.reference.txt"
+        else:
+            if data is None:
+                raise VerifundError("invalid_request", f"{requirement_id} expects a file upload", status_code=422)
+            if reference is not None:
+                raise VerifundError("invalid_request", f"{requirement_id} expects a file, not a reference", status_code=422)
+            artifact_type = "file"
+            payload = data
+            resolved_media_type = (media_type or "application/octet-stream").lower()
+            resolved_filename = original_filename or "evidence"
+            if requirement.accepted_formats and resolved_media_type not in requirement.accepted_formats:
+                raise VerifundError("unsupported_media_type", f"media type {resolved_media_type} is not accepted for {requirement_id}; accepted: {', '.join(requirement.accepted_formats)}", status_code=415)
+
+        try:
+            store_kind = EvidenceKind(requirement.kind).value
+        except ValueError:
+            store_kind = EvidenceKind.OTHER.value
+
+        item = await self.evidence_store.put(
+            transaction_id=transaction_id,
+            seller_id=record.seller_id,
+            kind=store_kind,
+            media_type=resolved_media_type,
+            original_filename=resolved_filename,
+            data=payload,
+            note=note,
+            captured_at=captured_at,
+            organization_id=getattr(record, "buyer_organization_id", None) or getattr(record, "seller_organization_id", None),
+        )
+        scan_status = "clean" if is_reference else "pending"
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            open_attempt = await self.repo.open_attempt(conn, transaction_id, requirement_id)
+            item = item.model_copy(
+                update={
+                    "requirement_id": requirement_id,
+                    "submission_attempt": open_attempt,
+                    "origin": "buyer",
+                    "attributed_to": buyer_id,
+                    "agreement_version": current.agreement_version,
+                    "artifact_type": artifact_type,
+                    "reference": reference if is_reference else None,
+                    "scan_status": scan_status,
+                    "view_label": view_label,
+                }
+            )
+            stored, created = await self.repo.add_evidence(
+                conn,
+                transaction_id,
+                current.seller_id,
+                item,
+                captured_at=captured_at,
+            )
+            submission_id = f"sub_{uuid.uuid4().hex}"
+            await self.repo.add_evidence_submission(
+                conn,
+                submission_id=submission_id,
+                transaction_id=transaction_id,
+                evidence_id=stored.evidence_id,
+                requirement_id=requirement_id,
+                attempt=open_attempt,
+                view_label=view_label,
+            )
+            if created:
+                event = EventInput(
+                    "evidence_received",
+                    {
+                        "evidence_id": stored.evidence_id,
+                        "kind": stored.kind,
+                        "sha256": stored.sha256,
+                        "requirement_id": requirement_id,
+                        "submission_id": submission_id,
+                        "attempt": open_attempt,
+                        "owner": "buyer",
+                    },
+                    actor,
+                )
+                await self.repo.update_transaction(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    changes={},
+                    events=[event],
+                    audit=AuditInput(actor, "buyer_evidence_received"),
+                )
+        with suppress(Exception):
+            await self.verify_if_ready(transaction_id, actor="system")
+        return EvidenceSubmission(
+            submission_id=submission_id,
+            attempt=open_attempt,
+            evidence_id=stored.evidence_id,
+            requirement_id=requirement_id,
+            receipt_id=stored.evidence_id,
+            artifact_type=artifact_type,
+            scan_status=scan_status,
+            view_label=view_label,
+            reason_code=getattr(stored, "reason_code", None),
+            verification_method=getattr(stored, "verification_method", None),
+            rule_version=getattr(stored, "rule_version", None),
+            confidence=getattr(stored, "confidence", None),
+        )
+
+    async def poll_shipment_ops(self, shipment_id: str, *, actor: str) -> dict[str, Any]:
+        shipment = await self.repo.get_shipment(shipment_id)
+        if shipment is None:
+            raise VerifundError("not_found", "shipment not found", status_code=404)
+        await self.ingest_shipment_events(shipment["transaction_id"], actor=actor)
+        refreshed = await self.repo.get_shipment(shipment_id)
+        if refreshed is None:
+            raise VerifundError("not_found", "shipment not found", status_code=404)
+        events = await self.repo.list_carrier_events(shipment_id)
+        pod = await self.repo.get_delivery_confirmation(shipment_id)
+        return {"shipment": refreshed, "events": events, "delivery_confirmation": pod}
+
+    async def resolve_inspection_ops(self, inspection_id: str, *, decision: str, rationale: str, actor: str) -> dict[str, Any]:
+        inspection = await self.repo.get_inspection_record_by_id(inspection_id)
+        if inspection is None:
+            raise VerifundError("not_found", "inspection not found", status_code=404)
+        decision_norm = (decision or "").strip().lower()
+        if decision_norm not in {"accepted", "rejected", "resolved", "seller_wins", "buyer_wins"}:
+            # allow caller to pass resolution label; normalize to record fields
+            decision_norm = decision_norm or "resolved"
+        now = self._iso(self._now())
+        status = "resolved"
+        resolution = decision_norm
+        await self.repo.update_inspection_record(
+            inspection_id,
+            status=status,
+            resolution=resolution,
+            decision=resolution,
+            resolved_by=actor,
+            resolved_at=now,
+            rationale=rationale or None,
+            updated_at=now,
+        )
+        txid = inspection["transaction_id"]
+        async with self.repo.transaction() as conn:
+            await self.repo.audit(conn, txid, AuditInput(actor, "inspection.resolved", payload={"inspection_id": inspection_id, "resolution": resolution, "rationale": rationale}))
+        # If there is an open dispute, mirror resolution to dispute record conservatively.
+        try:
+            dispute = await self.repo.get_open_dispute(txid)
+            if dispute is not None and resolution in {"seller_wins", "buyer_wins", "resolved", "accepted", "rejected"}:
+                disp_status = "resolved"
+                await self.repo.resolve_dispute(dispute["id"], status=disp_status, resolution=resolution, resolved_by=actor, resolved_at=now, rationale=rationale or None)
+                if resolution == "seller_wins":
+                    # attempt to move out of dispute open if currently blocked
+                    with suppress(Exception):
+                        record = await self.repo.get_transaction(txid)
+                        if record.state == TransactionState.DISPUTE_OPEN:
+                            async with self.repo.transaction() as conn:
+                                cur = await self.repo.get_transaction(txid, conn)
+                                await self.repo.transition(
+                                    conn,
+                                    txid,
+                                    expected_version=cur.version,
+                                    expected_state=cur.state,
+                                    new_state=TransactionState.VERIFICATION_PENDING,
+                                    changes={"dispute": {**(cur.dispute or {}), "status": "resolved", "resolution": resolution, "resolved_by": actor, "rationale": rationale}},
+                                    audit=AuditInput(actor, "dispute_resolved", payload={"resolution": resolution}),
+                                )
+                elif resolution == "buyer_wins":
+                    with suppress(Exception):
+                        record = await self.repo.get_transaction(txid)
+                        async with self.repo.transaction() as conn:
+                            cur = await self.repo.get_transaction(txid, conn)
+                            await self.repo.update_transaction(
+                                conn,
+                                txid,
+                                expected_version=cur.version,
+                                changes={"dispute": {**(cur.dispute or {}), "status": "resolved", "resolution": resolution, "resolved_by": actor, "rationale": rationale}},
+                                audit=AuditInput(actor, "dispute_resolved", payload={"resolution": resolution}),
+                            )
+        except Exception:
+            pass
+        return await self.repo.get_inspection_record_by_id(inspection_id) or {"id": inspection_id, "status": status, "resolution": resolution}
+

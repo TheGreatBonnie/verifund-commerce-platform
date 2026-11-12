@@ -2208,6 +2208,12 @@ class Repository:
             row = (await conn.execute(statement)).mappings().first()
         return dict(row) if row else None
 
+    async def get_shipment(self, shipment_id: str) -> dict[str, Any] | None:
+        statement = select(self.shipments).where(self.shipments.c.id == shipment_id)
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(statement)).mappings().first()
+        return dict(row) if row else None
+
     async def list_shipments(self) -> list[dict[str, Any]]:
         async with self.engine.connect() as conn:
             rows = (await conn.execute(select(self.shipments))).mappings().all()
@@ -2261,6 +2267,22 @@ class Repository:
         async with self.engine.connect() as conn:
             row = (await conn.execute(stmt)).mappings().first()
         return dict(row) if row else None
+
+    async def get_inspection_record_by_id(self, inspection_id: str) -> dict[str, Any] | None:
+        stmt = select(self.inspection_records).where(self.inspection_records.c.id == inspection_id)
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(stmt)).mappings().first()
+        return dict(row) if row else None
+
+    async def update_inspection_record(self, inspection_id: str, **values: Any) -> None:
+        if not values:
+            return
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.inspection_records.update()
+                .where(self.inspection_records.c.id == inspection_id)
+                .values(**values)
+            )
 
     async def list_inspection_records(self) -> list[dict[str, Any]]:
         async with self.engine.connect() as conn:

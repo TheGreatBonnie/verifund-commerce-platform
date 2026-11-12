@@ -161,7 +161,7 @@ async def test_scenario_specs_mismatch(api):
     reqs = {r["requirement_id"]: r for r in state.get("verification", {}).get("requirements", [])}
     assert reqs["hardware"]["status"] == "fail"
     blocker_codes = {b.get("code") for b in (state.get("blockers") or [])}
-    assert "REQUIREMENT_FAILED" in blocker_codes or state["state"] != "RELEASE_PERMITTED"
+    assert any(c == "REQUIREMENT_INCOMPLETE:hardware" or (isinstance(c, str) and c.startswith("REQUIREMENT_INCOMPLETE:hardware")) for c in blocker_codes) or state["state"] != "RELEASE_PERMITTED"
 
 
 @pytest.mark.asyncio
@@ -173,7 +173,7 @@ async def test_scenario_packing_photo_missing(api):
     reqs = {r["requirement_id"]: r for r in state.get("verification", {}).get("requirements", [])}
     assert reqs["packaging"]["status"] == "fail"
     blocker_codes = {b.get("code") for b in (state.get("blockers") or [])}
-    assert "REQUIREMENT_FAILED" in blocker_codes
+    assert any(c == "REQUIREMENT_INCOMPLETE:packaging" or (isinstance(c, str) and c.startswith("REQUIREMENT_INCOMPLETE:packaging")) for c in blocker_codes)
 
 
 @pytest.mark.asyncio
