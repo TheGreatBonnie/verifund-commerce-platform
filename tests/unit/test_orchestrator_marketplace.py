@@ -320,6 +320,52 @@ async def test_tool_returns_retrieval_unavailable_without_an_api_key():
     assert "products" not in result
 
 
+def test_tool_prefers_the_dedicated_embedding_base_url(monkeypatch):
+    captured: dict = {}
+
+    class FakeEmbeddings:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(agent, "NebiusEmbeddings", FakeEmbeddings)
+    monkeypatch.setattr(agent, "ProductRetriever", lambda embeddings, **kwargs: object())
+
+    agent._build_marketplace_search_tool(
+        Settings(
+            nebius_api_key="test-key",
+            nebius_base_url="http://chat.local/v1",
+            embedding_base_url="http://embed.local/v1",
+            embedding_model="Qwen/Qwen3-Embedding-8B",
+            embedding_dimensions=1024,
+        )
+    )
+
+    assert captured["base_url"] == "http://embed.local/v1"
+    assert captured["model"] == "Qwen/Qwen3-Embedding-8B"
+    assert captured["dimensions"] == 1024
+
+
+def test_tool_falls_back_to_the_chat_base_url_for_embeddings(monkeypatch):
+    captured: dict = {}
+
+    class FakeEmbeddings:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(agent, "NebiusEmbeddings", FakeEmbeddings)
+    monkeypatch.setattr(agent, "ProductRetriever", lambda embeddings, **kwargs: object())
+
+    agent._build_marketplace_search_tool(
+        Settings(
+            nebius_api_key="test-key",
+            nebius_base_url="http://chat.local/v1",
+            embedding_base_url=None,
+        )
+    )
+
+    assert captured["base_url"] == "http://chat.local/v1"
+
+
 @pytest.mark.asyncio
 async def test_tool_returns_a_secret_free_error_when_the_catalog_fails(monkeypatch):
     async def failing_fetch(**_kwargs):

@@ -324,7 +324,7 @@ def _build_marketplace_search_tool(
         retriever = ProductRetriever(
             NebiusEmbeddings(
                 api_key=settings.nebius_api_key,
-                base_url=settings.nebius_base_url,
+                base_url=settings.embedding_base_url or settings.nebius_base_url,
                 model=settings.embedding_model,
                 dimensions=settings.embedding_dimensions,
             ),

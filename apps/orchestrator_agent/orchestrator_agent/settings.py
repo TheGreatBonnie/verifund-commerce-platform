@@ -45,6 +45,10 @@ class Settings(BaseSettings):
         default="Qwen/Qwen3-Embedding-8B",
         validation_alias=AliasChoices("NEBIUS_EMBEDDING_MODEL", "EMBEDDING_MODEL"),
     )
+    embedding_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("NEBIUS_EMBEDDING_BASE_URL"),
+    )
     embedding_dimensions: int = Field(
         default=1024,
         validation_alias=AliasChoices("EMBEDDING_DIMENSIONS"),
