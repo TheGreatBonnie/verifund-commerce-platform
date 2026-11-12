@@ -5,19 +5,22 @@
   "agreement_id": "AGR-TEST-001",
   "files": [
     {
-      "file": "laptop-product-photos.jpg",
-      "requirement_id": "product_identity",
+      "file": "serial-number.jpg",
+      "requirement_id": "serial",
+      "view_label": "serial",
       "type": "SYNTHETIC_IMAGE"
+    },
+    {
+      "file": "laptop-product-photos.jpg",
+      "requirement_id": "product_photos",
+      "view_label": "front",
+      "type": "SYNTHETIC_IMAGE",
+      "note": "Representative fixture; full multi-view set lives under fixtures/laptop/<scenario>/ in Phase 6."
     },
     {
       "file": "hardware-diagnostics.pdf",
-      "requirement_id": "hardware_specifications",
+      "requirement_id": "hardware",
       "type": "SAMPLE_REPORT"
-    },
-    {
-      "file": "serial-number.jpg",
-      "requirement_id": "serial_number",
-      "type": "SYNTHETIC_IMAGE"
     },
     {
       "file": "90-day-warranty.pdf",
@@ -26,18 +29,21 @@
     },
     {
       "file": "paypal-tracking-evidence.json",
-      "requirement_id": "shipping_delivery",
-      "type": "PAYPAL_TRACKING_FIXTURE"
+      "requirement_id": "shipping",
+      "type": "REFERENCE_FIXTURE",
+      "artifact_type": "reference"
     },
     {
       "file": "mock-delivery-event.json",
       "requirement_id": "delivery_confirmation",
-      "type": "MOCK_CARRIER_EVENT"
+      "type": "MOCK_CARRIER_EVENT",
+      "owner": "system"
     },
     {
       "file": "buyer-acceptance.json",
-      "requirement_id": "buyer_acceptance",
-      "type": "MOCK_BUYER_ACTION"
+      "requirement_id": "inspection",
+      "type": "MOCK_BUYER_ACTION",
+      "note": "Buyer inspection/acceptance fixture; not a seller evidence requirement."
     }
   ],
   "warning": "All artifacts are fictional test fixtures. They do not prove a real product, shipment, delivery, warranty, or acceptance."

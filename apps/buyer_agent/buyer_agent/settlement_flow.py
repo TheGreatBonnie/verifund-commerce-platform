@@ -59,47 +59,90 @@ def _requirement_catalog(
     amount_cents: int,
     currency: str,
 ) -> list[Requirement]:
-    """Buyer-authored requirement catalog for the agreement (spec §3.9.2).
-
-    The expected values are literals copied from the award where one exists; checks
-    whose value is only known later (`tracking_matches_po`) or that pass through AI
-    extraction (`serial_matches_device`, invoice arithmetic, line items) either omit
-    `expected_value` with `ai_derived=true` or carry a derivation descriptor literal.
-    """
+    """Buyer-authored laptop requirement catalog aligned to the 2026-11-12 spec."""
     line_items = winner["line_items"]
     line_items_expected = ", ".join(
         f"{item['sku']} x{item['quantity']}" for item in line_items
     )
+    image_formats = ["image/jpeg", "image/png", "image/webp"]
+    diag_formats = ["application/json", "application/pdf", "text/csv", "image/jpeg", "image/png", "image/webp"]
     return [
         Requirement(
-            requirement_id="product_photos",
-            title="Product photographs",
-            description="Clear photographs of the product showing the item offered.",
+            requirement_id="serial",
+            title="Serial number",
+            description="Clear photograph of the device serial number label.",
             owner="seller",
             kind="other",
             source="file",
-            accepted_formats=["image/jpeg", "image/png", "image/webp", "video/mp4"],
+            stage="product_identity",
+            accepted_formats=image_formats,
             checks=[
                 RequirementCheck(
-                    check_id="photo_integrity",
-                    description="Product photograph is present and passes media intake checks.",
+                    check_id="serial_readable",
+                    description="Serial number is readable.",
                     operator="exists",
                     verification_method="deterministic",
                 ),
             ],
         ),
         Requirement(
-            requirement_id="serial",
-            title="Serial number photograph",
-            description="Photograph of the device serial number label.",
+            requirement_id="provenance",
+            title="Provenance challenge",
+            description="Photograph showing the active Verifund challenge code on the device.",
             owner="seller",
             kind="other",
             source="file",
-            accepted_formats=["image/jpeg", "image/png", "image/webp"],
+            stage="product_identity",
+            accepted_formats=image_formats,
             checks=[
                 RequirementCheck(
-                    check_id="serial_readable",
-                    description="Serial number photograph is present and legible.",
+                    check_id="challenge_code",
+                    description="Challenge code matches the active transaction challenge.",
+                    operator="eq",
+                    expected_value="runtime:active_provenance_challenge",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="product_photos",
+            title="Condition photos",
+            description="Multi-angle baseline photos of the laptop.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_condition",
+            accepted_formats=image_formats + ["video/mp4"],
+            min_items=7,
+            required_views=["front", "back", "left", "right", "keyboard", "screen", "underside", "serial"],
+            checks=[
+                RequirementCheck(
+                    check_id="views_cover",
+                    description="Required condition views are covered.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="condition_declaration",
+            title="Condition declaration",
+            description="Structured condition, lock, and accessory declaration.",
+            owner="seller",
+            kind="other",
+            source="declaration",
+            stage="product_condition",
+            checks=[
+                RequirementCheck(
+                    check_id="locks_disabled",
+                    description="Device locks and management enrollment are cleared.",
+                    operator="eq",
+                    expected_value="true",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="battery_health_declared",
+                    description="Battery health is declared.",
                     operator="exists",
                     verification_method="deterministic",
                 ),
@@ -112,7 +155,8 @@ def _requirement_catalog(
             owner="seller",
             kind="other",
             source="file",
-            accepted_formats=["text/csv", "application/pdf", "image/webp", "video/mp4"],
+            stage="product_compliance",
+            accepted_formats=diag_formats + ["video/mp4"],
             checks=[
                 RequirementCheck(
                     check_id="ram_gte_32gb",
@@ -125,9 +169,29 @@ def _requirement_catalog(
                 RequirementCheck(
                     check_id="storage_gte_1tb",
                     description="At least 1 TB of storage.",
-                    expected_value=1,
+                    expected_value=1024,
                     operator="gte",
-                    unit="TB",
+                    unit="GB",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="battery",
+            title="Battery report",
+            description="Battery health and cycle evidence.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_compliance",
+            accepted_formats=diag_formats,
+            checks=[
+                RequirementCheck(
+                    check_id="battery_health_pct",
+                    description="Battery health meets the agreed threshold.",
+                    operator="gte",
+                    expected_value=80,
+                    unit="%",
                     verification_method="deterministic",
                 ),
             ],
@@ -139,14 +203,8 @@ def _requirement_catalog(
             owner="seller",
             kind="other",
             source="file",
-            accepted_formats=[
-                "application/pdf",
-                "image/jpeg",
-                "image/png",
-                "image/webp",
-                "application/json",
-                "text/csv",
-            ],
+            stage="product_compliance",
+            accepted_formats=diag_formats,
             checks=[
                 RequirementCheck(
                     check_id="warranty_gte_90_days",
@@ -159,17 +217,37 @@ def _requirement_catalog(
             ],
         ),
         Requirement(
+            requirement_id="packaging",
+            title="Packaging photos",
+            description="Photos showing unit with serial, inside box, and sealed box with label.",
+            owner="seller",
+            kind="shipment_manifest",
+            source="file",
+            stage="packaging",
+            accepted_formats=image_formats,
+            min_items=3,
+            required_views=["unit_with_serial", "inside_box", "sealed_with_label"],
+            checks=[
+                RequirementCheck(
+                    check_id="views_cover",
+                    description="Required packaging views are covered.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
             requirement_id="shipping",
             title="Shipping information",
             description="Carrier and tracking number matching the purchase order.",
             owner="seller",
             kind="shipment_manifest",
             source="reference",
+            stage="packaging",
             checks=[
                 RequirementCheck(
                     check_id="tracking_matches_po",
                     description="Tracking number matches the tracking number on the purchase order.",
-                    # PO tracking is assigned after the award; derived at verification time.
                     expected_value="purchase_order.tracking_number",
                     operator="eq",
                     verification_method="deterministic",
@@ -183,16 +261,53 @@ def _requirement_catalog(
             ],
         ),
         Requirement(
+            requirement_id="insurance_confirmation",
+            title="Shipping insurance",
+            description="Coverage confirmation when required by policy or value.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="packaging",
+            accepted_formats=diag_formats,
+            required=False,
+            checks=[
+                RequirementCheck(
+                    check_id="insured_value_sufficient",
+                    description="Insured value covers the declared value when required.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="carrier_acceptance",
+            title="Carrier acceptance",
+            description="Carrier accepted the package (system-sourced).",
+            owner="system",
+            kind="shipment_manifest",
+            source="reference",
+            stage="delivery",
+            checks=[
+                RequirementCheck(
+                    check_id="carrier_accepted",
+                    description="Carrier acceptance event exists.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
             requirement_id="delivery_confirmation",
             title="Delivery confirmation",
-            description="System-generated from the carrier record and the buyer confirmation.",
+            description="Carrier delivery confirmation and proof of delivery as required.",
             owner="system",
             kind="delivery_confirmation",
             source="reference",
+            stage="delivery",
             checks=[
                 RequirementCheck(
                     check_id="carrier_and_buyer_agree",
-                    description="Carrier record and buyer confirmation agree on delivery.",
+                    description="Carrier delivery evidence satisfies the requirement.",
                     operator="exists",
                     verification_method="deterministic",
                 ),
@@ -205,26 +320,17 @@ def _requirement_catalog(
                 "Invoice matching the agreement totals, currency, seller, and line items. "
                 "Machine-readable uploads (application/json, text/csv) must carry "
                 "`total_cents`, `currency`, `seller_id`, and `line_items` as "
-                "`\"SKU xQTY\"` strings."
+                '`"SKU xQTY"` strings.'
             ),
             owner="seller",
             kind="invoice",
             source="file",
-            accepted_formats=[
-                "application/pdf",
-                "image/jpeg",
-                "image/png",
-                "image/webp",
-                "application/json",
-                "text/csv",
-            ],
+            stage="packaging",
+            accepted_formats=diag_formats,
             checks=[
                 RequirementCheck(
                     check_id="invoice_total_matches",
-                    description=(
-                        "Invoice total matches the agreement total; extracted arithmetic is "
-                        "REVIEW-only."
-                    ),
+                    description="Invoice total matches the agreement total.",
                     expected_value=amount_cents,
                     operator="eq",
                     unit="cents",

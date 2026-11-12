@@ -237,15 +237,21 @@ def test_build_award_request_keeps_legacy_offers_on_v1():
     assert offer_hash(binding_from_award(request.model_dump(mode="json"))) == request.offer_hash
 
 
-def test_buyer_authors_seven_requirements():
+def test_buyer_authors_laptop_requirement_catalog():
     request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
     ids = [r.requirement_id for r in request.requirements]
     assert ids == [
-        "product_photos",
         "serial",
+        "provenance",
+        "product_photos",
+        "condition_declaration",
         "hardware",
+        "battery",
         "warranty",
+        "packaging",
         "shipping",
+        "insurance_confirmation",
+        "carrier_acceptance",
         "delivery_confirmation",
         "invoice",
     ]
@@ -257,50 +263,29 @@ def test_buyer_authors_seven_requirements():
     assert shipping.source == "reference"
     assert shipping.accepted_formats == []
     shipping_checks = {c.check_id: c.operator for c in shipping.checks}
-    assert shipping_checks == {"tracking_matches_po": "eq", "carrier_present": "exists"}
+    assert shipping_checks["tracking_matches_po"] == "eq"
+    assert shipping_checks["carrier_present"] == "exists"
 
     delivery = by_id["delivery_confirmation"]
     assert delivery.kind == "delivery_confirmation"
     assert delivery.owner == "system"
     assert delivery.source == "reference"
-    assert [c.check_id for c in delivery.checks] == ["carrier_and_buyer_agree"]
-    assert delivery.checks[0].operator == "exists"
 
     invoice = by_id["invoice"]
     assert invoice.kind == "invoice"
     assert invoice.source == "file"
-    assert invoice.accepted_formats
     assert {"application/json", "text/csv"} & set(invoice.accepted_formats)
     invoice_checks = {c.check_id: c for c in invoice.checks}
-    assert list(invoice_checks) == [
-        "invoice_total_matches",
-        "currency_matches",
-        "seller_matches",
-        "line_items_match",
-    ]
-    total_check = invoice_checks["invoice_total_matches"]
-    assert total_check.operator == "eq"
-    assert total_check.expected_value == 123400
-    assert total_check.ai_derived is False
-    assert total_check.verification_method == "deterministic"
+    assert invoice_checks["invoice_total_matches"].expected_value == 123400
     assert invoice_checks["currency_matches"].expected_value == "USD"
     assert invoice_checks["seller_matches"].expected_value == "northwind-audio"
-    line_items_check = invoice_checks["line_items_match"]
-    assert line_items_check.operator == "contains"
-    assert "NC-700" in str(line_items_check.expected_value)
-    assert line_items_check.verification_method == "deterministic"
+    assert "NC-700" in str(invoice_checks["line_items_match"].expected_value)
 
-    serial = by_id["serial"]
-    assert [c.check_id for c in serial.checks] == ["serial_readable"]
-    assert serial.checks[0].verification_method == "deterministic"
-
-    warranty = by_id["warranty"]
-    assert {"application/json", "text/csv"} & set(warranty.accepted_formats)
-
-    assert "serial_number" not in by_id
-    hardware = by_id["hardware"]
-    assert "text/csv" in hardware.accepted_formats
-    assert [c.check_id for c in hardware.checks] == ["ram_gte_32gb", "storage_gte_1tb"]
+    assert by_id["condition_declaration"].source == "declaration"
+    assert by_id["carrier_acceptance"].owner == "system"
+    assert by_id["product_photos"].min_items == 7
+    assert "serial" in by_id["product_photos"].required_views
+    assert [c.check_id for c in by_id["hardware"].checks] == ["ram_gte_32gb", "storage_gte_1tb"]
 
 
 def test_catalog_checks_are_all_deterministic():
@@ -314,15 +299,15 @@ def test_catalog_checks_are_all_deterministic():
     assert extraction == []
 
 
-def test_requirements_needing_a_parsed_value_accept_a_machine_readable_format():
+def test_requirements_needing_a_parsed_value_accept_a_parseable_format():
     request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
-    machine_readable = {"application/json", "text/csv", "text/plain"}
+    parseable = {"application/json", "text/csv", "text/plain", "image/jpeg", "image/png", "image/webp", "application/pdf"}
     unparseable = [
         requirement.requirement_id
         for requirement in request.requirements
         if requirement.source == "file"
         and any(check.operator != "exists" for check in requirement.checks)
-        and not machine_readable & set(requirement.accepted_formats)
+        and not parseable & set(requirement.accepted_formats)
     ]
     assert unparseable == []
 

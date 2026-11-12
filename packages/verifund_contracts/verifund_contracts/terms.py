@@ -114,7 +114,7 @@ def _laptop_requirement_catalog() -> list[Requirement]:
                     check_id="challenge_code",
                     description="Challenge code matches the active transaction challenge.",
                     operator="eq",
-                    expected_value=None,
+                    expected_value="runtime:active_provenance_challenge",
                     verification_method="deterministic",
                 ),
             ],
