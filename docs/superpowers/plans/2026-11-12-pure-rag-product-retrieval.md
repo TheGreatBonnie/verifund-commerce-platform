@@ -82,11 +82,15 @@ dependencies = [
 `ImportError("cosine_similarity requires numpy to be installed")` without it.
 This was verified against the installed environment — do not skip it.
 
-Then run `uv sync --quiet` once from the repo root and confirm imports still resolve:
+Then run `uv sync --all-packages` once from the repo root and confirm imports still resolve:
 
 ```bash
-uv run python -c "import numpy, openai, langchain_core; print(openai.__version__, langchain_core.__version__)"
+uv run python -c "import numpy, openai, langchain_core; print(openai.__version__, langchain_core.__version__, numpy.__version__)"
 ```
+
+Plain `uv sync` is not enough in this workspace: it syncs the root
+`marketmesh` project but not workspace-member dependencies, so `numpy` stayed
+missing until `--all-packages` was used.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -969,9 +973,9 @@ git commit -m "feat(retrieval): add catalog-hash vector index"
 - Test: `tests/unit/test_retrieval_pure_rag.py`
 
 **Interfaces:**
-- Produces: `MIN_SIMILARITY = 0.25`, `compose_query(query, use_case, preferences) -> str`.
+- Produces: `MIN_SIMILARITY = 0.60`, `RELATIVE_MARGIN = 0.10`, `compose_query(query, use_case, preferences) -> str`.
 - Produces: `RetrievalResult(products: list[dict], trace: dict)`.
-- Produces: `ProductRetriever(embeddings, *, model, dimensions, cache_key=None, min_similarity=MIN_SIMILARITY)`.
+- Produces: `ProductRetriever(embeddings, *, model, dimensions, cache_key=None, min_similarity=MIN_SIMILARITY, relative_margin=RELATIVE_MARGIN)`.
 - Produces: `ProductRetriever.search(products, *, query=None, use_case=None, preferences=None, category=None, max_unit_price_cents=None, in_stock_only=False) -> RetrievalResult`.
 - The query embedding is computed by the retriever (`embed_query`) and passed to `similarity_search_with_score_by_vector`, so a cached store never holds a stale client.
 - Trace shape: `{mode, backend, model, dimension, candidates, top_k, latency_ms}`; `top_k` entries are `{"sku": str, "score": float}` capped at 24.
@@ -993,6 +997,7 @@ from commerce_core.retrieval.documents import product_document
 from commerce_core.retrieval.index import clear_cache
 from commerce_core.retrieval.retriever import (
     MIN_SIMILARITY,
+    RELATIVE_MARGIN,
     ProductRetriever,
     compose_query,
 )
@@ -1204,7 +1209,29 @@ def test_unrelated_queries_return_nothing_above_the_threshold():
     assert result.trace["mode"] == "dense"
     assert result.trace["top_k"] == []
     assert embeddings.query_vectors["zzzzzz"] == [0.0, 1.0]
-    assert MIN_SIMILARITY == 0.25
+    assert MIN_SIMILARITY == 0.60
+    assert RELATIVE_MARGIN == 0.10
+
+
+def test_relative_margin_drops_weak_but_above_floor_hits():
+    relevant = product("EX-RELEVANT-1", "Relevant Laptop", price=1000)
+    close = product("EX-CLOSE-2", "Almost Laptop", price=1200)
+    distant = product("EX-DISTANT-3", "Wireless Mouse", price=300)
+    catalog = [distant, close, relevant]
+    retriever, _ = make_retriever(
+        catalog=catalog,
+        mapping={
+            "EX-RELEVANT-1": [1.0, 0.0],
+            "EX-CLOSE-2": [0.92, 0.392],
+            "EX-DISTANT-3": [0.65, 0.76],
+        },
+        query_vectors={"laptop": [1.0, 0.0]},
+    )
+
+    result = retriever.search(catalog, query="laptop")
+
+    assert [row["sku"] for row in result.products] == ["EX-RELEVANT-1", "EX-CLOSE-2"]
+    assert result.trace["cutoff"] == 0.9
 
 
 def test_browse_mode_skips_embeddings_and_orders_by_availability_then_rating():
@@ -1350,7 +1377,8 @@ from .index import get_store
 
 logger = logging.getLogger(__name__)
 
-MIN_SIMILARITY = 0.25
+MIN_SIMILARITY = 0.60
+RELATIVE_MARGIN = 0.10
 BACKEND = "InMemoryVectorStore"
 MAX_TRACE_HITS = 24
 
@@ -1392,12 +1420,14 @@ class ProductRetriever:
         dimensions: int,
         cache_key: str | None = None,
         min_similarity: float = MIN_SIMILARITY,
+        relative_margin: float = RELATIVE_MARGIN,
     ) -> None:
         self._embeddings = embeddings
         self._model = model
         self._dimensions = dimensions
         self._cache_key = cache_key or f"{model}:{dimensions}"
         self._min_similarity = min_similarity
+        self._relative_margin = relative_margin
 
     def search(
         self,
@@ -1454,6 +1484,11 @@ class ProductRetriever:
             scored.append((float(score), price_cents(product), sku, product))
         scored.sort(key=lambda row: (-row[0], row[1], row[2]))
 
+        cutoff = self._min_similarity
+        if scored:
+            cutoff = max(self._min_similarity, scored[0][0] - self._relative_margin)
+            scored = [row for row in scored if row[0] >= cutoff]
+
         top_k = [
             {"sku": row[2], "score": round(row[0], 4)}
             for row in scored[:MAX_TRACE_HITS]
@@ -1465,6 +1500,7 @@ class ProductRetriever:
             len(candidates),
             started,
             top_k=top_k,
+            cutoff=cutoff,
         )
 
     def _decorate(self, product: dict, *, score: float | None = None) -> dict:
@@ -1504,6 +1540,7 @@ class ProductRetriever:
             "dimension": self._dimensions,
             "candidates": candidates,
             "top_k": list(top_k or []),
+            "cutoff": round(cutoff, 4) if cutoff is not None else None,
             "latency_ms": int((time.perf_counter() - started) * 1000),
         }
         logger.info(
@@ -1516,14 +1553,8 @@ class ProductRetriever:
         return RetrievalResult(products=products, trace=trace)
 ```
 
-The list comprehension `[... for row in scored for product in [row[3]]]` is clever but ugly. Use a plain loop instead:
-
-```python
-        ranked_products = [
-            self._decorate(row[3], score=row[0]) for row in scored
-        ]
-        return self._finish("dense", ranked_products, len(candidates), started, top_k=top_k)
-```
+The `_finish` helper also accepts `cutoff: float | None`, records
+`round(cutoff, 4)`, and the empty-candidates path passes `self._min_similarity`.
 
 Update `packages/commerce_core/commerce_core/retrieval/__init__.py`:
 
@@ -1534,6 +1565,7 @@ from .filters import matches_filters, offer_available, price_cents, seller_name
 from .index import build_store, catalog_hash, clear_cache, get_store
 from .retriever import (
     MIN_SIMILARITY,
+    RELATIVE_MARGIN,
     ProductRetriever,
     RetrievalResult,
     compose_query,
@@ -1541,6 +1573,7 @@ from .retriever import (
 
 __all__ = [
     "MIN_SIMILARITY",
+    "RELATIVE_MARGIN",
     "NebiusEmbeddings",
     "ProductRetriever",
     "RetrievalResult",
@@ -1564,7 +1597,7 @@ uv run pytest tests/unit/test_retrieval_pure_rag.py -q
 uv run ruff check packages/commerce_core/commerce_core/retrieval tests/unit/test_retrieval_pure_rag.py
 ```
 
-Expected: 12 passed; ruff clean.
+Expected: 13 passed; ruff clean.
 
 The cosine scores for the fixture vectors were verified against the installed
 `InMemoryVectorStore` + numpy: `[1.0, 0.9507, 0.1, 0.05]` for the four catalog
@@ -1928,6 +1961,52 @@ async def test_tool_returns_retrieval_unavailable_without_an_api_key():
     assert "products" not in result
 
 
+def test_tool_prefers_the_dedicated_embedding_base_url(monkeypatch):
+    captured: dict = {}
+
+    class FakeEmbeddings:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(agent, "NebiusEmbeddings", FakeEmbeddings)
+    monkeypatch.setattr(agent, "ProductRetriever", lambda embeddings, **kwargs: object())
+
+    agent._build_marketplace_search_tool(
+        Settings(
+            nebius_api_key="test-key",
+            nebius_base_url="http://chat.local/v1",
+            embedding_base_url="http://embed.local/v1",
+            embedding_model="Qwen/Qwen3-Embedding-8B",
+            embedding_dimensions=1024,
+        )
+    )
+
+    assert captured["base_url"] == "http://embed.local/v1"
+    assert captured["model"] == "Qwen/Qwen3-Embedding-8B"
+    assert captured["dimensions"] == 1024
+
+
+def test_tool_falls_back_to_the_chat_base_url_for_embeddings(monkeypatch):
+    captured: dict = {}
+
+    class FakeEmbeddings:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(agent, "NebiusEmbeddings", FakeEmbeddings)
+    monkeypatch.setattr(agent, "ProductRetriever", lambda embeddings, **kwargs: object())
+
+    agent._build_marketplace_search_tool(
+        Settings(
+            nebius_api_key="test-key",
+            nebius_base_url="http://chat.local/v1",
+            embedding_base_url=None,
+        )
+    )
+
+    assert captured["base_url"] == "http://chat.local/v1"
+
+
 @pytest.mark.asyncio
 async def test_tool_returns_a_secret_free_error_when_the_catalog_fails(monkeypatch):
     async def failing_fetch(**_kwargs):
@@ -2093,7 +2172,7 @@ def _build_marketplace_search_tool(
         retriever = ProductRetriever(
             NebiusEmbeddings(
                 api_key=settings.nebius_api_key,
-                base_url=settings.nebius_base_url,
+                base_url=settings.embedding_base_url or settings.nebius_base_url,
                 model=settings.embedding_model,
                 dimensions=settings.embedding_dimensions,
             ),
@@ -2190,7 +2269,7 @@ uv run ruff check apps/orchestrator_agent/orchestrator_agent/marketplace.py \
   tests/unit/test_orchestrator_marketplace.py
 ```
 
-Expected: 14 passed. The full retrieval package suite must still be green:
+Expected: 16 passed. The full retrieval package suite must still be green:
 
 ```bash
 uv run pytest tests/unit/test_retrieval_embeddings.py tests/unit/test_retrieval_filters.py \
@@ -2202,7 +2281,7 @@ uv run ruff check apps/orchestrator_agent/orchestrator_agent/marketplace.py \
   tests/unit/test_orchestrator_marketplace.py
 ```
 
-Expected: 50 passed (4 + 7 + 5 + 8 + 12 + 14); ruff clean.
+Expected: 53 passed (4 + 7 + 5 + 8 + 13 + 16); ruff clean.
 
 - [ ] **Step 5: Commit**
 
@@ -2224,8 +2303,9 @@ git commit -m "refactor(orchestrator): replace lexical ranking with dense retrie
 This script is not collected by pytest (`scripts/` is outside test paths) and is the only place that talks to the real Nebius endpoint.
 
 **Interfaces:**
-- `build_catalog() -> list[dict]` reads every `docs/templates/*.yaml` through `commerce_core.pricing.load_policy` and emits marketplace-shaped rows.
-- `main()` runs three queries with the real embedding model and prints SKUs, prices, semantic reasons, and traces.
+- `build_catalog() -> list[dict]` reads every `docs/templates/*.yaml` through `commerce_core.pricing.load_policy` (note: `catalog` is a method) and emits marketplace-shaped rows.
+- `main()` runs four queries (laptops under a ceiling, headphones, a category-filtered desk query, and `"zzzzzz"`) with the real embedding model and prints SKUs, prices, semantic reasons, cutoffs, and traces.
+- The script loads `.env` through `python-dotenv`; sourcing it in a shell fails because the file contains characters such as `&`.
 
 - [ ] **Step 1: Write the script**
 
@@ -2245,11 +2325,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from commerce_core.pricing import load_policy
 from commerce_core.retrieval import NebiusEmbeddings, ProductRetriever
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "docs" / "templates"
+load_dotenv(ROOT / ".env")
 
 MODEL = os.environ.get("NEBIUS_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-8B")
 DIMENSIONS = 1024
@@ -2258,6 +2341,7 @@ QUERIES: list[dict] = [
     {"query": "good laptop for programming under $1500", "max_unit_price_cents": 150000},
     {"query": "noise cancelling headphones for travel"},
     {"query": "standing desk for a small home office", "category": "Standing Desk"},
+    {"query": "zzzzzz"},
 ]
 
 
@@ -2265,7 +2349,7 @@ def build_catalog() -> list[dict]:
     rows: list[dict] = []
     for path in sorted(TEMPLATES.glob("*.yaml")):
         policy = load_policy(path)
-        for item in policy.catalog:
+        for item in policy.catalog():
             price = (
                 item.initial_unit_price_cents
                 or item.list_unit_price_cents
@@ -2306,10 +2390,9 @@ def main() -> None:
     retriever = ProductRetriever(
         NebiusEmbeddings(
             api_key=api_key,
-            base_url=os.environ.get(
-                "NEBIUS_BASE_URL",
-                "https://api.tokenfactory.us-central1.nebius.com/v1/",
-            ),
+            base_url=os.environ.get("NEBIUS_EMBEDDING_BASE_URL")
+            or os.environ.get("NEBIUS_BASE_URL")
+            or "https://api.tokenfactory.us-central1.nebius.com/v1/",
             model=MODEL,
             dimensions=DIMENSIONS,
         ),
@@ -2346,22 +2429,34 @@ Expected: no output; ruff clean.
 - [ ] **Step 3: Run the live smoke test when a key is available**
 
 ```bash
-set -a; source .env; set +a
 uv run python scripts/rag_smoke.py
 ```
 
-Expected shape (scores vary):
+Expected shape from the verified run (scores vary slightly):
 
 ```
 catalog: 180 products
 
 query: {'query': 'good laptop for programming under $1500', 'max_unit_price_cents': 150000}
-trace: {'mode': 'dense', ..., 'candidates': 71, 'latency_ms': 850}
-  NW-LAPTOP-01  99900c  semantic:0.71  MacBook Air M4 13-inch
+trace: {'mode': 'dense', ..., 'candidates': 157, 'cutoff': 0.6173, 'latency_ms': 8891}
+  EX-BUDGET-LAPTOP-101        45569c  semantic:0.72    Budget Laptop 101
   ...
+
+query: {'query': 'noise cancelling headphones for travel'}
+trace: {'mode': 'dense', ..., 'candidates': 180, 'cutoff': 0.7058}
+  EX-NOISE-CANCELLING-HEADPHONES    14699c  semantic:0.81    Noise Cancelling Headphones
+
+query: {'query': 'standing desk for a small home office', 'category': 'Standing Desk'}
+trace: {'mode': 'dense', ..., 'candidates': 15, 'cutoff': 0.7787}
+  ... 5 desks ...
+
+query: {'query': 'zzzzzz'}
+trace: {'mode': 'dense', ..., 'candidates': 180, 'top_k': [], 'cutoff': 0.6}
 ```
 
-The price-ceiling query must never print a product above `150000c`. If the first query returns no laptops, lower `MIN_SIMILARITY` in `retriever.py` to `0.15` and re-run; record the observed score distribution in the commit message.
+The price-ceiling query must never print a product above `150000c`. A junk
+query must print nothing. The expected distribution is 12 laptops, 1
+headphone, and 5 desks.
 
 - [ ] **Step 4: Commit**
 
@@ -2397,7 +2492,7 @@ uv run pytest tests/unit/test_retrieval_embeddings.py tests/unit/test_retrieval_
   tests/unit/test_retrieval_pure_rag.py tests/unit/test_orchestrator_marketplace.py -q
 ```
 
-Expected: 50 passed.
+Expected: 53 passed.
 
 - [ ] **Step 3: Run adjacent suites that import the orchestrator**
 
@@ -2452,7 +2547,7 @@ Confirm the five commits exist and that the pre-existing dirty files (`apps/buye
 | 4.2 Embeddings adapter (OpenAI SDK, `dimensions=1024`) | Task 1 |
 | 4.3 Document text and metadata | Task 3 |
 | 4.4 Catalog-hash index, batching | Tasks 1 (`batch_size`), 4 |
-| 4.5 Filter → compose query → rank → threshold → rationale → tie-break | Task 5 |
+| 4.5 Filter → compose query → rank → relative cutoff → rationale → tie-break | Task 5 |
 | 4.5 Browse path (`mode: "browse"`) | Task 5 |
 | 4.6 Trace + structured log | Task 5 |
 | 5.1 `marketplace.py` rewrite | Task 6 |
@@ -2468,25 +2563,27 @@ Confirm the five commits exist and that the pre-existing dirty files (`apps/buye
 1. **Batching lives in `NebiusEmbeddings`, not `index.py`.** The index calls `add_documents` once; the adapter splits into 64-item requests. This keeps one place responsible for provider request limits and makes the batching testable without a vector store.
 2. **The retriever embeds the query itself** and calls `similarity_search_with_score_by_vector`. The spec wrote `similarity_search_with_score`, but the cache is process-wide, so a cached store could otherwise hold an embeddings client from a previous construction (stale key/endpoint). Computing the query vector on the live retriever removes that hazard and keeps the trace accurate.
 3. **`top_k` is `[]` in browse mode.** There are no semantic scores to report; browse ordering is deterministic and fully described by `mode`. The spec's example only covers the dense case.
+4. **The cutoff is `max(0.60, best - 0.10)`, not the spec's single `0.25` constant.** The live run showed unrelated Qwen3 products scoring 0.55–0.63, so a lone floor either admits noise or drops valid alternatives. The approved change keeps a 0.60 floor for weak queries plus a 0.10 relative margin, and records the applied `cutoff` in the trace.
+5. **Embeddings use `NEBIUS_EMBEDDING_BASE_URL`**, falling back to `NEBIUS_BASE_URL`. The deployment serves chat and embeddings from different endpoints; the fallback keeps single-endpoint installs unchanged.
 
 **Type consistency**
 
 - `RetrievalResult.products` is `list[dict]`; `marketplace.retrieve_products` returns that plus `trace` — matches every call site.
 - `ProductRetriever.search` accepts `preferences: list[str] | None`; the agent passes `preferences` straight through (ADK gives a list or None).
 - `shape_search_result(..., retrieval: dict | None)` is backward compatible; existing call sites without `retrieval` keep working.
-- Trace keys are stable across the retriever, `marketplace`, and the tests: `mode`, `backend`, `model`, `dimension`, `candidates`, `top_k`, `latency_ms`.
+- Trace keys are stable across the retriever, `marketplace`, and the tests: `mode`, `backend`, `model`, `dimension`, `candidates`, `top_k`, `cutoff`, `latency_ms`.
 
 **Verified while writing this plan**
 
 - `InMemoryVectorStore` in `langchain-core` 1.6.13 ships in the installed venv and exposes `similarity_search_with_score_by_vector(embedding, k, filter=...)`.
-- Cosine scores for the fixture vectors are `[1.0, 0.9507, 0.1, 0.05]`, confirming the threshold of `0.25` drops the monitor and chair.
+- Cosine scores for the fixture vectors are `[1.0, 0.9507, 0.1, 0.05]`; the 0.60 floor drops the monitor and chair, and the 0.10 margin keeps the workstation.
 - The `filter=` callable is applied before similarity ranking (verified with a filtered call).
-- `numpy` is **not** installed in the current venv and is required by the store — hence the dependency added in Task 1.
+- `numpy` is required by the store (`ImportError: cosine_similarity requires numpy`) and was missing until Task 1 added it; workspace installs need `uv sync --all-packages`, since plain `uv sync` skips member dependencies.
 - Nebius `Qwen/Qwen3-Embedding-8B` accepts `dimensions=1024` (native 4096) against the live endpoint.
 
 **Known follow-ups (out of scope, do not implement here)**
 
-- Tuning `MIN_SIMILARITY` from real score distributions (single constant, one-line change).
+- Re-tuning `MIN_SIMILARITY` / `RELATIVE_MARGIN` as the catalog grows (two constants, one-line change).
 - Persisting the index across process restarts (today every cold start re-embeds 180 documents).
 - Enhancement #11's `retrieve_candidates` in the buyer planner remains unwired and untouched.
 

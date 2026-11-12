@@ -43,7 +43,8 @@ kept as a fallback or fused with dense scores.
 | Card reasons | `match_rationale` gains `semantic:<score>` |
 | Trace | `retrieval` block in tool result + structured log |
 | Failure mode | Return `retrieval_unavailable` error to the agent (no products) |
-| Minimum similarity | `0.25` constant, applied after ranking |
+| Relevance cutoff | `max(0.60, best_score - 0.10)`: absolute floor plus relative margin |
+| Embedding endpoint | `NEBIUS_EMBEDDING_BASE_URL`, falling back to `NEBIUS_BASE_URL` |
 
 ### 3.1 Failure mode rationale
 
@@ -109,11 +110,11 @@ class NebiusEmbeddings(Embeddings):
         return self._create([text])[0]
 ```
 
-`base_url` is `settings.nebius_base_url` — the existing env var. The documented
-sample uses the `eu-north1` regional endpoint
-(`https://api.tokenfactory.eu-north1.nebius.com/v1/`); the repo default is
-`us-central1`. Both are OpenAI-compatible; keeping one setting means the same
-`NEBIUS_BASE_URL` serves the chat model and embeddings.
+`base_url` comes from `settings.embedding_base_url`, which reads
+`NEBIUS_EMBEDDING_BASE_URL` and falls back to `settings.nebius_base_url`
+(`NEBIUS_BASE_URL`) when unset. Embeddings run on their own endpoint in this
+deployment, so the two must be independently configurable; the fallback keeps
+single-endpoint installs working unchanged.
 
 `dimensions=1024` is passed explicitly (MRL truncation, verified against the
 live endpoint). `client` injection exists for unit tests only.
@@ -164,11 +165,18 @@ max_unit_price_cents, in_stock_only)`:
    availability, rating, price, SKU; the trace reports `mode: "browse"`. This
    preserves the existing "show me products" behavior without a meaningless
    embedding call.
-3. Call `similarity_search_with_score(text, k=len(filtered), filter=...)` where
-   the filter callable keeps only documents whose `sku` is in the filtered set.
-   Filtering **before** ranking avoids the reference implementation's
-   retrieve-then-filter truncation bug.
-4. Drop results with cosine similarity `< MIN_SIMILARITY` (0.25).
+3. Compute the query vector with `embed_query`, then call
+   `similarity_search_with_score_by_vector(vector, k=len(filtered), filter=...)`
+   where the filter callable keeps only documents whose `sku` is in the filtered
+   set. Filtering **before** ranking avoids the reference implementation's
+   retrieve-then-filter truncation bug. Computing the vector on the live
+   retriever (rather than `similarity_search_with_score`) keeps a process-wide
+   cached store from holding a stale embedding client.
+4. Cut off at `max(MIN_SIMILARITY, best_score - RELATIVE_MARGIN)`, i.e.
+   `max(0.60, best - 0.10)`. Qwen3 scores are not centered: unrelated products
+   land around 0.55–0.63, so an absolute floor alone either admits noise or
+   discards valid alternatives. The relative margin keeps a query's plausible
+   neighborhood while the floor keeps junk queries empty.
 5. Rebuild product dicts in rank order; attach `match_rationale`:
    `semantic:<score:.2f>`, then `offers:available`, `rating:<value>` when
    ≥ 4.5, `price:discounted` when applicable. Non-semantic reasons are
@@ -189,12 +197,14 @@ max_unit_price_cents, in_stock_only)`:
   "dimension": 1024,
   "candidates": 34,
   "top_k": [{"sku": "NW-LAPTOP-01", "score": 0.82}],
+  "cutoff": 0.72,
   "latency_ms": 87
 }
 ```
 
-`top_k` is capped at the returned product count (max 24). A structured log line
-is emitted at INFO with the same fields minus `top_k`.
+`top_k` is capped at the returned product count (max 24). `cutoff` reports the
+similarity threshold actually applied (`null` in browse mode). A structured log
+line is emitted at INFO with the same fields minus `top_k`.
 
 ## 5. Integration
 
@@ -221,8 +231,9 @@ their current meaning.
 ### 5.2 `agent.py`
 
 `_build_marketplace_search_tool` constructs the retriever once (closure scope)
-from `settings.nebius_api_key`, `settings.nebius_base_url`,
-`settings.embedding_model`, `settings.embedding_dimensions`. The tool:
+from `settings.nebius_api_key`, `settings.embedding_base_url or
+settings.nebius_base_url`, `settings.embedding_model`,
+`settings.embedding_dimensions`. The tool:
 
 - returns `{"error": "retrieval_unavailable", ...}` when the key is missing or
   the retriever raises;
@@ -236,6 +247,10 @@ embedding_model: str = Field(
     default="Qwen/Qwen3-Embedding-8B",
     validation_alias=AliasChoices("NEBIUS_EMBEDDING_MODEL", "EMBEDDING_MODEL"),
 )
+embedding_base_url: str | None = Field(
+    default=None,
+    validation_alias=AliasChoices("NEBIUS_EMBEDDING_BASE_URL"),
+)
 embedding_dimensions: int = Field(
     default=1024,
     validation_alias=AliasChoices("EMBEDDING_DIMENSIONS"),
@@ -248,7 +263,7 @@ embedding_dimensions: int = Field(
 |---|---|---|
 | "good laptop for programming" | Laptops score highest; irrelevant accessories with rating/availability still appear | Semantically nearest laptops first; accessories below threshold disappear |
 | "NC-700" | Exact SKU/name match ranks first | SKU is embedded in the doc text; expected to rank first, verified by tests and the live smoke run |
-| "zzzzzz" | `[]` | `[]` via `MIN_SIMILARITY` |
+| "zzzzzz" | `[]` | `[]` via the `0.60` floor |
 | Card reasons | `query:<token>:name`, `offers:available`, `rating:4.8` | `semantic:0.82`, `offers:available`, `rating:4.8` |
 
 Deterministic filters, ordering tie-breaks, payload shape, and the card contract
@@ -284,7 +299,8 @@ TDD with a deterministic fake embedder; no network in unit tests.
    - "good laptop for programming under $1500" ranks laptops above accessories;
    - price ceiling and in-stock filters are never violated;
    - `match_rationale` starts with `semantic:`;
-   - unrelated query returns `[]` under `MIN_SIMILARITY`.
+   - unrelated query returns `[]` under the `0.60` floor;
+   - results more than `0.10` below the best match are dropped.
 
 **Rewritten**
 
@@ -295,9 +311,10 @@ TDD with a deterministic fake embedder; no network in unit tests.
 
 **Manual**
 
-5. `scripts/rag_smoke.py` (optional, not run in CI): three README-style queries
+5. `scripts/rag_smoke.py` (manual, not run in CI): four queries (laptops under a
+   price ceiling, headphones, a category-filtered desk query, and a junk query)
    against the seeded 180-product catalog using the real Nebius embedding
-   endpoint; prints top-10 SKUs, scores, and latency.
+   endpoint; prints top-10 SKUs, scores, cutoff, and latency.
 
 ## 9. Risks
 
@@ -307,8 +324,9 @@ TDD with a deterministic fake embedder; no network in unit tests.
 - **Provider dependency on the search path:** one embedding call per search
   (plus 3 batched calls on cold start). Accepted.
 - **Threshold sensitivity:** Qwen embeddings are not centered, so unrelated
-  cosine scores can be non-trivial. `MIN_SIMILARITY = 0.25` is a constant tuned
-  by the live smoke run; changing it is a one-line edit.
+  cosine scores can be non-trivial (observed 0.55–0.63). The cutoff therefore
+  combines a `0.60` absolute floor with a `0.10` margin below the best hit;
+  both are tuned by the live smoke run and changing them is a one-line edit.
 - **Cache growth:** one index per (model, dimensions) pair; bounded in practice.
 
 ## 10. Acceptance
@@ -316,6 +334,7 @@ TDD with a deterministic fake embedder; no network in unit tests.
 - Lexical scoring and `TOKEN_SYNONYMS` are gone from `marketplace.py`.
 - Unit suite for retrieval and orchestrator marketplace passes; `ruff` clean.
 - A real-embedding smoke run over the seeded catalog returns laptops for
-  "good laptop for programming under $1500", all at or below $1500.
+  "good laptop for programming under $1500", all at or below $1500; a
+  headphones query returns only headphones; a junk query returns nothing.
 - Tool result includes a `retrieval` block; cards render `semantic:` reasons.
 - Existing buyer/seller/negotiation suites unaffected.
