@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     seller_token_ttl_minutes: int = Field(
         default=60, validation_alias="VERIFUND_SELLER_TOKEN_TTL_MINUTES"
     )
+    provenance_ttl_minutes: int = Field(
+        default=60, validation_alias="VERIFUND_PROVENANCE_TTL_MINUTES"
+    )
     seller_rate_limit_per_minute: int = Field(
         default=60, validation_alias="VERIFUND_SELLER_RATE_LIMIT_PER_MINUTE"
     )

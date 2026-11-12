@@ -250,6 +250,7 @@ class VerifundService:
         agreement_service: Any = None,
         tracking: PayPalTrackingClient | None = None,
         tenancy: Any = None,
+        challenge_extractor: Any = None,
     ) -> None:
         self.repo = repo
         self.settings = settings
@@ -264,6 +265,7 @@ class VerifundService:
         self.agreement_service = agreement_service
         self.tracking = tracking
         self.tenancy = tenancy
+        self.challenge_extractor = challenge_extractor
 
     async def seller_status(self, seller_id: str) -> str | None:
         if self.tenancy is None:
@@ -1272,6 +1274,38 @@ class VerifundService:
                         events=[event],
                         audit=AuditInput(actor, "evidence_received"),
                     )
+        reason_code = None
+        verification_method = None
+        rule_version = None
+        confidence = None
+        if requirement_id == "provenance" and not is_reference and payload:
+            prov = await self._verify_provenance_submission(
+                transaction_id=transaction_id,
+                seller_organization_id=getattr(record, "seller_organization_id", None),
+                image_bytes=payload,
+            )
+            reason_code = prov.get("reason_code")
+            verification_method = prov.get("verification_method")
+            rule_version = prov.get("rule_version")
+            confidence = prov.get("confidence")
+            async with self.repo.transaction() as conn:
+                await self.repo.update_evidence_finding(
+                    conn,
+                    stored.evidence_id,
+                    reason_code=reason_code,
+                    verification_method=verification_method,
+                    rule_version=rule_version,
+                    confidence=confidence,
+                )
+                await self.repo.update_submission_finding(
+                    conn,
+                    submission_id,
+                    reason_code=reason_code,
+                    verification_method=verification_method,
+                    rule_version=rule_version,
+                    confidence=confidence,
+                )
+
         if new_state == TransactionState.VERIFICATION_PENDING:
             await self.verify_if_ready(transaction_id, actor="system")
         if is_reference and reference_type == "tracking" and reference:
@@ -1290,6 +1324,10 @@ class VerifundService:
             artifact_type=artifact_type,
             scan_status=scan_status,
             view_label=view_label,
+            reason_code=reason_code,
+            verification_method=verification_method,
+            rule_version=rule_version,
+            confidence=confidence,
         )
 
     async def seller_projection(
@@ -1684,6 +1722,142 @@ class VerifundService:
             ],
         }
         return view
+
+    async def _verify_provenance_submission(
+        self,
+        *,
+        transaction_id: str,
+        seller_organization_id: str | None,
+        image_bytes: bytes,
+    ) -> dict[str, Any]:
+        now = self._now()
+        challenge = await self.repo.get_active_provenance_challenge(
+            seller_organization_id, transaction_id, now=now
+        )
+        extractor = getattr(self, "challenge_extractor", None)
+        hint = challenge["code"] if challenge else None
+        extracted_code = None
+        confidence = 0.0
+        method = "deterministic"
+        if extractor is not None:
+            extraction = await extractor.extract_code(image_bytes, expected_hint=hint)
+            extracted_code = extraction.code
+            confidence = float(getattr(extraction, "confidence", 0.0) or 0.0)
+            method = "fixture" if getattr(extraction, "simulated", False) else "extraction"
+        rule_version = 1
+        if challenge is None:
+            return {
+                "ok": False,
+                "reason_code": "CHALLENGE_MISSING",
+                "verification_method": method,
+                "rule_version": rule_version,
+                "confidence": confidence,
+            }
+        if str(extracted_code or "").strip() != str(challenge["code"]).strip():
+            return {
+                "ok": False,
+                "reason_code": "CHALLENGE_MISMATCH",
+                "verification_method": method,
+                "rule_version": rule_version,
+                "confidence": confidence,
+            }
+        consumed = await self.repo.consume_provenance_challenge(
+            organization_id=seller_organization_id,
+            transaction_id=transaction_id,
+            code=challenge["code"],
+            now=now,
+        )
+        if not consumed:
+            # Expired or already used between read and consume.
+            active = await self.repo.get_active_provenance_challenge(
+                seller_organization_id, transaction_id, now=now
+            )
+            reason = "CHALLENGE_EXPIRED" if active is None else "CHALLENGE_CONSUMED"
+            return {
+                "ok": False,
+                "reason_code": reason,
+                "verification_method": method,
+                "rule_version": rule_version,
+                "confidence": confidence,
+            }
+        return {
+            "ok": True,
+            "reason_code": "CHALLENGE_MATCHED",
+            "verification_method": method,
+            "rule_version": rule_version,
+            "confidence": confidence,
+        }
+
+    async def issue_provenance_challenge(
+        self,
+        transaction_id: str,
+        *,
+        seller_id: str,
+        actor: str,
+    ) -> dict[str, Any]:
+        import secrets
+
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        if record.state not in EVIDENCE_UPLOAD_STATES:
+            raise VerifundError(
+                "invalid_state",
+                "provenance challenges can only be issued during fulfillment",
+                status_code=409,
+            )
+        now = self._now()
+        ttl = int(getattr(self.settings, "provenance_ttl_minutes", 60) or 60)
+        expires_at = now + timedelta(minutes=ttl)
+        short = transaction_id.replace("-", "")[-4:].upper() or "TXN"
+        code = f"VF{short}-{secrets.token_hex(3).upper()}"
+        challenge = await self.repo.issue_provenance_challenge(
+            organization_id=getattr(record, "seller_organization_id", None),
+            transaction_id=transaction_id,
+            challenge_id=f"pch_{uuid.uuid4().hex}",
+            code=code,
+            issued_at=now,
+            expires_at=expires_at,
+        )
+        async with self.repo.transaction() as conn:
+            await self.repo.audit(
+                conn,
+                transaction_id,
+                AuditInput(actor, "provenance_challenge_issued", payload={"code": code}),
+            )
+        return {
+            "code": challenge["code"],
+            "issued_at": challenge["issued_at"],
+            "expires_at": challenge["expires_at"],
+            "status": challenge["status"],
+        }
+
+    async def get_provenance_challenge(
+        self,
+        transaction_id: str,
+        *,
+        seller_id: str,
+    ) -> dict[str, Any] | None:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError(
+                "forbidden", "seller does not own this transaction", status_code=403
+            )
+        challenge = await self.repo.get_active_provenance_challenge(
+            getattr(record, "seller_organization_id", None),
+            transaction_id,
+            now=self._now(),
+        )
+        if challenge is None:
+            return None
+        return {
+            "code": challenge["code"],
+            "issued_at": challenge["issued_at"],
+            "expires_at": challenge["expires_at"],
+            "status": challenge["status"],
+        }
 
     async def declare_requirement(
         self,

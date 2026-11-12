@@ -681,6 +681,43 @@ def evaluate(
                     )
                 )
 
+            if requirement.requirement_id == "provenance" and not is_declaration_source:
+                provenance_item = usable[0] if usable else (matched[0] if matched else None)
+                reason_code = getattr(provenance_item, "reason_code", None) if provenance_item else None
+                if reason_code == "CHALLENGE_MATCHED":
+                    status = RequirementStatus.PASS
+                    req_reasons = []
+                    checks = [
+                        RequirementCheckResult(
+                            check_id=c.check_id,
+                            status="pass",
+                            observed_value="matched",
+                        )
+                        for c in requirement.checks
+                    ] or [RequirementCheckResult(check_id="challenge_code", status="pass", observed_value="matched")]
+                elif reason_code == "CHALLENGE_EXPIRED":
+                    status = RequirementStatus.FAIL
+                    req_reasons = [ReviewReason.MISSING_EVIDENCE]
+                    checks = [
+                        RequirementCheckResult(
+                            check_id="challenge_code",
+                            status="fail",
+                            reasons=[ReviewReason.MISSING_EVIDENCE],
+                            observed_value=reason_code,
+                        )
+                    ]
+                elif reason_code in {"CHALLENGE_MISMATCH", "CHALLENGE_MISSING", "CHALLENGE_CONSUMED"}:
+                    status = RequirementStatus.REVIEW
+                    req_reasons = [ReviewReason.EXTRACTION_UNAVAILABLE]
+                    checks = [
+                        RequirementCheckResult(
+                            check_id="challenge_code",
+                            status="review",
+                            reasons=[ReviewReason.EXTRACTION_UNAVAILABLE],
+                            observed_value=reason_code,
+                        )
+                    ]
+
             if usable and status == RequirementStatus.PASS:
                 covered, coverage_reasons, coverage_note = _coverage_result(
                     requirement, usable

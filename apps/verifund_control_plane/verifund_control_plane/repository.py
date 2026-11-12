@@ -2010,3 +2010,59 @@ class Repository:
                 .values(status="expired")
             )
         return int(getattr(result, "rowcount", 0) or 0)
+
+
+    async def update_evidence_finding(
+        self,
+        conn: AsyncConnection,
+        evidence_id: str,
+        *,
+        reason_code: str | None = None,
+        verification_method: str | None = None,
+        rule_version: int | None = None,
+        confidence: float | None = None,
+        scan_status: str | None = None,
+    ) -> None:
+        values: dict[str, Any] = {}
+        if reason_code is not None:
+            values["reason_code"] = reason_code
+        if verification_method is not None:
+            values["verification_method"] = verification_method
+        if rule_version is not None:
+            values["rule_version"] = rule_version
+        if confidence is not None:
+            values["confidence"] = confidence
+        if scan_status is not None:
+            values["scan_status"] = scan_status
+        if not values:
+            return
+        await conn.execute(
+            self.evidence.update().where(self.evidence.c.evidence_id == evidence_id).values(**values)
+        )
+
+    async def update_submission_finding(
+        self,
+        conn: AsyncConnection,
+        submission_id: str,
+        *,
+        reason_code: str | None = None,
+        verification_method: str | None = None,
+        rule_version: int | None = None,
+        confidence: float | None = None,
+    ) -> None:
+        values: dict[str, Any] = {}
+        if reason_code is not None:
+            values["reason_code"] = reason_code
+        if verification_method is not None:
+            values["verification_method"] = verification_method
+        if rule_version is not None:
+            values["rule_version"] = rule_version
+        if confidence is not None:
+            values["confidence"] = confidence
+        if not values:
+            return
+        await conn.execute(
+            self.evidence_submissions.update()
+            .where(self.evidence_submissions.c.submission_id == submission_id)
+            .values(**values)
+        )

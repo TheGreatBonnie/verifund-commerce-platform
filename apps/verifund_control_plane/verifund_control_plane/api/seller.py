@@ -163,6 +163,35 @@ async def list_evidence(transaction_id: str, request: Request) -> dict[str, Any]
     return EvidenceList(items=items).model_dump(mode="json")
 
 
+@router.post("/transactions/{transaction_id}/provenance-challenge", status_code=201)
+async def issue_provenance_challenge(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    principal, _record = await authorize_seller_transaction(
+        request, transaction_id, required_scope="evidence:write"
+    )
+    return await _service(request).issue_provenance_challenge(
+        transaction_id,
+        seller_id=principal.seller_id,
+        actor=principal.actor,
+    )
+
+
+@router.get("/transactions/{transaction_id}/provenance-challenge")
+async def get_provenance_challenge(
+    transaction_id: str, request: Request
+) -> dict[str, Any]:
+    principal, _record = await authorize_seller_transaction(
+        request, transaction_id, required_scope="txn:read"
+    )
+    challenge = await _service(request).get_provenance_challenge(
+        transaction_id,
+        seller_id=principal.seller_id,
+    )
+    if challenge is None:
+        raise VerifundError("not_found", "no active provenance challenge", status_code=404)
+    return challenge
+
 @router.post("/transactions/{transaction_id}/evidence", status_code=201)
 async def upload_evidence(
     transaction_id: str,
