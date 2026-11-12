@@ -1,8 +1,9 @@
-.PHONY: setup dev dev-gateway dev-scripted seed seed-demo reset test lint e2e demo down \
+.PHONY: setup dev dev-gateway dev-legacy dev-scripted seed seed-demo reset test lint e2e demo down \
 	verifund-smoke verifund-e2e verifund-demo verifund-preflight \
 	verifund-sandbox-smoke
 
-GATEWAY ?= 0
+# The merged gateway is the default local stack. Use GATEWAY=0 for six processes.
+GATEWAY ?= 1
 
 setup:
 	uv lock
@@ -15,6 +16,9 @@ dev:
 
 dev-gateway:
 	uv run python scripts/dev.py --gateway
+
+dev-legacy:
+	uv run python scripts/dev.py
 
 dev-scripted:
 	uv run python scripts/dev.py --scripted

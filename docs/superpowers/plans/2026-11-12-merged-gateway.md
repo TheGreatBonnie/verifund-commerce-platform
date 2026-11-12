@@ -93,9 +93,14 @@ ports. With the gateway it starts **one** `python -m gateway` process plus the
 console:
 
 ```bash
-make dev GATEWAY=1          # merged backend on http://127.0.0.1:10000 + console
+make dev                    # merged backend on http://127.0.0.1:10000 + console
 make dev-gateway            # same, as a named alias
+make dev GATEWAY=0          # six separate service processes
+make dev-legacy             # same, as a named alias
 ```
+
+The merged gateway is the default so local runs match production topology. Set
+`GATEWAY=0` (or use `dev-legacy`) when you need per-service ports and logs.
 
 `scripts/dev.py --gateway` merges the six services' env builders into one
 process environment, then rewrites every inter-service URL to the gateway
@@ -781,7 +786,7 @@ git commit -m "feat(console): route A2A agents through gateway prefixes"
 
 **Interfaces:**
 - Consumes: `gateway.__main__` (Task 4), `python -m gateway`
-- Produces: `scripts.dev.gateway_environment(mode, verifund_mode)`, `scripts.dev.gateway_console_environment(mode, verifund_mode)`, `make dev GATEWAY=1`
+- Produces: `scripts.dev.gateway_environment(mode, verifund_mode)`, `scripts.dev.gateway_console_environment(mode, verifund_mode)`, `make dev` (gateway by default)
 
 - [ ] **Step 1: Add the port helper**
 
@@ -988,15 +993,18 @@ return run_stack(args.scripted, args.verifund or verifund_mode(), args.gateway)
 - [ ] **Step 6: Add the Make targets**
 
 ```make
-GATEWAY ?= 0
+GATEWAY ?= 1
 
-.PHONY: ... dev-gateway
+.PHONY: ... dev-gateway dev-legacy
 
 dev:
 	uv run python scripts/dev.py $(if $(filter 1,$(GATEWAY)),--gateway,)
 
 dev-gateway:
 	uv run python scripts/dev.py --gateway
+
+dev-legacy:
+	uv run python scripts/dev.py
 ```
 
 - [ ] **Step 7: Run the env tests**
@@ -1006,8 +1014,8 @@ Expected: PASS (2 passed).
 
 - [ ] **Step 8: Boot the merged stack**
 
-Run: `make dev GATEWAY=1` (use `VERIFUND_MODE=off` if the sandbox control
-plane cannot start without an HTTPS tunnel). Expected: `gateway` starts on
+Run: `make dev` (`make dev GATEWAY=0` if the sandbox control plane cannot
+start without an HTTPS tunnel). Expected: `gateway` starts on
 `http://127.0.0.1:10000`, the console starts on
 `http://127.0.0.1:3000`.
 

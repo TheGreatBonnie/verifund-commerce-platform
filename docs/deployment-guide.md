@@ -68,11 +68,11 @@ prefix is stripped before dispatch, so every service keeps its existing
 unprefixed routes: a seller card lives at
 `https://gateway.onrender.com/sellers/northwind-audio/.well-known/agent-card.json`.
 
-Run the same topology locally with `make dev GATEWAY=1` (alias
-`make dev-gateway`). It starts `python -m gateway` on
-`http://127.0.0.1:10000` plus the console, with every inter-service URL
-rewritten to a prefix. `make down` stops it. Plain `make dev` still runs the
-six separate processes.
+Run the same topology locally with `make dev` (alias `make dev-gateway`). It
+starts `python -m gateway` on `http://127.0.0.1:10000` plus the console, with
+every inter-service URL rewritten to a prefix. `make down` stops it. Use
+`make dev GATEWAY=0` (alias `make dev-legacy`) for the six separate processes
+when you need per-service ports and logs.
 
 #### Merged-gateway env var ownership
 
