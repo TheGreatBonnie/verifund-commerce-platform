@@ -94,8 +94,9 @@ async def test_internal_buyer_can_call_delivery_confirmed(client):
         headers=headers,
         json={"confirmed_at": "2026-10-27T12:00:00Z"},
     )
-    # State gate (ENFORCED) — an AWARDED txn is not yet in fulfilment so service returns 409; auth/ownership passed.
-    assert response.status_code in {409}
+    # Buyer delivery confirmation is corroboration-only (D9); auth/ownership passed.
+    assert response.status_code == 200, response.text
+    assert response.json().get("status") == "corroborated"
 
     # Cross-buyer: different buyer gets 404 (no leak)
     app = client._transport.app

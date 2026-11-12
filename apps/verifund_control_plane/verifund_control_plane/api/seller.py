@@ -289,6 +289,41 @@ async def list_declarations(
     return {"items": items}
 
 
+@router.post("/transactions/{transaction_id}/shipment", status_code=201)
+async def register_shipment(transaction_id: str, request: Request) -> dict[str, Any]:
+    principal, _record = await authorize_seller_transaction(
+        request, transaction_id, required_scope="evidence:write"
+    )
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    shipment = await _service(request).register_shipment(
+        transaction_id,
+        seller_id=principal.seller_id,
+        payload=body,
+        actor=principal.actor,
+    )
+    if shipment is None:
+        raise VerifundError("not_found", "shipment not found", status_code=404)
+    return shipment
+
+
+@router.get("/transactions/{transaction_id}/shipment")
+async def get_shipment(transaction_id: str, request: Request) -> dict[str, Any]:
+    principal, _record = await authorize_seller_transaction(
+        request, transaction_id, required_scope="txn:read"
+    )
+    shipment = await _service(request).get_shipment(
+        transaction_id, seller_id=principal.seller_id
+    )
+    if shipment is None:
+        raise VerifundError("not_found", "shipment not found", status_code=404)
+    return shipment
+
+
 @router.post("/transactions/{transaction_id}/dispute-evidence", status_code=201)
 async def upload_dispute_evidence(
     transaction_id: str,

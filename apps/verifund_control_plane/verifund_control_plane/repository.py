@@ -393,6 +393,82 @@ class Repository:
                 name="uq_provenance_org_txn_code",
             ),
         )
+        self.shipments = Table(
+            "shipments",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=True, index=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("carrier_key", String, nullable=False),
+            Column("tracking_number", String, nullable=False),
+            Column("service_level", String, nullable=True),
+            Column("declared_value_minor", Integer, nullable=True),
+            Column("insured_value_minor", Integer, nullable=True),
+            Column("currency", String, nullable=True),
+            Column("weight_expected_g", Integer, nullable=True),
+            Column("scenario", String, nullable=True),
+            Column("status", String, nullable=False),
+            Column("created_at", String, nullable=False),
+            Column("updated_at", String, nullable=False),
+            UniqueConstraint("carrier_key", "tracking_number", name="uq_shipments_carrier_tracking"),
+        )
+        self.carrier_events = Table(
+            "carrier_events",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("shipment_id", String, nullable=False, index=True),
+            Column("carrier_key", String, nullable=False),
+            Column("provider_event_id", String, nullable=False),
+            Column("normalized_status", String, nullable=False),
+            Column("event_at", String, nullable=False),
+            Column("received_at", String, nullable=False),
+            Column("weight_g", Integer, nullable=True),
+            Column("payload_json", JSON, nullable=True),
+            UniqueConstraint("carrier_key", "provider_event_id", name="uq_carrier_event_provider"),
+        )
+        self.delivery_confirmations = Table(
+            "delivery_confirmations",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("shipment_id", String, nullable=False, unique=True),
+            Column("delivered_at", String, nullable=False),
+            Column("recipient_reference", String, nullable=True),
+            Column("signature_reference", String, nullable=True),
+            Column("pod_reference", String, nullable=True),
+            Column("pod_evidence_id", String, nullable=True),
+            Column("weight_g", Integer, nullable=True),
+            Column("payload_json", JSON, nullable=True),
+        )
+        self.inspection_records = Table(
+            "inspection_records",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=True, index=True),
+            Column("transaction_id", String, nullable=False, index=True, unique=True),
+            Column("status", String, nullable=False),
+            Column("decision", String, nullable=True),
+            Column("deadline_at", String, nullable=True),
+            Column("resolved_at", String, nullable=True),
+            Column("resolved_by", String, nullable=True),
+            Column("created_at", String, nullable=False),
+            Column("updated_at", String, nullable=False),
+        )
+        self.disputes = Table(
+            "disputes",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=True, index=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("opened_by", String, nullable=True),
+            Column("claim_type", String, nullable=True),
+            Column("status", String, nullable=False),
+            Column("resolution", String, nullable=True),
+            Column("resolved_by", String, nullable=True),
+            Column("resolved_at", String, nullable=True),
+            Column("rationale", String, nullable=True),
+            Column("created_at", String, nullable=False),
+            Column("updated_at", String, nullable=False),
+        )
 
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
@@ -1976,6 +2052,24 @@ class Repository:
             row = (await conn.execute(statement)).mappings().first()
         return dict(row) if row else None
 
+
+    async def get_latest_provenance_challenge(
+        self,
+        organization_id: str | None,
+        transaction_id: str,
+    ) -> dict[str, Any] | None:
+        org = organization_id or "__global__"
+        statement = (
+            select(self.provenance_challenges)
+            .where(self.provenance_challenges.c.organization_id == org)
+            .where(self.provenance_challenges.c.transaction_id == transaction_id)
+            .order_by(self.provenance_challenges.c.issued_at.desc())
+            .limit(1)
+        )
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(statement)).mappings().first()
+        return dict(row) if row else None
+
     async def consume_provenance_challenge(
         self,
         *,
@@ -2066,3 +2160,99 @@ class Repository:
             .where(self.evidence_submissions.c.submission_id == submission_id)
             .values(**values)
         )
+
+
+    async def create_shipment(self, shipment: dict[str, Any]) -> dict[str, Any]:
+        async with self.engine.begin() as conn:
+            await conn.execute(self.shipments.insert().values(**shipment))
+        return shipment
+
+    async def get_shipment_by_transaction(self, transaction_id: str) -> dict[str, Any] | None:
+        statement = select(self.shipments).where(self.shipments.c.transaction_id == transaction_id).order_by(self.shipments.c.created_at.desc()).limit(1)
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(statement)).mappings().first()
+        return dict(row) if row else None
+
+    async def list_shipments(self) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(select(self.shipments))).mappings().all()
+        return [dict(r) for r in rows]
+
+    async def update_shipment_status(self, shipment_id: str, status: str, *, updated_at: str) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.shipments.update().where(self.shipments.c.id == shipment_id).values(status=status, updated_at=updated_at)
+            )
+
+    async def insert_carrier_event(self, event: dict[str, Any]) -> bool:
+        stmt = sqlite_insert(self.carrier_events).values(**event).on_conflict_do_nothing(index_elements=["carrier_key", "provider_event_id"])
+        async with self.engine.begin() as conn:
+            result = await conn.execute(stmt)
+        return bool(getattr(result, "rowcount", 0) == 1)
+
+    async def list_carrier_events(self, shipment_id: str) -> list[dict[str, Any]]:
+        stmt = select(self.carrier_events).where(self.carrier_events.c.shipment_id == shipment_id).order_by(self.carrier_events.c.event_at)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(stmt)).mappings().all()
+        return [dict(r) for r in rows]
+
+    async def upsert_delivery_confirmation(self, confirmation: dict[str, Any]) -> None:
+        stmt = sqlite_insert(self.delivery_confirmations).values(**confirmation).on_conflict_do_nothing(index_elements=["shipment_id"])
+        async with self.engine.begin() as conn:
+            await conn.execute(stmt)
+
+    async def get_delivery_confirmation(self, shipment_id: str) -> dict[str, Any] | None:
+        stmt = select(self.delivery_confirmations).where(self.delivery_confirmations.c.shipment_id == shipment_id)
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(stmt)).mappings().first()
+        return dict(row) if row else None
+
+    async def upsert_inspection_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        existing = await self.get_inspection_record(record["transaction_id"])
+        async with self.engine.begin() as conn:
+            if existing:
+                await conn.execute(
+                    self.inspection_records.update()
+                    .where(self.inspection_records.c.transaction_id == record["transaction_id"])
+                    .values({k: v for k, v in record.items() if k != "id"})
+                )
+                merged = {**existing, **record}
+                return merged
+            await conn.execute(self.inspection_records.insert().values(**record))
+        return record
+
+    async def get_inspection_record(self, transaction_id: str) -> dict[str, Any] | None:
+        stmt = select(self.inspection_records).where(self.inspection_records.c.transaction_id == transaction_id)
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(stmt)).mappings().first()
+        return dict(row) if row else None
+
+    async def list_inspection_records(self) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(select(self.inspection_records))).mappings().all()
+        return [dict(r) for r in rows]
+
+    async def create_dispute(self, dispute: dict[str, Any]) -> dict[str, Any]:
+        async with self.engine.begin() as conn:
+            await conn.execute(self.disputes.insert().values(**dispute))
+        return dispute
+
+    async def get_open_dispute(self, transaction_id: str) -> dict[str, Any] | None:
+        stmt = select(self.disputes).where(self.disputes.c.transaction_id == transaction_id).where(self.disputes.c.status == "open").order_by(self.disputes.c.created_at.desc()).limit(1)
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(stmt)).mappings().first()
+        return dict(row) if row else None
+
+    async def list_disputes(self, transaction_id: str) -> list[dict[str, Any]]:
+        stmt = select(self.disputes).where(self.disputes.c.transaction_id == transaction_id).order_by(self.disputes.c.created_at.desc())
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(stmt)).mappings().all()
+        return [dict(r) for r in rows]
+
+    async def resolve_dispute(self, dispute_id: str, *, status: str, resolution: str | None, resolved_by: str | None, resolved_at: str, rationale: str | None = None) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.disputes.update().where(self.disputes.c.id == dispute_id).values(
+                    status=status, resolution=resolution, resolved_by=resolved_by, resolved_at=resolved_at, rationale=rationale, updated_at=resolved_at
+                )
+            )

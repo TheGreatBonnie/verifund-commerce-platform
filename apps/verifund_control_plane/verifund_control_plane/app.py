@@ -14,6 +14,7 @@ from verifund_control_plane.agreements.service import AgreementService
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
 from verifund_control_plane.api import buyer, checkout, fulfillment, health, ops, seller, webhooks
 from verifund_control_plane.challenge_extractor import FixtureChallengeExtractor
+from verifund_control_plane.carrier import MockCarrierAdapter
 from verifund_control_plane.db import configure_sqlite, create_engine
 from verifund_control_plane.errors import (
     VerifundError,
@@ -148,6 +149,7 @@ def create_app(
         sync_transaction=_sync_transaction_pointer,
     )
     challenge_extractor = FixtureChallengeExtractor()
+    carrier = MockCarrierAdapter(clock=now)
     service = VerifundService(
         repo=repo,
         settings=settings,
@@ -163,6 +165,7 @@ def create_app(
         tracking=tracking,
         tenancy=tenancy,
         challenge_extractor=challenge_extractor,
+        carrier=carrier,
     )
     reconciler = Reconciler(
         repo=repo,
@@ -231,6 +234,7 @@ def create_app(
     app.state.receipts = receipts
     app.state.tracking = tracking
     app.state.challenge_extractor = challenge_extractor
+    app.state.carrier = carrier
     app.state.reconciler = reconciler
     app.add_exception_handler(VerifundError, verifund_error_handler)
     app.add_exception_handler(AgreementError, agreement_error_handler)

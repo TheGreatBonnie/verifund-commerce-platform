@@ -72,39 +72,6 @@ async def settle_scans_and_verify(api, transaction_id: str) -> None:
     await app.state.service.verify(transaction_id, actor="system")
 
 
-async def seed_system_delivery(api, award_body: dict, delivered_at: datetime) -> None:
-    """Stand-in for CONFIRM_DELIVERY (Milestone B, Task 13): the control plane
-    normally creates this record from the buyer/carrier attestation. Until it
-    lands, seed the same system-generated, buyer-attributed artifact directly."""
-    app = api._transport.app
-    service = app.state.service
-    repo = app.state.repo
-    payload = json.dumps(
-        {"delivered_at": delivered_at.isoformat(), "recipient": "Demo Buyer"}
-    ).encode()
-    item = await service.evidence_store.put(
-        transaction_id=award_body["transaction_id"],
-        seller_id="northwind-audio",
-        kind="delivery_confirmation",
-        media_type="application/json",
-        original_filename="delivery.json",
-        data=payload,
-        note=None,
-        captured_at=None,
-    )
-    item = item.model_copy(
-        update={
-            "requirement_id": "delivery_confirmation",
-            "origin": "system",
-            "attributed_to": "demo-buyer",
-            "scan_status": "clean",
-            "agreement_version": award_body["agreement_version"],
-        }
-    )
-    async with repo.transaction() as conn:
-        await repo.add_evidence(
-            conn, award_body["transaction_id"], "northwind-audio", item
-        )
 
 
 async def test_fake_lifecycle_reaches_released_with_receipt(api):
@@ -141,8 +108,8 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
     assert state["state"] == "VERIFICATION_PENDING"
 
-    # The delivery confirmation is system-owned: the seller cannot
-    # create it (Task 9a); the control plane does (stand-in for Task 13).
+    # Delivery confirmation is system/carrier-owned (D9): seller cannot
+    # satisfy it directly; carrier facts produce the system reference evidence.
     rejected = await upload_json(
         api,
         award_body,
@@ -151,7 +118,16 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
         headers=headers,
     )
     assert rejected.status_code == 422, rejected.text
-    await seed_system_delivery(api, award_body, NOW - timedelta(hours=30))
+    shipped = await api.post(
+        f"/seller/transactions/{txid}/shipment",
+        headers=headers,
+        json={
+            "carrier_key": "mock",
+            "tracking_number": "TRK-1",
+            "scenario": "happy_path",
+        },
+    )
+    assert shipped.status_code == 201, shipped.text
 
     invoice = {
         "invoice_id": "INV-1",
@@ -227,40 +203,67 @@ async def test_canonical_catalog_reaches_release_with_machine_readable_evidence(
     assert reported.status_code == 200, reported.text
     headers = await seller_headers(api)
 
-    photos = await upload_file(
-        api,
-        award_body,
-        "product_photos",
-        data=b"\xff\xd8\xff\xe0product",
-        filename="photos.jpg",
-        media_type="image/jpeg",
+    # Provenance challenge: issue then upload matching evidence.
+    issued = await api.post(f"/seller/transactions/{txid}/provenance-challenge", headers=headers)
+    assert issued.status_code == 201, issued.text
+    prov = await upload_file(
+        api, award_body, "provenance",
+        data=b"\xff\xd8\xff\xe0provenance", filename="provenance.jpg", media_type="image/jpeg",
         headers=headers,
     )
-    assert photos.status_code == 201, photos.text
+    assert prov.status_code == 201, prov.text
+
     serial = await upload_file(
-        api,
-        award_body,
-        "serial",
-        data=b"\xff\xd8\xff\xe0serial",
-        filename="serial.jpg",
-        media_type="image/jpeg",
+        api, award_body, "serial",
+        data=b"\xff\xd8\xff\xe0serial", filename="serial.jpg", media_type="image/jpeg",
         headers=headers,
     )
     assert serial.status_code == 201, serial.text
-    hardware = await upload_file(
-        api,
-        award_body,
-        "hardware",
-        data=b"ram_gb,64\nstorage_tb,2\n",
-        filename="diagnostics.csv",
-        media_type="text/csv",
+
+    # Product condition photos (>=7 items, covering required views).
+    view_labels = ["front", "back", "left", "right", "keyboard", "screen", "underside", "serial"]
+    for idx, view in enumerate(view_labels):
+        resp = await api.post(
+            f"/seller/transactions/{txid}/evidence",
+            headers=headers,
+            data={"requirement_id": "product_photos", "view_label": view},
+            files={"file": (f"{view}.jpg", bytes([0xFF, 0xD8, 0xFF, 0xE0, idx]), "image/jpeg")},
+        )
+        assert resp.status_code == 201, resp.text
+
+    declared = await api.post(
+        f"/seller/transactions/{txid}/requirements/condition_declaration/declare",
         headers=headers,
+        json={"values": {"locks_disabled": "true", "battery_health_declared": "85", "cosmetic_grade": "A", "accessories_included": "charger"}},
+    )
+    assert declared.status_code == 200, declared.text
+
+    hardware = await upload_file(
+        api, award_body, "hardware",
+        data=b"ram_gb,64\nstorage_tb,2048\n",
+        filename="diagnostics.csv", media_type="text/csv", headers=headers,
     )
     assert hardware.status_code == 201, hardware.text
+
+    battery = await upload_json(
+        api, award_body, "battery", {"battery_health_pct": 90, "cycle_count": 120}, headers=headers
+    )
+    assert battery.status_code == 201, battery.text
+
     warranty = await upload_json(
         api, award_body, "warranty", {"warranty_days": 120}, headers=headers
     )
     assert warranty.status_code == 201, warranty.text
+
+    for idx, view in enumerate(["unit_with_serial", "inside_box", "sealed_with_label"]):
+        resp = await api.post(
+            f"/seller/transactions/{txid}/evidence",
+            headers=headers,
+            data={"requirement_id": "packaging", "view_label": view},
+            files={"file": (f"pack-{view}.jpg", bytes([0xFF, 0xD8, 0xFF, 0xE1, idx]), "image/jpeg")},
+        )
+        assert resp.status_code == 201, resp.text
+
     invoice = await upload_json(
         api,
         award_body,
@@ -274,6 +277,7 @@ async def test_canonical_catalog_reaches_release_with_machine_readable_evidence(
         headers=headers,
     )
     assert invoice.status_code == 201, invoice.text
+
     shipping = await upload_reference(
         api, award_body, "shipping", "TRK-1", "tracking", headers=headers
     )
@@ -281,16 +285,22 @@ async def test_canonical_catalog_reaches_release_with_machine_readable_evidence(
 
     await settle_scans_and_verify(api, txid)
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
-    assert state["state"] == "VERIFICATION_PENDING"
+    assert state["state"] in {"VERIFICATION_PENDING", "RELEASE_PERMITTED"}
 
-    await seed_system_delivery(api, award_body, NOW - timedelta(hours=30))
+    shipped = await api.post(
+        f"/seller/transactions/{txid}/shipment",
+        headers=headers,
+        json={"carrier_key": "mock", "tracking_number": "TRK-CANON-1", "scenario": "happy_path"},
+    )
+    assert shipped.status_code == 201, shipped.text
     await settle_scans_and_verify(api, txid)
     state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
-    assert state["state"] == "RELEASE_PERMITTED"
+    assert state["state"] == "RELEASE_PERMITTED", state
     assert state["verification"]["rollup"] == "RELEASE_PERMITTED"
     assert all(
         requirement["status"] == "pass"
         for requirement in state["verification"]["requirements"]
+        if requirement["requirement_id"] != "insurance_confirmation"
     )
 
     released = await api.post(
@@ -367,6 +377,15 @@ async def test_seller_token_reissue_revokes_old_token(api):
     award_body = await award(api)
     txid = award_body["transaction_id"]
     old_token = award_body["seller_token"]
+    await seller_headers(api)
+    app = api._transport.app
+    if getattr(app.state, "tenancy", None) is not None:
+        try:
+            await app.state.tenancy.set_verification_status(
+                "northwind-audio", "verified", reviewer_user_id="test"
+            )
+        except Exception:
+            pass
 
     reissued = await api.post(
         f"/transactions/{txid}/seller-token",

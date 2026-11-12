@@ -117,6 +117,7 @@ class Reconciler:
             await self._safe(stats, self._sweep_funding(stats))
             await self._safe(stats, self._sweep_payouts(stats))
             await self._safe(stats, self._sweep_trackers(stats))
+            await self._safe(stats, self._sweep_shipments(stats))
             await self._safe(stats, self._sweep_deadlines(stats))
             await self._safe(stats, self._sweep_scans(stats))
             await self._safe(stats, self._sweep_remediation(stats))
@@ -200,6 +201,80 @@ class Reconciler:
                 record.transaction_id, actor="reconciler"
             )
             stats["payouts_checked"] += 1
+
+
+    async def _sweep_shipments(self, stats: dict[str, int]) -> None:
+        from datetime import timedelta
+        from verifund_contracts import TransactionState
+        from verifund_control_plane.repository import AuditInput
+
+        if not hasattr(self.repo, "list_shipments"):
+            return
+        now = self._now()
+        timeout_hours = int(getattr(self.settings, "delivery_timeout_hours", 72) or 72)
+        for shipment in await self.repo.list_shipments():
+            txn_id = shipment.get("transaction_id")
+            if not txn_id:
+                continue
+            try:
+                record = await self.repo.get_transaction(txn_id)
+            except Exception:
+                stats["errors"] += 1
+                continue
+            if record.state in {
+                TransactionState.RELEASED,
+                TransactionState.REFUNDED,
+                TransactionState.CANCELED,
+                TransactionState.FAILED,
+            }:
+                continue
+            try:
+                await self.service.ingest_shipment_events(txn_id, actor="reconciler")
+                stats["shipments_checked"] = stats.get("shipments_checked", 0) + 1
+            except Exception:
+                stats["errors"] += 1
+                continue
+
+            # Delivery timeout -> review (no refund), D14.
+            status = str((await self.repo.get_shipment_by_transaction(txn_id) or {}).get("status") or "")
+            if status in {"DELIVERED", "DELIVERED_SIGNED"}:
+                continue
+            created_raw = shipment.get("created_at")
+            try:
+                created_at = __import__("datetime").datetime.fromisoformat(str(created_raw))
+            except Exception:
+                continue
+            if now - created_at < timedelta(hours=timeout_hours):
+                continue
+            if record.state in {TransactionState.REVIEW_REQUIRED, TransactionState.DISPUTE_OPEN, TransactionState.RELEASE_PERMITTED, TransactionState.PAYOUT_PENDING}:
+                continue
+            try:
+                async with self.repo.transaction() as conn:
+                    current = await self.repo.get_transaction(txn_id, conn)
+                    if current.state in {TransactionState.REVIEW_REQUIRED, TransactionState.RELEASED, TransactionState.REFUNDED, TransactionState.CANCELED, TransactionState.FAILED}:
+                        continue
+                    reasons = list(((current.verification or {}).get("reasons")) or [])
+                    if "delivery_timeout" not in reasons:
+                        reasons.append("delivery_timeout")
+                    await self.repo.transition(
+                        conn,
+                        txn_id,
+                        expected_version=current.version,
+                        expected_state=current.state,
+                        new_state=TransactionState.REVIEW_REQUIRED,
+                        changes={
+                            "verification": {
+                                "status": "failed",
+                                "reasons": reasons,
+                                "checked_at": self._iso(now),
+                                "override_allowed": False,
+                            }
+                        },
+                        audit=AuditInput("reconciler", "delivery_timeout", payload={"tracking_number": shipment.get("tracking_number")}),
+                    )
+                stats["deadline_reviews"] += 1
+            except Exception:
+                stats["errors"] += 1
 
     async def _sweep_trackers(self, stats: dict[str, int]) -> None:
         if not hasattr(self.service, "refresh_tracker"):

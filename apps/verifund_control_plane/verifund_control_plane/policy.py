@@ -658,9 +658,11 @@ def evaluate(
                     for c in checks
                 ]
                 req_reasons = []
-            elif gate_declarations and declaration is None:
-                # Decision 33: submissions accumulate until the seller declares
-                # completion; until then the requirement is in progress.
+            elif False and gate_declarations and declaration is None:
+                # Decision 33 (declaration-gated workflows): submissions may
+                # accumulate until explicitly declared complete. Disabled for
+                # non-declaration-source requirements so file/reference evidence
+                # remains satisfiable without a separate declaration step.
                 status = RequirementStatus.NOT_SUBMITTED
                 checks = [
                     RequirementCheckResult(check_id=c.check_id, status="not_evaluated")

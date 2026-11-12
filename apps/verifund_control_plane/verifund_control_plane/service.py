@@ -251,6 +251,7 @@ class VerifundService:
         tracking: PayPalTrackingClient | None = None,
         tenancy: Any = None,
         challenge_extractor: Any = None,
+        carrier: Any = None,
     ) -> None:
         self.repo = repo
         self.settings = settings
@@ -266,6 +267,7 @@ class VerifundService:
         self.tracking = tracking
         self.tenancy = tenancy
         self.challenge_extractor = challenge_extractor
+        self.carrier = carrier
 
     async def seller_status(self, seller_id: str) -> str | None:
         if self.tenancy is None:
@@ -1330,6 +1332,225 @@ class VerifundService:
             confidence=confidence,
         )
 
+
+    async def _ensure_system_requirement_reference(
+        self,
+        transaction_id: str,
+        requirement_id: str,
+        *,
+        reference: str,
+        actor: str = "system",
+        note: str | None = None,
+        captured_at: Any = None,
+    ) -> dict[str, Any] | None:
+        record = await self.repo.get_transaction(transaction_id)
+        terms = await self._agreement_terms(transaction_id)
+        try:
+            catalog = project_requirements(terms)
+        except (ValidationError, ValueError):
+            catalog = []
+        requirement = next((r for r in catalog if r.requirement_id == requirement_id), None)
+        if requirement is None:
+            return None
+        try:
+            store_kind = EvidenceKind(requirement.kind).value
+        except ValueError:
+            store_kind = EvidenceKind.OTHER.value
+        ref_value = str(reference)
+        payload = f"{requirement_id}:{ref_value}".encode("utf-8")
+        item = await self.evidence_store.put(
+            transaction_id=transaction_id,
+            seller_id=record.seller_id,
+            kind=store_kind,
+            media_type="text/plain",
+            original_filename=f"{requirement_id}.reference.txt",
+            data=payload,
+            note=note,
+            captured_at=captured_at,
+            organization_id=record.seller_organization_id,
+        )
+        async with self.repo.transaction() as conn:
+            current = await self.repo.get_transaction(transaction_id, conn)
+            open_attempt = await self.repo.open_attempt(conn, transaction_id, requirement_id)
+            item = item.model_copy(
+                update={
+                    "requirement_id": requirement_id,
+                    "submission_attempt": open_attempt,
+                    "origin": "system",
+                    "attributed_to": "carrier",
+                    "agreement_version": current.agreement_version,
+                    "artifact_type": "reference",
+                    "reference": ref_value,
+                    "scan_status": "clean",
+                }
+            )
+            stored, created = await self.repo.add_evidence(
+                conn, transaction_id, record.seller_id, item, captured_at=captured_at
+            )
+            await self.repo.add_evidence_submission(
+                conn,
+                submission_id=f"sub_{uuid.uuid4().hex}",
+                transaction_id=transaction_id,
+                evidence_id=stored.evidence_id,
+                requirement_id=requirement_id,
+                attempt=open_attempt,
+            )
+            if created and current.state in {
+                TransactionState.FULFILLMENT_PENDING,
+                TransactionState.REMEDIATION_REQUIRED,
+            }:
+                await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=current.state,
+                    new_state=TransactionState.VERIFICATION_PENDING,
+                    changes={},
+                    audit=AuditInput(actor, f"{requirement_id}_received"),
+                )
+        return {"evidence_id": stored.evidence_id, "created": created}
+
+    async def register_shipment(
+        self,
+        transaction_id: str,
+        *,
+        seller_id: str,
+        payload: dict[str, Any],
+        actor: str,
+    ) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.seller_id != seller_id:
+            raise VerifundError("forbidden", "seller does not own this transaction", status_code=403)
+        if record.state not in EVIDENCE_UPLOAD_STATES and record.state not in {TransactionState.AGREED, TransactionState.FUNDED}:
+            # allow registration once fulfillment context exists; be permissive
+            pass
+        carrier_key = str(payload.get("carrier_key") or payload.get("carrier") or "mock")
+        tracking_number = str(payload.get("tracking_number") or "").strip()
+        if not tracking_number:
+            raise VerifundError("invalid_request", "tracking_number is required", status_code=422)
+        now = self._now()
+        existing = await self.repo.get_shipment_by_transaction(transaction_id)
+        shipment = {
+            "id": (existing or {}).get("id") or f"shp_{uuid.uuid4().hex}",
+            "organization_id": getattr(record, "seller_organization_id", None),
+            "transaction_id": transaction_id,
+            "carrier_key": carrier_key,
+            "tracking_number": tracking_number,
+            "service_level": payload.get("service_level"),
+            "declared_value_minor": payload.get("declared_value_minor"),
+            "insured_value_minor": payload.get("insured_value_minor"),
+            "currency": payload.get("currency") or record.currency,
+            "weight_expected_g": payload.get("weight_expected_g"),
+            "scenario": payload.get("scenario"),
+            "status": "REGISTERED",
+            "created_at": self._iso(now),
+            "updated_at": self._iso(now),
+        }
+        if existing is None:
+            await self.repo.create_shipment(shipment)
+        else:
+            shipment["created_at"] = existing.get("created_at") or shipment["created_at"]
+            async with self.repo.engine.begin() as conn:
+                await conn.execute(
+                    self.repo.shipments.update()
+                    .where(self.repo.shipments.c.id == existing["id"])
+                    .values({k: v for k, v in shipment.items() if k != "id"})
+                )
+        carrier = getattr(self, "carrier", None)
+        if carrier is not None and hasattr(carrier, "register_tracking"):
+            with suppress(Exception):
+                await carrier.register_tracking({**shipment, **payload})
+        async with self.repo.transaction() as conn:
+            await self.repo.audit(conn, transaction_id, AuditInput(actor, "shipment_registered", payload={"tracking_number": tracking_number, "carrier_key": carrier_key}))
+        # initial ingest
+        await self.ingest_shipment_events(transaction_id, actor=actor)
+        return await self.get_shipment(transaction_id, seller_id=seller_id)
+
+    async def get_shipment(self, transaction_id: str, *, seller_id: str | None = None) -> dict[str, Any] | None:
+        record = await self.repo.get_transaction(transaction_id)
+        if seller_id is not None and record.seller_id != seller_id:
+            raise VerifundError("forbidden", "seller does not own this transaction", status_code=403)
+        shipment = await self.repo.get_shipment_by_transaction(transaction_id)
+        if shipment is None:
+            return None
+        events = await self.repo.list_carrier_events(shipment["id"])
+        pod = await self.repo.get_delivery_confirmation(shipment["id"])
+        return {"shipment": shipment, "events": events, "delivery_confirmation": pod}
+
+    async def ingest_shipment_events(self, transaction_id: str, *, actor: str = "system") -> dict[str, Any] | None:
+        shipment = await self.repo.get_shipment_by_transaction(transaction_id)
+        if shipment is None:
+            return None
+        carrier = getattr(self, "carrier", None)
+        if carrier is None or not hasattr(carrier, "get_tracking_events"):
+            return shipment
+        events = await carrier.get_tracking_events(
+            shipment["tracking_number"], scenario=shipment.get("scenario")
+        )
+        now = self._now()
+        delivered_statuses = {"DELIVERED", "DELIVERED_SIGNED"}
+        acceptance_statuses = {"CARRIER_ACCEPTED", "PICKED_UP"}
+        saw_acceptance = False
+        saw_delivery = False
+        latest_status = shipment.get("status") or "REGISTERED"
+        for event in events:
+            payload = {
+                "id": f"cev_{uuid.uuid4().hex}",
+                "shipment_id": shipment["id"],
+                "carrier_key": shipment["carrier_key"],
+                "provider_event_id": event.provider_event_id,
+                "normalized_status": event.normalized_status,
+                "event_at": self._iso(event.event_at),
+                "received_at": self._iso(now),
+                "weight_g": event.weight_g,
+                "payload_json": getattr(event, "payload", None) or {},
+            }
+            inserted = await self.repo.insert_carrier_event(payload)
+            latest_status = event.normalized_status
+            if event.normalized_status in acceptance_statuses:
+                saw_acceptance = True
+            if event.normalized_status in delivered_statuses:
+                saw_delivery = True
+            if inserted:
+                async with self.repo.transaction() as conn:
+                    await self.repo.audit(conn, transaction_id, AuditInput(actor, "carrier_event_ingested", payload={"status": event.normalized_status, "provider_event_id": event.provider_event_id}))
+        await self.repo.update_shipment_status(shipment["id"], latest_status, updated_at=self._iso(now))
+
+        if saw_acceptance:
+            await self._ensure_system_requirement_reference(
+                transaction_id, "carrier_acceptance", reference=shipment["tracking_number"], actor=actor, note="carrier acceptance"
+            )
+        if saw_delivery:
+            pod = None
+            if hasattr(carrier, "get_proof_of_delivery"):
+                with suppress(Exception):
+                    pod = await carrier.get_proof_of_delivery(shipment["tracking_number"], scenario=shipment.get("scenario"))
+            delivered_at = self._iso(pod.delivered_at) if pod and getattr(pod, "delivered_at", None) else self._iso(now)
+            confirmation = {
+                "id": f"dlv_{uuid.uuid4().hex}",
+                "shipment_id": shipment["id"],
+                "delivered_at": delivered_at,
+                "recipient_reference": getattr(pod, "recipient_reference", None) if pod else None,
+                "signature_reference": getattr(pod, "signature_reference", None) if pod else None,
+                "pod_reference": getattr(pod, "pod_reference", None) if pod else None,
+                "pod_evidence_id": None,
+                "weight_g": getattr(pod, "weight_g", None) if pod else None,
+                "payload_json": getattr(pod, "payload", None) if pod else {},
+            }
+            await self.repo.upsert_delivery_confirmation(confirmation)
+            await self._ensure_system_requirement_reference(
+                transaction_id, "delivery_confirmation", reference=shipment["tracking_number"], actor=actor, note="carrier delivery", captured_at=self._now()
+            )
+            # ensure inspection record starts at carrier delivery if needed (P4 will refine)
+            await self.verify_if_ready(transaction_id, actor=actor)
+        # If acceptance but not delivered, still try to progress verification state
+        if saw_acceptance and not saw_delivery:
+            record = await self.repo.get_transaction(transaction_id)
+            if record.state == TransactionState.FULFILLMENT_PENDING:
+                # carrier accepted means fulfillment progressed; keep verification flow consistent
+                await self.verify_if_ready(transaction_id, actor=actor)
+        return await self.repo.get_shipment_by_transaction(transaction_id)
+
     async def seller_projection(
         self, transaction_id: str, *, seller_id: str
     ) -> SellerProjection:
@@ -1746,9 +1967,27 @@ class VerifundService:
             method = "fixture" if getattr(extraction, "simulated", False) else "extraction"
         rule_version = 1
         if challenge is None:
+            latest = await self.repo.get_latest_provenance_challenge(
+                seller_organization_id, transaction_id
+            )
+            reason = "CHALLENGE_MISSING"
+            if latest is not None:
+                expires_at = latest.get("expires_at")
+                try:
+                    from datetime import datetime
+                    exp = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None
+                except Exception:
+                    exp = None
+                status = str(latest.get("status") or "")
+                if status == "used":
+                    reason = "CHALLENGE_CONSUMED"
+                elif exp is not None and exp < now:
+                    reason = "CHALLENGE_EXPIRED"
+                elif status == "active":
+                    reason = "CHALLENGE_EXPIRED"
             return {
                 "ok": False,
-                "reason_code": "CHALLENGE_MISSING",
+                "reason_code": reason,
                 "verification_method": method,
                 "rule_version": rule_version,
                 "confidence": confidence,
@@ -2100,6 +2339,11 @@ class VerifundService:
         carrier_event_at: Any = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        """Buyer delivery confirmation is corroboration only (D9).
+
+        Carrier/system facts satisfy `delivery_confirmation`; this record may
+        support inspection/dispute context but must not authorize release.
+        """
         if buyer_id is None:
             buyer_id = buyer or kwargs.get("buyer_id") or kwargs.get("buyer")
         if confirmed_at is None:
@@ -2127,14 +2371,6 @@ class VerifundService:
                 "confirmed_at cannot be in the future",
                 status_code=422,
             )
-        if carrier_event_at is not None and abs(
-            (confirmed_at - carrier_event_at).total_seconds()
-        ) > 24 * 3600:
-            raise VerifundError(
-                    "invalid_request",
-                    "confirmed_at is outside the carrier event window",
-                    status_code=422,
-                )
 
         payload = json.dumps(
             {
@@ -2142,8 +2378,9 @@ class VerifundService:
                 "confirmed_at": confirmed_at.isoformat(),
                 "condition": condition,
                 "photos": photos or [],
-                "origin": "system",
+                "origin": "buyer",
                 "attributed_to": buyer_id,
+                "corroboration": True,
             },
             default=str,
         )
@@ -2152,77 +2389,37 @@ class VerifundService:
             seller_id=record.seller_id,
             kind=EvidenceKind.DELIVERY_CONFIRMATION.value,
             media_type="application/json",
-            original_filename="delivery_confirmation.json",
+            original_filename="buyer_delivery_corroboration.json",
             data=payload.encode("utf-8"),
-            note="buyer-attested delivery confirmation",
+            note="buyer delivery corroboration",
             captured_at=confirmed_at,
             organization_id=record.seller_organization_id,
         )
-
-        new_state = record.state
+        item = item.model_copy(
+            update={
+                "requirement_id": None,
+                "origin": "buyer",
+                "attributed_to": buyer_id,
+                "purpose": "corroboration",
+                "agreement_version": record.agreement_version,
+                "artifact_type": "file",
+                "scan_status": "clean",
+            }
+        )
         async with self.repo.transaction() as conn:
             current = await self.repo.get_transaction(transaction_id, conn)
-            if current.state not in EVIDENCE_UPLOAD_STATES and current.state not in {
-                TransactionState.FULFILLMENT_PENDING,
-                TransactionState.VERIFICATION_PENDING,
-            }:
-                raise VerifundError(
-                        "invalid_state",
-                        "delivery confirmation is not allowed in the current state",
-                        status_code=409,
-                    )
-            open_attempt = await self.repo.open_attempt(
-                conn, transaction_id, "delivery_confirmation"
-            )
-            item = item.model_copy(
-                update={
-                    "requirement_id": "delivery_confirmation",
-                    "submission_attempt": open_attempt,
-                    "origin": "system",
-                    "attributed_to": buyer_id,
-                    "agreement_version": current.agreement_version,
-                    "artifact_type": "system",
-                    "scan_status": "clean",
-                }
-            )
             stored, _created = await self.repo.add_evidence(
                 conn, transaction_id, record.seller_id, item, captured_at=confirmed_at
             )
-            await self.repo.add_evidence_submission(
+            await self.repo.audit(
                 conn,
-                submission_id=f"sub_{uuid.uuid4().hex}",
-                transaction_id=transaction_id,
-                evidence_id=stored.evidence_id,
-                requirement_id="delivery_confirmation",
-                attempt=open_attempt,
+                transaction_id,
+                AuditInput(f"buyer:{buyer_id}", "delivery_corroborated"),
             )
-            if current.state == TransactionState.FULFILLMENT_PENDING:
-                updated = await self.repo.transition(
-                    conn,
-                    transaction_id,
-                    expected_version=current.version,
-                    expected_state=current.state,
-                    new_state=TransactionState.VERIFICATION_PENDING,
-                    changes={},
-                    audit=AuditInput(
-                        f"buyer:{buyer_id}", "delivery_confirmed"
-                    ),
-                )
-                new_state = updated.state
-            else:
-                await self.repo.update_transaction(
-                    conn,
-                    transaction_id,
-                    expected_version=current.version,
-                    changes={},
-                    audit=AuditInput(f"buyer:{buyer_id}", "delivery_confirmed"),
-                )
-        if new_state == TransactionState.VERIFICATION_PENDING:
-            await self.verify_if_ready(transaction_id, actor="system")
         return {
             "evidence_id": stored.evidence_id,
-            "requirement_id": "delivery_confirmation",
-            "status": "recorded",
+            "requirement_id": None,
+            "status": "corroborated",
         }
 
     async def open_dispute(
@@ -2428,6 +2625,9 @@ class VerifundService:
             )
         balances = await self.repo.ledger_balances(transaction_id)
         terms = await self._agreement_terms(transaction_id)
+        if declarations is None and hasattr(self.repo, "list_declarations"):
+            with suppress(Exception):
+                declarations = await self.repo.list_declarations(transaction_id)
         result = evaluate(
             record,
             items,
