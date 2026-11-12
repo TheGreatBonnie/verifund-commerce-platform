@@ -100,8 +100,10 @@ async def fetch_agent_card(
     allowed_hosts: tuple[str, ...] = DEFAULT_CARD_HOSTS,
 ) -> AgentCard:
     parsed = httpx.URL(url)
-    if parsed.scheme != "http" or parsed.host not in allowed_hosts:
-        raise ValueError("prototype card fetch is restricted to allowed local hosts")
+    # The allowlist is the access control. Plain HTTP is still allowed for the
+    # local stack, but a deployed gateway publishes its cards over HTTPS.
+    if parsed.scheme not in ("http", "https") or parsed.host not in allowed_hosts:
+        raise ValueError("agent card fetch is restricted to the allowed hosts")
     if client is None:
         async with httpx.AsyncClient(timeout=5.0) as http:
             response = await http.get(url)

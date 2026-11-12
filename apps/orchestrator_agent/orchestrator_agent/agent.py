@@ -15,7 +15,10 @@ from verifund_contracts import (
 )
 
 from orchestrator_agent import marketplace
-from orchestrator_agent.mediation import mediate_seller_call as _mediate_seller_call
+from orchestrator_agent.mediation import (
+    mediate_seller_call as _mediate_seller_call,
+    set_card_hosts,
+)
 from orchestrator_agent.settings import Settings
 from orchestrator_agent.verifund import (
     BuyerA2AAgents,
@@ -340,6 +343,7 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             buyer_internal_token=settings.buyer_internal_token,
             buyer_internal_timeout_seconds=settings.buyer_internal_timeout_seconds,
             control_plane_url=settings.verifund_control_plane_url,
+            allowed_card_hosts=settings.allowed_card_hosts,
         )
         if seller_name and isinstance(result, dict):
             result.setdefault("seller_name", seller_name)
@@ -614,6 +618,10 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
 
 
 def build_agent(settings: Settings) -> LlmAgent:
+    # The deployed gateway publishes its agent cards on its public host, so the
+    # card fetches need the configured allowlist rather than the local-only
+    # defaults.
+    set_card_hosts(settings.allowed_card_hosts)
     model = LiteLlm(
         model=f"openai/{settings.nebius_model}",
         api_base=settings.nebius_base_url,

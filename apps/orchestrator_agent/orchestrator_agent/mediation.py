@@ -12,11 +12,26 @@ from a2a.types.a2a_pb2 import (
     SendMessageRequest,
 )
 from commerce_core.a2a_parts import make_message, part_value
-from commerce_core.cards import fetch_agent_card
+from commerce_core.cards import DEFAULT_CARD_HOSTS, fetch_agent_card
+
+# Hosts whose agent cards this process may fetch. The local stack answers on
+# loopback hostnames; a deployed gateway publishes its cards on its public
+# host, so the orchestrator configures this from ALLOWED_CARD_HOSTS at
+# startup rather than relying on the local-only defaults.
+_card_hosts: tuple[str, ...] = DEFAULT_CARD_HOSTS
+
+
+def set_card_hosts(hosts: tuple[str, ...]) -> None:
+    """Set the hosts this process may fetch agent cards from."""
+    global _card_hosts
+    _card_hosts = tuple(hosts)
 
 
 async def _a2a_send(base_url: str, message: Message, token: str | None = None) -> list:
-    card = await fetch_agent_card(f"{base_url.rstrip('/')}/.well-known/agent-card.json")
+    card = await fetch_agent_card(
+        f"{base_url.rstrip('/')}/.well-known/agent-card.json",
+        allowed_hosts=_card_hosts,
+    )
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     http = httpx.AsyncClient(headers=headers, timeout=httpx.Timeout(60.0, connect=5.0))
     client = ClientFactory(ClientConfig(streaming=True, httpx_client=http)).create(card)

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from commerce_core.cards import DEFAULT_CARD_HOSTS
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -16,7 +18,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ORCHESTRATOR_PORT", "PORT"),
     )
     orchestrator_url: str = "http://127.0.0.1:9000"
-    buyer_a2a_url: str = "http://127.0.0.1:9100"
+    buyer_a2a_url: str = Field(
+        default="http://127.0.0.1:9100",
+        validation_alias=AliasChoices("BUYER_A2A_URL"),
+    )
     verifund_control_plane_url: str = Field(
         default="http://127.0.0.1:9300",
         validation_alias=AliasChoices(
@@ -90,4 +95,8 @@ class Settings(BaseSettings):
     session_db_url: str = Field(
         default="sqlite+aiosqlite:///./data/orchestrator_sessions.db",
         validation_alias=AliasChoices("ORCHESTRATOR_SESSION_DB_URL"),
+    )
+    allowed_card_hosts: tuple[str, ...] = Field(
+        default=DEFAULT_CARD_HOSTS,
+        validation_alias=AliasChoices("ALLOWED_CARD_HOSTS"),
     )
