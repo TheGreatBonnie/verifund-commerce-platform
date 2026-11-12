@@ -1,6 +1,8 @@
-.PHONY: setup dev dev-scripted seed seed-demo reset test lint e2e demo down \
+.PHONY: setup dev dev-gateway dev-scripted seed seed-demo reset test lint e2e demo down \
 	verifund-smoke verifund-e2e verifund-demo verifund-preflight \
 	verifund-sandbox-smoke
+
+GATEWAY ?= 0
 
 setup:
 	uv lock
@@ -9,7 +11,10 @@ setup:
 	cp -n .env.example .env || true
 
 dev:
-	uv run python scripts/dev.py
+	uv run python scripts/dev.py $(if $(filter 1,$(GATEWAY)),--gateway,)
+
+dev-gateway:
+	uv run python scripts/dev.py --gateway
 
 dev-scripted:
 	uv run python scripts/dev.py --scripted

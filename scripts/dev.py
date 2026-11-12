@@ -492,6 +492,161 @@ def control_plane_environment(llm: str, mode: str) -> dict[str, str]:
     )
     return env
 
+
+def gateway_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, str]:
+    """One process environment for all six services behind the gateway."""
+    base = gateway_url()
+    env: dict[str, str] = {}
+    env.update(registry_environment(mode))
+    env.update(shared_seller_environment(mode, verifund_mode))
+    env.update(buyer_environment(mode, verifund_mode))
+    env.update(orchestrator_environment(mode, verifund_mode))
+    env.update(control_plane_environment(mode, verifund_mode))
+    if verifund_enabled(verifund_mode):
+        env.update(verifund_agent_environment(verifund_mode))
+
+    # Never let a bare fallback shadow the service-specific variables.
+    env.pop("DATABASE_URL", None)
+    env.pop("CHECKPOINT_PATH", None)
+
+    env.update(
+        {
+            "HOST": _env_value("HOST", "127.0.0.1"),
+            "PORT": str(gateway_port()),
+            "PUBLIC_BASE_URL": f"{base}/sellers",
+            "BUYER_PUBLIC_BASE_URL": f"{base}/buyer",
+            "REGISTRY_URL": f"{base}/registry",
+            "ORCHESTRATOR_URL": f"{base}/orchestrator",
+            "ORCHESTRATOR_AGUI_URL": f"{base}/orchestrator",
+            "BUYER_A2A_URL": f"{base}/buyer",
+            "BUYER_AGUI_URL": f"{base}/buyer/agui",
+            "BUYER_INTERNAL_URL": f"{base}/buyer",
+            "SELLER_SHARED_URL": f"{base}/sellers",
+            "VERIFUND_URL": f"{base}/control-plane",
+            "VERIFUND_CONTROL_PLANE_URL": f"{base}/control-plane",
+            "VERIFUND_PUBLIC_BASE_URL": f"{base}/control-plane",
+            "VERIFUND_AGENT_URL": f"{base}/verifund-agent",
+            "VERIFUND_AGENT_CARD_URL": (
+                f"{base}/verifund-agent/.well-known/agent-card.json"
+            ),
+        }
+    )
+    return env
+
+
+def gateway_console_environment(
+    mode: str, verifund_mode: str = "sandbox"
+) -> dict[str, str]:
+    """Console environment pointed at the gateway mount prefixes."""
+    env = console_environment(mode)
+    base = gateway_url()
+    env.update(
+        {
+            "BUYER_A2A_URL": f"{base}/buyer",
+            "BUYER_AGUI_URL": f"{base}/buyer/agui",
+            "BUYER_API_URL": f"{base}/buyer",
+            "SELLER_SHARED_URL": f"{base}/sellers",
+            "ORCHESTRATOR_URL": f"{base}/orchestrator",
+            "ORCHESTRATOR_AGUI_URL": f"{base}/orchestrator",
+            "REGISTRY_URL": f"{base}/registry",
+            "VERIFUND_MODE": verifund_mode,
+        }
+    )
+    return env
+
+
+def _gateway_registration_environment(verifund_mode: str) -> dict[str, str]:
+    env = verifund_registration_environment(verifund_mode)
+    base = gateway_url()
+    env.update(
+        {
+            "REGISTRY_URL": f"{base}/registry",
+            "VERIFUND_AGENT_CARD_URL": (
+                f"{base}/verifund-agent/.well-known/agent-card.json"
+            ),
+        }
+    )
+    return env
+
+
+def _run_gateway_stack(mode: str, settlement_mode: str, npm: str) -> int:
+    children: list[Child] = []
+    try:
+        gateway_child = start_child(
+            "gateway",
+            [sys.executable, "-m", "gateway"],
+            env=gateway_environment(mode, settlement_mode),
+            url=f"{gateway_url()}/health",
+        )
+        children.append(gateway_child)
+        wait_for_http(
+            "gateway",
+            f"{gateway_url()}/health",
+            timeout=90,
+            process=gateway_child.process,
+            log_path=gateway_child.log_path,
+        )
+
+        if verifund_enabled(settlement_mode):
+            registration = subprocess.run(
+                [sys.executable, "-m", "verifund_agent.register"],
+                cwd=ROOT,
+                env=_gateway_registration_environment(settlement_mode),
+                text=True,
+                capture_output=True,
+                timeout=90,
+                check=False,
+            )
+            if registration.returncode != 0:
+                raise RuntimeError(
+                    "Verifund agent registration failed.\n"
+                    f"{registration.stdout}{registration.stderr}"
+                )
+
+        console = start_child(
+            "console",
+            [npm, "run", "dev", "--", "--port", str(console_port())],
+            env=gateway_console_environment(mode, settlement_mode),
+            cwd=ROOT / "apps/console",
+            url=f"http://127.0.0.1:{console_port()}",
+        )
+        children.append(console)
+        wait_for_http(
+            "console",
+            f"http://127.0.0.1:{console_port()}",
+            timeout=90,
+            process=console.process,
+            log_path=console.log_path,
+        )
+
+        _write_pids(children, mode, settlement_mode)
+        print("\nMarketMesh merged gateway is ready")
+        print(f"  Console       http://127.0.0.1:{console_port()}")
+        print(f"  Gateway       {gateway_url()}")
+        for prefix in (
+            "buyer",
+            "orchestrator",
+            "registry",
+            "sellers",
+            "control-plane",
+            "verifund-agent",
+        ):
+            print(f"  /{prefix:<13} {gateway_url()}/{prefix}/health")
+        print("\nPress Ctrl-C to stop the stack. Logs: .dev-logs/")
+
+        while True:
+            for child in children:
+                code = child.process.poll()
+                if code is not None:
+                    raise RuntimeError(
+                        f"{child.name} exited unexpectedly with code {code}.\n"
+                        f"{_tail(child.log_path)}"
+                    )
+            time.sleep(1)
+    finally:
+        _terminate(children)
+
+
 def _write_pids(
     children: list[Child], mode: str, verifund_mode: str = "sandbox"
 ) -> None:
@@ -530,7 +685,9 @@ def _resolve_mode(scripted: bool) -> str:
     return mode
 
 
-def run_stack(scripted: bool, settlement_mode: str = "off") -> int:
+def run_stack(
+    scripted: bool, settlement_mode: str = "off", gateway: bool = False
+) -> int:
     mode = _resolve_mode(scripted)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -555,6 +712,9 @@ def run_stack(scripted: bool, settlement_mode: str = "off") -> int:
     print(f"MarketMesh local stack · {mode} mode · Verifund {settlement_mode}")
 
     try:
+        if gateway:
+            return _run_gateway_stack(mode, settlement_mode, npm)
+
         registry = start_child(
             "registry",
             [sys.executable, "-m", "registry"],
@@ -753,10 +913,17 @@ def main() -> int:
         default=None,
         help="start the Verifund control plane and A2A agent in this mode",
     )
+    parser.add_argument(
+        "--gateway",
+        action="store_true",
+        help="run one merged gateway process instead of six services",
+    )
     args = parser.parse_args()
     if args.command == "stop":
         return stop_stack()
-    return run_stack(args.scripted, args.verifund or verifund_mode())
+    return run_stack(
+        args.scripted, args.verifund or verifund_mode(), args.gateway
+    )
 
 
 if __name__ == "__main__":

@@ -752,9 +752,9 @@ const token = isSellerAgentUrl(url, sharedSellerBaseUrl)
   : "";
 ```
 
-Remove the now-unused `sharedSellerPort` and `sellerTokens` constants if the
-middleware constructor no longer needs them; otherwise pass `new Map()` and let
-the URL-aware patch attach tokens. Keep `MarketMeshA2AClient`,
+Keep `sharedSellerPort` and `sellerTokens`: they still satisfy the middleware
+constructor signature, while the URL-aware fetch patch now decides which calls
+carry the seller token. Keep `MarketMeshA2AClient`,
 `MarketMeshA2AMiddlewareAgent`, and the build-time fallbacks unchanged.
 
 - [ ] **Step 6: Typecheck and run the console suite**
@@ -820,12 +820,23 @@ def test_gateway_environment_uses_one_port_and_prefixed_urls(monkeypatch) -> Non
     assert env["VERIFUND_URL"] == "http://127.0.0.1:10000/control-plane"
     assert env["VERIFUND_AGENT_URL"] == "http://127.0.0.1:10000/verifund-agent"
 
-    # Collisions resolved: no bare DATABASE_URL/CHECKPOINT_PATH/PUBLIC_BASE_URL
+    # Collisions resolved: no bare DATABASE_URL/CHECKPOINT_PATH
     # bleed-over between services.
     assert "DATABASE_URL" not in env
     assert "CHECKPOINT_PATH" not in env
     assert env["BUYER_DATABASE_URL"].startswith("sqlite+aiosqlite:///")
+
+
+def test_gateway_environment_includes_the_agent_when_settlement_is_on(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GATEWAY_PORT", "10000")
+    env = gateway_environment("scripted", "fake")
+
     assert env["VERIFUND_AGENT_DATABASE_URL"].startswith("sqlite+aiosqlite:///")
+    assert env["VERIFUND_AGENT_CARD_URL"] == (
+        "http://127.0.0.1:10000/verifund-agent/.well-known/agent-card.json"
+    )
 
 
 def test_gateway_console_environment_targets_the_gateway(monkeypatch) -> None:
@@ -995,8 +1006,8 @@ Expected: PASS (2 passed).
 
 - [ ] **Step 8: Boot the merged stack**
 
-Run: `make dev GATEWAY=1` (or `make dev VERIFUND_MODE=off` first if sandbox
-pretends are unavailable). Expected: `gateway` starts on
+Run: `make dev GATEWAY=1` (use `VERIFUND_MODE=off` if the sandbox control
+plane cannot start without an HTTPS tunnel). Expected: `gateway` starts on
 `http://127.0.0.1:10000`, the console starts on
 `http://127.0.0.1:3000`.
 

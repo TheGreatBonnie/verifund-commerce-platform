@@ -220,6 +220,14 @@ def console_port() -> int:
     return _port("CONSOLE_PORT", 3000)
 
 
+def gateway_port() -> int:
+    return _port("GATEWAY_PORT", 10000)
+
+
+def gateway_url() -> str:
+    return _env("GATEWAY_URL", f"http://127.0.0.1:{gateway_port()}").rstrip("/")
+
+
 def llm_mode() -> str:
     return _env("MARKETMESH_LLM_MODE", "scripted").strip().lower()
 
