@@ -1,15 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const hooks = vi.hoisted(() => ({
-  addMessage: vi.fn(),
-  runAgent: vi.fn(),
-}));
-
-vi.mock("@copilotkit/react-core/v2", () => ({
-  useAgent: () => ({ agent: { addMessage: hooks.addMessage } }),
-  useCopilotKit: () => ({ copilotkit: { runAgent: hooks.runAgent } }),
-}));
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { ProductRecommendations } from "@/features/chat/product-recommendations";
 
@@ -47,12 +37,6 @@ const PAYLOAD = {
 };
 
 describe("product recommendations table", () => {
-  beforeEach(() => {
-    hooks.addMessage.mockClear();
-    hooks.runAgent.mockReset();
-    hooks.runAgent.mockResolvedValue(undefined);
-  });
-
   it("renders a comparison table with grounded products and recommendation", () => {
     render(<ProductRecommendations status="complete" result={JSON.stringify(PAYLOAD)} />);
 
@@ -67,19 +51,7 @@ describe("product recommendations table", () => {
     expect(screen.getByText(/Great balance of performance and portability/i)).toBeInTheDocument();
     expect(screen.getByText("Recommended")).toBeInTheDocument();
     expect(screen.getByText("Alternative")).toBeInTheDocument();
-  });
-
-  it("dispatches a negotiate intent for the selected product", async () => {
-    render(<ProductRecommendations status="complete" result={PAYLOAD} />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: /ask agent to negotiate for advanced workstation laptop/i }),
-    );
-
-    await waitFor(() => expect(hooks.addMessage).toHaveBeenCalledTimes(1));
-    expect(hooks.addMessage.mock.calls[0][0].content).toContain("EX-WORKSTATION-1");
-    expect(hooks.addMessage.mock.calls[0][0].content).toContain("Do not place an order");
-    await waitFor(() => expect(hooks.runAgent).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: /negotiate/i })).not.toBeInTheDocument();
   });
 
   it("renders loading, empty, and error states", () => {

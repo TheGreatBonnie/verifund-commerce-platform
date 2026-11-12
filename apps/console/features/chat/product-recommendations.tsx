@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
-import { Handshake, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import { parseVerifundToolResult } from "./verifund-tools";
 
 type RecommendationOffer = {
@@ -77,44 +75,7 @@ function notesFor(product: RecommendationProduct) {
   return "—";
 }
 
-let fallbackId = 0;
-function messageId() {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
-  fallbackId += 1;
-  return `recommendation-negotiate-${Date.now()}-${fallbackId}`;
-}
-
-function negotiateIntent(product: RecommendationProduct) {
-  const currency = product.currency ?? product.offers?.[0]?.currency ?? "USD";
-  const offers = (product.offers ?? [])
-    .map((offer) => {
-      const name = offer.seller_name ?? "seller";
-      const stock = offer.available === false ? "unavailable" : "available";
-      return `${name} ${stock} at ${formatMoney(
-        offer.unit_price_cents,
-        offer.currency ?? currency,
-      )}`;
-    })
-    .join("; ");
-  return [
-    "Ask the MarketMesh Buyer to negotiate for this product.",
-    `SKU: ${product.sku ?? "unknown"}.`,
-    `Name: ${product.name ?? "unknown"}.`,
-    `Best price: ${formatMoney(product.best_price_cents, currency)} from ${sellerName(product)}.`,
-    offers ? `Offers: ${offers}.` : "Offers: none listed.",
-    "Please clarify the mandate (quantity, budget ceiling, delivery deadline, warranty and returns, must-haves) and start sourcing.",
-    "Do not place an order.",
-  ].join(" ");
-}
-
 export function ProductRecommendations({ status, result }: Props) {
-  const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
-  const { copilotkit } = useCopilotKit();
-  const [isDispatching, setIsDispatching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const parsed = parseVerifundToolResult(result) as RecommendationsPayload | null;
 
   if (!parsed && (status === "inProgress" || status === "executing")) {
@@ -146,28 +107,6 @@ export function ProductRecommendations({ status, result }: Props) {
   const recSku = parsed.recommendation?.sku;
   const altSku = parsed.alternative?.sku;
 
-  const negotiate = async (product: RecommendationProduct) => {
-    if (isDispatching) return;
-    setIsDispatching(true);
-    setError(null);
-    try {
-      agent.addMessage({
-        id: messageId(),
-        role: "user",
-        content: negotiateIntent(product),
-      });
-      await copilotkit.runAgent({ agent });
-    } catch (dispatchError) {
-      setError(
-        dispatchError instanceof Error
-          ? dispatchError.message
-          : "Could not ask the agent to negotiate.",
-      );
-    } finally {
-      setIsDispatching(false);
-    }
-  };
-
   return (
     <section className="mm-product-recommendations" aria-label="Product comparison">
       {parsed.title ? <h3 className="mm-recommendations-title">{parsed.title}</h3> : null}
@@ -184,7 +123,6 @@ export function ProductRecommendations({ status, result }: Props) {
               <th scope="col">Best price</th>
               <th scope="col">Seller</th>
               <th scope="col">Notes</th>
-              <th scope="col">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -215,17 +153,6 @@ export function ProductRecommendations({ status, result }: Props) {
                       notesFor(product)
                     )}
                   </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="mm-button mm-button-signal mm-recommendations-action"
-                      onClick={() => negotiate(product)}
-                      disabled={isDispatching}
-                      aria-label={`Ask agent to negotiate for ${product.name ?? product.sku ?? "this product"}`}
-                    >
-                      <Handshake size={13} aria-hidden="true" /> Negotiate
-                    </button>
-                  </td>
                 </tr>
               );
             })}
@@ -241,11 +168,6 @@ export function ProductRecommendations({ status, result }: Props) {
       {parsed.alternative?.reason ? (
         <p className="mm-recommendation-callout is-alt">
           <strong>Alternative:</strong> {parsed.alternative.reason}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="mm-chat-approval-result" role="alert">
-          {error}
         </p>
       ) : null}
     </section>
