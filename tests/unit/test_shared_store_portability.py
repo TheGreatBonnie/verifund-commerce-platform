@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from sqlalchemy.dialects import postgresql, sqlite
 
-from seller_agent.shared_store import product_upsert_statement
+from seller_agent.shared_store import (
+    product_upsert_statement,
+    task_ownership_insert_statement,
+)
 
 COLS = {
     "organization_id": "org-1",
@@ -44,3 +47,33 @@ def test_product_upsert_compiles_for_sqlite() -> None:
 
     assert "?" in compiled
     assert "datetime(" not in compiled
+
+
+def test_task_ownership_insert_does_not_use_sqlite_insert_or_ignore() -> None:
+    statement = task_ownership_insert_statement()
+
+    assert "INSERT OR IGNORE" not in statement.text
+
+
+def test_task_ownership_insert_uses_on_conflict_do_nothing() -> None:
+    statement = task_ownership_insert_statement()
+
+    assert "ON CONFLICT(task_id) DO NOTHING" in statement.text
+
+
+def test_task_ownership_insert_compiles_for_postgresql() -> None:
+    compiled = str(
+        task_ownership_insert_statement().compile(dialect=postgresql.dialect())
+    )
+
+    assert "%(" in compiled
+    assert "INSERT OR IGNORE" not in compiled
+
+
+def test_task_ownership_insert_compiles_for_sqlite() -> None:
+    compiled = str(
+        task_ownership_insert_statement().compile(dialect=sqlite.dialect())
+    )
+
+    assert "?" in compiled
+    assert "INSERT OR IGNORE" not in compiled

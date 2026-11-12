@@ -175,6 +175,20 @@ def product_upsert_statement(cols: dict[str, Any]):
     )
 
 
+def task_ownership_insert_statement():
+    """Build the task-ownership insert.
+
+    ``INSERT OR IGNORE`` is SQLite-only; ``ON CONFLICT DO NOTHING`` is the
+    equivalent both backends understand.
+    """
+    return text(
+        """INSERT INTO task_ownership
+               (task_id, organization_id, agent_id, context_id)
+           VALUES (:t, :o, :a, :c)
+           ON CONFLICT(task_id) DO NOTHING"""
+    )
+
+
 class OrgScopedStore(SellerStore):
     def __init__(self, engine: AsyncEngine, *, organization_id: str,
                  agent_id: str | None = None) -> None:
@@ -537,12 +551,10 @@ class OrgScopedStore(SellerStore):
         if not self.agent_id:
             raise TenantContextError("task ownership requires a bound agent")
         async with self.engine.begin() as conn:
-            await conn.execute(text(
-                """INSERT OR IGNORE INTO task_ownership
-                       (task_id, organization_id, agent_id, context_id)
-                   VALUES (:t, :o, :a, :c)"""
-            ), {"t": task_id, "o": self.organization_id,
-                "a": self.agent_id, "c": context_id})
+            await conn.execute(
+                task_ownership_insert_statement(),
+                {"t": task_id, "o": self.organization_id,
+                 "a": self.agent_id, "c": context_id})
 
     async def create_schema(self) -> None:
         return None
