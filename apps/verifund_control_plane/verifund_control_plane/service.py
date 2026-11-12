@@ -4252,7 +4252,7 @@ class VerifundService:
                 await self._projection_for(transaction_id, "buyer")
             ).model_dump(mode="json")
         blockers = await self._compute_blockers(record)
-        blocking = [b for b in blockers if b.get("severity") == "blocking"]
+        blocking = [b for b in blockers if (b.get("severity") if isinstance(b, dict) else getattr(b, "severity", "blocking")) == "blocking"]
         if record.state == TransactionState.REVIEW_REQUIRED:
             if not request.override or not request.note.strip():
                 raise VerifundError(
