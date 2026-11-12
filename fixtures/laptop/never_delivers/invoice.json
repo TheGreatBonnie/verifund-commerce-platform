@@ -1,0 +1,9 @@
+{
+  "invoice_id": "INV-never_delivers",
+  "seller_id": "northwind-audio",
+  "total_cents": 123400,
+  "currency": "USD",
+  "line_items": [
+    "NC-700 x12"
+  ]
+}

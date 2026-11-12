@@ -1,0 +1,6 @@
+{
+  "carrier_key": "mock",
+  "tracking_number": "TRK-DISPUTE_BUYER_WINS",
+  "scenario": "dispute_buyer_wins",
+  "weight_expected_g": 2100
+}

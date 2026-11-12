@@ -1,0 +1,9 @@
+{
+  "invoice_id": "INV-packing_photo_missing",
+  "seller_id": "northwind-audio",
+  "total_cents": 123400,
+  "currency": "USD",
+  "line_items": [
+    "NC-700 x12"
+  ]
+}

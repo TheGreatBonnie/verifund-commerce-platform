@@ -1,0 +1,6 @@
+{
+  "carrier_key": "mock",
+  "tracking_number": "TRK-NEVER_DELIVERS",
+  "scenario": "never_delivers",
+  "weight_expected_g": 2100
+}

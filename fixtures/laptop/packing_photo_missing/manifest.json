@@ -1,0 +1,42 @@
+{
+  "scenario": "packing_photo_missing",
+  "tracking_number": "TRK-PACKING_PHOTO_MISSING",
+  "requirements": {
+    "serial": "serial.jpg",
+    "provenance": "provenance.jpg",
+    "product_photos": [
+      "photos/front.jpg",
+      "photos/back.jpg",
+      "photos/left.jpg",
+      "photos/right.jpg",
+      "photos/keyboard.jpg",
+      "photos/screen.jpg",
+      "photos/underside.jpg",
+      "photos/serial.jpg"
+    ],
+    "product_photo_views": [
+      "front",
+      "back",
+      "left",
+      "right",
+      "keyboard",
+      "screen",
+      "underside",
+      "serial"
+    ],
+    "packaging": [
+      "packaging/unit_with_serial.jpg",
+      "packaging/inside_box.jpg"
+    ],
+    "packaging_views": [
+      "unit_with_serial",
+      "inside_box"
+    ],
+    "hardware": "hardware.json",
+    "battery": "battery.json",
+    "warranty": "warranty.json",
+    "invoice": "invoice.json",
+    "condition_declaration": "condition_declaration.json",
+    "shipping": "shipment.json"
+  }
+}
