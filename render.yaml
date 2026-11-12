@@ -104,9 +104,13 @@ envVarGroups:
       - key: NEBIUS_API_KEY
         sync: false
       - key: NEBIUS_BASE_URL
-        value: https://api.tokenfactory.us-central1.nebius.com/v1/
+        value: https://api.tokenfactory.uk-south1.nebius.com/v1
       - key: NEBIUS_MODEL
-        value: deepseek-ai/DeepSeek-V4-Flash-0731
+        value: deepseek-ai/DeepSeek-V4-Pro-0813
+      - key: NEBIUS_EMBEDDING_BASE_URL
+        value: https://api.tokenfactory.eu-north1.nebius.com/v1/
+      - key: NEBIUS_EMBEDDING_MODEL
+        value: Qwen/Qwen3-Embedding-8B
       - key: VERIFUND_MODE
         value: sandbox
       # Render generates these on the first sync (base64, 256-bit, well over

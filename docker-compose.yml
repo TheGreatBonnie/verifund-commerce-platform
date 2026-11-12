@@ -11,8 +11,8 @@ x-python-service: &python-service
 x-model-env: &model-env
   MARKETMESH_LLM_MODE: ${MARKETMESH_LLM_MODE:-scripted}
   NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
-  NEBIUS_BASE_URL: ${NEBIUS_BASE_URL:-https://api.tokenfactory.us-central1.nebius.com/v1/}
-  NEBIUS_MODEL: ${NEBIUS_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}
+  NEBIUS_BASE_URL: ${NEBIUS_BASE_URL:-https://api.tokenfactory.uk-south1.nebius.com/v1}
+  NEBIUS_MODEL: ${NEBIUS_MODEL:-deepseek-ai/DeepSeek-V4-Pro-0813}
 
 services:
   postgres:
