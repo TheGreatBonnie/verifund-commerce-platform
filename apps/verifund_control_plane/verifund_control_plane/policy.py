@@ -80,7 +80,7 @@ _REVIEW_REASONS = frozenset(
 # Anything not listed falls back to the raw check id (with suffix stripping).
 _CHECK_KEY_BY_ID = {
     "ram_gte_32gb": "ram_gb",
-    "storage_gte_1tb": "storage_tb",
+    "storage_gte_1tb": "storage_gb",
     "warranty_gte_90_days": "warranty_days",
     "tracking_matches_po": "tracking_number",
     "carrier_present": "carrier",
@@ -222,14 +222,30 @@ def _resolve_observed(
     check: RequirementCheck, artifacts: list[dict[str, Any] | None], item: EvidenceItem | None
 ) -> Any:
     key = _observed_key(check)
+    aliases = [key]
+    if check.check_id == "storage_gte_1tb":
+        aliases = ["storage_gb", "storage_tb"]
     for payload in artifacts:
         if not isinstance(payload, dict):
             continue
-        if key in payload:
-            return payload[key]
         lowered = {str(k).lower(): v for k, v in payload.items()}
-        if key.lower() in lowered:
-            return lowered[key.lower()]
+        for cand in aliases:
+            if cand in payload:
+                val = payload[cand]
+                if check.check_id == "storage_gte_1tb" and cand == "storage_tb":
+                    try:
+                        return float(val) * 1024
+                    except Exception:
+                        return val
+                return val
+            if cand.lower() in lowered:
+                val = lowered[cand.lower()]
+                if check.check_id == "storage_gte_1tb" and cand == "storage_tb":
+                    try:
+                        return float(val) * 1024
+                    except Exception:
+                        return val
+                return val
     reference = getattr(item, "reference", None) if item is not None else None
     if reference:
         return reference
@@ -745,12 +761,24 @@ def evaluate(
             # REMEDIATION_REQUIRED; absence is pending, not a seller failure.
             req_reasons = []
 
+        action_owner = "none"
+        if status == RequirementStatus.PASS:
+            action_owner = "none"
+        elif status == RequirementStatus.PENDING_SCAN:
+            action_owner = "none"
+        elif status == RequirementStatus.NOT_SUBMITTED:
+            action_owner = "seller" if requirement.owner == "seller" else "reviewer"
+        elif status == RequirementStatus.REVIEW:
+            action_owner = "reviewer"
+        elif status == RequirementStatus.FAIL:
+            action_owner = "seller" if requirement.owner == "seller" else "reviewer"
         results.append(
             RequirementResult(
                 requirement_id=requirement.requirement_id,
                 kind=requirement.kind,
                 owner=requirement.owner,
                 source=requirement.source,
+                required=bool(getattr(requirement, "required", True)),
                 status=status,
                 checks=checks,
                 submissions=matched,
@@ -763,6 +791,7 @@ def evaluate(
                 ).isdigit() else None,
                 reasons=req_reasons,
                 checked_at=now,
+                action_owner=action_owner,
             )
         )
 

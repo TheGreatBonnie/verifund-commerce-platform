@@ -266,8 +266,9 @@ class Reconciler:
                             "verification": {
                                 "status": "failed",
                                 "reasons": reasons,
-                                "checked_at": self._iso(now),
+                                "checked_at": now.isoformat(),
                                 "override_allowed": False,
+                                "rollup": "REVIEW_REQUIRED",
                             }
                         },
                         audit=AuditInput("reconciler", "delivery_timeout", payload={"tracking_number": shipment.get("tracking_number")}),

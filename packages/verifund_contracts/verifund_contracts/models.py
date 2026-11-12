@@ -879,6 +879,7 @@ class RequirementResult(VerifundModel):
     kind: str
     owner: str
     source: str
+    required: bool = True
     status: RequirementStatus
     checks: list[RequirementCheckResult] = Field(default_factory=list)
     submissions: list[EvidenceItem] = Field(default_factory=list)
@@ -888,12 +889,22 @@ class RequirementResult(VerifundModel):
     reasons: list[ReviewReason] = Field(default_factory=list)
     checked_at: datetime | None = None
     remediation: dict[str, Any] | None = None
+    action_owner: ActionOwner | str = ActionOwner.NONE
 
 
 class EvidenceSummary(VerifundModel):
     requirements: list[RequirementResult] = Field(default_factory=list)
     deadline: datetime | None = None
     items: list[EvidenceItem]
+
+
+
+class Blocker(VerifundModel):
+    code: str
+    message: str
+    requirement_id: str | None = None
+    action_owner: ActionOwner | str = ActionOwner.NONE
+    severity: str = "blocking"
 
 
 class VerificationProjection(VerifundModel):
@@ -903,6 +914,7 @@ class VerificationProjection(VerifundModel):
     override_allowed: bool = False
     requirements: list[RequirementResult] = Field(default_factory=list)
     rollup: str | None = None
+    blockers: list[Blocker] = Field(default_factory=list)
 
 
 class PayoutProjection(VerifundModel):
@@ -962,6 +974,7 @@ class TransactionProjection(VerifundModel):
     tracker: TrackerProjection | None = None
     receipt_available: bool = False
     deadlines: dict[str, datetime | None]
+    blockers: list[Blocker] = Field(default_factory=list)
     allowed_actions: list[str] = Field(default_factory=list)
     updated_at: datetime
 
@@ -987,6 +1000,7 @@ class SellerProjection(VerifundModel):
     payout: PayoutProjection | None = None
     dispute: DisputeProjection | None = None
     deadlines: dict[str, datetime | None]
+    blockers: list[Blocker] = Field(default_factory=list)
     allowed_actions: list[str] = Field(default_factory=list)
     updated_at: datetime
 

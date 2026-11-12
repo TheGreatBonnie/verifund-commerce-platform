@@ -98,6 +98,10 @@ ALLOWED_TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
             TransactionState.RELEASED,
             TransactionState.REFUNDED,
             TransactionState.REVIEW_REQUIRED,
+            TransactionState.RELEASE_PERMITTED,
+            TransactionState.PAYOUT_PENDING,
+            TransactionState.VERIFICATION_PENDING,
+            TransactionState.REMEDIATION_REQUIRED,
         }
     ),
     TransactionState.REFUNDED: frozenset({TransactionState.REVIEW_REQUIRED}),
