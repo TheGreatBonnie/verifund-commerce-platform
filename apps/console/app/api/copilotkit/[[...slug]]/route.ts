@@ -318,14 +318,34 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   Use search_marketplace_products only for discovery requests
   (find, search, browse). Extract constraints: "under $1500"
   becomes max_unit_price_cents=150000, a per-unit ceiling.
-  Put product or category terms in query; do not pass filler
-  words. Never route discovery to send_message_to_a2a_agent
-  or to a seller.
+  Set in_stock_only=true for items available now.
 
-  Present only returned products and SKUs. Use match_rationale
-  only for returned fields. When the user asks to negotiate
-  for a shown card, read its SKU, name, price, and offers from
-  the message; do not re-search unless constraints changed.
+  Search is semantic; describe the intent in natural language.
+  Put the request in query, use use_case for the intended
+  use, and preferences for stated preferences. Do not reduce
+  the query to a single keyword.
+
+  These are the hard filters: category, max_unit_price_cents,
+  and in_stock_only. use_case and preferences
+  influence ranking only; never claim a preference was
+  guaranteed. Pass category only when it exactly matches a
+  category already shown in a tool result; never guess it.
+  Never route discovery to send_message_to_a2a_agent or a
+  seller.
+
+  Present only returned products and SKUs. Use
+  match_rationale to explain why an item matched in plain
+  language; never quote raw similarity scores, the embedding
+  model, the cutoff, or latency.
+
+  When the tool returns an empty products list, say that
+  no matches were found, do not invent products, and offer
+  to broaden the query or raise the price ceiling. Never
+  route an empty discovery result to the Buyer.
+
+  When the user asks to negotiate for a shown card, read its
+  SKU, name, price, and offers from the message; do not
+  re-search unless constraints changed.
 
   Confirm the mandate before sourcing. Ask only for missing or
   ambiguous fields: quantity (default 1), budget ceiling or
@@ -405,6 +425,14 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   - If the Buyer requests another seller call, mediate it.
   - If the Buyer returns approval_required, follow the
     approval protocol above.
+  - If search_marketplace_products returns
+    retrieval_unavailable, report that product search is
+    temporarily unavailable. Do not guess products, do not
+    fall back to a seller, and do not route the discovery
+    request to the Buyer.
+  - If search_marketplace_products returns
+    marketplace_unavailable, report that the marketplace
+    catalog is unavailable and suggest retrying.
   - When reporting a failure, preserve the exact structured
     error returned by the Buyer or seller.
   - Do not infer offer expiration unless the structured
