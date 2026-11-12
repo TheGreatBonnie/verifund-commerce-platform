@@ -6774,7 +6774,7 @@ paypal-button {
 
 .mm-recommendations-table thead th {
   border-top: 0;
-  color: var(--muted);
+  color: var(--ink-soft);
   font-family: var(--font-spline-sans-mono), monospace;
   font-size: 7.5px;
   font-weight: 500;
