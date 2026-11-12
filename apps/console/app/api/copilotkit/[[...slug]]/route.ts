@@ -5,203 +5,30 @@ import {
   InMemoryAgentRunner,
 } from "@copilotkit/runtime/v2";
 import { HttpAgent } from "@ag-ui/client";
-import { A2AMiddlewareAgent } from "@ag-ui/a2a-middleware";
-import type { RunAgentInput } from "@ag-ui/core";
-import { A2AClient } from "@a2a-js/sdk/client";
 import { handle } from "hono/vercel";
 import { createDefaultAgent } from "../../../agent";
 import { auth } from "@clerk/nextjs/server";
-import { singleTerminalStream } from "@/lib/single-terminal-stream";
 import { identifyCopilotUser } from "@/lib/copilot-user";
 import {
   isSellerAgentUrl,
   normalizeAgentBaseUrl,
-  sellerAgentUrls,
+  type SellerAgent,
 } from "@/lib/a2a-agents";
+import {
+  MarketMeshA2AMiddlewareAgent,
+  resolveSellerAgentUrls,
+} from "@/lib/marketmesh-a2a";
 
 // Force dynamic rendering for the API route to avoid build-time fetching
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// MarketMesh sellers expose A2A agent cards at their well-known card path.
-// The installed A2A client defaults to the older `.well-known/agent.json`
-// path, so use the 1.0 path explicitly.
-class MarketMeshA2AClient extends (A2AClient as any) {
-  public readonly baseUrl: string;
-  constructor(baseUrl: string) {
-    super(baseUrl, ".well-known/agent-card.json");
-    this.baseUrl = baseUrl;
-  }
-
-  async _fetchAndCacheAgentCard() {
-    const self = this as any;
-    const cardUrl = `${self.agentBaseUrl}/${self.agentCardPath}`;
-    const response = await fetch(cardUrl, {
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch Agent Card from ${cardUrl}: ${response.status} ${response.statusText}`,
-      );
-    }
-    const card = await response.json();
-    const serviceUrl =
-      card?.supportedInterfaces?.[0]?.url ??
-      card?.supported_interfaces?.[0]?.url ??
-      card?.url ??
-      card?.endpoint;
-    if (!serviceUrl) {
-      throw new Error(
-        "Fetched Agent Card does not contain a valid service endpoint URL.",
-      );
-    }
-    self.serviceEndpointUrl = serviceUrl;
-    return card;
-  }
-
-  async getAgentCard(baseUrl?: string, agentCardPath?: string) {
-    return super.getAgentCard(baseUrl, agentCardPath);
-  }
-}
-
-const SELLER_AGENT_NAMES: Record<string, string> = {
-  "northwind-audio": "Northwind Audio",
-  circuitforge: "CircuitForge",
-  "aurora-supply": "Aurora Supply",
-  "summit-tech": "Summit Tech Supply",
+const buyerAgent: SellerAgent = {
+  url: normalizeAgentBaseUrl(
+    process.env.BUYER_A2A_URL ?? "http://127.0.0.1:9100",
+  ),
+  name: "MarketMesh Buyer",
 };
-
-function agentNameForUrl(url: string): string {
-  try {
-    const pathname = new URL(url).pathname.replace(/\/+$/, "");
-    if (pathname === "/buyer" || pathname.endsWith("/buyer")) {
-      return "MarketMesh Buyer";
-    }
-    for (const [sellerId, name] of Object.entries(SELLER_AGENT_NAMES)) {
-      if (
-        pathname === `/${sellerId}` ||
-        pathname.endsWith(`/${sellerId}`)
-      ) {
-        return name;
-      }
-    }
-
-    const port = new URL(url).port;
-    if (port === "9100") return "MarketMesh Buyer";
-    if (port === "9201") return "Northwind Audio";
-    if (port === "9202") return "CircuitForge";
-    if (port === "9203") return "Aurora Supply";
-    if (port === "9204") return "Summit Tech Supply";
-    return `Agent ${port || "unknown"}`;
-  } catch {
-    return "Agent unknown";
-  }
-}
-
-// The middleware constructor only accepts URLs, so wrap it to use the
-// MarketMesh card path and authenticated seller clients.
-class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
-  constructor(config: {
-    agentName: string;
-    description: string;
-    agentUrls: string[];
-    orchestrationAgent: HttpAgent;
-    instructions: string;
-    tokens: Map<string, string>;
-  }) {
-    super({
-      description: config.description,
-      agentUrls: [],
-      orchestrationAgent: config.orchestrationAgent,
-      instructions: config.instructions,
-    });
-
-    this.agentClients = config.agentUrls.map((url) => {
-      return new MarketMeshA2AClient(url);
-    }) as any;
-
-    // During build time (static generation), agent services aren't running.
-    // Skip fetching agent cards during build to avoid ECONNREFUSED errors.
-    // Agent cards will be fetched lazily at runtime when needed.
-    const isBuildTime =
-      process.env.NEXT_PHASE === "phase-production-build" ||
-      process.env.NEXT_PHASE === "phase-production-server" ||
-      (process.env.NODE_ENV === "production" &&
-        typeof window === "undefined") ||
-      process.env.NEXT_BUILD_PHASE === "build";
-
-    if (isBuildTime) {
-      // Provide minimal fallback agent cards for build-time static generation
-      this.agentCards = Promise.resolve(
-        config.agentUrls.map((url) => {
-          const name = agentNameForUrl(url);
-          return {
-            name,
-            description: `${name} A2A agent`,
-            version: "1.0.0",
-            provider: { organization: name, url },
-            supportedInterfaces: [
-              {
-                url: `${url}/a2a`,
-                protocolBinding: "JSONRPC",
-                protocolVersion: "1.0",
-              },
-            ],
-            capabilities: { streaming: true, pushNotifications: false },
-            defaultInputModes: ["application/json", "text/plain"],
-            defaultOutputModes: ["application/json"],
-            skills: [],
-          } as any;
-        }),
-      );
-    } else {
-      // Runtime: fetch agent cards with graceful error handling
-      this.agentCards = Promise.all(
-        this.agentClients.map(async (client) => {
-          const baseUrl = (client as unknown as MarketMeshA2AClient).baseUrl;
-          try {
-            return await client.getAgentCard();
-          } catch (error) {
-            console.warn(`Failed to fetch agent card for ${baseUrl}:`, error);
-            // Return minimal fallback
-            const name = agentNameForUrl(baseUrl);
-            return {
-              name,
-              description: `${name} A2A agent (offline)`,
-              version: "1.0.0",
-              provider: { organization: name, url: baseUrl },
-              supportedInterfaces: [
-                {
-                  url: `${baseUrl}/a2a`,
-                  protocolBinding: "JSONRPC",
-                  protocolVersion: "1.0",
-                },
-              ],
-              capabilities: { streaming: true, pushNotifications: false },
-              defaultInputModes: ["application/json", "text/plain"],
-              defaultOutputModes: ["application/json"],
-              skills: [],
-            } as any;
-          }
-        }),
-      );
-    }
-  }
-
-  // A2AMiddlewareAgent starts a new orchestration sub-run after each A2A tool
-  // call while keeping the original run id, so downstream consumers receive
-  // duplicate RUN_STARTED/RUN_FINISHED pairs for one logical run. CopilotKit
-  // Intelligence rejects the second terminal event as
-  // `terminal_event_already_received` and aborts the run, so normalize the
-  // stream to a single start and a single terminal event.
-  run(input: RunAgentInput) {
-    return singleTerminalStream(super.run(input));
-  }
-}
-
-const buyerAgentUrl = normalizeAgentBaseUrl(
-  process.env.BUYER_A2A_URL ?? "http://127.0.0.1:9100",
-);
 const sharedSellerBaseUrl = normalizeAgentBaseUrl(
   process.env.SELLER_SHARED_URL ?? "http://127.0.0.1:9200",
 );
@@ -210,43 +37,18 @@ const sellerAgentToken =
   process.env.SELLER_NORTHWIND_TOKEN ??
   "dev-buyer-agent";
 
-async function resolveSellerAgentUrls(): Promise<string[]> {
-  const registryUrl = process.env.REGISTRY_URL?.replace(/\/+$/, "");
-  if (registryUrl) {
-    try {
-      const response = await fetch(`${registryUrl}/v1/sellers`, {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (response.ok) {
-        const data = (await response.json()) as {
-          sellers?: Array<{ seller_id?: string }>;
-        };
-        const ids = (data.sellers ?? [])
-          .map((seller) => seller.seller_id)
-          .filter((id): id is string => typeof id === "string" && id.length > 0);
-        if (ids.length > 0) {
-          const base = normalizeAgentBaseUrl(sharedSellerBaseUrl);
-          return ids.map((sellerId) => `${base}/${sellerId}`);
-        }
-      }
-    } catch (error) {
-      console.warn("Failed to resolve seller agents from registry:", error);
-    }
-  }
-  return sellerAgentUrls(sharedSellerBaseUrl);
-}
+let a2aAgentsPromise: Promise<SellerAgent[]> | null = null;
 
-let a2aAgentUrlsPromise: Promise<string[]> | null = null;
-
-async function getA2AAgentUrls(): Promise<string[]> {
-  if (!a2aAgentUrlsPromise) {
-    a2aAgentUrlsPromise = (async () => [
-      buyerAgentUrl,
-      ...(await resolveSellerAgentUrls()),
+async function getA2AAgents(): Promise<SellerAgent[]> {
+  if (!a2aAgentsPromise) {
+    a2aAgentsPromise = (async () => [
+      buyerAgent,
+      ...(await resolveSellerAgentUrls({
+        registryUrl: process.env.REGISTRY_URL,
+      })),
     ])();
   }
-  return a2aAgentUrlsPromise;
+  return a2aAgentsPromise;
 }
 
 const sharedSellerPort = new URL(sharedSellerBaseUrl).port || "9200";
@@ -520,7 +322,7 @@ async function getA2AMiddlewareAgent(): Promise<MarketMeshA2AMiddlewareAgent> {
         agentName: "marketmesh_orchestrator",
         description:
           "MarketMesh orchestrator with the buyer as commerce authority and independent seller A2A agents.",
-        agentUrls: await getA2AAgentUrls(),
+        agents: await getA2AAgents(),
         orchestrationAgent,
         instructions: orchestratorInstructions,
         tokens: sellerTokens,
