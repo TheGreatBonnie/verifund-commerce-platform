@@ -77,19 +77,46 @@ packages/commerce_core/commerce_core/retrieval/
 
 ### 4.2 Embeddings
 
+Use the OpenAI-compatible SDK directly rather than `OpenAIEmbeddings`, so the
+request shape matches Nebius exactly and there is no tiktoken preprocessing:
+
 ```python
-def build_embeddings(*, api_key: str, base_url: str, model: str, dimensions: int = 1024):
-    return OpenAIEmbeddings(
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        dimensions=dimensions,
-        check_embedding_ctx_length=False,  # non-OpenAI tokenizer; send raw text
-    )
+from openai import OpenAI
+from langchain_core.embeddings import Embeddings
+
+class NebiusEmbeddings(Embeddings):
+    def __init__(self, *, api_key: str, base_url: str, model: str,
+                 dimensions: int = 1024, batch_size: int = 64,
+                 client: Any | None = None) -> None:
+        self._client = client or OpenAI(base_url=base_url, api_key=api_key)
+        self._model = model
+        self._dimensions = dimensions
+        self._batch_size = batch_size
+
+    def _create(self, inputs: list[str]) -> list[list[float]]:
+        response = self._client.embeddings.create(
+            model=self._model, input=inputs, dimensions=self._dimensions
+        )
+        return [item.embedding for item in sorted(response.data, key=lambda i: i.index)]
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), self._batch_size):
+            vectors.extend(self._create(texts[start : start + self._batch_size]))
+        return vectors
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._create([text])[0]
 ```
 
-`check_embedding_ctx_length=False` is required: the default path tokenizes with
-tiktoken, which does not match the Qwen tokenizer.
+`base_url` is `settings.nebius_base_url` — the existing env var. The documented
+sample uses the `eu-north1` regional endpoint
+(`https://api.tokenfactory.eu-north1.nebius.com/v1/`); the repo default is
+`us-central1`. Both are OpenAI-compatible; keeping one setting means the same
+`NEBIUS_BASE_URL` serves the chat model and embeddings.
+
+`dimensions=1024` is passed explicitly (MRL truncation, verified against the
+live endpoint). `client` injection exists for unit tests only.
 
 ### 4.3 Documents
 
@@ -132,6 +159,11 @@ max_unit_price_cents, in_stock_only)`:
    `unit_price_cents <= max_unit_price_cents`, `in_stock_only` requires an offer
    with `available is True`. Empty result short-circuits to `[]`.
 2. Compose query text: `" ".join(filter(None, [query, use_case, *preferences]))`.
+   If the composed text is empty (browse-only request, no query/use_case/
+   preferences), skip embedding and return the filtered products ordered by
+   availability, rating, price, SKU; the trace reports `mode: "browse"`. This
+   preserves the existing "show me products" behavior without a meaningless
+   embedding call.
 3. Call `similarity_search_with_score(text, k=len(filtered), filter=...)` where
    the filter callable keeps only documents whose `sku` is in the filtered set.
    Filtering **before** ranking avoids the reference implementation's
