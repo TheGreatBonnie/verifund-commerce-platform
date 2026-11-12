@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { CopilotChat } from "@copilotkit/react-core/v2";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -232,5 +232,93 @@ describe("chat seller naming", () => {
     );
 
     expect((await screen.findAllByText("Northwind Audio Co.")).length).toBeGreaterThan(0);
+  });
+});
+
+describe("chat sourcing mandate", () => {
+  beforeEach(() => {
+    hooks.useHumanInTheLoop.mockClear();
+  });
+
+  const mandateTool = () =>
+    hooks.useHumanInTheLoop.mock.calls.find(
+      ([tool]) => tool.name === "request_sourcing_mandate",
+    );
+
+  const args = {
+    task_id: "task-1",
+    message: "Confirm mandate before sourcing.",
+    product: {
+      sku: "EX-MACBOOK-AIR",
+      name: "MacBook Air (M1)",
+      offers: [{ seller_name: "CircuitForge", unit_price_cents: 107999, currency: "USD", in_stock: true }],
+    },
+    defaults: { quantity: 1, budget_ceiling_cents: 150000, currency: "USD" },
+  };
+
+  it("registers request_sourcing_mandate as a blocking HITL tool", () => {
+    renderChat();
+    const call = mandateTool();
+    expect(call?.[0]).toMatchObject({
+      name: "request_sourcing_mandate",
+      agentId: "marketmesh_orchestrator",
+    });
+    expect(call?.[0].parameters).toBeTruthy();
+    expect(call?.[0].render).toEqual(expect.any(Function));
+  });
+
+  it("renders a preparing state while in progress", () => {
+    renderChat();
+    const call = mandateTool();
+    render(call![0].render({ args, status: "inProgress" }));
+    expect(screen.getByRole("status")).toHaveTextContent(/preparing.*mandate/i);
+  });
+
+  it("responds with confirmed mandate on submit and cancelled on cancel", () => {
+    renderChat();
+    const call = mandateTool();
+
+    const respondCancel = vi.fn();
+    const { unmount } = render(
+      call![0].render({ args, status: "executing", respond: respondCancel }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    expect(respondCancel).toHaveBeenCalledWith(
+      expect.objectContaining({ confirmed: false, task_id: "task-1", reason: "user_cancelled" }),
+    );
+    unmount();
+
+    const respondSubmit = vi.fn();
+    render(call![0].render({ args, status: "executing", respond: respondSubmit }));
+    fireEvent.change(screen.getByLabelText(/delivery deadline/i), { target: { value: "2026-12-01" } });
+    fireEvent.change(screen.getByLabelText(/warranty/i), { target: { value: "1y warranty, 30d returns" } });
+    fireEvent.change(screen.getByLabelText(/must-have/i), { target: { value: "8GB RAM" } });
+    fireEvent.click(screen.getByRole("button", { name: /confirm.*buyer/i }));
+    expect(respondSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmed: true,
+        task_id: "task-1",
+        product: expect.objectContaining({ sku: "EX-MACBOOK-AIR" }),
+        mandate: expect.objectContaining({ quantity: 1 }),
+      }),
+    );
+  });
+
+  it("reports confirmed and cancelled outcomes when complete", () => {
+    renderChat();
+    const call = mandateTool();
+    const { rerender } = render(
+      call![0].render({ args, status: "complete", result: JSON.stringify({ confirmed: true }) }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(/confirmed/i);
+    rerender(
+      call![0].render({
+        args,
+        status: "complete",
+        result: JSON.stringify({ confirmed: false, reason: "user_cancelled" }),
+      }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(/no sourcing/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/no order/i);
   });
 });

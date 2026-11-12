@@ -38,6 +38,11 @@ import {
 } from "./verifund-tools";
 import { fetchRegistry } from "@/lib/api";
 import { ProductSearchCards } from "./product-cards";
+import { SourcingMandateCard } from "./sourcing-mandate-card";
+import {
+  formatMandateReceipt,
+  sourcingMandateArgsSchema,
+} from "./sourcing-mandate";
 import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
 import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
 
@@ -430,6 +435,69 @@ export function Chat({
       },
     },
     [verifundEnabled, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_sourcing_mandate",
+      description:
+        "Collect and confirm a sourcing mandate before handing off to MarketMesh Buyer. " +
+        "Show locked product/offers read-only and collect quantity, firm budget/target, delivery deadline, " +
+        "warranty/returns, and must-have attributes. Block until the user submits or cancels.",
+      parameters: sourcingMandateArgsSchema,
+      render: ({ args, status, respond, result }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval-pending" role="status">
+              Preparing sourcing mandate…
+            </div>
+          );
+        }
+
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <SourcingMandateCard
+                args={args as any}
+                onSubmit={(mandate) =>
+                  respond({
+                    confirmed: true,
+                    task_id: (args as any).task_id,
+                    product: (args as any).product,
+                    mandate,
+                  })
+                }
+                onCancel={() =>
+                  respond({
+                    confirmed: false,
+                    task_id: (args as any).task_id,
+                    reason: "user_cancelled",
+                  })
+                }
+              />
+            </div>
+          );
+        }
+
+        if (status === "complete") {
+          let parsed: unknown = result;
+          try {
+            parsed = typeof result === "string" ? JSON.parse(result) : result;
+          } catch {
+            parsed = result;
+          }
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              {formatMandateReceipt(parsed)}
+            </p>
+          );
+        }
+
+        return null;
+      },
+    },
+    [],
   );
 
   useRenderTool({
