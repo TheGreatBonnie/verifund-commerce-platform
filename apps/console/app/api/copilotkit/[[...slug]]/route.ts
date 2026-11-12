@@ -13,6 +13,11 @@ import { createDefaultAgent } from "../../../agent";
 import { auth } from "@clerk/nextjs/server";
 import { singleTerminalStream } from "@/lib/single-terminal-stream";
 import { identifyCopilotUser } from "@/lib/copilot-user";
+import {
+  isSellerAgentUrl,
+  normalizeAgentBaseUrl,
+  sellerAgentUrls,
+} from "@/lib/a2a-agents";
 
 // Force dynamic rendering for the API route to avoid build-time fetching
 export const dynamic = "force-dynamic";
@@ -184,21 +189,20 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
   }
 }
 
-const buyerAgentUrl = process.env.BUYER_A2A_URL ?? "http://127.0.0.1:9100";
-const sharedSellerBaseUrl = process.env.SELLER_SHARED_URL ?? "http://127.0.0.1:9200";
+const buyerAgentUrl = normalizeAgentBaseUrl(
+  process.env.BUYER_A2A_URL ?? "http://127.0.0.1:9100",
+);
+const sharedSellerBaseUrl = normalizeAgentBaseUrl(
+  process.env.SELLER_SHARED_URL ?? "http://127.0.0.1:9200",
+);
 const sellerAgentToken =
   process.env.BUYER_AGENT_TOKEN ??
   process.env.SELLER_NORTHWIND_TOKEN ??
   "dev-buyer-agent";
 
-const sellerAgentUrls = [
-  `${sharedSellerBaseUrl}/northwind-audio`,
-  `${sharedSellerBaseUrl}/circuitforge`,
-  `${sharedSellerBaseUrl}/aurora-supply`,
-  `${sharedSellerBaseUrl}/summit-tech`,
-];
+const a2aSellerUrls = sellerAgentUrls(sharedSellerBaseUrl);
 
-const a2aAgentUrls = [buyerAgentUrl, ...sellerAgentUrls];
+const a2aAgentUrls = [buyerAgentUrl, ...a2aSellerUrls];
 
 const sharedSellerPort = new URL(sharedSellerBaseUrl).port || "9200";
 const sellerTokens = new Map<string, string>([
@@ -224,9 +228,11 @@ if (
           ? input.href
           : input.url;
     if (url.includes("/a2a")) {
-      const port = new URL(url).port;
-      const sharedPort = new URL(sharedSellerBaseUrl).port;
-      const token = port === sharedPort ? sellerAgentToken : "";
+      // Behind the merged gateway buyer and sellers share one origin, so the
+      // mount path (not the port) decides whether the seller token applies.
+      const token = isSellerAgentUrl(url, sharedSellerBaseUrl)
+        ? sellerAgentToken
+        : "";
       const headers = new Headers(init?.headers);
       // @a2a-js/sdk 0.2.x speaks A2A 0.3 (lowercase JSON-RPC methods), so
       // use the server's v0.3 compatibility adapter.
