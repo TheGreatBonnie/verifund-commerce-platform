@@ -14,7 +14,7 @@ COPY apps/verifund_agent ./apps/verifund_agent
 COPY apps/gateway ./apps/gateway
 COPY scripts ./scripts
 
-RUN uv sync --frozen --no-dev --package marketmesh-gateway
+RUN uv sync --frozen --no-dev
 ENV PATH="/app/.venv/bin:$PATH"
 
 CMD ["python", "-m", "registry"]
