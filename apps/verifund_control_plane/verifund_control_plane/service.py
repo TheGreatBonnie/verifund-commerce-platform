@@ -1569,7 +1569,8 @@ class VerifundService:
             if hasattr(carrier, "get_proof_of_delivery"):
                 with suppress(Exception):
                     pod = await carrier.get_proof_of_delivery(shipment["tracking_number"], scenario=shipment.get("scenario"))
-            delivered_at = self._iso(pod.delivered_at) if pod and getattr(pod, "delivered_at", None) else self._iso(now)
+            delivered_dt = pod.delivered_at if pod and getattr(pod, "delivered_at", None) else now
+            delivered_at = self._iso(delivered_dt)
             confirmation = {
                 "id": f"dlv_{uuid.uuid4().hex}",
                 "shipment_id": shipment["id"],
@@ -1585,7 +1586,36 @@ class VerifundService:
             await self._ensure_system_requirement_reference(
                 transaction_id, "delivery_confirmation", reference=shipment["tracking_number"], actor=actor, note="carrier delivery", captured_at=self._now()
             )
-            # ensure inspection record starts at carrier delivery if needed (P4 will refine)
+            # Start inspection window at carrier delivery (P4).
+            try:
+                terms = await self._agreement_terms(transaction_id)
+                inspection_hours = float(self.settings.inspection_window_hours)
+                period = ((terms or {}).get("inspection") or {}).get("period_hours")
+                if period is not None:
+                    inspection_hours = float(period)
+                deadline_at = (delivered_dt if isinstance(delivered_dt, datetime) else now) + timedelta(hours=inspection_hours)
+                existing_inspection = await self.repo.get_inspection_record(transaction_id) if hasattr(self.repo, "get_inspection_record") else None
+                if existing_inspection is None:
+                    await self.repo.upsert_inspection_record(
+                        {
+                            "id": f"insp_{uuid.uuid4().hex}",
+                            "organization_id": shipment.get("organization_id"),
+                            "transaction_id": transaction_id,
+                            "shipment_id": shipment["id"],
+                            "status": "open",
+                            "opened_at": self._iso(now),
+                            "deadline_at": self._iso(deadline_at),
+                            "claim_id": None,
+                            "resolved_at": None,
+                            "resolution": None,
+                            "resolved_by": None,
+                            "rationale": None,
+                            "created_at": self._iso(now),
+                            "updated_at": self._iso(now),
+                        }
+                    )
+            except Exception:
+                pass
             await self.verify_if_ready(transaction_id, actor=actor)
         # If acceptance but not delivered, still try to progress verification state
         if saw_acceptance and not saw_delivery:
@@ -1616,10 +1646,12 @@ class VerifundService:
             return "reviewer"
         return "none"
 
-    async def _compute_blockers(self, record: TransactionRecord, projection_verification: Any = None) -> list[dict[str, Any]]:
-        blockers: list[dict[str, Any]] = []
+    async def _compute_blockers(self, record: TransactionRecord, projection_verification: Any = None) -> list[Any]:
+        from verifund_contracts.models import Blocker as _Blocker
+
+        blockers: list[Any] = []
         def add(code: str, message: str, requirement_id: str | None = None, action_owner: str = "reviewer", severity: str = "blocking"):
-            blockers.append({"code": code, "message": message, "requirement_id": requirement_id, "action_owner": action_owner, "severity": severity})
+            blockers.append(_Blocker(code=code, message=message, requirement_id=requirement_id, action_owner=action_owner, severity=severity))
 
         if record.state == TransactionState.DISPUTE_OPEN or (record.dispute or {}).get("status") == "open":
             add("DISPUTE_OPEN", "Dispute is open.", action_owner="reviewer")
@@ -1659,16 +1691,16 @@ class VerifundService:
             required = req.get("required", True)
             if status == "fail":
                 if required:
-                    blockers.append({"code": "REQUIREMENT_FAILED", "message": f"Requirement {rid} failed.", "requirement_id": rid, "action_owner": "seller" if owner == "seller" else "reviewer", "severity": "blocking"})
+                    blockers.append(_Blocker(code="REQUIREMENT_FAILED", message=f"Requirement {rid} failed.", requirement_id=rid, action_owner=("seller" if owner == "seller" else "reviewer"), severity="blocking"))
             elif status == "review":
                 if required:
-                    blockers.append({"code": "REQUIREMENT_REVIEW", "message": f"Requirement {rid} requires review.", "requirement_id": rid, "action_owner": "reviewer", "severity": "blocking"})
+                    blockers.append(_Blocker(code="REQUIREMENT_REVIEW", message=f"Requirement {rid} requires review.", requirement_id=rid, action_owner="reviewer", severity="blocking"))
             elif status == "not_submitted":
                 if required:
-                    blockers.append({"code": "MISSING_EVIDENCE", "message": f"Requirement {rid} is not submitted.", "requirement_id": rid, "action_owner": "seller" if owner == "seller" else "reviewer", "severity": "blocking"})
+                    blockers.append(_Blocker(code="MISSING_EVIDENCE", message=f"Requirement {rid} is not submitted.", requirement_id=rid, action_owner=("seller" if owner == "seller" else "reviewer"), severity="blocking"))
             elif status == "pending_scan":
                 if required:
-                    blockers.append({"code": "PENDING_SCAN", "message": f"Requirement {rid} is pending scan.", "requirement_id": rid, "action_owner": "none", "severity": "blocking"})
+                    blockers.append(_Blocker(code="PENDING_SCAN", message=f"Requirement {rid} is pending scan.", requirement_id=rid, action_owner="none", severity="blocking"))
 
         # Inspection not elapsed is represented by verification reasons/state; also check inspection record if present
         try:
@@ -1691,7 +1723,9 @@ class VerifundService:
         seen = set()
         out = []
         for b in blockers:
-            key = (b["code"], b.get("requirement_id"))
+            code = getattr(b, "code", None) if not isinstance(b, dict) else b.get("code")
+            rid = getattr(b, "requirement_id", None) if not isinstance(b, dict) else b.get("requirement_id")
+            key = (code, rid)
             if key in seen:
                 continue
             seen.add(key)
@@ -2860,7 +2894,8 @@ class VerifundService:
         )
         slim_requirements = _slim_requirement_results(result.requirements)
         # action_owner/required already populated from policy result when available
-        blockers = await self._compute_blockers(record, type("V", (), {"requirements": slim_requirements})())
+        blocker_models = await self._compute_blockers(record, type("V", (), {"requirements": slim_requirements})())
+        blockers = [b.model_dump(mode="json") if hasattr(b, "model_dump") else b for b in blocker_models]
         # If pending but inspection not elapsed etc, blockers may exist; keep consistent.
         # Store blockers for UI/policy transparency.
         if result.pending:
@@ -4256,7 +4291,14 @@ class VerifundService:
                 await self.repo.audit(
                     conn,
                     transaction_id,
-                    AuditInput(actor, "release.evaluated", payload={"blockers": blockers, "override": bool(getattr(request, "override", False))}),
+                    AuditInput(
+                        actor,
+                        "release.evaluated",
+                        payload={
+                            "blockers": [b.model_dump(mode="json") if hasattr(b, "model_dump") else b for b in blockers],
+                            "override": bool(getattr(request, "override", False)),
+                        },
+                    ),
                 )
         return await self._start_payout(
             transaction_id,

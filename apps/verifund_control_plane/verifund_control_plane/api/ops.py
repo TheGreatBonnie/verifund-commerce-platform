@@ -388,6 +388,14 @@ async def dispute_context(
 )
 async def dispute_decision(transaction_id: str, request: Request) -> dict[str, Any]:
     body = await request.json()
+    outcome = body.get("outcome")
+    if outcome:
+        return await _service(request).resolve_dispute(
+            transaction_id,
+            outcome=outcome,
+            actor=actor(request),
+            rationale=body.get("rationale") or body.get("note"),
+        )
     return await _service(request).dispute_decision(
         transaction_id,
         decision=body.get("decision"),

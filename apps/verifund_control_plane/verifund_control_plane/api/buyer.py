@@ -57,6 +57,7 @@ async def dispute(transaction_id: str, request: Request) -> dict[str, Any]:
         buyer_id=principal.buyer_id,
         requirement_ids=body.get("requirement_ids") or [],
         reason_code=body.get("reason_code"),
+        claim_type=body.get("claim_type"),
         claim=body.get("claim"),
         evidence=body.get("evidence") or [],
     )
