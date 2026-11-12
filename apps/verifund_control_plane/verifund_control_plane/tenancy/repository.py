@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from commerce_core.db import dialect_insert, existing_columns
-from sqlalchemy import JSON, Column, MetaData, String, Table, select
+from sqlalchemy import JSON, Column, MetaData, String, Table, select, text
 
 from verifund_control_plane.db import configure_database
 
@@ -17,6 +17,23 @@ def _now() -> str:
 
 def _id() -> str:
     return str(uuid4())
+
+
+def audit_log_insert_statement():
+    """Build the audit-log insert statement.
+
+    The placeholders are named so SQLAlchemy renders each dialect's own
+    paramstyle: ``?`` for SQLite and ``%(name)s`` for PostgreSQL's psycopg
+    driver. Raw ``?`` placeholders only work on SQLite — PostgreSQL rejects
+    them with "the query has 0 placeholders but N parameters were passed".
+    """
+    return text(
+        "INSERT INTO audit_log (audit_id, scope, transaction_id, organization_id,"
+        " actor_user_id, actor_type, action, resource_id, payload, created_at)"
+        " VALUES (:audit_id, :scope, :transaction_id, :organization_id,"
+        " :actor_user_id, :actor_type, :action, :resource_id, :payload,"
+        " :created_at)"
+    )
 
 
 class TenancyRepository:
@@ -798,22 +815,20 @@ class TenancyRepository:
         payload=None,
     ):
         async with self.engine.begin() as conn:
-            await conn.exec_driver_sql(
-                "INSERT INTO audit_log (audit_id, scope, transaction_id, organization_id,"
-                " actor_user_id, actor_type, action, resource_id, payload, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    str(uuid4()),
-                    scope,
-                    transaction_id,
-                    organization_id,
-                    actor_user_id,
-                    actor_type,
-                    action,
-                    resource_id,
-                    json.dumps(payload or {}),
-                    datetime.now(UTC).isoformat(),
-                ),
+            await conn.execute(
+                audit_log_insert_statement(),
+                {
+                    "audit_id": str(uuid4()),
+                    "scope": scope,
+                    "transaction_id": transaction_id,
+                    "organization_id": organization_id,
+                    "actor_user_id": actor_user_id,
+                    "actor_type": actor_type,
+                    "action": action,
+                    "resource_id": resource_id,
+                    "payload": json.dumps(payload or {}),
+                    "created_at": datetime.now(UTC).isoformat(),
+                },
             )
 
     async def list_audit(
