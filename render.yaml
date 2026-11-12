@@ -1,0 +1,112 @@
+services:
+  - type: web
+    runtime: docker
+    name: gateway
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile.python
+    dockerCommand: python -m gateway
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: gateway-shared
+      - key: PORT
+        value: "10000"
+      - key: BUYER_DATABASE_URL
+        sync: false
+      - key: BUYER_CHECKPOINT_PATH
+        value: /app/data/buyer-checkpoints.db
+      - key: BUYER_PUBLIC_BASE_URL
+        value: https://gateway.onrender.com/buyer
+      - key: REGISTRY_DATABASE_URL
+        sync: false
+      - key: SELLER_SHARED_DB_URL
+        sync: false
+      - key: SELLER_CHECKPOINT_PATH
+        value: /app/data/seller-checkpoints.db
+      - key: SELLER_CONFIG_SOURCE
+        value: shared
+      - key: PUBLIC_BASE_URL
+        value: https://gateway.onrender.com/sellers
+      - key: VERIFUND_DATABASE_URL
+        sync: false
+      - key: VERIFUND_AGENT_DATABASE_URL
+        sync: false
+      - key: VERIFUND_AGENT_CHECKPOINT_PATH
+        value: /app/data/agent-checkpoints.db
+      - key: VERIFUND_AGENT_URL
+        value: https://gateway.onrender.com/verifund-agent
+      - key: ORCHESTRATOR_SESSION_DB_URL
+        sync: false
+      - key: VERIFUND_URL
+        value: https://gateway.onrender.com/control-plane
+      - key: VERIFUND_CONTROL_PLANE_URL
+        value: https://gateway.onrender.com/control-plane
+      - key: BUYER_INTERNAL_URL
+        value: https://gateway.onrender.com/buyer
+      - key: SELLER_SHARED_URL
+        value: https://gateway.onrender.com/sellers
+      - key: VERIFUND_PUBLIC_BASE_URL
+        value: https://gateway.onrender.com/control-plane
+      - key: VERIFUND_CONSOLE_BASE_URL
+        sync: false
+      - key: VERIFUND_ALLOW_PUBLIC_BIND
+        value: "1"
+      - key: ALLOWED_CARD_HOSTS
+        value: '["gateway.onrender.com", "127.0.0.1", "localhost"]'
+
+databases:
+  - name: marketmesh
+    plan: free
+    region: oregon
+    databaseName: marketmesh
+    user: marketmesh
+
+envVarGroups:
+  - name: gateway-shared
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: MARKETMESH_LLM_MODE
+        value: live
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: NEBIUS_BASE_URL
+        value: https://api.tokenfactory.us-central1.nebius.com/v1/
+      - key: NEBIUS_MODEL
+        value: deepseek-ai/DeepSeek-V4-Flash-0731
+      - key: VERIFUND_MODE
+        value: sandbox
+      - key: VERIFUND_OPS_TOKEN
+        sync: false
+      - key: VERIFUND_SELLER_TOKEN_SECRET
+        sync: false
+      - key: VERIFUND_LINK_SECRET
+        sync: false
+      - key: VERIFUND_RECEIPT_KEYS
+        sync: false
+      - key: VERIFUND_RECEIPT_ACTIVE_KID
+        sync: false
+      - key: VERIFUND_TENANCY_ENABLED
+        value: "true"
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_API_BASE
+        value: https://api-m.sandbox.paypal.com
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_PLATFORM_EMAIL
+        sync: false
+      - key: PAYPAL_BUYER_EMAIL
+        sync: false
+      - key: VERIFUND_SELLER_PAYOUT_EMAILS
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_JWT_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SIGNING_SECRET
+        sync: false
