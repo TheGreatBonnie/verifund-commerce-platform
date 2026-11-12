@@ -1,6 +1,5 @@
 import httpx
 import pytest
-
 from gateway.__main__ import gateway_stack
 
 
