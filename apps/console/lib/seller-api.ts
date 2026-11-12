@@ -103,6 +103,63 @@ export async function uploadDisputeEvidence(
   return (await response.json()) as unknown;
 }
 
+async function sellerPostJson<T>(
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const response = await sellerRequest(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!response.ok) throw await failure(response);
+  return (await response.json()) as T;
+}
+
+export async function getProvenanceChallenge(
+  transactionId: string,
+): Promise<unknown> {
+  return sellerJson(
+    `/seller/transactions/${encodeURIComponent(transactionId)}/provenance-challenge`,
+  );
+}
+
+export async function issueProvenanceChallenge(
+  transactionId: string,
+): Promise<unknown> {
+  return sellerPostJson(
+    `/seller/transactions/${encodeURIComponent(transactionId)}/provenance-challenge`,
+    {},
+  );
+}
+
+export async function declareRequirement(
+  transactionId: string,
+  requirementId: string,
+  values: Record<string, unknown>,
+): Promise<unknown> {
+  return sellerPostJson(
+    `/seller/transactions/${encodeURIComponent(transactionId)}/requirements/${encodeURIComponent(requirementId)}/declare`,
+    { values },
+  );
+}
+
+export async function getShipment(transactionId: string): Promise<unknown> {
+  return sellerJson(
+    `/seller/transactions/${encodeURIComponent(transactionId)}/shipment`,
+  );
+}
+
+export async function registerShipment(
+  transactionId: string,
+  payload: Record<string, unknown>,
+): Promise<unknown> {
+  return sellerPostJson(
+    `/seller/transactions/${encodeURIComponent(transactionId)}/shipment`,
+    payload,
+  );
+}
+
 export type SellerSession = {
   token: string;
   transactionId: string;

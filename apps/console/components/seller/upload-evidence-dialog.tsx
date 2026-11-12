@@ -3,13 +3,14 @@
 import { useRef } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Requirement } from "@/lib/seller-types";
+import type { EvidenceItem, Requirement } from "@/lib/seller-types";
 import { UploadEvidenceForm } from "./upload-evidence-form";
 
 export function UploadEvidenceDialog({
   transactionId,
   agreementVersion,
   requirements,
+  evidenceItems = [],
   defaultRequirementId,
   label = "Upload evidence",
   compact = false,
@@ -17,6 +18,7 @@ export function UploadEvidenceDialog({
   transactionId: string;
   agreementVersion: number;
   requirements: Requirement[];
+  evidenceItems?: EvidenceItem[];
   defaultRequirementId?: string;
   label?: string;
   compact?: boolean;
@@ -65,6 +67,7 @@ export function UploadEvidenceDialog({
             transactionId={transactionId}
             agreementVersion={agreementVersion}
             requirements={requirements}
+            evidenceItems={evidenceItems}
             defaultRequirementId={defaultRequirementId}
             onSuccess={() => dialogRef.current?.close()}
           />

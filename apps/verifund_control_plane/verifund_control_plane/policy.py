@@ -516,7 +516,9 @@ def _declaration_payload(
     latest = _latest_declaration(declarations, requirement_id)
     if latest is None:
         return None
-    values = latest.get("values")
+    values = latest.get("declared_values")
+    if values is None:
+        values = latest.get("values")
     if isinstance(values, dict):
         return values
     return latest

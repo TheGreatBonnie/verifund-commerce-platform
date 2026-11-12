@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
+import { BlockersPanel } from "@/components/seller/blockers-panel";
 import { DisputePanel } from "@/components/seller/dispute-panel";
 import { EvidenceProgress } from "@/components/seller/evidence-progress";
 import {
@@ -72,6 +73,9 @@ export default async function FulfillmentEvidencePage({
             {projection.evidence?.deadline
               ? ` · Due ${formatDateTime(projection.evidence.deadline)}`
               : ""}
+            {projection.deadlines?.inspection
+              ? ` · Inspection by ${formatDateTime(projection.deadlines.inspection)}`
+              : ""}
           </p>
         </div>
         <div className="mm-seller-detail-badges">
@@ -81,6 +85,7 @@ export default async function FulfillmentEvidencePage({
               transactionId={projection.transaction_id}
               agreementVersion={projection.agreement_version}
               requirements={projection.requirements}
+              evidenceItems={items}
               label="Upload evidence"
             />
           ) : null}
@@ -91,6 +96,8 @@ export default async function FulfillmentEvidencePage({
         transactionId={projection.transaction_id}
         active="evidence"
       />
+
+      <BlockersPanel blockers={projection.blockers ?? []} />
 
       <div className="mm-seller-summary-grid">
         <section className="mm-panel" aria-label="Verified count">

@@ -35,19 +35,19 @@
 | `packages/verifund_contracts/verifund_contracts/terms.py` | Laptop category template, `project_requirements` category resolution + defaults, floors unchanged |
 | `apps/buyer_agent/buyer_agent/settlement_flow.py` | Laptop authoring catalog aligned to spec ids/checks (source of terms copied into agreements) |
 | `apps/verifund_control_plane/verifund_control_plane/policy.py` | `declaration` source, `min_items`/`views_cover`, system-owned requirements, provenance/challenge evaluation hooks, `blockers[]`, `action_owner` derivation |
-| `apps/verifund_control_plane/verifund_control_plane/service.py` | Evidence declaration/view handling, challenge issue/consume, shipment registration, inspection/dispute record transitions, blocker-aware release guard |
-| `apps/verifund_control_plane/verifund_control_plane/repository.py` | 6 additive tables + 5 additive `evidence_submissions` columns, queries for shipments/events/challenges/inspection/disputes |
+| `apps/verifund_control_plane/verifund_control_plane/service.py` | Evidence declaration/view handling, challenge issue/consume, shipment registration, inspection/dispute record transitions, blocker-aware release guard, buyer-evidence handling for `owner=buyer` requirements |
+| `apps/verifund_control_plane/verifund_control_plane/repository.py` | 6 additive tables + 5 additive `evidence_submissions` columns (`reason_code`, `verification_method`, `rule_version`, `confidence`, `view_label`) + declaration `values` storage/migration, queries for shipments/events/challenges/inspection/disputes |
 | `apps/verifund_control_plane/verifund_control_plane/domain.py` | Transaction states unchanged except any minimal additions required by inspection/dispute records; blocker/event helpers |
 | `apps/verifund_control_plane/verifund_control_plane/carrier.py` | Replace/extend with `CarrierAdapter` protocol + `MockCarrierAdapter` + event normalization (keep `FakeCarrier` compatibility only if needed by existing tests, else migrate) |
 | `apps/verifund_control_plane/verifund_control_plane/reconciler.py` | `_sweep_shipments`, delivery timeout, inspection expiry/deemed acceptance integration |
 | `apps/verifund_control_plane/verifund_control_plane/api/seller.py` | Challenge, shipment endpoints; `view_label` on upload |
-| `apps/verifund_control_plane/verifund_control_plane/api/buyer.py` | Inspection read, dispute `claim_type`, buyer evidence if added |
-| `apps/verifund_control_plane/verifund_control_plane/api/ops.py` | Manual poll / inspection resolve |
+| `apps/verifund_control_plane/verifund_control_plane/api/buyer.py` | Inspection read (`GET /transactions/{id}/inspection`), dispute `claim_type`, buyer evidence (`POST /transactions/{id}/evidence`) for `owner=buyer` requirements |
+| `apps/verifund_control_plane/verifund_control_plane/api/ops.py` | Manual poll (`POST /ops/shipments/{id}/poll`) / inspection resolve (`POST /ops/inspection/{id}/resolve`) with `require_ops` and tenant scope checks |
 | `apps/verifund_control_plane/verifund_control_plane/app.py` | Inject carrier adapter + challenge extractor + scenario fixtures |
 | `apps/console/lib/seller-types.ts` + seller fulfillment components | Stage grouping, blockers, provenance card, shipment timeline, inspection/dispute, view selector |
 | `fixtures/laptop/**` | Seven scenario fixtures + remapped manifest |
 | `scripts/run_scenario.py` | Deterministic replay/seed for judges |
-| `tests/unit/*`, `tests/integration/*`, `tests/e2e/*` | TDD per task; lifecycle updates in P3 commit |
+| `tests/unit/*`, `tests/integration/*`, `tests/e2e/*` | TDD per task; lifecycle updates in P3 commit; tenant isolation/cross-tenant 404 coverage for every new endpoint |
 
 ---
 
@@ -341,51 +341,54 @@ git add apps/verifund_control_plane/verifund_control_plane/policy.py apps/verifu
 git commit -m "feat(policy): enforce declaration source, min_items, and view coverage"
 ```
 
-### Task 3: API and storage plumbing for view_label and declaration values
+### Task 3: Schema, API, and storage plumbing for view_label, findings, and declaration values
 
 **Files:**
 - Modify: `apps/verifund_control_plane/verifund_control_plane/api/seller.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/service.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/repository.py`
 - Test: `tests/unit/test_seller_evidence_upload.py` or `tests/integration/test_seller_evidence_*.py` (extend existing)
+- Test: `tests/unit/test_verifund_repository_aux.py` or `tests/integration/test_schema_migrations.py` (extend/new)
 
 **Interfaces:**
 - Consumes: multipart `view_label` on upload; declaration payload carrying `values` for declaration checks.
-- Produces: `EvidenceSubmission.view_label` persisted/returned; declaration records include structured `values` usable by `policy.evaluate`.
+- Produces (spec §8): additive `evidence_submissions` columns `reason_code TEXT`, `verification_method TEXT`, `rule_version INTEGER`, `confidence REAL`, `view_label TEXT` (idempotent `ALTER TABLE`/`_ensure_column` in `Repository.create_schema`), declaration records store structured `values` usable by `policy.evaluate`, and API/read models persist+return `view_label` and submission finding fields.
 
-- [ ] **Step 1: Write failing API/persistence tests**
+- [ ] **Step 1: Write failing schema, API, and persistence tests**
 
 ```python
-# Pseudocode shape for an integration test using the existing ASGI app fixture pattern:
+# Schema/migration: a DB created before this change gains all 5 evidence_submissions columns
+# and declaration value storage after create_schema() reruns (idempotent).
+# API/persistence (existing ASGI + seller auth fixtures):
 # POST /seller/transactions/{id}/evidence with requirement_id=product_photos, view_label=front, file=...
-# assert 201 and response["view_label"] == "front" (or exposed in evidence item projection)
+# assert 201 and submission/item/projection expose view_label == "front".
 # POST /seller/transactions/{id}/requirements/condition_declaration/declare with values={...}
-# GET projection shows condition_declaration pass when values satisfy checks
+# GET declarations/projection shows condition_declaration values and policy can satisfy checks.
 ```
-
-Use the repo's existing seller auth helpers and `httpx.AsyncClient` fixture style.
 
 - [ ] **Step 2: Run to verify failure**
 
-Run the specific new/extended test file only.
-Expected: FAIL (`view_label` ignored or declaration values not evaluated)
+Run the specific new/extended test files only.
+Expected: FAIL (missing columns/values storage, `view_label` ignored, or declaration values not evaluated)
 
-- [ ] **Step 3: Thread view_label through upload and persist declaration values**
+- [ ] **Step 3: Add additive migrations and thread data through repository/service/API**
 
-In `api/seller.py` upload handler add `view_label: str | None = Form(None)` and pass to `service.add_evidence`. In `service.add_evidence`, validate `view_label` is allowed when `requirement.required_views` is non-empty, copy onto the evidence item/submission, and persist via the repository update/insert path you already use for attempt metadata.
+In `repository.py`:
+- Add idempotent column ensures in `create_schema` for `evidence_submissions`: `reason_code`, `verification_method`, `rule_version`, `confidence`, `view_label` (matching spec §8 types/default-null semantics).
+- Ensure declaration persistence includes structured `values` (JSON column or added column with additive migration/backfill-safe default). `get_declarations` / inputs to `policy.evaluate` must return `values` (and keep any existing alias/compat behavior).
 
-For declarations, extend the declaration endpoint/service to accept a `values` object and store it in `requirement_declarations` (JSON column or added column, additive migration in `Repository.create_schema`). Ensure `get_declarations` / policy input returns `values`.
+In `api/seller.py` add `view_label: str | None = Form(None)` to upload and pass to `service.add_evidence`. In `service.add_evidence`, validate `view_label` against `requirement.required_views` when present, attach finding/view fields to submission records, and persist via repository insert/update paths. Declarations continue to arrive via the declarations endpoint (not file upload).
 
 - [ ] **Step 4: Run targeted tests**
 
-Run: `cd /Applications/Projects/hackathon/paypal-verifund-platform/verifund-a2a && uv run pytest <affected seller evidence tests> -v`
-Expected: PASS
+Run: `cd /Applications/Projects/hackathon/paypal-verifund-platform/verifund-a2a && uv run pytest <affected schema + seller evidence + declaration tests> -v`
+Expected: PASS (including rerun/idempotent schema behavior)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add apps/verifund_control_plane/verifund_control_plane/api/seller.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/repository.py <tests>
-git commit -m "feat(evidence): persist view labels and declaration values"
+git commit -m "feat(evidence): persist view labels, submission findings, and declaration values"
 ```
 
 ### Task 4: Align buyer-agent authored laptop catalog and fixture manifest
@@ -694,23 +697,26 @@ git add apps/verifund_control_plane/verifund_control_plane/carrier.py apps/verif
 git commit -m "feat(carrier): add shipment tables and mock carrier adapter"
 ```
 
-### Task 8: Shipment registration and carrier sweeps
+### Task 8: Shipment registration, carrier sweeps, and ops poll
 
 **Files:**
 - Modify: `apps/verifund_control_plane/verifund_control_plane/service.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/api/seller.py`
+- Modify: `apps/verifund_control_plane/verifund_control_plane/api/ops.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/reconciler.py`
 - Test: `tests/integration/test_carrier_delivery.py` (new)
 
 **Interfaces:**
-- Produces: `POST /seller/transactions/{id}/shipment`, `GET /seller/transactions/{id}/shipment`, `Reconciler._sweep_shipments`, and system satisfaction of `carrier_acceptance` / `delivery_confirmation`.
+- Produces: `POST /seller/transactions/{id}/shipment`, `GET /seller/transactions/{id}/shipment`, `POST /ops/shipments/{id}/poll` (manual poll, deterministic in tests, behind `require_ops`), `Reconciler._sweep_shipments`, and system satisfaction of `carrier_acceptance` / `delivery_confirmation`.
 
 - [ ] **Step 1: Write failing integration tests**
 
 ```python
-# Assert: registering tracking creates shipment, reconciler poll ingests PICKED_UP and marks carrier_acceptance satisfied,
+# Assert: registering tracking creates shipment, seller GET returns shipment + normalized events + POD fields;
+# reconciler/manual ops poll ingests PICKED_UP and marks carrier_acceptance satisfied,
 # later DELIVERED_SIGNED creates delivery_confirmation and satisfies delivery_confirmation,
 # weight_anomaly scenario produces blocker/weight flag, never_delivers produces DELIVERY_TIMEOUT after advancing clock.
+# Tenant isolation: cross-tenant access to seller/ops shipment endpoints returns 404 (or repo-equivalent not-found) and does not leak state.
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -718,17 +724,20 @@ git commit -m "feat(carrier): add shipment tables and mock carrier adapter"
 Run: `uv run pytest tests/integration/test_carrier_delivery.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement registration, polling, timeout, and system requirements**
+- [ ] **Step 3: Implement registration, polling, timeout, ops poll, and system requirements**
 
 Service: validate seller scope/state/agreement, create shipment from `shipping` requirement/reference, call `carrier.register_tracking`. Reconciler: poll non-terminal shipments, persist events, on acceptance satisfy `carrier_acceptance` in the requirement result/projection inputs, on delivery create `delivery_confirmations` and start inspection, on deadline expiry set blocker/review without refund (D14). Expose shipment read via seller API.
 
+Ops: add `POST /ops/shipments/{id}/poll` behind `require_ops` that performs a deterministic manual poll/sweep for the addressed shipment (or triggers the same idempotent ingestion path) so tests can advance carrier state without background timing. Enforce tenant/organization scoping consistently and return 404 on cross-tenant access.
+
 Update `policy.evaluate` so system-owned delivery requirements read from shipment/delivery state (passed into evaluate via terms/context/record or loaded by a small helper), not from seller file uploads.
 
-- [ ] **Step 4: Update lifecycle tests in the same commit**
+- [ ] **Step 4: Update lifecycle tests and verify tenant isolation in the same commit**
 
-Modify `tests/integration/test_verifund_lifecycle.py` and any other tests asserting buyer `delivery-confirmed` as authoritative so they now register a shipment, advance reconciler/clock, and reach delivery through carrier events. Keep buyer confirmation as corroboration only.
+Modify `tests/integration/test_verifund_lifecycle.py` and any other tests asserting buyer `delivery-confirmed` as authoritative so they now register a shipment, advance reconciler/clock (or ops poll), and reach delivery through carrier events. Keep buyer confirmation as corroboration only.
 
 Run: `uv run pytest tests/integration/test_carrier_delivery.py tests/integration/test_verifund_lifecycle.py -v`
+Expected: PASS, including cross-tenant 404 checks for new seller/ops shipment endpoints.
 
 - [ ] **Step 5: Commit**
 
@@ -742,25 +751,28 @@ git commit -m "feat(delivery): make carrier events authoritative for shipment an
 
 ## Phase 4 — Inspection and disputes
 
-### Task 9: Inspection records and deadline handling
+### Task 9: Inspection records, deadline handling, and ops resolution
 
 **Files:**
 - Modify: `apps/verifund_control_plane/verifund_control_plane/repository.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/service.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/reconciler.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/api/buyer.py`
+- Modify: `apps/verifund_control_plane/verifund_control_plane/api/ops.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/api/seller.py` (projection exposure)
 - Test: `tests/integration/test_inspection_lifecycle.py` (new)
 
 **Interfaces:**
-- Produces: `inspection_records` table; inspection created on carrier delivery with deadline = `delivered_at + inspection_window_hours` (default 48, sandbox-compressed, clock-injected); `GET /transactions/{id}/inspection`; accept/dispute transitions; deemed expiry path in reconciler.
+- Produces: `inspection_records` table; inspection created on carrier delivery with deadline = `delivered_at + inspection_window_hours` (default 48, sandbox-compressed, clock-injected); `GET /transactions/{id}/inspection`; accept/dispute transitions; deemed expiry path in reconciler; `POST /ops/inspection/{id}/resolve` (behind `require_ops`, reviewer resolution with rationale, recorded on inspection/dispute state as applicable).
 
 - [ ] **Step 1: Write failing tests**
 
 ```python
 # After delivery, inspection record exists with pending status and correct deadline.
+# GET /transactions/{id}/inspection returns status + deadline + outcome for the scoped tenant.
 # Buyer accept resolves inspection; advancing clock past deadline with clean requirements expires/resolves per policy;
 # advancing clock with an open claim does not auto-release.
+# POST /ops/inspection/{id}/resolve records reviewer + rationale and is tenant-scoped (cross-tenant 404).
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -768,20 +780,24 @@ git commit -m "feat(delivery): make carrier events authoritative for shipment an
 Run: `uv run pytest tests/integration/test_inspection_lifecycle.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement inspection persistence and transitions**
+- [ ] **Step 3: Implement inspection persistence, transitions, and ops resolve**
 
-Add `inspection_records` table and repository CRUD. In delivery handling, create inspection atomically with delivery confirmation (or idempotently). Expose status/deadline/resolution in seller/buyer projections. Reconciler sweep: on expiry, if all mandatory requirements pass and no dispute/exception, apply the deemed-acceptance policy path already used by the project but sourced from the inspection record; otherwise emit blocker/review.
+Add `inspection_records` table and repository CRUD. In delivery handling, create inspection atomically with delivery confirmation (or idempotently). Expose status/deadline/resolution in seller/buyer projections and `GET /transactions/{id}/inspection`.
+
+Implement `POST /ops/inspection/{id}/resolve` behind `require_ops` to record reviewer resolution/rationale in authoritative state (inspection record and, when resolving a dispute, the dispute record/transaction event path) without trusting client-supplied payout/eligibility flags. Enforce tenant scoping and 404 on cross-tenant access.
+
+Reconciler sweep: on expiry, if all mandatory requirements pass and no dispute/exception, apply the deemed-acceptance policy path already used by the project but sourced from the inspection record; otherwise emit blocker/review.
 
 - [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_inspection_lifecycle.py -v`
-Expected: PASS
+Expected: PASS (including ops resolve and tenant isolation)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/verifund_control_plane/verifund_control_plane/repository.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/reconciler.py apps/verifund_control_plane/verifund_control_plane/api/buyer.py apps/verifund_control_plane/verifund_control_plane/api/seller.py tests/integration/test_inspection_lifecycle.py
-git commit -m "feat(inspection): persist inspection records and deadline resolution"
+git add apps/verifund_control_plane/verifund_control_plane/repository.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/reconciler.py apps/verifund_control_plane/verifund_control_plane/api/buyer.py apps/verifund_control_plane/verifund_control_plane/api/ops.py apps/verifund_control_plane/verifund_control_plane/api/seller.py tests/integration/test_inspection_lifecycle.py
+git commit -m "feat(inspection): persist inspection records, deadline resolution, and ops review"
 ```
 
 ### Task 10: Dispute records, claim taxonomy, and buyer evidence path
@@ -791,18 +807,21 @@ git commit -m "feat(inspection): persist inspection records and deadline resolut
 - Modify: `apps/verifund_control_plane/verifund_control_plane/service.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/api/buyer.py`
 - Modify: `apps/verifund_control_plane/verifund_control_plane/api/ops.py`
+- Modify: `apps/verifund_control_plane/verifund_control_plane/api/seller.py` (ensure buyer-owned requirements are never rendered in seller workspace/projections)
 - Modify: `packages/verifund_contracts/verifund_contracts/models.py`
 - Test: `tests/integration/test_dispute_records.py` (new)
 
 **Interfaces:**
-- Produces: `disputes` table with `claim_type`, status, resolution, reviewer; buyer dispute endpoint accepts `claim_type`; ops dispute decision persists rationale/resolution; optional buyer evidence upload endpoint for `owner=buyer` requirements.
+- Produces: `disputes` table with `claim_type`, status, resolution, reviewer/resolved_by, rationale; buyer dispute endpoint accepts/persists `claim_type`; ops dispute decision persists rationale/resolution/reviewer on the `disputes` row and transaction history (aligned with spec §11/§14 and existing ops dispute flow); buyer evidence upload `POST /transactions/{id}/evidence` for `owner=buyer` requirements reusing the existing evidence pipeline/validation.
 
 - [ ] **Step 1: Write failing tests**
 
 ```python
 # Opening dispute with claim_type=WRONG_DEVICE creates dispute row and blocks payout.
-# Ops resolution records reviewer and resolution; seller-win path clears dispute block when other conditions hold.
+# POST /transactions/{id}/evidence accepts buyer-owned requirement evidence with tenant/auth scoping and does not expose it in seller workspace projections.
+# Ops resolution records reviewer, rationale, and resolution; seller-win path clears dispute block when other conditions hold.
 # Buyer-win path keeps payout blocked and records resolution.
+# Tenant isolation: cross-tenant access to buyer inspection/dispute/evidence and ops resolution endpoints returns 404.
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -810,20 +829,24 @@ git commit -m "feat(inspection): persist inspection records and deadline resolut
 Run: `uv run pytest tests/integration/test_dispute_records.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement dispute persistence and wiring**
+- [ ] **Step 3: Implement dispute persistence, buyer evidence, and wiring**
 
-Add `disputes` table and repository methods. Extend `open_dispute` to require/persist `claim_type` (default `OTHER` only for backward compatibility if necessary, but prefer explicit). Extend ops resolution to write the dispute record and transaction event with rationale. Keep `DISPUTE_OPEN` transaction state as the blocking state. If buyer evidence upload is added, mirror seller upload auth/validation but scope to buyer-owned requirements and never expose them in seller workspace.
+Add `disputes` table and repository methods. Extend `open_dispute` to require/persist `claim_type` (default `OTHER` only for backward compatibility if necessary, but prefer explicit and validate enum values). Extend ops dispute resolution to write the dispute record and transaction event with claim type context, rationale, reviewer/resolved_by, and resolution.
+
+Implement `POST /transactions/{id}/evidence` in `api/buyer.py` mirroring seller upload auth/validation/scanning semantics but scoped to buyer-owned requirements and the buyer actor; store through the same evidence/submission pipeline so policy can evaluate owner-appropriate requirements. Ensure buyer-owned requirements/evidence are never rendered in the seller workspace.
+
+Keep `DISPUTE_OPEN` transaction state as the blocking state. Enforce tenant scoping and cross-tenant 404 on all new buyer/ops dispute-related endpoints.
 
 - [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/integration/test_dispute_records.py -v`
-Expected: PASS
+Expected: PASS (including buyer evidence and tenant isolation)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/verifund_control_plane/verifund_control_plane/repository.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/api/buyer.py apps/verifund_control_plane/verifund_control_plane/api/ops.py packages/verifund_contracts/verifund_contracts/models.py tests/integration/test_dispute_records.py
-git commit -m "feat(disputes): persist claim types and resolutions"
+git add apps/verifund_control_plane/verifund_control_plane/repository.py apps/verifund_control_plane/verifund_control_plane/service.py apps/verifund_control_plane/verifund_control_plane/api/buyer.py apps/verifund_control_plane/verifund_control_plane/api/ops.py apps/verifund_control_plane/verifund_control_plane/api/seller.py packages/verifund_contracts/verifund_contracts/models.py tests/integration/test_dispute_records.py
+git commit -m "feat(disputes): persist claim types, buyer evidence, and resolutions"
 ```
 
 ## Phase 5 — Blockers and workspace
@@ -1017,8 +1040,11 @@ git commit -m "feat(simulation): add deterministic laptop scenario replay"
 ## Execution and Verification
 
 - [ ] **Full backend verification:** `uv run pytest tests/unit tests/integration -q` (or the project's standard subsets if full suite is too slow locally) with no regressions introduced by P3 lifecycle changes.
+- [ ] **Tenant isolation / 404 coverage (spec §19):** add and pass tests asserting cross-tenant access returns 404 and does not leak state for every new endpoint introduced by this plan, including seller challenge/shipment, buyer inspection/evidence/dispute extensions, and ops shipment poll / inspection resolve / dispute decision paths.
+- [ ] **Projection/read-model coverage:** verify seller and buyer settlement projections expose the required new fields (`blockers`, shipment/inspection context where applicable, per-requirement `action_owner`, and view/submission context needed by the workspace) and that buyer-owned requirements/evidence are never rendered in the seller workspace.
 - [ ] **Console verification:** run the console's configured typecheck/test commands for touched seller surfaces.
 - [ ] **Scenario smoke:** `python scripts/run_scenario.py --scenario happy_path` and `--scenario never_delivers` from a clean database.
+- [ ] **DoD alignment (spec §19):** confirm each of the 7 deterministic scenarios asserts final state, blockers, ledger entries, and provider references; all simulated artifacts/events are labeled `simulated`; `release.evaluated` records blocker decisions in transaction history; and no duplicate payout occurs on retry/webhook replay/concurrent release.
 - [ ] **Doc alignment:** if implementation reveals a necessary deviation, update `docs/superpowers/specs/2026-11-12-laptop-evidence-fulfillment-design.md` in the same PR/commit series with the rationale.
 
 ## Notes for executors

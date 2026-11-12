@@ -209,7 +209,7 @@ class Repository:
             Column("actor", String, nullable=False),
             Column("submission_ids", JSON, nullable=False),
             Column("declared_at", String, nullable=False),
-            Column("values", JSON, nullable=True),
+            Column("declared_values", JSON, nullable=True),
             UniqueConstraint(
                 "transaction_id",
                 "requirement_id",
@@ -515,15 +515,35 @@ class Repository:
             await self._ensure_column(conn, "evidence_submissions", "verification_method", "TEXT")
             await self._ensure_column(conn, "evidence_submissions", "rule_version", "INTEGER")
             await self._ensure_column(conn, "evidence_submissions", "confidence", "REAL")
-            await self._ensure_column(conn, "requirement_declarations", "values", "JSON")
+            await self._ensure_column(conn, "requirement_declarations", "declared_values", "JSON")
+            await self._migrate_requirement_declaration_values(conn)
             await self._ensure_column(conn, "checkout_links", "organization_id", "TEXT")
             await self._ensure_column(conn, "buyer_tokens", "organization_id", "TEXT")
             await self._ensure_column(conn, "seller_tokens", "organization_id", "TEXT")
 
     async def _ensure_column(self, conn, table: str, name: str, ddl_type: str) -> None:
-        cols = {row[1] for row in await conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+        cols = {
+            row[1]
+            for row in await conn.exec_driver_sql(f'PRAGMA table_info("{table}")')
+        }
         if name not in cols:
-            await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
+            await conn.exec_driver_sql(
+                f'ALTER TABLE "{table}" ADD COLUMN "{name}" {ddl_type}'
+            )
+
+    async def _migrate_requirement_declaration_values(self, conn) -> None:
+        cols = {
+            row[1]
+            for row in await conn.exec_driver_sql(
+                'PRAGMA table_info("requirement_declarations")'
+            )
+        }
+        if "values" in cols and "declared_values" in cols:
+            await conn.exec_driver_sql(
+                'UPDATE "requirement_declarations" '
+                'SET "declared_values" = "values" '
+                'WHERE "declared_values" IS NULL AND "values" IS NOT NULL'
+            )
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[AsyncConnection, None]:
@@ -1243,9 +1263,13 @@ class Repository:
         submission_ids: list[str],
         declared_at: datetime | None = None,
         values: dict[str, Any] | None = None,
+        declared_values: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = declared_at or datetime.now(UTC)
         declaration_id = f"decl_{uuid.uuid4().hex}"
+        payload_values = (
+            declared_values if declared_values is not None else values
+        )
         await conn.execute(
             self.requirement_declarations.insert().values(
                 declaration_id=declaration_id,
@@ -1255,7 +1279,7 @@ class Repository:
                 actor=actor,
                 submission_ids=list(submission_ids),
                 declared_at=_iso(now),
-                values=values,
+                declared_values=payload_values,
             )
         )
         return {
@@ -1266,7 +1290,8 @@ class Repository:
             "actor": actor,
             "submission_ids": list(submission_ids),
             "declared_at": _iso(now),
-            "values": values,
+            "declared_values": payload_values,
+            "values": payload_values,
         }
 
     async def list_declarations(
@@ -1282,7 +1307,17 @@ class Repository:
         statement = statement.order_by(self.requirement_declarations.c.attempt)
         async with self.engine.connect() as conn:
             rows = (await conn.execute(statement)).mappings().all()
-        return [dict(row) for row in rows]
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            payload = item.get("declared_values")
+            if payload is None:
+                payload = item.get("values")
+            item["declared_values"] = payload
+            item["values"] = payload
+            return_item = item
+            items.append(return_item)
+        return items
 
     async def create_provider_operation(
         self,

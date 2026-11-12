@@ -3,13 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { AgreementSummary } from "@/components/seller/agreement-summary";
+import { BlockersPanel } from "@/components/seller/blockers-panel";
 import { DisputePanel } from "@/components/seller/dispute-panel";
 import { EvidenceProgress } from "@/components/seller/evidence-progress";
 import {
   FulfillmentBackLink,
   FulfillmentTabs,
 } from "@/components/seller/fulfillment-tabs";
+import { ProvenanceChallengeCard } from "@/components/seller/provenance-challenge-card";
 import { RequirementList } from "@/components/seller/requirement-list";
+import { ShipmentPanel } from "@/components/seller/shipment-panel";
 import {
   PayoutStatusBadge,
   TransactionStatusBadge,
@@ -24,8 +27,10 @@ import {
   nextActionLabel,
 } from "@/lib/seller-status";
 import type {
+  ProvenanceChallenge,
   SellerAgreementView,
   SellerProjection,
+  ShipmentState,
 } from "@/lib/seller-types";
 
 export const dynamic = "force-dynamic";
@@ -69,14 +74,23 @@ export default async function FulfillmentDetailPage({
   }
 
   const projection = projectionResult.data;
-  const agreementResult = projection.agreement_id
-    ? await loadSeller<SellerAgreementView>(
-        `/seller/agreements/${encodeURIComponent(projection.agreement_id)}`,
-        id,
-      )
-    : null;
-  const agreement =
-    agreementResult?.ok === true ? agreementResult.data : null;
+  const [agreementResult, shipmentResult, challengeResult] = await Promise.all([
+    projection.agreement_id
+      ? loadSeller<SellerAgreementView>(
+          `/seller/agreements/${encodeURIComponent(projection.agreement_id)}`,
+          id,
+        )
+      : Promise.resolve(null),
+    loadSeller<ShipmentState>(`/seller/transactions/${encodeURIComponent(id)}/shipment`, id),
+    loadSeller<ProvenanceChallenge>(
+      `/seller/transactions/${encodeURIComponent(id)}/provenance-challenge`,
+      id,
+    ),
+  ]);
+
+  const agreement = agreementResult?.ok === true ? agreementResult.data : null;
+  const shipment = shipmentResult.ok ? shipmentResult.data : null;
+  const challenge = challengeResult.ok ? challengeResult.data : null;
 
   const results = projection.evidence?.requirements ?? [];
   const items = projection.evidence?.items ?? [];
@@ -85,9 +99,14 @@ export default async function FulfillmentDetailPage({
   ).length;
   const verified = countVerifiedRequirements(results);
   const canUpload = UPLOAD_STATES.has(projection.state);
+  const hasProvenance = projection.requirements.some((r) => r.requirement_id === "provenance");
+  const hasShippingStage = projection.requirements.some((r) =>
+    ["shipping", "carrier_acceptance", "delivery_confirmation", "packaging"].includes(r.requirement_id) || r.stage === "packaging" || r.stage === "delivery",
+  );
   const products = projection.line_items.map((item) => item.name).join(", ");
   const evidenceDeadline =
     projection.deadlines.evidence ?? projection.evidence?.deadline ?? null;
+  const inspectionDeadline = projection.deadlines.inspection ?? null;
 
   return (
     <>
@@ -121,6 +140,7 @@ export default async function FulfillmentDetailPage({
               transactionId={projection.transaction_id}
               agreementVersion={projection.agreement_version}
               requirements={projection.requirements}
+              evidenceItems={items}
               label="Upload evidence"
             />
           ) : null}
@@ -137,13 +157,7 @@ export default async function FulfillmentDetailPage({
 
       <FulfillmentTabs transactionId={projection.transaction_id} active="overview" />
 
-      {projection.blockers?.length ? (
-        <Alert
-          message={`Blockers: ${projection.blockers
-            .map((b) => b.message || b.code)
-            .join(" · ")}`}
-        />
-      ) : null}
+      <BlockersPanel blockers={projection.blockers ?? []} />
 
       <div className="mm-seller-summary-grid">
         <section className="mm-panel" aria-label="Order value">
@@ -157,9 +171,9 @@ export default async function FulfillmentDetailPage({
             {evidenceDeadline ? formatDateTime(evidenceDeadline) : "Per agreement"}
           </p>
           <p className="mm-mono-note">
-            {projection.deadlines.inspection
-              ? `Inspection by ${formatDateTime(projection.deadlines.inspection)}`
-              : "Based on agreement terms"}
+            {inspectionDeadline
+              ? `Inspection by ${formatDateTime(inspectionDeadline)}`
+              : "Inspection window starts after carrier delivery"}
           </p>
         </section>
         <section className="mm-panel" aria-label="Requirements verified">
@@ -187,6 +201,22 @@ export default async function FulfillmentDetailPage({
             <DisputePanel
               transactionId={projection.transaction_id}
               dispute={projection.dispute}
+            />
+          ) : null}
+
+          {hasProvenance ? (
+            <ProvenanceChallengeCard
+              transactionId={projection.transaction_id}
+              initialChallenge={challenge}
+              canIssue={canUpload}
+            />
+          ) : null}
+
+          {hasShippingStage ? (
+            <ShipmentPanel
+              transactionId={projection.transaction_id}
+              initialShipment={shipment}
+              canRegister={canUpload}
             />
           ) : null}
 
@@ -249,13 +279,12 @@ export default async function FulfillmentDetailPage({
                   ) : null}
                 </>
               ) : null}
+              {shipment?.shipment?.status ? (
+                <Fact label="Carrier status" value={String(shipment.shipment.status).replaceAll("_", " ")} />
+              ) : null}
               <Fact
                 label="Payout"
-                value={
-                  projection.payout
-                    ? projection.payout.status
-                    : "Not payable yet"
-                }
+                value={projection.payout ? projection.payout.status : "Not payable yet"}
               />
               <Fact label="Updated" value={formatDateTime(projection.updated_at)} />
             </dl>
@@ -268,16 +297,12 @@ export default async function FulfillmentDetailPage({
             <p className="mm-kicker">Next steps</p>
             <ul className="mm-seller-next-steps">
               <li>
-                <Link
-                  href={`/seller/fulfillment/${encodeURIComponent(projection.transaction_id)}/evidence`}
-                >
+                <Link href={`/seller/fulfillment/${encodeURIComponent(projection.transaction_id)}/evidence`}>
                   Evidence checklist
                 </Link>
               </li>
               <li>
-                <Link
-                  href={`/seller/fulfillment/${encodeURIComponent(projection.transaction_id)}/activity`}
-                >
+                <Link href={`/seller/fulfillment/${encodeURIComponent(projection.transaction_id)}/activity`}>
                   Transaction activity
                 </Link>
               </li>
@@ -286,8 +311,7 @@ export default async function FulfillmentDetailPage({
               </li>
             </ul>
             <p className="mm-mono-note">
-              Your Seller Agent can explain evidence requirements and notify you
-              when a review needs attention.
+              Your Seller Agent can explain evidence requirements and notify you when a review needs attention.
             </p>
           </section>
         </aside>

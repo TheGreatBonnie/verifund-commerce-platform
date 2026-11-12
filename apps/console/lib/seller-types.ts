@@ -64,6 +64,57 @@ export type Blocker = {
   severity?: string;
 };
 
+export type ProvenanceChallenge = {
+  code: string;
+  issued_at?: string | null;
+  expires_at?: string | null;
+  status?: string | null;
+};
+
+export type CarrierEvent = {
+  provider_event_id?: string;
+  normalized_status?: string;
+  event_at?: string | null;
+  received_at?: string | null;
+  weight_g?: number | null;
+  payload?: Record<string, unknown> | null;
+  payload_json?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
+export type ShipmentRecord = {
+  id?: string;
+  transaction_id?: string;
+  carrier_key?: string;
+  tracking_number?: string;
+  service_level?: string | null;
+  status?: string;
+  scenario?: string | null;
+  declared_value_minor?: number | null;
+  insured_value_minor?: number | null;
+  currency?: string | null;
+  weight_expected_g?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  [key: string]: unknown;
+};
+
+export type DeliveryConfirmation = {
+  delivered_at?: string | null;
+  recipient_reference?: string | null;
+  signature_reference?: string | null;
+  pod_reference?: string | null;
+  weight_g?: number | null;
+  payload_json?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
+export type ShipmentState = {
+  shipment?: ShipmentRecord | null;
+  events?: CarrierEvent[];
+  delivery_confirmation?: DeliveryConfirmation | null;
+};
+
 export type RequirementResult = {
   requirement_id: string;
   kind: string;
@@ -159,6 +210,8 @@ export type DisputeProjection = {
   escalation_rung: number;
   resolution?: string | null;
   resolved_at?: string | null;
+  resolved_by?: string | null;
+  rationale?: string | null;
 };
 
 export type SellerProjection = {

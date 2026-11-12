@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import type { EvidenceReceipt, Requirement } from "@/lib/seller-types";
+import type { EvidenceItem, EvidenceReceipt, Requirement } from "@/lib/seller-types";
 
 const FORMAT_LABELS: Record<string, string> = {
   "image/jpeg": "JPG",
@@ -23,26 +23,43 @@ function formatLabel(mediaType: string): string {
   return FORMAT_LABELS[mediaType.toLowerCase()] ?? mediaType.toUpperCase();
 }
 
-function sellerRequirements(requirements: Requirement[]): Requirement[] {
-  return requirements.filter((requirement) => requirement.owner === "seller");
+function sellerUploadableRequirements(requirements: Requirement[]): Requirement[] {
+  return requirements.filter(
+    (requirement) => requirement.owner === "seller" && requirement.source !== "declaration",
+  );
+}
+
+function coveredViews(items: EvidenceItem[], requirementId: string): Set<string> {
+  const views = new Set<string>();
+  for (const item of items) {
+    if (item.requirement_id !== requirementId) continue;
+    if (item.view_label) views.add(item.view_label);
+  }
+  return views;
+}
+
+function viewLabelText(view: string): string {
+  return view.replaceAll("_", " ");
 }
 
 export function UploadEvidenceForm({
   transactionId,
   agreementVersion,
   requirements,
+  evidenceItems = [],
   defaultRequirementId,
   onSuccess,
 }: {
   transactionId: string;
   agreementVersion: number;
   requirements: Requirement[];
+  evidenceItems?: EvidenceItem[];
   defaultRequirementId?: string;
   onSuccess?: () => void;
 }) {
   const router = useRouter();
   const uploadable = useMemo(
-    () => sellerRequirements(requirements),
+    () => sellerUploadableRequirements(requirements),
     [requirements],
   );
   const initial = useMemo(() => {
@@ -59,6 +76,7 @@ export function UploadEvidenceForm({
   const [referenceType, setReferenceType] = useState(
     initial?.kind === "shipment_manifest" ? "tracking" : "url",
   );
+  const [viewLabel, setViewLabel] = useState("");
   const [capturedAt, setCapturedAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,10 +86,29 @@ export function UploadEvidenceForm({
     (requirement) => requirement.requirement_id === requirementId,
   );
 
+  const requiredViews = selected?.required_views ?? [];
+  const covered = selected
+    ? coveredViews(evidenceItems, selected.requirement_id)
+    : new Set<string>();
+  const missingViews = requiredViews.filter((view) => !covered.has(view));
+  const requiresView = selected?.source === "file" && requiredViews.length > 0;
+
+  useEffect(() => {
+    if (requiresView) {
+      setViewLabel((current) =>
+        missingViews.includes(current)
+          ? current
+          : missingViews[0] ?? requiredViews[0] ?? "",
+      );
+    } else {
+      setViewLabel("");
+    }
+  }, [requirementId, requiresView, missingViews.join("|"), requiredViews.join("|")]);
+
   if (!uploadable.length) {
     return (
       <p className="mm-empty">
-        No seller-owned requirements are available for this order yet.
+        No file/reference seller requirements are available for upload right now.
       </p>
     );
   }
@@ -109,9 +146,10 @@ export function UploadEvidenceForm({
 
     if (selected.source === "reference") {
       formData.delete("file");
+      formData.delete("view_label");
       const reference = String(formData.get("reference") ?? "").trim();
       if (!reference) {
-        setError("Enter a reference value or URL.");
+        setError("Enter a reference value.");
         setSubmitting(false);
         return;
       }
@@ -125,6 +163,16 @@ export function UploadEvidenceForm({
         setError("Choose a file to upload.");
         setSubmitting(false);
         return;
+      }
+      if (requiresView) {
+        if (!viewLabel) {
+          setError("Select the view this file represents.");
+          setSubmitting(false);
+          return;
+        }
+        formData.set("view_label", viewLabel);
+      } else {
+        formData.delete("view_label");
       }
     }
 
@@ -151,6 +199,12 @@ export function UploadEvidenceForm({
       setReceipt(body as EvidenceReceipt);
       form.reset();
       setCapturedAt("");
+      if (requiresView) {
+        const nextMissing = requiredViews.filter(
+          (view) => !covered.has(view) && view !== viewLabel,
+        );
+        setViewLabel(nextMissing[0] ?? "");
+      }
       router.refresh();
       onSuccess?.();
     } catch (uploadError) {
@@ -161,6 +215,10 @@ export function UploadEvidenceForm({
       setSubmitting(false);
     }
   };
+
+  const submissionCount = selected
+    ? evidenceItems.filter((item) => item.requirement_id === selected.requirement_id).length
+    : 0;
 
   return (
     <form className="mm-seller-upload-form" onSubmit={onSubmit}>
@@ -195,9 +253,7 @@ export function UploadEvidenceForm({
       {selected ? (
         <div className="mm-seller-format-row" aria-label="Accepted formats">
           <span className="mm-kicker">
-            {selected.source === "reference"
-              ? "Reference accepted"
-              : "Accepted formats"}
+            {selected.source === "reference" ? "Reference accepted" : "Accepted formats"}
           </span>
           {selected.source === "reference" ? (
             <span className="mm-seller-format-chip">
@@ -212,6 +268,42 @@ export function UploadEvidenceForm({
               </span>
             ))
           )}
+          {(selected.min_items ?? 1) > 1 ? (
+            <span className="mm-seller-format-chip">
+              {submissionCount}/{selected.min_items} submitted
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {requiresView ? (
+        <div className="mm-seller-field-grid">
+          <label className="mm-seller-field">
+            <span>View</span>
+            <select
+              name="view_label"
+              value={viewLabel}
+              onChange={(event) => setViewLabel(event.target.value)}
+              required
+            >
+              <option value="">Select view</option>
+              {requiredViews.map((view) => (
+                <option key={view} value={view}>
+                  {viewLabelText(view)}
+                  {covered.has(view) ? " (submitted)" : " (missing)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="mm-seller-field">
+            <span>View coverage</span>
+            <p className="mm-mono-note">
+              {requiredViews.length - missingViews.length}/{requiredViews.length} covered
+              {missingViews.length
+                ? ` · missing: ${missingViews.map(viewLabelText).join(", ")}`
+                : " · all required views submitted"}
+            </p>
+          </div>
         </div>
       ) : null}
 
@@ -268,15 +360,14 @@ export function UploadEvidenceForm({
           Upload evidence
         </Button>
         <span className="mm-mono-note">
-          Evidence is hashed on receipt; the server returns the submission id.
+          Evidence is hashed on receipt; include the correct view for multi-photo requirements.
         </span>
       </div>
 
       {error ? <Alert message={error} /> : null}
       {receipt ? (
         <p className="mm-seller-upload-success" role="status">
-          Uploaded {receipt.receipt_id} · attempt {receipt.attempt} ·{" "}
-          {receipt.scan_status}
+          Uploaded {receipt.receipt_id} · attempt {receipt.attempt} · {receipt.scan_status}
         </p>
       ) : null}
     </form>
