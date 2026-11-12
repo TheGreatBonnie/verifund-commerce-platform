@@ -4,6 +4,7 @@ from .filters import matches_filters, offer_available, price_cents, seller_name
 from .index import build_store, catalog_hash, clear_cache, get_store
 from .retriever import (
     MIN_SIMILARITY,
+    RELATIVE_MARGIN,
     ProductRetriever,
     RetrievalResult,
     compose_query,
@@ -11,6 +12,7 @@ from .retriever import (
 
 __all__ = [
     "MIN_SIMILARITY",
+    "RELATIVE_MARGIN",
     "NebiusEmbeddings",
     "ProductRetriever",
     "RetrievalResult",

@@ -25,7 +25,8 @@ from .index import get_store
 
 logger = logging.getLogger(__name__)
 
-MIN_SIMILARITY = 0.25
+MIN_SIMILARITY = 0.60
+RELATIVE_MARGIN = 0.10
 BACKEND = "InMemoryVectorStore"
 MAX_TRACE_HITS = 24
 
@@ -67,12 +68,14 @@ class ProductRetriever:
         dimensions: int,
         cache_key: str | None = None,
         min_similarity: float = MIN_SIMILARITY,
+        relative_margin: float = RELATIVE_MARGIN,
     ) -> None:
         self._embeddings = embeddings
         self._model = model
         self._dimensions = dimensions
         self._cache_key = cache_key or f"{model}:{dimensions}"
         self._min_similarity = min_similarity
+        self._relative_margin = relative_margin
 
     def search(
         self,
@@ -98,7 +101,7 @@ class ProductRetriever:
             )
         ]
         if not candidates:
-            return self._finish("dense", [], 0, started)
+            return self._finish("dense", [], 0, started, cutoff=self._min_similarity)
 
         text = compose_query(query, use_case, preferences)
         if not text:
@@ -129,6 +132,11 @@ class ProductRetriever:
             scored.append((float(score), price_cents(product), sku, product))
         scored.sort(key=lambda row: (-row[0], row[1], row[2]))
 
+        cutoff = self._min_similarity
+        if scored:
+            cutoff = max(self._min_similarity, scored[0][0] - self._relative_margin)
+            scored = [row for row in scored if row[0] >= cutoff]
+
         top_k = [
             {"sku": row[2], "score": round(row[0], 4)} for row in scored[:MAX_TRACE_HITS]
         ]
@@ -139,6 +147,7 @@ class ProductRetriever:
             len(candidates),
             started,
             top_k=top_k,
+            cutoff=cutoff,
         )
 
     def _decorate(self, product: dict, *, score: float | None = None) -> dict:
@@ -170,6 +179,7 @@ class ProductRetriever:
         started: float,
         *,
         top_k: list[dict] | None = None,
+        cutoff: float | None = None,
     ) -> RetrievalResult:
         trace = {
             "mode": mode,
@@ -178,6 +188,7 @@ class ProductRetriever:
             "dimension": self._dimensions,
             "candidates": candidates,
             "top_k": list(top_k or []),
+            "cutoff": round(cutoff, 4) if cutoff is not None else None,
             "latency_ms": int((time.perf_counter() - started) * 1000),
         }
         logger.info(

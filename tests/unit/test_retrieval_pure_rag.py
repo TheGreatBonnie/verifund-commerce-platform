@@ -8,6 +8,7 @@ from commerce_core.retrieval.documents import product_document
 from commerce_core.retrieval.index import clear_cache
 from commerce_core.retrieval.retriever import (
     MIN_SIMILARITY,
+    RELATIVE_MARGIN,
     ProductRetriever,
     compose_query,
 )
@@ -227,7 +228,29 @@ def test_unrelated_queries_return_nothing_above_the_threshold():
     assert result.trace["mode"] == "dense"
     assert result.trace["top_k"] == []
     assert embeddings.query_vectors["zzzzzz"] == [0.0, 1.0]
-    assert MIN_SIMILARITY == 0.25
+    assert MIN_SIMILARITY == 0.60
+    assert RELATIVE_MARGIN == 0.10
+
+
+def test_relative_margin_drops_weak_but_above_floor_hits():
+    relevant = product("EX-RELEVANT-1", "Relevant Laptop", price=1000)
+    close = product("EX-CLOSE-2", "Almost Laptop", price=1200)
+    distant = product("EX-DISTANT-3", "Wireless Mouse", price=300)
+    catalog = [distant, close, relevant]
+    retriever, _ = make_retriever(
+        catalog=catalog,
+        mapping={
+            "EX-RELEVANT-1": [1.0, 0.0],
+            "EX-CLOSE-2": [0.92, 0.392],
+            "EX-DISTANT-3": [0.65, 0.76],
+        },
+        query_vectors={"laptop": [1.0, 0.0]},
+    )
+
+    result = retriever.search(catalog, query="laptop")
+
+    assert [row["sku"] for row in result.products] == ["EX-RELEVANT-1", "EX-CLOSE-2"]
+    assert result.trace["cutoff"] == 0.9
 
 
 def test_browse_mode_skips_embeddings_and_orders_by_availability_then_rating():
