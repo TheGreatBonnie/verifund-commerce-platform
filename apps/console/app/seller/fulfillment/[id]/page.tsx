@@ -137,6 +137,14 @@ export default async function FulfillmentDetailPage({
 
       <FulfillmentTabs transactionId={projection.transaction_id} active="overview" />
 
+      {projection.blockers?.length ? (
+        <Alert
+          message={`Blockers: ${projection.blockers
+            .map((b) => b.message || b.code)
+            .join(" · ")}`}
+        />
+      ) : null}
+
       <div className="mm-seller-summary-grid">
         <section className="mm-panel" aria-label="Order value">
           <p className="mm-kicker">Order value</p>

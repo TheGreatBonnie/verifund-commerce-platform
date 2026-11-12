@@ -14,10 +14,13 @@ export type Requirement = {
   description: string;
   owner: "seller" | "system" | "buyer" | string;
   kind: string;
-  source: "file" | "reference" | string;
+  source: "file" | "reference" | "declaration" | string;
   accepted_formats: string[];
   checks: RequirementCheck[];
   required: boolean;
+  stage?: string | null;
+  min_items?: number;
+  required_views?: string[];
 };
 
 export type RequirementCheckResult = {
@@ -45,7 +48,20 @@ export type EvidenceItem = {
   artifact_type?: string | null;
   reference?: string | null;
   submission_attempt?: number | null;
+  view_label?: string | null;
+  reason_code?: string | null;
+  verification_method?: string | null;
+  rule_version?: number | null;
+  confidence?: number | null;
   created_at: string;
+};
+
+export type Blocker = {
+  code: string;
+  message: string;
+  requirement_id?: string | null;
+  action_owner?: string;
+  severity?: string;
 };
 
 export type RequirementResult = {
@@ -53,6 +69,7 @@ export type RequirementResult = {
   kind: string;
   owner: string;
   source: string;
+  required?: boolean;
   status: string;
   checks: RequirementCheckResult[];
   submissions: EvidenceItem[];
@@ -62,6 +79,7 @@ export type RequirementResult = {
   reasons: string[];
   checked_at?: string | null;
   remediation?: Record<string, unknown> | null;
+  action_owner?: string;
 };
 
 export type EvidenceSummary = {
@@ -134,10 +152,13 @@ export type PayoutProjection = {
 export type DisputeProjection = {
   status: string;
   reason_code: string;
+  claim_type?: string | null;
   requirement_ids: string[];
   claim: string;
   opened_at: string;
   escalation_rung: number;
+  resolution?: string | null;
+  resolved_at?: string | null;
 };
 
 export type SellerProjection = {
@@ -167,6 +188,7 @@ export type SellerProjection = {
   payout?: PayoutProjection | null;
   dispute?: DisputeProjection | null;
   deadlines: Record<string, string | null>;
+  blockers?: Blocker[];
   allowed_actions: string[];
   updated_at: string;
 };

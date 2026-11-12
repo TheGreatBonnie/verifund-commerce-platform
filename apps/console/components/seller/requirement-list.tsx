@@ -24,6 +24,23 @@ function reasonLabel(reason: string): string {
   return reason.replaceAll("_", " ");
 }
 
+function actionOwnerLabel(owner?: string | null): string {
+  switch (owner) {
+    case "seller":
+      return "Seller action";
+    case "buyer":
+      return "Buyer action";
+    case "reviewer":
+      return "Reviewer";
+    case "system":
+      return "System";
+    case "none":
+      return "No action";
+    default:
+      return owner ? owner.replaceAll("_", " ") : "No action";
+  }
+}
+
 export function RequirementList({
   transactionId,
   agreementId,
@@ -77,6 +94,18 @@ export function RequirementList({
                   <span className="mm-seller-chip">
                     {requirementOwnerLabel(requirement)}
                   </span>
+                  {requirement.stage ? (
+                    <span className="mm-seller-chip">Stage: {requirement.stage}</span>
+                  ) : null}
+                  {typeof requirement.min_items === "number" && requirement.min_items > 1 ? (
+                    <span className="mm-seller-chip">Min {requirement.min_items}</span>
+                  ) : null}
+                  {requirement.required_views?.length ? (
+                    <span className="mm-seller-chip">Views: {requirement.required_views.length}</span>
+                  ) : null}
+                  {result?.action_owner ? (
+                    <span className="mm-seller-chip">{actionOwnerLabel(result.action_owner)}</span>
+                  ) : null}
                   {requirement.source === "reference" ? (
                     <>
                       <span className="mm-seller-chip">Reference</span>
@@ -157,6 +186,8 @@ export function RequirementList({
                           {item.captured_at
                             ? ` · captured ${formatDateTime(item.captured_at)}`
                             : ""}
+                          {item.view_label ? ` · view ${item.view_label}` : ""}
+                          {item.reason_code ? ` · ${item.reason_code}` : ""}
                           {isReference ? "" : ` · ${formatBytes(item.size_bytes)}`}
                         </span>
                       </div>
