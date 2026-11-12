@@ -23,6 +23,16 @@ _LEGACY_FILE_FORMATS = [
     "image/webp",
 ]
 
+_IMAGE_FORMATS = ["image/jpeg", "image/png", "image/webp"]
+_DIAGNOSTIC_FORMATS = list(_LEGACY_FILE_FORMATS)
+_LAPTOP_CATEGORY = "electronics.laptop.refurbished"
+
+
+def _category_of(terms: dict[str, Any]) -> str | None:
+    product = terms.get("product") or {}
+    category = product.get("category") or terms.get("category")
+    return str(category) if category else None
+
 
 def _legacy_requirement(requirement_id: str) -> Requirement:
     if requirement_id == "delivery_confirmation":
@@ -69,20 +79,314 @@ def _legacy_requirement(requirement_id: str) -> Requirement:
     )
 
 
+def _laptop_requirement_catalog() -> list[Requirement]:
+    return [
+        Requirement(
+            requirement_id="serial",
+            title="Serial number",
+            description="Device serial label and readable serial value.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_identity",
+            accepted_formats=list(_IMAGE_FORMATS),
+            checks=[
+                RequirementCheck(
+                    check_id="serial_readable",
+                    description="Serial number is readable.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="provenance",
+            title="Provenance challenge",
+            description="Transaction challenge code visible on the device.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_identity",
+            accepted_formats=list(_IMAGE_FORMATS),
+            checks=[
+                RequirementCheck(
+                    check_id="challenge_code",
+                    description="Challenge code matches the active transaction challenge.",
+                    operator="eq",
+                    expected_value=None,
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="product_photos",
+            title="Condition photos",
+            description="Multi-angle baseline photos of the laptop.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_condition",
+            accepted_formats=list(_IMAGE_FORMATS),
+            min_items=7,
+            required_views=["front", "back", "left", "right", "keyboard", "screen", "underside", "serial"],
+            checks=[
+                RequirementCheck(
+                    check_id="views_cover",
+                    description="Required condition views are covered.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="condition_declaration",
+            title="Condition declaration",
+            description="Structured condition, lock, and accessory declaration.",
+            owner="seller",
+            kind="other",
+            source="declaration",
+            stage="product_condition",
+            checks=[
+                RequirementCheck(
+                    check_id="locks_disabled",
+                    description="Device locks and management enrollment are cleared.",
+                    operator="eq",
+                    expected_value="true",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="battery_health_declared",
+                    description="Battery health is declared.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="hardware",
+            title="Hardware diagnostics",
+            description="Diagnostic report matching agreed specifications.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_compliance",
+            accepted_formats=list(_DIAGNOSTIC_FORMATS),
+            checks=[
+                RequirementCheck(
+                    check_id="ram_gte_32gb",
+                    description="RAM meets the agreed minimum.",
+                    operator="gte",
+                    expected_value=32,
+                    unit="GB",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="storage_gte_1tb",
+                    description="Storage meets the agreed minimum.",
+                    operator="gte",
+                    expected_value=1024,
+                    unit="GB",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="battery",
+            title="Battery report",
+            description="Battery health and cycle evidence.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_compliance",
+            accepted_formats=list(_DIAGNOSTIC_FORMATS),
+            checks=[
+                RequirementCheck(
+                    check_id="battery_health_pct",
+                    description="Battery health meets the agreed threshold.",
+                    operator="gte",
+                    expected_value=80,
+                    unit="%",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="warranty",
+            title="Warranty",
+            description="Warranty or coverage evidence.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="product_compliance",
+            accepted_formats=list(_DIAGNOSTIC_FORMATS),
+            checks=[
+                RequirementCheck(
+                    check_id="warranty_gte_90_days",
+                    description="Warranty meets the agreed minimum.",
+                    operator="gte",
+                    expected_value=90,
+                    unit="days",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="packaging",
+            title="Packaging photos",
+            description="Unit with serial, inside box, and sealed box with label.",
+            owner="seller",
+            kind="shipment_manifest",
+            source="file",
+            stage="packaging",
+            accepted_formats=list(_IMAGE_FORMATS),
+            min_items=3,
+            required_views=["unit_with_serial", "inside_box", "sealed_with_label"],
+            checks=[
+                RequirementCheck(
+                    check_id="views_cover",
+                    description="Required packaging views are covered.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="shipping",
+            title="Shipping details",
+            description="Carrier and tracking reference.",
+            owner="seller",
+            kind="shipment_manifest",
+            source="reference",
+            stage="packaging",
+            checks=[
+                RequirementCheck(
+                    check_id="carrier_present",
+                    description="Carrier is present.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+                RequirementCheck(
+                    check_id="tracking_present",
+                    description="Tracking number is present.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="insurance_confirmation",
+            title="Shipping insurance",
+            description="Coverage confirmation when required by policy or value.",
+            owner="seller",
+            kind="other",
+            source="file",
+            stage="packaging",
+            accepted_formats=list(_DIAGNOSTIC_FORMATS),
+            required=False,
+            checks=[
+                RequirementCheck(
+                    check_id="insured_value_sufficient",
+                    description="Insured value covers the declared value when required.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+        ),
+        Requirement(
+            requirement_id="carrier_acceptance",
+            title="Carrier acceptance",
+            description="Carrier accepted the package (system-sourced).",
+            owner="system",
+            kind="shipment_manifest",
+            source="reference",
+            stage="delivery",
+            checks=[
+                RequirementCheck(
+                    check_id="carrier_accepted",
+                    description="Carrier acceptance event exists.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="delivery_confirmation",
+            title="Delivery confirmation",
+            description="Carrier delivery confirmation and proof of delivery as required.",
+            owner="system",
+            kind="delivery_confirmation",
+            source="reference",
+            stage="delivery",
+            checks=[
+                RequirementCheck(
+                    check_id="delivered",
+                    description="Carrier delivery event exists.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+        Requirement(
+            requirement_id="invoice",
+            title="Invoice",
+            description="Seller invoice for the transaction.",
+            owner="seller",
+            kind="invoice",
+            source="file",
+            stage="packaging",
+            accepted_formats=list(_DIAGNOSTIC_FORMATS),
+            checks=[
+                RequirementCheck(
+                    check_id="invoice_present",
+                    description="Invoice is present.",
+                    operator="exists",
+                    verification_method="deterministic",
+                ),
+            ],
+            required=True,
+        ),
+    ]
+
+
 def project_requirements(terms: dict[str, Any]) -> list[Requirement]:
     """Project the requirement catalog from stored agreement terms.
 
     Agreements authored with the catalog carry ``requirements[]`` (copied from
     ``AwardRequest.requirements`` by the generator). Grandfathered
     (``policy_version`` 1) agreements are projected at read time from their
-    legacy ``evidence_required`` list, so an agreement that included
-    ``invoice`` keeps that entry. Never raises for a well-formed terms dict;
-    malformed catalog entries surface as ``ValidationError`` for the caller to
-    treat as an invalid agreement.
+    legacy ``evidence_required`` list. Laptop agreements without an explicit
+    catalog project the laptop template while preserving any additional legacy
+    evidence ids named by the agreement.
     """
     raw = terms.get("requirements") or []
     if raw:
-        return [Requirement.model_validate(item) for item in raw]
+        reqs = [Requirement.model_validate(item) for item in raw]
+        return [
+            r.model_copy(
+                update={
+                    "min_items": getattr(r, "min_items", 1) or 1,
+                    "required_views": list(getattr(r, "required_views", None) or []),
+                }
+            )
+            for r in reqs
+        ]
+    if _category_of(terms) == _LAPTOP_CATEGORY:
+        base = {r.requirement_id: r for r in _laptop_requirement_catalog()}
+        for kind in terms.get("evidence_required") or []:
+            kind_id = str(kind)
+            base.setdefault(kind_id, _legacy_requirement(kind_id))
+        return list(base.values())
     return [_legacy_requirement(str(kind)) for kind in terms.get("evidence_required") or []]
 
 

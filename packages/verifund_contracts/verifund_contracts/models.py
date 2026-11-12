@@ -111,6 +111,36 @@ class RequirementStatus(StrEnum):
     REVIEW = "review"
 
 
+class ActionOwner(StrEnum):
+    SELLER = "seller"
+    REVIEWER = "reviewer"
+    NONE = "none"
+
+
+class CarrierEventStatus(StrEnum):
+    LABEL_CREATED = "LABEL_CREATED"
+    CARRIER_ACCEPTED = "CARRIER_ACCEPTED"
+    PICKED_UP = "PICKED_UP"
+    IN_TRANSIT = "IN_TRANSIT"
+    OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY"
+    DELIVERED = "DELIVERED"
+    DELIVERED_SIGNED = "DELIVERED_SIGNED"
+    DELIVERY_EXCEPTION = "DELIVERY_EXCEPTION"
+    DELIVERY_FAILED = "DELIVERY_FAILED"
+    RETURN_TO_SENDER = "RETURN_TO_SENDER"
+    LOST = "LOST"
+    UNKNOWN = "UNKNOWN"
+
+
+class DisputeClaimType(StrEnum):
+    EMPTY_BOX = "EMPTY_BOX"
+    WRONG_DEVICE = "WRONG_DEVICE"
+    UNDISCLOSED_DAMAGE = "UNDISCLOSED_DAMAGE"
+    NOT_POWERING_ON = "NOT_POWERING_ON"
+    MISSING_ACCESSORY = "MISSING_ACCESSORY"
+    OTHER = "OTHER"
+
+
 class ReviewReason(StrEnum):
     MISSING_EVIDENCE = "missing_evidence"
     INVALID_EVIDENCE_HASH = "invalid_evidence_hash"
@@ -161,10 +191,13 @@ class Requirement(VerifundModel):
     description: str
     owner: str  # seller | system | buyer
     kind: str
-    source: str  # file | reference
+    source: str  # file | reference | declaration
     accepted_formats: list[str] = Field(default_factory=list)
     checks: list[RequirementCheck] = Field(default_factory=list)
     required: bool = True
+    stage: str | None = None
+    min_items: int = 1
+    required_views: list[str] = Field(default_factory=list)
 
 
 class RequirementCheckResult(VerifundModel):
@@ -810,6 +843,11 @@ class EvidenceItem(VerifundModel):
     artifact_type: str | None = None  # file | reference
     reference: str | None = None  # reference payload, e.g. a tracking number
     submission_attempt: int | None = None  # the open attempt the upload belongs to
+    view_label: str | None = None
+    reason_code: str | None = None
+    verification_method: str | None = None
+    rule_version: int | None = None
+    confidence: float | None = None
     created_at: datetime
     storage_key: str | None = None
     organization_id: str | None = None
@@ -829,6 +867,11 @@ class EvidenceSubmission(VerifundModel):
     receipt_id: str
     artifact_type: str  # file | reference
     scan_status: str  # pending | clean
+    view_label: str | None = None
+    reason_code: str | None = None
+    verification_method: str | None = None
+    rule_version: int | None = None
+    confidence: float | None = None
 
 
 class RequirementResult(VerifundModel):
