@@ -2918,16 +2918,16 @@ paypal-button {
 .mm-approval-prompt {
   margin: 7px 0 0;
   color: var(--ink-soft);
-  font-size: 10.5px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .mm-approval-flag {
-  padding: 3px 6px;
+  padding: 4px 8px;
   border: 1px solid var(--signal);
   color: var(--signal);
   font-family: var(--font-spline-sans-mono), monospace;
-  font-size: 7.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2941,6 +2941,7 @@ paypal-button {
   padding: 10px 0;
   border-top: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule);
+  font-size: 13px;
 }
 
 .mm-approval-award > div {
@@ -2952,7 +2953,7 @@ paypal-button {
 
 .mm-approval-award strong {
   font-family: var(--font-spline-sans-mono), monospace;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -3057,8 +3058,8 @@ paypal-button {
 .mm-note-field > span {
   color: var(--ink-soft);
   font-family: var(--font-spline-sans-mono), monospace;
-  font-size: 7.5px;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -3066,12 +3067,12 @@ paypal-button {
 .mm-note-field input,
 .mm-note-field select {
   width: 100%;
-  padding: 7px 8px;
+  padding: 9px 10px;
   border: 1px solid var(--rule-strong);
   border-radius: 2px;
   background: var(--panel);
   color: var(--ink);
-  font-size: 10px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -3108,6 +3109,7 @@ paypal-button {
 .mm-approval .mm-kicker,
 .mm-approval .mm-mono-note {
   color: var(--signal);
+  font-size: 11px;
 }
 
 /* ---------- Verifund HITL cards (mirror mm-approval dossier) ---------- */
@@ -6738,20 +6740,20 @@ paypal-button {
   margin-top: 8px;
   border: 1px solid var(--rule-strong);
   background: var(--panel);
-  padding: 10px;
+  padding: 12px;
 }
 
 .mm-recommendations-title {
-  margin: 0 0 4px;
-  font-size: 13px;
+  margin: 0 0 6px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .mm-recommendations-context {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   color: var(--ink-soft);
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .mm-recommendations-table-wrap {
@@ -6761,12 +6763,12 @@ paypal-button {
 .mm-recommendations-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .mm-recommendations-table th,
 .mm-recommendations-table td {
-  padding: 7px 6px;
+  padding: 10px 8px;
   border-top: 1px solid var(--rule);
   text-align: left;
   vertical-align: top;
@@ -6776,9 +6778,9 @@ paypal-button {
   border-top: 0;
   color: var(--ink-soft);
   font-family: var(--font-spline-sans-mono), monospace;
-  font-size: 7.5px;
+  font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -6793,10 +6795,10 @@ paypal-button {
 .mm-recommendation-badge {
   display: inline-block;
   margin-left: 6px;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border: 1px solid var(--signal);
   color: var(--signal);
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -6810,20 +6812,20 @@ paypal-button {
 
 .mm-recommendations-notes {
   color: var(--ink-soft);
-  max-width: 240px;
+  max-width: 320px;
 }
 
 .mm-recommendations-action {
   white-space: nowrap;
   min-height: 30px;
   padding: 4px 8px;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .mm-recommendation-callout {
-  margin: 8px 0 0;
-  font-size: 10px;
-  line-height: 1.45;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--ink-soft);
 }
 
