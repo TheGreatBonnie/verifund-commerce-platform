@@ -723,9 +723,10 @@ paypal-button {
   display: flex;
   flex: 1;
   min-height: 0;
-  /* When the agent response grows, the message area scrolls here instead of
-     pushing the input out — same role as .mm-chat-rail's own scroller. */
-  overflow-y: auto;
+  /* Constrain the chat so CopilotKit's internal message list can scroll
+     while keeping the input pinned; scrolling the whole surface would move
+     the input with the messages. */
+  overflow: hidden;
   padding-top: 8px;
 }
 
