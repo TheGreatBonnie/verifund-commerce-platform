@@ -251,6 +251,7 @@ describe("chat sourcing mandate", () => {
     product: {
       sku: "EX-MACBOOK-AIR",
       name: "MacBook Air (M1)",
+      image_url: "https://example.com/macbook-air-m1.jpg",
       offers: [{ seller_name: "CircuitForge", unit_price_cents: 107999, currency: "USD", in_stock: true }],
     },
     defaults: { quantity: 1, budget_ceiling_cents: 150000, currency: "USD" },

@@ -6,6 +6,7 @@ export const sourcingMandateArgsSchema = z.object({
   product: z.object({
     sku: z.string(),
     name: z.string(),
+    image_url: z.string().optional(),
     offers: z
       .array(
         z.object({

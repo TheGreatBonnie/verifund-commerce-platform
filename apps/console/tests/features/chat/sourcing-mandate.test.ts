@@ -11,6 +11,7 @@ const baseArgs = {
   product: {
     sku: "EX-MACBOOK-AIR",
     name: "MacBook Air (M1)",
+    image_url: "https://example.com/macbook-air-m1.jpg",
     offers: [
       { seller_name: "CircuitForge", unit_price_cents: 107999, currency: "USD", in_stock: true },
     ],
@@ -22,6 +23,7 @@ describe("sourcing mandate contract", () => {
   it("parses HITL args with locked product context and defaults", () => {
     const parsed = sourcingMandateArgsSchema.parse(baseArgs);
     expect(parsed.product.sku).toBe("EX-MACBOOK-AIR");
+    expect(parsed.product.image_url).toBe("https://example.com/macbook-air-m1.jpg");
     expect(parsed.defaults?.budget_ceiling_cents).toBe(150000);
   });
 

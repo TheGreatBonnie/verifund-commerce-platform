@@ -355,20 +355,22 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
 
   At the sourcing pause (product context grounded, before any
   Buyer handoff), call the frontend request_sourcing_mandate
-  HITL tool with the locked product and known offers as
-  read-only context plus any known defaults/hints and task_id.
-  Do not edit the product/offer selection in this step and do
-  not collect these fields via plain chat when the tool is
-  required. Wait for the tool result.
+  HITL tool with the locked product (including sku, name, and
+  image_url when known) and known offers as read-only context
+  plus any known defaults/hints and task_id. Do not edit the
+  product/offer selection in this step and do not collect
+  these fields via plain chat when the tool is required. Wait
+  for the tool result.
 
   - If the result is confirmed === true with a complete
     mandate: call send_message_to_a2a_agent with
     agentName="MarketMesh Buyer" and a task containing the
     confirmed mandate plus the grounded product context (SKU,
-    name, unit price, offers). Stay in the current thread; do
-    not navigate, do not place an order, and do not create an
-    award outcome. request_award_approval and Verifund HITL
-    approvals remain mandatory. Do not place an order.
+    name, image_url when known, unit price, offers). Stay in
+    the current thread; do not navigate, do not place an order,
+    and do not create an award outcome. request_award_approval
+    and Verifund HITL approvals remain mandatory. Do not place
+    an order.
   - If the result is confirmed === false or reason is
     "user_cancelled": stop the handoff and report that the
     mandate was not confirmed, no sourcing/negotiation started,

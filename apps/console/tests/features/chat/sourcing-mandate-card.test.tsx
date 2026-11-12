@@ -9,6 +9,7 @@ const args = sourcingMandateArgsSchema.parse({
   product: {
     sku: "EX-MACBOOK-AIR",
     name: "MacBook Air (M1)",
+    image_url: "https://example.com/macbook-air-m1.jpg",
     offers: [
       { seller_name: "CircuitForge", unit_price_cents: 107999, currency: "USD", in_stock: true },
       { seller_name: "Aurora Supply", unit_price_cents: 113999, currency: "USD", in_stock: true },
@@ -22,6 +23,10 @@ describe("SourcingMandateCard", () => {
     render(<SourcingMandateCard args={args} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getByText(/EX-MACBOOK-AIR/)).toBeInTheDocument();
     expect(screen.getByText(/MacBook Air \(M1\)/)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "MacBook Air (M1)" })).toHaveAttribute(
+      "src",
+      "https://example.com/macbook-air-m1.jpg",
+    );
     expect(screen.getByText(/CircuitForge/)).toBeInTheDocument();
     expect(screen.getByText(/Aurora Supply/)).toBeInTheDocument();
     expect(screen.getByDisplayValue("1")).toBeInTheDocument(); // quantity

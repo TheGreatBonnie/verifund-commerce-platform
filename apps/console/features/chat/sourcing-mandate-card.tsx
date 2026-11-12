@@ -70,6 +70,15 @@ export function SourcingMandateCard({ args, onSubmit, onCancel }: Props) {
       <div className="mm-approval-award" aria-label="Locked product context">
         <div>
           <span className="mm-kicker">Product (locked)</span>
+          {args.product.image_url ? (
+            <div className="mm-sourcing-mandate-product-image">
+              <img
+                src={args.product.image_url}
+                alt={args.product.name}
+                loading="lazy"
+              />
+            </div>
+          ) : null}
           <strong>{args.product.name}</strong>
           <div className="mm-mono-note">{args.product.sku}</div>
         </div>
