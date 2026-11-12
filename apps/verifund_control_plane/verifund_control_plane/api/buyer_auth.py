@@ -203,3 +203,14 @@ async def authorize_buyer_agreement(
     if claimed is None or not buyer_owns_agreement(claimed, agreement):
         raise VerifundError("not_found", "agreement not found", status_code=404)
     return claimed
+
+
+async def authorize_buyer_principal(
+    request: Request, *, required_scope: str
+) -> BuyerPrincipal:
+    """Resolve a buyer principal for list/read operations without a transaction id.
+
+    Returns the resolved principal. If the principal has no linked/adopted
+    buyer_id, callers must scope results to an empty set (fail closed, no leak).
+    """
+    return await resolve_buyer_principal(request, required_scope=required_scope)

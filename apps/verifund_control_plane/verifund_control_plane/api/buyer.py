@@ -5,9 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 
-from verifund_control_plane.api.buyer_auth import authorize_buyer_transaction
+from verifund_control_plane.api.buyer_auth import (
+    authorize_buyer_principal,
+    authorize_buyer_transaction,
+)
 
 router = APIRouter(prefix="/buyer")
 
@@ -114,3 +117,41 @@ async def add_buyer_evidence(
         actor=principal.actor,
     )
     return submission.model_dump(mode="json") if hasattr(submission, "model_dump") else submission
+
+
+@router.get("/transactions")
+async def list_buyer_transactions(
+    request: Request,
+    status: str | None = Query(default=None),
+    payment_status: str | None = Query(default=None),
+    fulfillment_status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    principal = await authorize_buyer_principal(request, required_scope="txn:read")
+    return await _service(request).list_buyer_transactions(
+        buyer_id=principal.buyer_id,
+        status=status,
+        payment_status=payment_status,
+        fulfillment_status=fulfillment_status,
+        limit=limit,
+    )
+
+
+@router.get("/transactions/{transaction_id}")
+async def get_buyer_transaction(transaction_id: str, request: Request) -> dict[str, Any]:
+    principal, _record = await authorize_buyer_transaction(
+        request, transaction_id, required_scope="txn:read"
+    )
+    return await _service(request).get_buyer_transaction_detail(
+        transaction_id=transaction_id, buyer_id=principal.buyer_id
+    )
+
+
+@router.get("/transactions/{transaction_id}/fulfillment")
+async def get_buyer_fulfillment(transaction_id: str, request: Request) -> dict[str, Any]:
+    principal, _record = await authorize_buyer_transaction(
+        request, transaction_id, required_scope="txn:read"
+    )
+    return await _service(request).get_buyer_fulfillment_projection(
+        transaction_id=transaction_id, buyer_id=principal.buyer_id
+    )

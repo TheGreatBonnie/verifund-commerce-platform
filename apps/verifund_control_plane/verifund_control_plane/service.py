@@ -5447,3 +5447,188 @@ class VerifundService:
             pass
         return await self.repo.get_inspection_record_by_id(inspection_id) or {"id": inspection_id, "status": status, "resolution": resolution}
 
+
+    # ------------------------------------------------------------------
+    # Buyer read projections (chat-first console)
+    # ------------------------------------------------------------------
+
+    async def list_buyer_transactions(
+        self,
+        *,
+        buyer_id: str,
+        status: str | None = None,
+        payment_status: str | None = None,
+        fulfillment_status: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        if not buyer_id:
+            return {"items": [], "aggregates": {}, "next_cursor": None}
+        records = await self.repo.list_transactions(buyer_id=buyer_id, limit=limit)
+        items: list[dict[str, Any]] = []
+        aggregates: dict[str, int] = {
+            "total": 0,
+            "awaiting_payment": 0,
+            "funded": 0,
+            "active": 0,
+            "completed": 0,
+            "disputed": 0,
+            "cancelled": 0,
+        }
+        for record in records:
+            if status and record.state.value != status:
+                continue
+            proj = await self._safe_buyer_txn_summary(record)
+            pay_status = proj.get("payment_status")
+            if payment_status and pay_status != payment_status:
+                continue
+            f_status = (proj.get("fulfillment") or {}).get("status") or proj.get("fulfillment_status")
+            if fulfillment_status and f_status != fulfillment_status:
+                continue
+            items.append(proj)
+            aggregates["total"] += 1
+            if pay_status in {"awaiting_payment", "pending"}:
+                aggregates["awaiting_payment"] += 1
+            if pay_status in {"funded", "captured", "FUNDED"}:
+                aggregates["funded"] += 1
+            if record.state.value in {"RELEASED", "COMPLETED"}:
+                aggregates["completed"] += 1
+            if record.state.value in {"DISPUTE_OPEN", "DISPUTED"}:
+                aggregates["disputed"] += 1
+            if record.state.value in {"CANCELED", "CANCELLED"}:
+                aggregates["cancelled"] += 1
+            if record.state.value not in {"RELEASED", "COMPLETED", "CANCELED", "CANCELLED"}:
+                aggregates["active"] += 1
+        return {"items": items, "aggregates": aggregates, "next_cursor": None}
+
+    async def _safe_buyer_txn_summary(self, record: TransactionRecord) -> dict[str, Any]:
+        funding = record.funding or {}
+        pay_status = None
+        if isinstance(funding, dict):
+            pay_status = funding.get("status") or funding.get("capture_status")
+        if not pay_status:
+            if record.state.value in {"AWARDED", "AGREED"}:
+                pay_status = "awaiting_payment"
+            elif record.state.value in {"FUNDED", "RELEASE_PENDING"}:
+                pay_status = "funded"
+        fulfillment_status = None
+        if record.state.value == "DISPUTE_OPEN":
+            fulfillment_status = "issue"
+        elif record.state.value in {"FULFILLMENT_PENDING", "VERIFICATION_PENDING"}:
+            fulfillment_status = "in_progress"
+        elif record.state.value in {"RELEASE_PENDING", "RELEASED"}:
+            fulfillment_status = "completed"
+        elif record.state.value == "REVIEW_REQUIRED":
+            fulfillment_status = "awaiting_inspection"
+        elif record.state.value == "REMEDIATION_REQUIRED":
+            fulfillment_status = "awaiting_fulfillment"
+        next_action = None
+        if record.state.value == "REVIEW_REQUIRED":
+            next_action = "Review inspection / resolve issue"
+        elif record.state.value == "REMEDIATION_REQUIRED":
+            next_action = "Await seller remediation"
+        elif record.state.value == "RELEASE_PENDING":
+            next_action = "Await release/payout"
+        product_name = None
+        seller_name = None
+        with suppress(Exception):
+            agreement = await self.agreement_service.get_by_transaction(record.transaction_id)
+            if agreement is not None:
+                proj = await self.agreement_service.build_projection(agreement)
+                if getattr(proj, "line_items", None):
+                    product_name = proj.line_items[0].name
+                terms = getattr(proj, "terms", None) or {}
+                parties = terms.get("parties") if isinstance(terms, dict) else {}
+                seller = parties.get("seller") if isinstance(parties, dict) else {}
+                if isinstance(seller, dict):
+                    seller_name = seller.get("display_name") or seller.get("name")
+        return {
+            "transaction_id": record.transaction_id,
+            "run_id": record.run_id,
+            "seller_id": record.seller_id,
+            "product_name": product_name,
+            "seller_name": seller_name,
+            "agreed_amount_cents": record.amount_cents,
+            "currency": record.currency,
+            "payment_status": pay_status,
+            "transaction_status": record.state.value,
+            "fulfillment_status": fulfillment_status,
+            "next_action": next_action,
+            "created_at": self._iso(record.created_at),
+            "updated_at": self._iso(record.updated_at),
+            "fulfillment": {
+                "status": fulfillment_status,
+                "next_action": next_action,
+            },
+        }
+
+    async def get_buyer_transaction_detail(self, *, transaction_id: str, buyer_id: str) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.buyer_id != buyer_id:
+            raise VerifundError("not_found", "transaction not found", status_code=404)
+        summary = await self._safe_buyer_txn_summary(record)
+        agreement = None
+        timeline = []
+        with suppress(Exception):
+            ag = await self.agreement_service.get_by_transaction(record.transaction_id)
+            if ag is not None:
+                projection = await self.agreement_service.build_projection(ag)
+                agreement = projection.model_dump(mode="json")
+        with suppress(Exception):
+            events = await self.repo.events(transaction_id)
+            timeline = [{"type": e.get("type"), "at": e.get("created_at"), "seq": e.get("seq")} for e in events][-50:]
+        detail = {
+            **summary,
+            "status": record.state.value,
+            "payment": record.funding or {},
+            "agreement": agreement,
+            "timeline": timeline,
+        }
+        return detail
+
+    async def get_buyer_fulfillment_projection(self, *, transaction_id: str, buyer_id: str) -> dict[str, Any]:
+        record = await self.repo.get_transaction(transaction_id)
+        if record.buyer_id != buyer_id:
+            raise VerifundError("not_found", "transaction not found", status_code=404)
+        projection: dict[str, Any] = {}
+        with suppress(Exception):
+            tx = await self._projection_for(transaction_id, actor=f"buyer:{buyer_id}")
+            projection = tx.model_dump(mode="json") if hasattr(tx, "model_dump") else dict(tx)
+        inspection = None
+        with suppress(Exception):
+            inspection = await self.repo.get_inspection_record(transaction_id)
+        shipment = None
+        with suppress(Exception):
+            if hasattr(self.repo, "get_shipment_by_transaction"):
+                shipment = await self.repo.get_shipment_by_transaction(transaction_id)
+        disputes = []
+        with suppress(Exception):
+            if hasattr(self.repo, "list_disputes"):
+                disputes = await self.repo.list_disputes(transaction_id)
+            elif hasattr(self.repo, "get_open_dispute"):
+                d = await self.repo.get_open_dispute(transaction_id)
+                disputes = [d] if d else []
+        blockers = []
+        with suppress(Exception):
+            b = await self._compute_blockers(record, getattr(projection.get("verification"), "requirements", None) if isinstance(projection.get("verification"), dict) else None)
+            blockers = [x.model_dump(mode="json") if hasattr(x, "model_dump") else x for x in (b or [])]
+        allowed_actions: list[str] = []
+        with suppress(Exception):
+            aa = getattr(projection, "allowed_actions", None) if not isinstance(projection, dict) else projection.get("allowed_actions")
+            if aa:
+                allowed_actions = list(aa)
+        verification = projection.get("verification") if isinstance(projection, dict) else None
+        requirements = verification.get("requirements") if isinstance(verification, dict) else []
+        return {
+            "transaction_id": transaction_id,
+            "status": record.state.value,
+            "requirements": requirements or [],
+            "evidence": projection.get("evidence", {}).get("items", []) if isinstance(projection.get("evidence"), dict) else (projection.get("evidence") or []),
+            "verification": verification or {},
+            "shipment": shipment,
+            "carrier_events": (shipment or {}).get("events", []) if isinstance(shipment, dict) else [],
+            "inspection": inspection,
+            "disputes": disputes,
+            "blockers": blockers,
+            "allowed_actions": allowed_actions,
+            "next_action": (await self._safe_buyer_txn_summary(record)).get("next_action"),
+        }

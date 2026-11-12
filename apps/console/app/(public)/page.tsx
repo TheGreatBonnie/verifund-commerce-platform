@@ -18,8 +18,6 @@ import { Panel } from "@/components/ui/panel";
 import { orders } from "@/lib/data";
 import { fetchMarketplaceProducts } from "@/lib/api";
 import type { MarketplaceProduct } from "@/lib/types";
-import { useRuns } from "@/features/runs/use-runs";
-import { RunSummaryCard } from "@/features/runs/run-summary-card";
 
 const SAMPLE_BRIEF =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
@@ -85,8 +83,6 @@ const capabilities = [
 export default function Home() {
   const router = useRouter();
   const { isSignedIn } = useAuth();
-  const { runs } = useRuns({ enabled: isSignedIn === true });
-  const recent = runs.slice(0, 3);
 
   const catalogQuery = useQuery({
     queryKey: ["marketplace-products"],
@@ -97,13 +93,12 @@ export default function Home() {
   const categories = Array.from(new Set(products.map((product) => product.category)));
 
   const runSample = () => {
-    const threadId = crypto.randomUUID();
     try {
       window.sessionStorage.setItem("marketmesh:pendingBrief", SAMPLE_BRIEF);
     } catch {
       // ignore
     }
-    router.push(`/runs/${threadId}`);
+    router.push("/chat");
   };
 
   const runProductBrief = (product: (typeof products)[number]) => {
@@ -117,9 +112,9 @@ export default function Home() {
     try {
       window.sessionStorage.setItem("marketmesh:pendingBrief", brief);
     } catch {
-      // Open the fresh agent run even if session storage is unavailable.
+      // Open chat even if session storage is unavailable.
     }
-    router.push(`/agents/${crypto.randomUUID()}`);
+    router.push("/chat");
   };
 
   return (
@@ -317,20 +312,15 @@ export default function Home() {
 
       {isSignedIn === true ? (
         <section className="mm-dashboard-section" aria-labelledby="activity-title">
-        <header className="mm-section-head mm-dashboard-section-head">
-          <div>
-            <p className="mm-kicker">Your marketplace</p>
-            <h2 id="activity-title">Recent activity</h2>
-          </div>
-          <button className="mm-text-action" type="button" onClick={() => router.push("/runs")}>
-            All runs <ArrowRight size={13} aria-hidden="true" />
-          </button>
-        </header>
-        {recent.length > 0 ? (
-          <div className="mm-runs-grid">
-            {recent.map((run) => <RunSummaryCard key={run.run_id} run={run} />)}
-          </div>
-        ) : (
+          <header className="mm-section-head mm-dashboard-section-head">
+            <div>
+              <p className="mm-kicker">Your marketplace</p>
+              <h2 id="activity-title">Recent activity</h2>
+            </div>
+            <button className="mm-text-action" type="button" onClick={() => router.push("/transactions")}>
+              View transactions <ArrowRight size={13} aria-hidden="true" />
+            </button>
+          </header>
           <div className="mm-activity-list">
             {orders.map((order) => (
               <article className="mm-activity-row" key={order.id}>
@@ -347,7 +337,6 @@ export default function Home() {
               </article>
             ))}
           </div>
-        )}
         </section>
       ) : null}
     </div>

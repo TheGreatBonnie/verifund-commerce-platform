@@ -66,9 +66,9 @@ export default function MarketplacePage() {
     try {
       window.sessionStorage.setItem("marketmesh:pendingBrief", brief);
     } catch {
-      // The fresh agent page still opens if session storage is unavailable.
+      // Chat still opens if session storage is unavailable.
     }
-    router.push(`/agents/${crypto.randomUUID()}`);
+    router.push("/chat");
   };
 
   return (

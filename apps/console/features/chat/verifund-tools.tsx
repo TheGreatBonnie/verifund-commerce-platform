@@ -560,7 +560,12 @@ export function AgreementReviewCard({
       <div className="mm-verifund-detail">
         <div>
           <span className="mm-kicker">Transaction</span>
-          <strong>{agreement.transaction_id}</strong>
+          <strong>
+            <a href={`/transactions/${encodeURIComponent(agreement.transaction_id)}`}>{agreement.transaction_id}</a>
+          </strong>
+          <div className="mm-mono-note">
+            <a href={`/fulfillment/${encodeURIComponent(agreement.transaction_id)}`}>View fulfillment</a>
+          </div>
         </div>
         <div>
           <span className="mm-kicker">Version</span>
@@ -780,7 +785,8 @@ export function ReceiptCard({ receipt }: { receipt: SettlementReceipt }) {
       <p className="mm-kicker">Verifund · signed receipt</p>
       <h3>{receipt.verified ? "Verified receipt" : "Receipt not verified"}</h3>
       <p>
-        {receipt.payload.transaction_id} ·{" "}
+        <a href={`/transactions/${encodeURIComponent(receipt.payload.transaction_id)}`}>{receipt.payload.transaction_id}</a>{" "}
+        · <a href={`/fulfillment/${encodeURIComponent(receipt.payload.transaction_id)}`}>Fulfillment</a> ·{" "}
         {money(receipt.payload.amount_cents, receipt.payload.currency)}
       </p>
       <p className="mm-mono-note">

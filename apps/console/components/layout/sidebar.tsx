@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowRight, Bot, LayoutDashboard, History, MessageCircle, ShoppingBag, Store, Settings, HelpCircle } from "lucide-react";
+import { ArrowRight, Bot, LayoutDashboard, ClipboardCheck, MessageCircle, ShoppingBag, Store, Settings, HelpCircle, ReceiptText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchRegistry } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 const NAV = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/marketplace", label: "Marketplace", icon: ShoppingBag },
-  { href: "/runs", label: "Runs", icon: History },
+  { href: "/transactions", label: "Transactions", icon: ReceiptText },
+  { href: "/fulfillment", label: "Fulfillment", icon: ClipboardCheck },
   { href: "/sellers", label: "Sellers", icon: Store },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/help", label: "Help", icon: HelpCircle },
@@ -29,13 +30,12 @@ export function Sidebar() {
   const [total, setTotal] = useState<number>(0);
 
   const openAgent = () => {
-    const threadId = crypto.randomUUID();
     try {
       window.sessionStorage.removeItem("marketmesh:pendingBrief");
     } catch {
       // A fresh agent workspace can still open when session storage is unavailable.
     }
-    router.push(`/agents/${threadId}`);
+    router.push("/chat");
   };
 
   useEffect(() => {

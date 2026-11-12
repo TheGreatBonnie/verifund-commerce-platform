@@ -611,6 +611,7 @@ class Repository:
         run_id: str | None = None,
         state: str | None = None,
         seller_id: str | None = None,
+        buyer_id: str | None = None,
         limit: int = 100,
     ) -> list[TransactionRecord]:
         statement = (
@@ -624,6 +625,8 @@ class Repository:
             statement = statement.where(self.transactions.c.state == state)
         if seller_id:
             statement = statement.where(self.transactions.c.seller_id == seller_id)
+        if buyer_id:
+            statement = statement.where(self.transactions.c.buyer_id == buyer_id)
         async with self.engine.connect() as conn:
             rows = (await conn.execute(statement)).all()
         return [self._record(row) for row in rows]

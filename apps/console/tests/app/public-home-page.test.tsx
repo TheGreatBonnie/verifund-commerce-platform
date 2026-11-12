@@ -31,15 +31,6 @@ vi.mock("@/lib/api", () => ({
   ]),
 }));
 
-const useRuns = vi.hoisted(() =>
-  vi.fn(() => ({ runs: [], isLoading: false, error: null, refresh: vi.fn() })),
-);
-vi.mock("@/features/runs/use-runs", () => ({ useRuns }));
-
-vi.mock("@/features/runs/run-summary-card", () => ({
-  RunSummaryCard: () => <div data-testid="run-summary" />,
-}));
-
 import Home from "@/app/(public)/page";
 
 function renderHome() {
@@ -54,20 +45,18 @@ function renderHome() {
 describe("Home page (public)", () => {
   beforeEach(() => {
     clerk.isSignedIn = false;
-    useRuns.mockClear();
   });
 
-  it("hides recent activity and disables the runs query for signed-out visitors", async () => {
+  it("hides recent activity for signed-out visitors", async () => {
     renderHome();
     expect(await screen.findByText("Nimbus NC-700")).toBeInTheDocument();
     expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
-    expect(useRuns).toHaveBeenCalledWith({ enabled: false });
   });
 
-  it("shows recent activity and enables the runs query for signed-in visitors", async () => {
+  it("shows recent activity and transactions link for signed-in visitors", async () => {
     clerk.isSignedIn = true;
     renderHome();
     expect(await screen.findByText("Recent activity")).toBeInTheDocument();
-    expect(useRuns).toHaveBeenCalledWith({ enabled: true });
+    expect(screen.getByRole("button", { name: /View transactions/i })).toBeInTheDocument();
   });
 });

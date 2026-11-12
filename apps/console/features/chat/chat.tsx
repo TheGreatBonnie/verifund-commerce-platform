@@ -12,7 +12,7 @@ import {
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { ApprovalCard } from "@/features/deal-room/components/approval-card";
+import { ApprovalCard } from "@/features/chat/components/approval-card";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import {
   AgreementReviewCard,
@@ -44,8 +44,8 @@ import {
   formatMandateReceipt,
   sourcingMandateArgsSchema,
 } from "./sourcing-mandate";
-import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
-import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
+import { MessageToA2A } from "@/features/chat/components/a2a/MessageToA2A";
+import { MessageFromA2A } from "@/features/chat/components/a2a/MessageFromA2A";
 
 type BuyerState = {
   status?: string;
