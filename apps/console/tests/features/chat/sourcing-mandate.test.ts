@@ -57,7 +57,7 @@ describe("sourcing mandate contract", () => {
     });
   });
 
-  it("rejects incomplete drafts with explicit errors", () => {
+  it("rejects drafts missing required budget", () => {
     const result = normalizeMandateDraft({
       quantity: 1,
       budgetAmount: "",
@@ -70,8 +70,32 @@ describe("sourcing mandate contract", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.join(" ")).toMatch(/budget/i);
-      expect(result.errors.join(" ")).toMatch(/delivery/i);
+      expect(result.errors.join(" ")).not.toMatch(/delivery/i);
+      expect(result.errors.join(" ")).not.toMatch(/warranty/i);
+      expect(result.errors.join(" ")).not.toMatch(/must-have/i);
     }
+  });
+
+  it("allows optional delivery, warranty/returns, and must-have attributes", () => {
+    const result = normalizeMandateDraft({
+      quantity: 1,
+      budgetAmount: "1500",
+      budgetCurrency: "USD",
+      budgetBasis: "per_unit",
+      deliveryDeadline: "",
+      warrantyReturns: "",
+      mustHaveAttributes: "",
+    });
+    expect(result).toEqual({
+      ok: true,
+      mandate: {
+        quantity: 1,
+        budget: { ceiling_cents: 150000, currency: "USD", basis: "per_unit" },
+        delivery_deadline: null,
+        warranty_returns: null,
+        must_have_attributes: [],
+      },
+    });
   });
 
   it("formats confirmed and cancelled receipts", () => {

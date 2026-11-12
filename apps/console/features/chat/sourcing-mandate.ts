@@ -43,8 +43,8 @@ export type MandateDraft = {
 export type SourcingMandate = {
   quantity: number;
   budget: { ceiling_cents: number; currency: string; basis: "per_unit" | "total" };
-  delivery_deadline: string;
-  warranty_returns: string;
+  delivery_deadline: string | null;
+  warranty_returns: string | null;
   must_have_attributes: string[];
 };
 
@@ -83,10 +83,9 @@ export function normalizeMandateDraft(
   if (!Number.isFinite(amount) || amount <= 0) errors.push("A firm budget ceiling/target is required.");
   const ceiling_cents = Math.round(amount * 100);
 
-  if (!draft.deliveryDeadline) errors.push("A delivery deadline is required.");
-  if (!draft.warrantyReturns.trim()) errors.push("Warranty and returns requirements are required.");
+  const delivery_deadline = draft.deliveryDeadline || null;
+  const warranty_returns = draft.warrantyReturns.trim() || null;
   const must_have_attributes = splitAttributes(draft.mustHaveAttributes);
-  if (must_have_attributes.length === 0) errors.push("At least one must-have attribute is required.");
 
   if (errors.length) return { ok: false, errors };
   return {
@@ -94,8 +93,8 @@ export function normalizeMandateDraft(
     mandate: {
       quantity,
       budget: { ceiling_cents, currency: draft.budgetCurrency || "USD", basis: draft.budgetBasis },
-      delivery_deadline: draft.deliveryDeadline,
-      warranty_returns: draft.warrantyReturns.trim(),
+      delivery_deadline,
+      warranty_returns,
       must_have_attributes,
     },
   };

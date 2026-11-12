@@ -49,7 +49,26 @@ describe("SourcingMandateCard", () => {
         quantity: 1,
         budget: { ceiling_cents: 150000, currency: "USD", basis: "per_unit" },
         delivery_deadline: "2026-12-01",
+        warranty_returns: "1 year warranty, 30-day returns",
         must_have_attributes: ["8GB RAM", "256GB SSD"],
+      }),
+    );
+  });
+
+  it("submits when optional fields are left blank", async () => {
+    const onSubmit = vi.fn();
+    render(<SourcingMandateCard args={args} onSubmit={onSubmit} onCancel={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm.*buyer/i }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        quantity: 1,
+        budget: { ceiling_cents: 150000, currency: "USD", basis: "per_unit" },
+        delivery_deadline: null,
+        warranty_returns: null,
+        must_have_attributes: [],
       }),
     );
   });

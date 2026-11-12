@@ -142,7 +142,7 @@ export function SourcingMandateCard({ args, onSubmit, onCancel }: Props) {
       </label>
 
       <label className="mm-note-field" htmlFor="sm-deadline">
-        <span>Delivery deadline (need by)</span>
+        <span>Delivery deadline (need by, optional)</span>
         <input
           id="sm-deadline"
           type="date"
@@ -152,7 +152,7 @@ export function SourcingMandateCard({ args, onSubmit, onCancel }: Props) {
       </label>
 
       <label className="mm-note-field" htmlFor="sm-warranty">
-        <span>Warranty & returns requirements</span>
+        <span>Warranty & returns requirements (optional)</span>
         <textarea
           id="sm-warranty"
           rows={2}
@@ -163,7 +163,7 @@ export function SourcingMandateCard({ args, onSubmit, onCancel }: Props) {
       </label>
 
       <label className="mm-note-field" htmlFor="sm-musthave">
-        <span>Must-have attributes (comma or newline separated)</span>
+        <span>Must-have attributes (comma or newline separated, optional)</span>
         <textarea
           id="sm-musthave"
           rows={2}
