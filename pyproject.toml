@@ -47,6 +47,7 @@ members = [
   "apps/orchestrator_agent",
   "apps/verifund_control_plane",
   "apps/verifund_agent",
+  "apps/gateway",
 ]
 
 [tool.uv]
