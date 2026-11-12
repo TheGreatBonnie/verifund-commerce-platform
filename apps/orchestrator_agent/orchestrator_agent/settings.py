@@ -41,6 +41,14 @@ class Settings(BaseSettings):
         default="deepseek-ai/DeepSeek-V4-Flash-0731",
         validation_alias=AliasChoices("NEBIUS_MODEL", "OPENAI_MODEL"),
     )
+    embedding_model: str = Field(
+        default="Qwen/Qwen3-Embedding-8B",
+        validation_alias=AliasChoices("NEBIUS_EMBEDDING_MODEL", "EMBEDDING_MODEL"),
+    )
+    embedding_dimensions: int = Field(
+        default=1024,
+        validation_alias=AliasChoices("EMBEDDING_DIMENSIONS"),
+    )
 
     buyer_internal_url: str = Field(
         default="http://127.0.0.1:9100",

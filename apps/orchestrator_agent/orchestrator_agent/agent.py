@@ -4,6 +4,7 @@ import logging
 from typing import Any, Literal, Optional
 
 from ag_ui_adk import AGUIToolset
+from commerce_core.retrieval import NebiusEmbeddings, ProductRetriever
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools import FunctionTool, ToolContext
@@ -314,7 +315,23 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
     return FunctionTool(mediate_seller_call)
 
 
-def _build_marketplace_search_tool(settings: Settings) -> FunctionTool:
+def _build_marketplace_search_tool(
+    settings: Settings,
+    *,
+    retriever: ProductRetriever | None = None,
+) -> FunctionTool:
+    if retriever is None and settings.nebius_api_key:
+        retriever = ProductRetriever(
+            NebiusEmbeddings(
+                api_key=settings.nebius_api_key,
+                base_url=settings.nebius_base_url,
+                model=settings.embedding_model,
+                dimensions=settings.embedding_dimensions,
+            ),
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
+        )
+
     async def search_marketplace_products(
         # ADK's automatic function parser does not understand PEP 604 unions.
         query: Optional[str] = None,  # noqa: UP045
@@ -326,6 +343,11 @@ def _build_marketplace_search_tool(settings: Settings) -> FunctionTool:
         limit: int = 12,
     ) -> dict:
         """Find products from MarketMesh sellers for a grounded purchase search."""
+        if retriever is None:
+            return {
+                "error": "retrieval_unavailable",
+                "message": "Product search is temporarily unavailable",
+            }
         try:
             products = await marketplace.fetch_marketplace_products(
                 base_url=settings.buyer_internal_url,
@@ -355,15 +377,24 @@ def _build_marketplace_search_tool(settings: Settings) -> FunctionTool:
             effective_limit = 12
         effective_limit = max(1, min(effective_limit, 24))
 
-        ranked = marketplace.filter_and_rank_products(
-            products,
-            query=query,
-            category=category,
-            max_unit_price_cents=ceiling,
-            in_stock_only=bool(in_stock_only),
-            use_case=use_case,
-            preferences=preferences,
-        )
+        try:
+            ranked, trace = marketplace.retrieve_products(
+                products,
+                retriever=retriever,
+                query=query,
+                category=category,
+                max_unit_price_cents=ceiling,
+                in_stock_only=bool(in_stock_only),
+                use_case=use_case,
+                preferences=preferences,
+            )
+        except Exception:
+            logger.exception("product retrieval failed")
+            return {
+                "error": "retrieval_unavailable",
+                "message": "Product search is temporarily unavailable",
+            }
+
         return marketplace.shape_search_result(
             {
                 "query": query,
@@ -376,6 +407,7 @@ def _build_marketplace_search_tool(settings: Settings) -> FunctionTool:
             },
             ranked,
             effective_limit,
+            retrieval=trace,
         )
 
     return FunctionTool(search_marketplace_products)
