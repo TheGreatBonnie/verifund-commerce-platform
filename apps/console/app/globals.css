@@ -3055,7 +3055,7 @@ paypal-button {
 }
 
 .mm-note-field > span {
-  color: var(--muted);
+  color: var(--ink-soft);
   font-family: var(--font-spline-sans-mono), monospace;
   font-size: 7.5px;
   letter-spacing: 0.06em;
@@ -6804,8 +6804,8 @@ paypal-button {
 }
 
 .mm-recommendation-badge.is-alt {
-  border-color: var(--muted);
-  color: var(--muted);
+  border-color: var(--ink-soft);
+  color: var(--ink-soft);
 }
 
 .mm-recommendations-notes {
@@ -6832,5 +6832,5 @@ paypal-button {
 }
 
 .mm-recommendation-callout.is-alt strong {
-  color: var(--muted);
+  color: var(--ink-soft);
 }
