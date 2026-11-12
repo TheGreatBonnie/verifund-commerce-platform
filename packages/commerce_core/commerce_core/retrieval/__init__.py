@@ -9,6 +9,7 @@ from .retriever import (
     RetrievalResult,
     compose_query,
 )
+from .taxonomy import resolve_categories
 
 __all__ = [
     "MIN_SIMILARITY",
@@ -25,5 +26,6 @@ __all__ = [
     "offer_available",
     "price_cents",
     "product_document",
+    "resolve_categories",
     "seller_name",
 ]

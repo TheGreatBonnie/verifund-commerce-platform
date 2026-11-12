@@ -198,6 +198,40 @@ def test_in_stock_filter_excludes_unavailable_products():
     assert [row["sku"] for row in result.products] == ["NW-WORKSTATION-01"]
 
 
+def test_category_group_excludes_accessories_and_keeps_macbooks():
+    laptop = product("EX-LAPTOP-1", "Developer Laptop", category="Laptop", price=120000)
+    macbook = product("EX-MACBOOK-2", "MacBook Air", category="MacBook", price=110000)
+    mouse = product("EX-MOUSE-3", "Wireless Mouse", category="Mouse", price=4000)
+    keyboard = product("EX-KEYBOARD-4", "Office Keyboard", category="Keyboard", price=5000)
+    accessory = product(
+        "EX-ACCESSORY-5", "Laptop Cooling Pad", category="Laptop Accessory", price=3000
+    )
+    catalog = [laptop, macbook, mouse, keyboard, accessory]
+    retriever, _ = make_retriever(
+        catalog=catalog,
+        mapping={
+            "EX-LAPTOP-1": [1.0, 0.0],
+            "EX-MACBOOK-2": [0.98, 0.199],
+            "EX-MOUSE-3": [0.96, 0.28],
+            "EX-KEYBOARD-4": [0.95, 0.312],
+            "EX-ACCESSORY-5": [0.94, 0.341],
+        },
+        query_vectors={"laptop programming": [1.0, 0.0]},
+    )
+
+    result = retriever.search(catalog, query="laptop programming", category="laptop")
+
+    assert [row["sku"] for row in result.products] == [
+        "EX-LAPTOP-1",
+        "EX-MACBOOK-2",
+    ]
+    assert result.trace["candidates"] == 2
+    assert result.trace["category"] == {
+        "requested": "laptop",
+        "resolved": ["Laptop", "MacBook"],
+    }
+
+
 def test_match_rationale_starts_with_the_semantic_score():
     retriever, _ = make_retriever(
         catalog=[LAPTOP],

@@ -107,8 +107,11 @@ Use search_marketplace_products only for discovery requests
 - These are the hard filters: category, max_unit_price_cents,
   and in_stock_only. use_case and preferences only
   influence ranking; never tell the user a preference was
-  guaranteed. Pass category only when it exactly matches a
-  category already shown in a tool result; never guess it.
+  guaranteed. When the user names a product type (for
+  example "laptop", "monitor", or "keyboard"), pass that
+  word as category; the tool resolves known types to the
+  catalog categories. Never invent a type the user did not
+  ask for.
 - Never route a discovery request to
   send_message_to_a2a_agent or to a seller. Discovery is
   read-only.
@@ -370,11 +373,12 @@ def _build_marketplace_search_tool(
                 "message": "Product search is temporarily unavailable",
             }
         try:
+            # Category filtering stays local: the registry filter is exact and
+            # single-value, so forwarding "laptop" would drop MacBook rows.
             products = await marketplace.fetch_marketplace_products(
                 base_url=settings.buyer_internal_url,
                 internal_token=settings.buyer_internal_token,
                 timeout=settings.buyer_internal_timeout_seconds,
-                category=category or None,
             )
         except Exception:
             logger.exception("marketplace catalog fetch failed")
@@ -416,16 +420,21 @@ def _build_marketplace_search_tool(
                 "message": "Product search is temporarily unavailable",
             }
 
+        applied_filters = {
+            "query": query,
+            "category": category,
+            "max_unit_price_cents": ceiling,
+            "in_stock_only": bool(in_stock_only),
+            "use_case": use_case,
+            "preferences": preferences or [],
+            "limit": effective_limit,
+        }
+        resolved_categories = (trace.get("category") or {}).get("resolved")
+        if resolved_categories:
+            applied_filters["categories"] = resolved_categories
+
         return marketplace.shape_search_result(
-            {
-                "query": query,
-                "category": category,
-                "max_unit_price_cents": ceiling,
-                "in_stock_only": bool(in_stock_only),
-                "use_case": use_case,
-                "preferences": preferences or [],
-                "limit": effective_limit,
-            },
+            applied_filters,
             ranked,
             effective_limit,
             retrieval=trace,

@@ -13,6 +13,7 @@ DENSE_RETRIEVAL_ANCHORS = (
     "natural language",
     "hard filters",
     "influence ranking",
+    "product type",
     "no matches were found",
     "retrieval_unavailable",
     "marketplace_unavailable",

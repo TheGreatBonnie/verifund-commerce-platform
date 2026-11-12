@@ -328,10 +328,12 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   These are the hard filters: category, max_unit_price_cents,
   and in_stock_only. use_case and preferences
   influence ranking only; never claim a preference was
-  guaranteed. Pass category only when it exactly matches a
-  category already shown in a tool result; never guess it.
-  Never route discovery to send_message_to_a2a_agent or a
-  seller.
+  guaranteed. When the user names a product type (for
+  example "laptop", "monitor", or "keyboard"), pass that
+  word as category; the tool resolves known types to the
+  catalog categories. Never invent a type the user did not
+  ask for. Never route discovery to send_message_to_a2a_agent
+  or a seller.
 
   Present only returned products and SKUs. Use
   match_rationale to explain why an item matched in plain

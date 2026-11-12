@@ -23,7 +23,11 @@ MODEL = os.environ.get("NEBIUS_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-8B")
 DIMENSIONS = 1024
 
 QUERIES: list[dict] = [
-    {"query": "good laptop for programming under $1500", "max_unit_price_cents": 150000},
+    {
+        "query": "good laptop for programming under $1500",
+        "category": "laptop",
+        "max_unit_price_cents": 150000,
+    },
     {"query": "noise cancelling headphones for travel"},
     {"query": "standing desk for a small home office", "category": "Standing Desk"},
     {"query": "zzzzzz"},

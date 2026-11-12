@@ -22,6 +22,7 @@ from .filters import (
     seller_name,
 )
 from .index import get_store
+from .taxonomy import resolve_categories
 
 logger = logging.getLogger(__name__)
 
@@ -90,18 +91,33 @@ class ProductRetriever:
     ) -> RetrievalResult:
         started = time.perf_counter()
         rows = [product for product in products if isinstance(product, dict)]
+        resolved = resolve_categories(category)
+        category_trace = None
+        if category:
+            category_trace = {
+                "requested": category,
+                "resolved": list(resolved) if resolved is not None else None,
+            }
         candidates = [
             product
             for product in rows
             if matches_filters(
                 product,
-                category=category,
+                category=None if resolved is not None else category,
+                categories=resolved,
                 max_unit_price_cents=max_unit_price_cents,
                 in_stock_only=in_stock_only,
             )
         ]
         if not candidates:
-            return self._finish("dense", [], 0, started, cutoff=self._min_similarity)
+            return self._finish(
+                "dense",
+                [],
+                0,
+                started,
+                cutoff=self._min_similarity,
+                category=category_trace,
+            )
 
         text = compose_query(query, use_case, preferences)
         if not text:
@@ -111,6 +127,7 @@ class ProductRetriever:
                 [self._decorate(product) for product in ranked],
                 len(candidates),
                 started,
+                category=category_trace,
             )
 
         allowed = {str(product.get("sku") or "") for product in candidates}
@@ -148,6 +165,7 @@ class ProductRetriever:
             started,
             top_k=top_k,
             cutoff=cutoff,
+            category=category_trace,
         )
 
     def _decorate(self, product: dict, *, score: float | None = None) -> dict:
@@ -180,6 +198,7 @@ class ProductRetriever:
         *,
         top_k: list[dict] | None = None,
         cutoff: float | None = None,
+        category: dict | None = None,
     ) -> RetrievalResult:
         trace = {
             "mode": mode,
@@ -191,6 +210,8 @@ class ProductRetriever:
             "cutoff": round(cutoff, 4) if cutoff is not None else None,
             "latency_ms": int((time.perf_counter() - started) * 1000),
         }
+        if category is not None:
+            trace["category"] = category
         logger.info(
             "product_retrieval mode=%s candidates=%d returned=%d latency_ms=%d",
             mode,

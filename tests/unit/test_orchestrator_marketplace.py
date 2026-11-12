@@ -255,11 +255,48 @@ async def test_tool_binds_settings_and_hides_credentials(monkeypatch):
         "base_url": "http://buyer-configured",
         "internal_token": "internal-secret",
         "timeout": 3.5,
-        "category": None,
     }
     assert [product["sku"] for product in result["products"]] == ["MM-MACBOOK-AIR-M4-13"]
     assert result["retrieval"]["mode"] == "dense"
     assert retriever.calls[0]["query"] == "laptop"
+
+
+@pytest.mark.asyncio
+async def test_tool_keeps_category_filtering_local(monkeypatch):
+    captured: dict = {}
+
+    async def fake_fetch(**kwargs):
+        captured.update(kwargs)
+        return [MACBOOK]
+
+    monkeypatch.setattr(marketplace, "fetch_marketplace_products", fake_fetch)
+    tool = agent._build_marketplace_search_tool(
+        Settings(nebius_api_key=None), retriever=StubRetriever()
+    )
+
+    await tool.func(query="laptop programming", category="laptop")
+
+    assert "category" not in captured
+
+
+@pytest.mark.asyncio
+async def test_tool_reports_resolved_categories(monkeypatch):
+    async def fake_fetch(**_kwargs):
+        return [MACBOOK]
+
+    monkeypatch.setattr(marketplace, "fetch_marketplace_products", fake_fetch)
+    trace = {
+        **TRACE,
+        "category": {"requested": "laptop", "resolved": ["Laptop", "MacBook"]},
+    }
+    tool = agent._build_marketplace_search_tool(
+        Settings(nebius_api_key=None), retriever=StubRetriever(trace=trace)
+    )
+
+    result = await tool.func(query="laptop programming", category="laptop")
+
+    assert result["applied_filters"]["category"] == "laptop"
+    assert result["applied_filters"]["categories"] == ["Laptop", "MacBook"]
 
 
 @pytest.mark.asyncio

@@ -156,9 +156,14 @@ Metadata: `sku`, `name`, `category`, `price_cents`, `available`, `rating`.
 `ProductRetriever.search(products, *, query, use_case, preferences, category,
 max_unit_price_cents, in_stock_only)`:
 
-1. Apply hard filters (unchanged semantics): category equality,
+1. Apply hard filters before ranking: category membership,
    `unit_price_cents <= max_unit_price_cents`, `in_stock_only` requires an offer
    with `available is True`. Empty result short-circuits to `[]`.
+   `category` is the shopper-facing type term; `taxonomy.resolve_categories`
+   maps it to an exact allow-list (`"laptop"` → `("Laptop", "MacBook")`) and
+   `matches_filters(categories=...)` requires exact, casefolded membership.
+   Unresolved terms fall back to a single exact match so a stale alias never
+   widens a filter silently.
 2. Compose query text: `" ".join(filter(None, [query, use_case, *preferences]))`.
    If the composed text is empty (browse-only request, no query/use_case/
    preferences), skip embedding and return the filtered products ordered by
@@ -198,9 +203,13 @@ max_unit_price_cents, in_stock_only)`:
   "candidates": 34,
   "top_k": [{"sku": "NW-LAPTOP-01", "score": 0.82}],
   "cutoff": 0.72,
+  "category": {"requested": "laptop", "resolved": ["Laptop", "MacBook"]},
   "latency_ms": 87
 }
 ```
+
+`category` is present only when the caller supplied a type term; `resolved` is
+`null` when the term fell back to exact matching.
 
 `top_k` is capped at the returned product count (max 24). `cutoff` reports the
 similarity threshold actually applied (`null` in browse mode). A structured log
@@ -238,7 +247,11 @@ settings.nebius_base_url`, `settings.embedding_model`,
 - returns `{"error": "retrieval_unavailable", ...}` when the key is missing or
   the retriever raises;
 - otherwise calls `retrieve_products` and passes the trace to
-  `shape_search_result`.
+  `shape_search_result`;
+- does **not** forward `category` to the buyer aggregation: the registry filter
+  is exact and single-value (`registry/store.py`), so `"laptop"` would drop
+  `MacBook` rows. Filtering stays local and the resolved categories are copied
+  into `applied_filters.categories`.
 
 ### 5.3 `settings.py`
 

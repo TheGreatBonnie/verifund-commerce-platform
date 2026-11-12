@@ -57,6 +57,16 @@ def test_category_filter_is_case_insensitive():
     assert matches_filters(PRODUCT, category="Furniture") is False
 
 
+def test_category_group_requires_an_exact_match():
+    laptop = {**PRODUCT, "category": "Laptop"}
+    macbook = {**PRODUCT, "category": "MacBook"}
+    accessory = {**PRODUCT, "category": "Laptop Accessory"}
+
+    assert matches_filters(laptop, categories=("Laptop", "MacBook")) is True
+    assert matches_filters(macbook, categories=("laptop", "macbook")) is True
+    assert matches_filters(accessory, categories=("Laptop", "MacBook")) is False
+
+
 def test_price_ceiling_excludes_expensive_products():
     assert matches_filters(PRODUCT, max_unit_price_cents=99900) is True
     assert matches_filters(PRODUCT, max_unit_price_cents=99899) is False
