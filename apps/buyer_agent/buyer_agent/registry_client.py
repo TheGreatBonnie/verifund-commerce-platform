@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -69,6 +70,51 @@ class RegistryClient:
     async def close(self) -> None:
         await self.http.aclose()
 
+    def _candidate_card_urls(self, seller_id: str, card_url: str) -> list[str]:
+        candidates = [card_url]
+        shared_base = os.environ.get("SELLER_SHARED_URL", "").rstrip("/")
+        if shared_base and seller_id:
+            candidates.append(
+                f"{shared_base}/{seller_id}/.well-known/agent-card.json"
+            )
+        # Preserve order while deduplicating.
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for url in candidates:
+            if url and url not in seen:
+                seen.add(url)
+                ordered.append(url)
+        return ordered
+
+    async def _fetch_valid_card(
+        self, seller_id: str, card_url: str
+    ) -> tuple[str, Any] | None:
+        last_error = None
+        for candidate in self._candidate_card_urls(seller_id, card_url):
+            try:
+                card = await fetch_agent_card(
+                    candidate,
+                    client=self.http,
+                    allowed_hosts=self.allowed_card_hosts,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                continue
+            errors = validate_agent_card(card)
+            if errors:
+                last_error = RuntimeError("; ".join(errors))
+                continue
+            return candidate, card
+        if last_error is not None and self.trace is not None:
+            await self.trace.record(
+                "discovery",
+                direction="internal",
+                method="ValidateAgentCard",
+                seller_id=seller_id,
+                payload={"card_url": card_url, "error": str(last_error)},
+            )
+        return None
+
     def endpoint(self, seller_id: str) -> SellerEndpoint:
         try:
             return self._endpoints[seller_id]
@@ -115,19 +161,16 @@ class RegistryClient:
         for entry in entries:
             seller_id, card_url = entry["seller_id"], entry["card_url"]
             self.fetch_calls += 1
-            try:
-                card = await fetch_agent_card(card_url, client=self.http, allowed_hosts=self.allowed_card_hosts)
-            except Exception as exc:  # noqa: BLE001
-                await self._trace_invalid(entry, str(exc))
+            fetched = await self._fetch_valid_card(seller_id, card_url)
+            if fetched is None:
                 continue
-            if validate_agent_card(card):
-                continue
+            resolved_card_url, card = fetched
             token = self._token_cache.get(seller_id) or await self._exchange_token(seller_id)
             if not token:
                 continue
             metadata = card_commerce_metadata(card)
             new_endpoints[seller_id] = SellerEndpoint(
-                seller_id=seller_id, name=card.name, card_url=card_url, card=card,
+                seller_id=seller_id, name=card.name, card_url=resolved_card_url, card=card,
                 token=token, rating=float(metadata["rating"]),
                 sustainability_certified=bool(metadata["sustainability_certified"]),
             )
@@ -152,19 +195,10 @@ class RegistryClient:
             seller_id = result["seller_id"]
             card_url = result["card_url"]
             self.fetch_calls += 1
-            try:
-                card = await fetch_agent_card(
-                    card_url,
-                    client=self.http,
-                    allowed_hosts=self.allowed_card_hosts,
-                )
-            except Exception as exc:  # noqa: BLE001
-                await self._trace_invalid(result, str(exc))
+            fetched = await self._fetch_valid_card(seller_id, card_url)
+            if fetched is None:
                 continue
-            errors = validate_agent_card(card)
-            if errors:
-                await self._trace_invalid(result, "; ".join(errors))
-                continue
+            resolved_card_url, card = fetched
             token = self._token_cache.get(seller_id) or await self._exchange_token(seller_id)
             if not token:
                 raise ValueError(
@@ -174,7 +208,7 @@ class RegistryClient:
             endpoint = SellerEndpoint(
                 seller_id=seller_id,
                 name=card.name,
-                card_url=card_url,
+                card_url=resolved_card_url,
                 card=card,
                 token=token,
                 rating=float(metadata["rating"]),

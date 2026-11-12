@@ -11,8 +11,13 @@ export function normalizeAgentBaseUrl(url: string): string {
 }
 
 export function sellerAgentUrls(sharedBaseUrl: string): string[] {
+  const configured = process.env.MARKETMESH_SELLER_IDS
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const sellerIds = configured?.length ? configured : [...SELLER_IDS];
   const base = normalizeAgentBaseUrl(sharedBaseUrl);
-  return SELLER_IDS.map((sellerId) => `${base}/${sellerId}`);
+  return sellerIds.map((sellerId) => `${base}/${sellerId}`);
 }
 
 function parseUrl(value: string): URL | null {

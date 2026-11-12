@@ -379,7 +379,9 @@ def console_environment(mode: str) -> dict[str, str]:
             "SELLER_SHARED_URL": shared_seller_url(),
             "NEXT_TELEMETRY_DISABLED": "1",
             "COPILOTKIT_TELEMETRY_DISABLED": "true",
-            "VERIFUND_MODE": "sandbox",
+            "VERIFUND_MODE": verifund_mode(),
+            "VERIFUND_CONTROL_PLANE_URL": verifund_url(),
+            "VERIFUND_OPS_TOKEN": verifund_ops_token(),
         }
     )
     return env
@@ -553,6 +555,8 @@ def gateway_console_environment(
             "ORCHESTRATOR_AGUI_URL": f"{base}/orchestrator",
             "REGISTRY_URL": f"{base}/registry",
             "VERIFUND_MODE": verifund_mode,
+            "VERIFUND_CONTROL_PLANE_URL": f"{base}/control-plane",
+            "VERIFUND_OPS_TOKEN": verifund_ops_token(),
         }
     )
     return env

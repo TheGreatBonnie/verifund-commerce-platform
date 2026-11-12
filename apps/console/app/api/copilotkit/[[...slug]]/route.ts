@@ -64,6 +64,40 @@ class MarketMeshA2AClient extends (A2AClient as any) {
   }
 }
 
+const SELLER_AGENT_NAMES: Record<string, string> = {
+  "northwind-audio": "Northwind Audio",
+  circuitforge: "CircuitForge",
+  "aurora-supply": "Aurora Supply",
+  "summit-tech": "Summit Tech Supply",
+};
+
+function agentNameForUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname.replace(/\/+$/, "");
+    if (pathname === "/buyer" || pathname.endsWith("/buyer")) {
+      return "MarketMesh Buyer";
+    }
+    for (const [sellerId, name] of Object.entries(SELLER_AGENT_NAMES)) {
+      if (
+        pathname === `/${sellerId}` ||
+        pathname.endsWith(`/${sellerId}`)
+      ) {
+        return name;
+      }
+    }
+
+    const port = new URL(url).port;
+    if (port === "9100") return "MarketMesh Buyer";
+    if (port === "9201") return "Northwind Audio";
+    if (port === "9202") return "CircuitForge";
+    if (port === "9203") return "Aurora Supply";
+    if (port === "9204") return "Summit Tech Supply";
+    return `Agent ${port || "unknown"}`;
+  } catch {
+    return "Agent unknown";
+  }
+}
+
 // The middleware constructor only accepts URLs, so wrap it to use the
 // MarketMesh card path and authenticated seller clients.
 class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
@@ -100,19 +134,7 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
       // Provide minimal fallback agent cards for build-time static generation
       this.agentCards = Promise.resolve(
         config.agentUrls.map((url) => {
-          const port = new URL(url).port;
-          const name =
-            port === "9100"
-              ? "MarketMesh Buyer"
-              : port === "9201"
-                ? "Northwind Audio"
-                : port === "9202"
-                  ? "CircuitForge"
-                  : port === "9203"
-                    ? "Aurora Supply"
-                    : port === "9204"
-                      ? "Summit Tech Supply"
-                      : `Agent ${port}`;
+          const name = agentNameForUrl(url);
           return {
             name,
             description: `${name} A2A agent`,
@@ -142,19 +164,7 @@ class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
           } catch (error) {
             console.warn(`Failed to fetch agent card for ${baseUrl}:`, error);
             // Return minimal fallback
-            const port = new URL(baseUrl).port;
-            const name =
-              port === "9100"
-                ? "MarketMesh Buyer"
-                : port === "9201"
-                  ? "Northwind Audio"
-                  : port === "9202"
-                    ? "CircuitForge"
-                    : port === "9203"
-                      ? "Aurora Supply"
-                      : port === "9204"
-                        ? "Summit Tech Supply"
-                        : `Agent ${port}`;
+            const name = agentNameForUrl(baseUrl);
             return {
               name,
               description: `${name} A2A agent (offline)`,
@@ -200,9 +210,44 @@ const sellerAgentToken =
   process.env.SELLER_NORTHWIND_TOKEN ??
   "dev-buyer-agent";
 
-const a2aSellerUrls = sellerAgentUrls(sharedSellerBaseUrl);
+async function resolveSellerAgentUrls(): Promise<string[]> {
+  const registryUrl = process.env.REGISTRY_URL?.replace(/\/+$/, "");
+  if (registryUrl) {
+    try {
+      const response = await fetch(`${registryUrl}/v1/sellers`, {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (response.ok) {
+        const data = (await response.json()) as {
+          sellers?: Array<{ seller_id?: string }>;
+        };
+        const ids = (data.sellers ?? [])
+          .map((seller) => seller.seller_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0);
+        if (ids.length > 0) {
+          const base = normalizeAgentBaseUrl(sharedSellerBaseUrl);
+          return ids.map((sellerId) => `${base}/${sellerId}`);
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to resolve seller agents from registry:", error);
+    }
+  }
+  return sellerAgentUrls(sharedSellerBaseUrl);
+}
 
-const a2aAgentUrls = [buyerAgentUrl, ...a2aSellerUrls];
+let a2aAgentUrlsPromise: Promise<string[]> | null = null;
+
+async function getA2AAgentUrls(): Promise<string[]> {
+  if (!a2aAgentUrlsPromise) {
+    a2aAgentUrlsPromise = (async () => [
+      buyerAgentUrl,
+      ...(await resolveSellerAgentUrls()),
+    ])();
+  }
+  return a2aAgentUrlsPromise;
+}
 
 const sharedSellerPort = new URL(sharedSellerBaseUrl).port || "9200";
 const sellerTokens = new Map<string, string>([
@@ -254,13 +299,7 @@ const orchestrationAgent = createDefaultAgent();
 // NOTE: ag_ui_adk appends this instruction after the ADK
 // MARKETMESH_ORCHESTRATOR_INSTRUCTION. Keep the discovery and handoff rules
 // aligned with apps/orchestrator_agent/orchestrator_agent/agent.py.
-const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
-  agentName: "marketmesh_orchestrator",
-  description:
-    "MarketMesh orchestrator with the buyer as commerce authority and independent seller A2A agents.",
-  agentUrls: a2aAgentUrls,
-  orchestrationAgent,
-  instructions: `
+const orchestratorInstructions = `
   # 1. Role and Mission
 
   You are the MarketMesh orchestrator.
@@ -470,53 +509,85 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   failed operations, and unresolved states.
 
   Never claim that an approval, order, or payment succeeded
-  unless the corresponding system result confirms it.`,
-  tokens: sellerTokens,
-});
+  unless the corresponding system result confirms it.`;
 
-const runtime = new CopilotRuntime({
-  agents: {
-    marketmesh_orchestrator: a2aMiddlewareAgent,
-  },
-  // --- copilotkit:intelligence (remove this block to opt out) ---
-  ...(process.env.CPK_INTELLIGENCE_API_KEY
-    ? {
-        intelligence: new CopilotKitIntelligence({
-          apiKey: process.env.CPK_INTELLIGENCE_API_KEY,
-          ...(process.env.INTELLIGENCE_API_URL
-            ? { apiUrl: process.env.INTELLIGENCE_API_URL }
-            : {}),
-          ...(process.env.INTELLIGENCE_GATEWAY_WS_URL
-            ? { wsUrl: process.env.INTELLIGENCE_GATEWAY_WS_URL }
-            : {}),
-        }),
-        identifyUser: identifyCopilotUser,
-      }
-    : { runner: new InMemoryAgentRunner() }),
-  // --- /copilotkit:intelligence ---
-});
+let a2aMiddlewareAgentPromise: Promise<MarketMeshA2AMiddlewareAgent> | null = null;
 
-const handler = createCopilotRuntimeHandler({
-  runtime,
-  basePath: "/api/copilotkit",
-});
+async function getA2AMiddlewareAgent(): Promise<MarketMeshA2AMiddlewareAgent> {
+  if (!a2aMiddlewareAgentPromise) {
+    a2aMiddlewareAgentPromise = (async () =>
+      new MarketMeshA2AMiddlewareAgent({
+        agentName: "marketmesh_orchestrator",
+        description:
+          "MarketMesh orchestrator with the buyer as commerce authority and independent seller A2A agents.",
+        agentUrls: await getA2AAgentUrls(),
+        orchestrationAgent,
+        instructions: orchestratorInstructions,
+        tokens: sellerTokens,
+      }))();
+  }
+  return a2aMiddlewareAgentPromise;
+}
+
+let runtimePromise: Promise<CopilotRuntime> | null = null;
+
+async function getRuntime(): Promise<CopilotRuntime> {
+  if (!runtimePromise) {
+    runtimePromise = (async () =>
+      new CopilotRuntime({
+        agents: {
+          marketmesh_orchestrator: await getA2AMiddlewareAgent(),
+        },
+        // --- copilotkit:intelligence (remove this block to opt out) ---
+        ...(process.env.CPK_INTELLIGENCE_API_KEY
+          ? {
+              intelligence: new CopilotKitIntelligence({
+                apiKey: process.env.CPK_INTELLIGENCE_API_KEY,
+                ...(process.env.INTELLIGENCE_API_URL
+                  ? { apiUrl: process.env.INTELLIGENCE_API_URL }
+                  : {}),
+                ...(process.env.INTELLIGENCE_GATEWAY_WS_URL
+                  ? { wsUrl: process.env.INTELLIGENCE_GATEWAY_WS_URL }
+                  : {}),
+              }),
+              identifyUser: identifyCopilotUser,
+            }
+          : { runner: new InMemoryAgentRunner() }),
+        // --- /copilotkit:intelligence ---
+      }))();
+  }
+  return runtimePromise;
+}
+
+let handlerPromise: Promise<ReturnType<typeof createCopilotRuntimeHandler>> | null = null;
+
+async function getHandler() {
+  if (!handlerPromise) {
+    handlerPromise = (async () =>
+      createCopilotRuntimeHandler({
+        runtime: await getRuntime(),
+        basePath: "/api/copilotkit",
+      }))();
+  }
+  return handlerPromise;
+}
 
 export async function GET(request: Request) {
   await auth.protect();
-  return handler(request);
+  return (await getHandler())(request);
 }
 
 export async function POST(request: Request) {
   await auth.protect();
-  return handler(request);
+  return (await getHandler())(request);
 }
 
 export async function PATCH(request: Request) {
   await auth.protect();
-  return handler(request);
+  return (await getHandler())(request);
 }
 
 export async function DELETE(request: Request) {
   await auth.protect();
-  return handler(request);
+  return (await getHandler())(request);
 }
