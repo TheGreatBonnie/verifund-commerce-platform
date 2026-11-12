@@ -32,3 +32,6 @@ coverage.xml
 htmlcov/
 
 graphify-out/
+
+# Vercel CLI link state
+.vercel/
