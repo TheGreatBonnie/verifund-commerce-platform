@@ -440,9 +440,14 @@ def _is_required(meta: dict[str, tuple[bool, str]], result: RequirementResult) -
     return meta.get(result.requirement_id, (True, "seller"))[0]
 
 
-def catalog_fulfilled(terms: dict[str, Any] | None, items: list[EvidenceItem]) -> bool:
+def catalog_fulfilled(
+    terms: dict[str, Any] | None,
+    items: list[EvidenceItem],
+    declarations: list[dict[str, Any]] | None = None,
+) -> bool:
     """True when every seller-owned, required requirement has at least one
-    attributed item (any scan state). Used to gate automatic re-verification."""
+    attributed submission or, for declaration-sourced requirements, a
+    declaration. Used to gate automatic re-verification."""
     try:
         catalog = project_requirements(terms or {})
     except (ValidationError, ValueError):
@@ -450,9 +455,55 @@ def catalog_fulfilled(terms: dict[str, Any] | None, items: list[EvidenceItem]) -
     for requirement in catalog:
         if not (requirement.required and requirement.owner == "seller"):
             continue
+        if getattr(requirement, "source", "file") == "declaration":
+            if not any(
+                (d.get("requirement_id") == requirement.requirement_id)
+                for d in (declarations or [])
+            ):
+                return False
+            continue
         if not any(matches_requirement(requirement, item) for item in items):
             return False
     return True
+
+
+def _coverage_result(
+    requirement: Requirement, items: list[EvidenceItem]
+) -> tuple[bool, list[ReviewReason], str | None]:
+    min_items = int(getattr(requirement, "min_items", 1) or 1)
+    views = list(getattr(requirement, "required_views", None) or [])
+    if min_items > 1 and len(items) < min_items:
+        return (
+            False,
+            [ReviewReason.MISSING_EVIDENCE],
+            f"requires {min_items} submissions; received {len(items)}",
+        )
+    if views:
+        present = {
+            str(getattr(item, "view_label", "")).strip()
+            for item in items
+            if getattr(item, "view_label", None)
+        }
+        missing = [view for view in views if view not in present]
+        if missing:
+            return (
+                False,
+                [ReviewReason.MISSING_EVIDENCE],
+                "missing views: " + ", ".join(missing),
+            )
+    return True, [], None
+
+
+def _declaration_payload(
+    declarations: list[dict[str, Any]] | None, requirement_id: str
+) -> dict[str, Any] | None:
+    latest = _latest_declaration(declarations, requirement_id)
+    if latest is None:
+        return None
+    values = latest.get("values")
+    if isinstance(values, dict):
+        return values
+    return latest
 
 
 def evaluate(
@@ -501,6 +552,8 @@ def evaluate(
     catalog_meta: dict[str, tuple[bool, str]] = {}
     for requirement in catalog:
         catalog_meta[requirement.requirement_id] = (requirement.required, requirement.owner)
+        source = getattr(requirement, "source", "file")
+        is_declaration_source = source == "declaration"
         matched = [
             item
             for item in verified_items
@@ -513,82 +566,137 @@ def evaluate(
         # the same observed key.
         matched.sort(key=lambda item: item.created_at, reverse=True)
         usable, pending_scan = _evaluation_items(requirement, matched)
-        if gate_declarations:
+        declaration: dict[str, Any] | None = None
+        declaration_values: dict[str, Any] | None = None
+        if gate_declarations or is_declaration_source:
             open_attempt = max(
                 (getattr(item, "submission_attempt", None) or 0) for item in matched
             ) if matched else 0
             candidate = _latest_declaration(declarations, requirement.requirement_id)
-            declaration = candidate if _declaration_covers(candidate, open_attempt) else None
-        else:
-            declaration = None
+            declaration_values = _declaration_payload(declarations, requirement.requirement_id)
+            if is_declaration_source:
+                declaration = candidate
+            elif candidate is not None and _declaration_covers(candidate, open_attempt):
+                declaration = candidate
 
-        artifacts = [_load(store, item) for item in usable]
-        reference_item = next(
-            (item for item in usable if _artifact_type(item) == "reference"), None
-        )
-        check_item = reference_item or (usable[0] if usable else None)
-
-        checks = [
-            _check_result(
-                check,
-                terms=terms,
-                record=record,
-                artifacts=artifacts,
-                item=check_item,
-                has_usable=bool(usable),
-            )
-            for check in requirement.checks
-        ]
-
-        if matched and not usable and pending_scan:
-            status = RequirementStatus.PENDING_SCAN
+        if is_declaration_source:
+            declaration_artifacts = [declaration_values] if declaration_values is not None else []
             checks = [
-                RequirementCheckResult(check_id=check.check_id, status="not_evaluated")
+                _check_result(
+                    check,
+                    terms=terms,
+                    record=record,
+                    artifacts=declaration_artifacts,
+                    item=None,
+                    has_usable=declaration_values is not None,
+                )
                 for check in requirement.checks
             ]
-            req_reasons: list[ReviewReason] = []
-        elif matched and not usable:
-            # Everything submitted was unusable (rejected scan, wrong artifact
-            # type): surface for human review rather than hard failure.
-            status = RequirementStatus.REVIEW
-            checks = [
-                RequirementCheckResult(
-                    check_id=c.check_id,
-                    status="review",
-                    reasons=[ReviewReason.INVALID_EVIDENCE_HASH],
-                )
-                for c in checks
-            ]
-            req_reasons = [ReviewReason.INVALID_EVIDENCE_HASH]
-        elif not matched:
-            status = RequirementStatus.NOT_SUBMITTED
-            checks = [
-                RequirementCheckResult(check_id=c.check_id, status="not_evaluated")
-                for c in checks
-            ]
-            req_reasons = []
-        elif gate_declarations and declaration is None:
-            # Decision 33: submissions accumulate until the seller declares
-            # completion; until then the requirement is in progress.
-            status = RequirementStatus.NOT_SUBMITTED
-            checks = [
-                RequirementCheckResult(check_id=c.check_id, status="not_evaluated")
-                for c in checks
-            ]
-            req_reasons = []
-        else:
-            statuses = {check.status for check in checks}
-            if "fail" in statuses:
-                status = RequirementStatus.FAIL
-            elif "review" in statuses or "not_evaluated" in statuses:
-                status = RequirementStatus.REVIEW
+            if declaration_values is None:
+                status = RequirementStatus.NOT_SUBMITTED
+                checks = [
+                    RequirementCheckResult(check_id=check.check_id, status="not_evaluated")
+                    for check in requirement.checks
+                ]
+                req_reasons = []
             else:
-                status = RequirementStatus.PASS
-            req_reasons = list(
-                dict.fromkeys(
-                    reason for check in checks for reason in (check.reasons or [])
+                statuses = {check.status for check in checks}
+                if "fail" in statuses:
+                    status = RequirementStatus.FAIL
+                elif "review" in statuses or "not_evaluated" in statuses:
+                    status = RequirementStatus.REVIEW
+                else:
+                    status = RequirementStatus.PASS
+                req_reasons = list(
+                    dict.fromkeys(
+                        reason for check in checks for reason in (check.reasons or [])
+                    )
                 )
+        else:
+            artifacts = [_load(store, item) for item in usable]
+            reference_item = next(
+                (item for item in usable if _artifact_type(item) == "reference"), None
             )
+            check_item = reference_item or (usable[0] if usable else None)
+
+            checks = [
+                _check_result(
+                    check,
+                    terms=terms,
+                    record=record,
+                    artifacts=artifacts,
+                    item=check_item,
+                    has_usable=bool(usable),
+                )
+                for check in requirement.checks
+            ]
+
+            if matched and not usable and pending_scan:
+                status = RequirementStatus.PENDING_SCAN
+                checks = [
+                    RequirementCheckResult(check_id=check.check_id, status="not_evaluated")
+                    for check in requirement.checks
+                ]
+                req_reasons = []
+            elif matched and not usable:
+                # Everything submitted was unusable (rejected scan, wrong artifact
+                # type): surface for human review rather than hard failure.
+                status = RequirementStatus.REVIEW
+                checks = [
+                    RequirementCheckResult(
+                        check_id=c.check_id,
+                        status="review",
+                        reasons=[ReviewReason.INVALID_EVIDENCE_HASH],
+                    )
+                    for c in checks
+                ]
+                req_reasons = [ReviewReason.INVALID_EVIDENCE_HASH]
+            elif not matched:
+                status = RequirementStatus.NOT_SUBMITTED
+                checks = [
+                    RequirementCheckResult(check_id=c.check_id, status="not_evaluated")
+                    for c in checks
+                ]
+                req_reasons = []
+            elif gate_declarations and declaration is None:
+                # Decision 33: submissions accumulate until the seller declares
+                # completion; until then the requirement is in progress.
+                status = RequirementStatus.NOT_SUBMITTED
+                checks = [
+                    RequirementCheckResult(check_id=c.check_id, status="not_evaluated")
+                    for c in checks
+                ]
+                req_reasons = []
+            else:
+                statuses = {check.status for check in checks}
+                if "fail" in statuses:
+                    status = RequirementStatus.FAIL
+                elif "review" in statuses or "not_evaluated" in statuses:
+                    status = RequirementStatus.REVIEW
+                else:
+                    status = RequirementStatus.PASS
+                req_reasons = list(
+                    dict.fromkeys(
+                        reason for check in checks for reason in (check.reasons or [])
+                    )
+                )
+
+            if usable and status == RequirementStatus.PASS:
+                covered, coverage_reasons, coverage_note = _coverage_result(
+                    requirement, usable
+                )
+                if not covered:
+                    status = RequirementStatus.FAIL
+                    req_reasons = list(dict.fromkeys(req_reasons + coverage_reasons))
+                    checks = [
+                        RequirementCheckResult(
+                            check_id=(check.check_id if check.check_id == "views_cover" else "views_cover"),
+                            status="fail",
+                            reasons=coverage_reasons or [ReviewReason.MISSING_EVIDENCE],
+                            observed_value=coverage_note,
+                        )
+                        for check in (checks or [RequirementCheckResult(check_id="views_cover", status="fail")])
+                    ]
 
         if requirement.owner == "system" and status in (
             RequirementStatus.NOT_SUBMITTED,
