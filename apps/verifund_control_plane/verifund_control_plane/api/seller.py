@@ -175,6 +175,7 @@ async def upload_evidence(
     agreement_version: int | None = Form(None),
     note: str | None = Form(None),
     captured_at: datetime | None = Form(None),  # noqa: B008
+    view_label: str | None = Form(None),
 ) -> dict[str, Any]:
     principal, record = await authorize_seller_transaction(
         request, transaction_id, required_scope="evidence:write"
@@ -209,6 +210,7 @@ async def upload_evidence(
         note=note,
         captured_at=captured_at,
         agreement_version=agreement_version,
+        view_label=view_label,
         actor=principal.actor,
     )
     return receipt.model_dump(mode="json")
@@ -224,11 +226,22 @@ async def declare_requirement(
     principal, _record = await authorize_seller_transaction(
         request, transaction_id, required_scope="evidence:write"
     )
+    values: dict[str, Any] | None = None
+    if request.headers.get("content-type", "").startswith("application/json"):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if isinstance(body, dict):
+            raw_values = body.get("values", body)
+            if isinstance(raw_values, dict):
+                values = raw_values
     return await _service(request).declare_requirement(
         transaction_id,
         requirement_id,
         seller_id=principal.seller_id,
         actor=principal.actor,
+        values=values,
     )
 
 

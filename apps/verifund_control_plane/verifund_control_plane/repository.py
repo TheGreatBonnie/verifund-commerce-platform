@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Column,
+    Float,
     Integer,
     MetaData,
     String,
@@ -176,6 +177,11 @@ class Repository:
             Column("reference", String, nullable=True),
             Column("agreement_version", Integer, nullable=True),
             Column("scan_status", String, nullable=True),
+            Column("view_label", String, nullable=True),
+            Column("reason_code", String, nullable=True),
+            Column("verification_method", String, nullable=True),
+            Column("rule_version", Integer, nullable=True),
+            Column("confidence", Float, nullable=True),
             UniqueConstraint("transaction_id", "sha256", name="uq_evidence_txn_sha"),
         )
         self.evidence_submissions = Table(
@@ -187,6 +193,11 @@ class Repository:
             Column("requirement_id", String, nullable=False),
             Column("attempt", Integer, nullable=False),
             Column("created_at", String, nullable=False),
+            Column("view_label", String, nullable=True),
+            Column("reason_code", String, nullable=True),
+            Column("verification_method", String, nullable=True),
+            Column("rule_version", Integer, nullable=True),
+            Column("confidence", Float, nullable=True),
         )
         self.requirement_declarations = Table(
             "requirement_declarations",
@@ -198,6 +209,7 @@ class Repository:
             Column("actor", String, nullable=False),
             Column("submission_ids", JSON, nullable=False),
             Column("declared_at", String, nullable=False),
+            Column("values", JSON, nullable=True),
             UniqueConstraint(
                 "transaction_id",
                 "requirement_id",
@@ -399,6 +411,17 @@ class Repository:
             await self._ensure_column(conn, "transactions", "seller_organization_id", "TEXT")
             await self._ensure_column(conn, "evidence", "organization_id", "TEXT")
             await self._ensure_column(conn, "evidence", "storage_key", "TEXT")
+            await self._ensure_column(conn, "evidence", "view_label", "TEXT")
+            await self._ensure_column(conn, "evidence", "reason_code", "TEXT")
+            await self._ensure_column(conn, "evidence", "verification_method", "TEXT")
+            await self._ensure_column(conn, "evidence", "rule_version", "INTEGER")
+            await self._ensure_column(conn, "evidence", "confidence", "REAL")
+            await self._ensure_column(conn, "evidence_submissions", "view_label", "TEXT")
+            await self._ensure_column(conn, "evidence_submissions", "reason_code", "TEXT")
+            await self._ensure_column(conn, "evidence_submissions", "verification_method", "TEXT")
+            await self._ensure_column(conn, "evidence_submissions", "rule_version", "INTEGER")
+            await self._ensure_column(conn, "evidence_submissions", "confidence", "REAL")
+            await self._ensure_column(conn, "requirement_declarations", "values", "JSON")
             await self._ensure_column(conn, "checkout_links", "organization_id", "TEXT")
             await self._ensure_column(conn, "buyer_tokens", "organization_id", "TEXT")
             await self._ensure_column(conn, "seller_tokens", "organization_id", "TEXT")
@@ -940,6 +963,11 @@ class Repository:
                 scan_status=item.scan_status,
                 organization_id=item.organization_id,
                 storage_key=item.storage_key,
+                view_label=getattr(item, "view_label", None),
+                reason_code=getattr(item, "reason_code", None),
+                verification_method=getattr(item, "verification_method", None),
+                rule_version=getattr(item, "rule_version", None),
+                confidence=getattr(item, "confidence", None),
             )
             .on_conflict_do_nothing(index_elements=["transaction_id", "sha256"])
         )
@@ -991,6 +1019,11 @@ class Repository:
             artifact_type=row.artifact_type,
             reference=row.reference,
             submission_attempt=row.submission_attempt,
+            view_label=getattr(row, "view_label", None),
+            reason_code=getattr(row, "reason_code", None),
+            verification_method=getattr(row, "verification_method", None),
+            rule_version=getattr(row, "rule_version", None),
+            confidence=getattr(row, "confidence", None),
             created_at=_dt(row.created_at),
             storage_key=getattr(row, "storage_key", None),
             organization_id=getattr(row, "organization_id", None),
@@ -1049,6 +1082,11 @@ class Repository:
         requirement_id: str,
         attempt: int,
         created_at: datetime | None = None,
+        view_label: str | None = None,
+        reason_code: str | None = None,
+        verification_method: str | None = None,
+        rule_version: int | None = None,
+        confidence: float | None = None,
     ) -> dict[str, Any]:
         now = created_at or datetime.now(UTC)
         await conn.execute(
@@ -1059,6 +1097,11 @@ class Repository:
                 requirement_id=requirement_id,
                 attempt=attempt,
                 created_at=_iso(now),
+                view_label=view_label,
+                reason_code=reason_code,
+                verification_method=verification_method,
+                rule_version=rule_version,
+                confidence=confidence,
             )
         )
         return {
@@ -1068,6 +1111,11 @@ class Repository:
             "requirement_id": requirement_id,
             "attempt": attempt,
             "created_at": _iso(now),
+            "view_label": view_label,
+            "reason_code": reason_code,
+            "verification_method": verification_method,
+            "rule_version": rule_version,
+            "confidence": confidence,
         }
 
     async def list_submissions(
@@ -1100,6 +1148,7 @@ class Repository:
         actor: str,
         submission_ids: list[str],
         declared_at: datetime | None = None,
+        values: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = declared_at or datetime.now(UTC)
         declaration_id = f"decl_{uuid.uuid4().hex}"
@@ -1112,6 +1161,7 @@ class Repository:
                 actor=actor,
                 submission_ids=list(submission_ids),
                 declared_at=_iso(now),
+                values=values,
             )
         )
         return {
@@ -1122,6 +1172,7 @@ class Repository:
             "actor": actor,
             "submission_ids": list(submission_ids),
             "declared_at": _iso(now),
+            "values": values,
         }
 
     async def list_declarations(

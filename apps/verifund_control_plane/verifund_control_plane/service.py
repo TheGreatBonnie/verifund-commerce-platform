@@ -1066,6 +1066,7 @@ class VerifundService:
         note: str | None,
         captured_at: datetime | None,
         agreement_version: int | None,
+        view_label: str | None = None,
         actor: str,
     ) -> EvidenceSubmission:
         record = await self.repo.get_transaction(transaction_id)
@@ -1109,6 +1110,14 @@ class VerifundService:
                 f"requirement {requirement_id} is not seller-owned",
                 status_code=422,
             )
+        required_views = list(getattr(requirement, "required_views", None) or [])
+        if required_views:
+            if not view_label or view_label not in required_views:
+                raise VerifundError(
+                    "invalid_request",
+                    f"view_label must be one of {required_views} for {requirement_id}",
+                    status_code=422,
+                )
         # A submission against a superseded agreement version is rejected so a
         # stale seller client can never satisfy the current catalog.
         if agreement_version is not None and agreement_version != record.agreement_version:
@@ -1206,6 +1215,7 @@ class VerifundService:
                     "artifact_type": artifact_type,
                     "reference": reference if is_reference else None,
                     "scan_status": scan_status,
+                    "view_label": view_label,
                 }
             )
             stored, created = await self.repo.add_evidence(
@@ -1223,6 +1233,7 @@ class VerifundService:
                 evidence_id=stored.evidence_id,
                 requirement_id=requirement_id,
                 attempt=open_attempt,
+                view_label=view_label,
             )
             if created:
                 event = EventInput(
@@ -1278,6 +1289,7 @@ class VerifundService:
             receipt_id=f"rcpt_{stored.sha256[:32]}",
             artifact_type=artifact_type,
             scan_status=scan_status,
+            view_label=view_label,
         )
 
     async def seller_projection(
@@ -1680,6 +1692,7 @@ class VerifundService:
         *,
         seller_id: str,
         actor: str,
+        values: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         record = await self.repo.get_transaction(transaction_id)
         if record.seller_id != seller_id:
@@ -1728,7 +1741,6 @@ class VerifundService:
             )
 
         async with self.repo.transaction() as conn:
-            current = await self.repo.get_transaction(transaction_id, conn)
             open_att = await self.repo.open_attempt(
                 conn, transaction_id, requirement_id
             )
@@ -1737,7 +1749,7 @@ class VerifundService:
             transaction_id, requirement_id, attempt=open_att
         )
         submission_ids = [row["submission_id"] for row in submissions]
-        if not submission_ids:
+        if not submission_ids and getattr(requirement, "source", "file") != "declaration":
             raise VerifundError(
                 "invalid_request",
                 "declaration requires at least one open-attempt submission",
@@ -1752,6 +1764,7 @@ class VerifundService:
                 open_att,
                 actor=actor,
                 submission_ids=submission_ids,
+                values=values,
             )
 
         declaration_rows = await self.repo.list_declarations(transaction_id)
