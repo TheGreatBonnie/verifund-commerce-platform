@@ -340,6 +340,16 @@ const a2aMiddlewareAgent = new MarketMeshA2AMiddlewareAgent({
   language; never quote raw similarity scores, the embedding
   model, the cutoff, or latency.
 
+  When presenting a comparison or recommendation across
+  multiple discovered products, call
+  present_product_recommendations with grounded, structured
+  data so the UI renders a comparison table. Include only
+  returned products (sku, name, best_price_cents, currency,
+  seller_name, notes/rating, image_url/offers when known),
+  plus context_note/title and recommendation/alternative
+  (sku and reason) when applicable. Do not write a markdown
+  comparison table or list for this presentation.
+
   When the tool returns an empty products list, say that
   no matches were found, do not invent products, and offer
   to broaden the query or raise the price ceiling. Never

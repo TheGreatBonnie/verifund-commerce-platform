@@ -151,6 +151,18 @@ describe("chat marketplace discovery", () => {
     expect(call?.[0].parameters).toBeTruthy();
     expect(call?.[0].render).toEqual(expect.any(Function));
   });
+
+  it("registers the product recommendations comparison renderer", () => {
+    renderChat();
+
+    const call = hooks.useRenderTool.mock.calls.find(
+      ([tool]) => tool.name === "present_product_recommendations",
+    );
+    expect(call).toBeTruthy();
+    expect(call?.[0]).toMatchObject({ name: "present_product_recommendations" });
+    expect(call?.[0].parameters).toBeTruthy();
+    expect(call?.[0].render).toEqual(expect.any(Function));
+  });
 });
 
 describe("chat thread wiring", () => {

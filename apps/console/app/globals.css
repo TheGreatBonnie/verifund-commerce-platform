@@ -6732,3 +6732,105 @@ paypal-button {
   .mm-seller-task { grid-template-columns: minmax(0, 1fr); }
   .mm-seller-task-side { justify-content: flex-start; }
 }
+
+/* ---------- Product recommendations comparison (Generative UI) ---------- */
+.mm-product-recommendations {
+  margin-top: 8px;
+  border: 1px solid var(--rule-strong);
+  background: var(--panel);
+  padding: 10px;
+}
+
+.mm-recommendations-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mm-recommendations-context {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.mm-recommendations-table-wrap {
+  overflow-x: auto;
+}
+
+.mm-recommendations-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.mm-recommendations-table th,
+.mm-recommendations-table td {
+  padding: 7px 6px;
+  border-top: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mm-recommendations-table thead th {
+  border-top: 0;
+  color: var(--muted);
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 7.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mm-recommendations-table tr[data-recommended="true"] {
+  background: color-mix(in srgb, var(--signal) 8%, transparent);
+}
+
+.mm-recommendations-name {
+  font-weight: 600;
+}
+
+.mm-recommendation-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--signal);
+  color: var(--signal);
+  font-size: 7px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.mm-recommendation-badge.is-alt {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+.mm-recommendations-notes {
+  color: var(--ink-soft);
+  max-width: 240px;
+}
+
+.mm-recommendations-action {
+  white-space: nowrap;
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 9px;
+}
+
+.mm-recommendation-callout {
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.mm-recommendation-callout strong {
+  color: var(--ink);
+}
+
+.mm-recommendation-callout.is-alt strong {
+  color: var(--muted);
+}

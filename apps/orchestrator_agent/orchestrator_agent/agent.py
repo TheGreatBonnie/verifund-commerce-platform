@@ -120,6 +120,15 @@ Use search_marketplace_products only for discovery requests
   language; never quote raw similarity scores, the embedding
   model, the cutoff, or latency. Never invent a product,
   price, seller, or availability.
+- When presenting a comparison or recommendation across
+  multiple discovered products, call
+  present_product_recommendations with grounded, structured
+  data so the UI renders a comparison table. Include only
+  returned products (sku, name, best_price_cents, currency,
+  seller_name, notes/rating, image_url/offers when known),
+  plus context_note/title and recommendation/alternative
+  (sku and reason) when applicable. Do not write a markdown
+  comparison table or list for this presentation.
 - When the tool returns an empty products list, say that
   no matches were found, do not invent products, and offer
   to broaden the query or raise the price ceiling. Never
@@ -443,6 +452,33 @@ def _build_marketplace_search_tool(
     return FunctionTool(search_marketplace_products)
 
 
+def _build_recommendations_tool() -> FunctionTool:
+    async def present_product_recommendations(
+        products: list[dict[str, Any]],
+        title: Optional[str] = None,  # noqa: UP045
+        context_note: Optional[str] = None,  # noqa: UP045
+        max_unit_price_cents: Optional[int] = None,  # noqa: UP045
+        recommendation: Optional[dict[str, Any]] = None,  # noqa: UP045
+        alternative: Optional[dict[str, Any]] = None,  # noqa: UP045
+        total_candidates: Optional[int] = None,  # noqa: UP045
+    ) -> dict:
+        """Present a grounded product comparison table and recommendation in the UI.
+        Call this instead of writing a markdown comparison table."""
+        return {
+            "title": title,
+            "context_note": context_note,
+            "max_unit_price_cents": max_unit_price_cents,
+            "products": products or [],
+            "recommendation": recommendation,
+            "alternative": alternative,
+            "total_candidates": (
+                total_candidates if total_candidates is not None else len(products or [])
+            ),
+        }
+
+    return FunctionTool(present_product_recommendations)
+
+
 def build_verifund_lifecycle(settings: Settings) -> VerifundLifecycle:
     return VerifundLifecycle(
         verifund=VerifundA2AClient(
@@ -587,6 +623,7 @@ def build_agent(settings: Settings) -> LlmAgent:
     tools = [
         _build_mediation_tool(settings),
         _build_marketplace_search_tool(settings),
+        _build_recommendations_tool(),
         AGUIToolset(),
     ]
     if settings.verifund_mode != "off":

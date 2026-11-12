@@ -38,6 +38,7 @@ import {
 } from "./verifund-tools";
 import { fetchRegistry } from "@/lib/api";
 import { ProductSearchCards } from "./product-cards";
+import { ProductRecommendations } from "./product-recommendations";
 import { SourcingMandateCard } from "./sourcing-mandate-card";
 import {
   formatMandateReceipt,
@@ -513,6 +514,24 @@ export function Chat({
     }),
     render: ({ status, result }) => (
       <ProductSearchCards status={status} result={result} />
+    ),
+  });
+
+  useRenderTool({
+    name: "present_product_recommendations",
+    parameters: z
+      .object({
+        title: z.string().optional(),
+        context_note: z.string().optional(),
+        max_unit_price_cents: z.number().optional(),
+        products: z.array(z.record(z.unknown())).optional(),
+        recommendation: z.record(z.unknown()).optional(),
+        alternative: z.record(z.unknown()).optional(),
+        total_candidates: z.number().optional(),
+      })
+      .passthrough(),
+    render: ({ status, result }) => (
+      <ProductRecommendations status={status} result={result} />
     ),
   });
 
