@@ -375,6 +375,24 @@ class Repository:
             Column("stats", JSON, nullable=False),
             Column("error", String, nullable=True),
         )
+        self.provenance_challenges = Table(
+            "provenance_challenges",
+            self.metadata,
+            Column("id", String, primary_key=True),
+            Column("organization_id", String, nullable=False, index=True),
+            Column("transaction_id", String, nullable=False, index=True),
+            Column("code", String, nullable=False),
+            Column("issued_at", String, nullable=False),
+            Column("expires_at", String, nullable=False),
+            Column("used_at", String, nullable=True),
+            Column("status", String, nullable=False),
+            UniqueConstraint(
+                "organization_id",
+                "transaction_id",
+                "code",
+                name="uq_provenance_org_txn_code",
+            ),
+        )
 
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
@@ -1902,3 +1920,93 @@ class Repository:
         async with self.engine.connect() as conn:
             row = (await conn.execute(statement)).first()
         return dict(row._mapping) if row is not None else None
+
+
+    async def issue_provenance_challenge(
+        self,
+        *,
+        organization_id: str | None,
+        transaction_id: str,
+        challenge_id: str,
+        code: str,
+        issued_at: datetime,
+        expires_at: datetime,
+    ) -> dict[str, Any]:
+        org = organization_id or "__global__"
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.provenance_challenges.update()
+                .where(self.provenance_challenges.c.organization_id == org)
+                .where(self.provenance_challenges.c.transaction_id == transaction_id)
+                .where(self.provenance_challenges.c.status == "active")
+                .values(status="superseded")
+            )
+            row = {
+                "id": challenge_id,
+                "organization_id": org,
+                "transaction_id": transaction_id,
+                "code": code,
+                "issued_at": _iso(issued_at),
+                "expires_at": _iso(expires_at),
+                "used_at": None,
+                "status": "active",
+            }
+            await conn.execute(self.provenance_challenges.insert().values(**row))
+        return row
+
+    async def get_active_provenance_challenge(
+        self,
+        organization_id: str | None,
+        transaction_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        org = organization_id or "__global__"
+        current = _iso(now or datetime.now(UTC))
+        statement = (
+            select(self.provenance_challenges)
+            .where(self.provenance_challenges.c.organization_id == org)
+            .where(self.provenance_challenges.c.transaction_id == transaction_id)
+            .where(self.provenance_challenges.c.status == "active")
+            .where(self.provenance_challenges.c.expires_at >= current)
+            .order_by(self.provenance_challenges.c.issued_at.desc())
+            .limit(1)
+        )
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(statement)).mappings().first()
+        return dict(row) if row else None
+
+    async def consume_provenance_challenge(
+        self,
+        *,
+        organization_id: str | None,
+        transaction_id: str,
+        code: str,
+        now: datetime,
+    ) -> bool:
+        org = organization_id or "__global__"
+        current = _iso(now)
+        async with self.engine.begin() as conn:
+            result = await conn.execute(
+                self.provenance_challenges.update()
+                .where(self.provenance_challenges.c.organization_id == org)
+                .where(self.provenance_challenges.c.transaction_id == transaction_id)
+                .where(self.provenance_challenges.c.code == code)
+                .where(self.provenance_challenges.c.status == "active")
+                .where(self.provenance_challenges.c.expires_at >= current)
+                .values(status="used", used_at=current)
+            )
+        return bool(getattr(result, "rowcount", 0) == 1)
+
+    async def expire_provenance_challenges(
+        self, *, now: datetime
+    ) -> int:
+        current = _iso(now)
+        async with self.engine.begin() as conn:
+            result = await conn.execute(
+                self.provenance_challenges.update()
+                .where(self.provenance_challenges.c.status == "active")
+                .where(self.provenance_challenges.c.expires_at < current)
+                .values(status="expired")
+            )
+        return int(getattr(result, "rowcount", 0) or 0)
