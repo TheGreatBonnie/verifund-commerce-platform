@@ -87,15 +87,18 @@ envVarGroups:
       - key: REGISTRY_ADMIN_TOKEN
         sync: false
       # Inter-service tokens. All six services share one process, so one value
-      # per token keeps every caller and callee in agreement.
+      # per token keeps every caller and callee in agreement. Render generates
+      # these on the first sync and preserves them afterwards.
+      # BUYER_INTERNAL_TOKEN is also read by the Vercel console: copy the
+      # generated value into the console's environment.
       - key: BUYER_INTERNAL_TOKEN
-        sync: false
+        generateValue: true
       - key: SELLER_INTERNAL_TOKEN
-        sync: false
+        generateValue: true
       - key: VERIFUND_AGENT_A2A_TOKEN
-        sync: false
+        generateValue: true
       - key: VERIFUND_AGENT_INTERNAL_TOKEN
-        sync: false
+        generateValue: true
       - key: MARKETMESH_LLM_MODE
         value: live
       - key: NEBIUS_API_KEY
@@ -106,12 +109,19 @@ envVarGroups:
         value: deepseek-ai/DeepSeek-V4-Flash-0731
       - key: VERIFUND_MODE
         value: sandbox
+      # Render generates these on the first sync (base64, 256-bit, well over
+      # the 32-byte minimum the control plane enforces) and preserves them
+      # afterwards. VERIFUND_OPS_TOKEN is also read by the Vercel console:
+      # copy the generated value into the console's environment.
       - key: VERIFUND_OPS_TOKEN
-        sync: false
+        generateValue: true
       - key: VERIFUND_SELLER_TOKEN_SECRET
-        sync: false
+        generateValue: true
       - key: VERIFUND_LINK_SECRET
-        sync: false
+        generateValue: true
+      # The receipt key stays manual: VERIFUND_RECEIPT_KEYS is a JSON map whose
+      # key must equal VERIFUND_RECEIPT_ACTIVE_KID, so Render cannot generate
+      # the two values independently.
       - key: VERIFUND_RECEIPT_KEYS
         sync: false
       - key: VERIFUND_RECEIPT_ACTIVE_KID

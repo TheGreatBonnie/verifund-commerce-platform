@@ -207,7 +207,9 @@ six FastAPI apps behind one process (see
 [Merged gateway topology](#merged-gateway-topology)).
 
 Apply it with **Render → New → Blueprint**, select this repository and the
-`deploy/render` branch, and Render prompts for every `sync: false` value.
+`deploy/render` branch. Render generates the internal secrets marked
+`generateValue: true` and prompts for every `sync: false` value (see
+[2.4 Secrets](#24-secrets-generated-vs-supplied)).
 
 | Item | Value |
 | --- | --- |
@@ -229,15 +231,58 @@ once for every service:
   is `http://127.0.0.1:9301/...`.
 
 The complete list of keys and values lives in `render.yaml`; the secrets are the
-`sync: false` entries.
+`generateValue` and `sync: false` entries.
 
 ### 2.3 Notes on the Blueprint
 
 - `PORT` is set once, on `gateway`. Render routes public traffic to that port; the default is already `10000`, which is what the Blueprint uses.
-- `sync: false` means Render prompts for the value when the Blueprint is first applied. Use it for every secret.
+- `generateValue: true` makes Render generate a base64-encoded 256-bit value on the first sync and keep it afterwards. `sync: false` means Render prompts for the value instead.
 - The `*.onrender.com` subdomains assume the service names are available. Verify the exact URLs in the Render dashboard after the first deploy and correct any env vars that reference them.
 - `ALLOWED_CARD_HOSTS` and `ALLOWED_CARD_URLS` control which Agent Card URLs the buyer and registry will fetch. With dynamic onboarding, `ALLOWED_CARD_URLS` can stay empty and the shared host is allowed.
 - Free-tier services cannot use `healthCheckPath` for restart-driven recovery; Render still restarts crashed processes.
+
+### 2.4 Secrets: generated vs. supplied
+
+The gateway validates the control-plane settings at startup
+(`verifund_control_plane/settings.py`). In sandbox mode the ops, seller-token and
+link secrets must each be at least 32 bytes and must not be one of the
+`DEFAULT_SECRETS` placeholders, or the process exits before it binds a port.
+Keep that check in mind when changing any of the values below.
+
+**Render generates these on the first Blueprint sync** (`generateValue: true`),
+so they cannot be forgotten or left at a placeholder:
+
+| Key | Notes |
+| --- | --- |
+| `VERIFUND_OPS_TOKEN` | Also read by the Vercel console — copy it there |
+| `VERIFUND_SELLER_TOKEN_SECRET` | Used to sign seller tokens |
+| `VERIFUND_LINK_SECRET` | Used to sign checkout/return links |
+| `BUYER_INTERNAL_TOKEN` | Also read by the Vercel console — copy it there |
+| `SELLER_INTERNAL_TOKEN` | Internal seller calls |
+| `VERIFUND_AGENT_A2A_TOKEN` | Agent A2A calls |
+| `VERIFUND_AGENT_INTERNAL_TOKEN` | Buyer → agent calls |
+
+The console runs on Vercel, outside the Blueprint. After each Blueprint sync,
+copy the generated `VERIFUND_OPS_TOKEN` and `BUYER_INTERNAL_TOKEN` from the
+`gateway-shared` group into the console's Vercel environment; otherwise
+console → control-plane and console → buyer calls return 401.
+
+**These stay `sync: false`** because Render cannot generate them correctly:
+
+| Key | Why it is manual |
+| --- | --- |
+| `ADMIN_TOKEN`, `REGISTRY_ADMIN_TOKEN` | The registry and the control plane must use the **same** value; generating them separately would produce two different secrets |
+| `VERIFUND_RECEIPT_KEYS`, `VERIFUND_RECEIPT_ACTIVE_KID` | The key is JSON (`{"<kid>":"<secret>"}`) and its inner key must equal the active kid, so both must be entered together. The kid must not be `dev-1`, and the secret must be at least 32 bytes |
+| `VERIFUND_SELLER_PAYOUT_EMAILS` | JSON map of seller ID → payout email; must be non-empty, unique, and exclude the platform/buyer addresses |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` | PayPal sandbox credentials; the webhook must be registered for the gateway host |
+| `PAYPAL_PLATFORM_EMAIL`, `PAYPAL_BUYER_EMAIL` | Sandbox account addresses |
+| `NEBIUS_API_KEY` | Live LLM calls (`MARKETMESH_LLM_MODE=live`) |
+| `CLERK_SECRET_KEY`, `CLERK_JWT_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk dashboard values |
+
+`generateValue` never overwrites an existing value. If a key already holds a
+placeholder, change it to a real value in the dashboard or delete the key from
+the group and sync the Blueprint again to have Render generate a fresh one.
+`sync: false` values are prompted once and preserved across syncs.
 
 ---
 
