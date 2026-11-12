@@ -1,0 +1,6 @@
+{
+  "carrier_key": "mock",
+  "tracking_number": "TRK-HAPPY_PATH",
+  "scenario": "happy_path",
+  "weight_expected_g": 2100
+}

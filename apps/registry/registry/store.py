@@ -37,6 +37,8 @@ class RegistryStore:
             Column("last_seen_at", String, nullable=False),
             Column("healthy", Boolean, nullable=False, default=True),
             Column("last_error", String, nullable=True),
+            Column("organization_id", String, nullable=True),
+            Column("verified", Boolean, nullable=False, default=True),
         )
         self.listings = Table(
             "seller_listings",
@@ -47,10 +49,48 @@ class RegistryStore:
             Column("listing_json", JSON, nullable=False),
         )
 
+        self.agents = Table(
+            "agents",
+            self.metadata,
+            Column("agent_id", String(64), primary_key=True),
+            Column("name", String, nullable=False),
+            Column("card_url", String, nullable=False),
+            Column("skills", JSON, nullable=False),
+            Column("card_json", JSON, nullable=False),
+            Column("card_hash", String(64), nullable=False),
+            Column("last_seen_at", String, nullable=False),
+            Column("healthy", Boolean, nullable=False, default=True),
+            Column("last_error", String, nullable=True),
+            Column("organization_id", String, nullable=True),
+            Column("published", Boolean, nullable=False, default=False),
+        )
+
+    @staticmethod
+    async def _ensure_projection_columns(conn) -> None:
+        additions = {
+            "sellers": (
+                ("organization_id", "organization_id VARCHAR"),
+                ("verified", "verified BOOLEAN NOT NULL DEFAULT 1"),
+            ),
+            "agents": (
+                ("organization_id", "organization_id VARCHAR"),
+                ("published", "published BOOLEAN NOT NULL DEFAULT 0"),
+            ),
+        }
+        for table, columns in additions.items():
+            rows = await conn.execute(text(f"PRAGMA table_info({table})"))
+            existing = {row[1] for row in rows}
+            for name, ddl in columns:
+                if name not in existing:
+                    await conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+                    )
+
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
+            await self._ensure_projection_columns(conn)
 
     async def upsert(
         self,
@@ -63,6 +103,8 @@ class RegistryStore:
         card_hash: str,
         healthy: bool,
         error: str | None,
+        organization_id: str | None = None,
+        verified: bool = True,
     ) -> dict[str, Any]:
         now = datetime.now(UTC).isoformat()
         values = {
@@ -75,6 +117,8 @@ class RegistryStore:
             "last_seen_at": now,
             "healthy": healthy,
             "last_error": error,
+            "organization_id": organization_id,
+            "verified": verified,
         }
         statement = sqlite_insert(self.sellers).values(**values)
         statement = statement.on_conflict_do_update(
@@ -188,6 +232,8 @@ class RegistryStore:
                 )
                 listing_sellers = {row.seller_id for row in rows}
         for seller in await self.list_sellers():
+            if not seller.get("verified", True):
+                continue
             if not product_sku and category not in seller["categories"]:
                 continue
             if listing_sellers is not None and seller["seller_id"] not in listing_sellers:
@@ -216,6 +262,74 @@ class RegistryStore:
             )
 
 
+    async def upsert_agent(
+        self,
+        *,
+        agent_id: str,
+        name: str,
+        card_url: str,
+        skills: list[str],
+        card_json: dict[str, Any],
+        card_hash: str,
+        healthy: bool,
+        error: str | None,
+        organization_id: str | None = None,
+        published: bool = False,
+    ) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        values = {
+            "agent_id": agent_id,
+            "name": name,
+            "card_url": card_url,
+            "skills": skills,
+            "card_json": card_json,
+            "card_hash": card_hash,
+            "last_seen_at": now,
+            "healthy": healthy,
+            "last_error": error,
+            "organization_id": organization_id,
+            "published": published,
+        }
+        statement = sqlite_insert(self.agents).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=["agent_id"],
+            set_={key: value for key, value in values.items() if key != "agent_id"},
+        )
+        async with self.engine.begin() as conn:
+            await conn.execute(statement)
+        return values
+
+    async def list_agents(
+        self, skill: str | None = None, *, published_only: bool = False
+    ) -> list[dict[str, Any]]:
+        async with self.engine.connect() as conn:
+            stmt = select(self.agents).order_by(self.agents.c.agent_id)
+            if published_only:
+                stmt = stmt.where(self.agents.c.published.is_(True))
+            result = await conn.execute(stmt)
+            rows = [dict(row._mapping) for row in result]
+        if skill:
+            rows = [row for row in rows if skill in (row.get("skills") or [])]
+        return rows
+
+    async def get_agent(self, agent_id: str) -> dict[str, Any] | None:
+        async with self.engine.connect() as conn:
+            result = await conn.execute(
+                select(self.agents).where(self.agents.c.agent_id == agent_id)
+            )
+            row = result.first()
+            return dict(row._mapping) if row else None
+
+    async def mark_agent_health(
+        self, agent_id: str, healthy: bool, error: str | None
+    ) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.agents.update()
+                .where(self.agents.c.agent_id == agent_id)
+                .values(healthy=healthy, last_error=error)
+            )
+
 def canonical_card_hash(card_json: dict[str, Any]) -> str:
     import hashlib
 
@@ -229,3 +343,5 @@ def default_allowed_hosts() -> tuple[str, ...]:
 
 def store_metadata_text() -> str:
     return str(text("SELECT 1"))
+
+

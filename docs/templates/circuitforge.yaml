@@ -1,0 +1,1277 @@
+seller_id: circuitforge
+name: CircuitForge
+tagline: Value electronics with configurable coverage
+categories:
+- audio
+- consumer-electronics
+- gaming
+- gaming pc
+- keyboard
+- laptop
+- macbook
+- monitor
+- mouse
+- office accessory
+- storage
+- wearable
+list_unit_price_cents: 44999
+floor_unit_price_cents: 40499
+initial_unit_price_cents: 44099
+concession_ladder_cents: &id001
+- 44099
+- 42299
+- 40499
+base_warranty_months: 12
+warranty_addons_cents: &id002
+  '12': 0
+  '24': 4050
+returns_days: 30
+delivery_days: 5
+stock_on_hand: 18
+sustainability_certified: false
+rating: 4.4
+mandate:
+  version: 1
+  auto_accept: true
+  allowed_currencies:
+  - USD
+  max_total_cents: 500000
+  min_warranty_months: 0
+  max_warranty_months: 24
+  min_returns_days: 0
+  max_returns_days: 60
+  max_inspection_period_hours: 72
+  max_dispute_window_hours: 168
+products:
+- sku: EX-4K-GAMING-MONITOR
+  name: 4K Gaming Monitor
+  category: Monitor
+  description: High resolution gaming monitor with fast refresh rates and vibrant
+    colors.
+  list_unit_price_cents: 44999
+  original_unit_price_cents: 53998
+  initial_unit_price_cents: 44099
+  floor_unit_price_cents: 40499
+  concession_ladder_cents: *id001
+  base_warranty_months: 12
+  warranty_addons_cents: *id002
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1585362028211-dee1aba5fdd3?w=500
+  rating: 4.8
+  reviews: '160'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ADVANCED-WORKSTATION-LAPTOP
+  name: Advanced Workstation Laptop
+  category: Laptop
+  description: A powerful workstation laptop built for intensive creative tasks and
+    complex workflows.
+  list_unit_price_cents: 134999
+  original_unit_price_cents: 161998
+  initial_unit_price_cents: 132299
+  floor_unit_price_cents: 121499
+  concession_ladder_cents:
+  - 132299
+  - 126899
+  - 121499
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 12150
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1522199755839-a2bacb67c546?w=500
+  rating: 4.7
+  reviews: '94'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-BACKLIT-OFFICE-KEYBOARD
+  name: Backlit Office Keyboard
+  category: Keyboard
+  description: Quiet and comfortable keyboard with subtle backlighting for office
+    use.
+  list_unit_price_cents: 5399
+  original_unit_price_cents: 6478
+  initial_unit_price_cents: 5291
+  floor_unit_price_cents: 4859
+  concession_ladder_cents:
+  - 5291
+  - 5075
+  - 4859
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 486
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1601445638532-3c6f6c3aa1d6?w=500
+  rating: 4.4
+  reviews: '172'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-BLUETOOTH-SPEAKER
+  name: Bluetooth Speaker
+  category: Office Accessory
+  description: Portable Bluetooth speaker with excellent sound quality for your workspace.
+  list_unit_price_cents: 5399
+  original_unit_price_cents: 6478
+  initial_unit_price_cents: 5291
+  floor_unit_price_cents: 4859
+  concession_ladder_cents:
+  - 5291
+  - 5075
+  - 4859
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 486
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500
+  rating: 4.6
+  reviews: '178'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-BUDGET-GAMING-PC
+  name: Budget Gaming PC
+  category: Gaming PC
+  description: Affordable gaming desktop offering solid performance for esports and
+    casual gaming.
+  list_unit_price_cents: 107999
+  original_unit_price_cents: 129598
+  initial_unit_price_cents: 105839
+  floor_unit_price_cents: 97199
+  concession_ladder_cents:
+  - 105839
+  - 101519
+  - 97199
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 9720
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1660855551740-4474188debdb?w=500
+  rating: 4.3
+  reviews: '132'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-BUDGET-LAPTOP-101
+  name: Budget Laptop 101
+  category: Laptop
+  description: Affordable laptop perfect for everyday tasks and basic computing.
+  list_unit_price_cents: 44999
+  original_unit_price_cents: 53998
+  initial_unit_price_cents: 44099
+  floor_unit_price_cents: 40499
+  concession_ladder_cents:
+  - 44099
+  - 42299
+  - 40499
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 4050
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=500
+  rating: 4.0
+  reviews: '108'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-BUDGET-WIRED-MOUSE
+  name: Budget Wired Mouse
+  category: Mouse
+  description: Reliable wired mouse offering simplicity and precision at an affordable
+    price.
+  list_unit_price_cents: 1799
+  original_unit_price_cents: 2158
+  initial_unit_price_cents: 1763
+  floor_unit_price_cents: 1619
+  concession_ladder_cents:
+  - 1763
+  - 1691
+  - 1619
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 162
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=500
+  rating: 4.2
+  reviews: '156'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-COMPACT-GAMING-PC
+  name: Compact Gaming PC
+  category: Gaming PC
+  description: Small form factor gaming PC that delivers high performance without
+    taking up much space.
+  list_unit_price_cents: 134999
+  original_unit_price_cents: 161998
+  initial_unit_price_cents: 132299
+  floor_unit_price_cents: 121499
+  concession_ladder_cents:
+  - 132299
+  - 126899
+  - 121499
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 12150
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1587202372775-e229f172b9d7?w=500
+  rating: 4.6
+  reviews: '126'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-CONVERTIBLE-2-IN-1-LAPTOP
+  name: Convertible 2-in-1 Laptop
+  category: Laptop
+  description: Versatile laptop with touchscreen and 360-degree hinge functionality.
+  list_unit_price_cents: 98999
+  original_unit_price_cents: 118798
+  initial_unit_price_cents: 97019
+  floor_unit_price_cents: 89099
+  concession_ladder_cents:
+  - 97019
+  - 93059
+  - 89099
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 8910
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1544731612-de7f96afe55f?w=500
+  rating: 4.4
+  reviews: '110'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-CURVED-OFFICE-MONITOR
+  name: Curved Office Monitor
+  category: Monitor
+  description: Ergonomically curved monitor designed to reduce eye strain during long
+    work hours.
+  list_unit_price_cents: 29699
+  original_unit_price_cents: 35638
+  initial_unit_price_cents: 29105
+  floor_unit_price_cents: 26729
+  concession_ladder_cents:
+  - 29105
+  - 27917
+  - 26729
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 2673
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1547119957-637f8679db1e?w=500
+  rating: 4.4
+  reviews: '162'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-DESKTOP-WEBCAM
+  name: Desktop Webcam
+  category: Office Accessory
+  description: High-definition webcam for video conferencing and streaming.
+  list_unit_price_cents: 8099
+  original_unit_price_cents: 9718
+  initial_unit_price_cents: 7937
+  floor_unit_price_cents: 7289
+  concession_ladder_cents:
+  - 7937
+  - 7613
+  - 7289
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 729
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1623949556303-b0d17d198863?w=500
+  rating: 4.4
+  reviews: '180'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ELITE-GAMING-MONITOR
+  name: Elite Gaming Monitor
+  category: Monitor
+  description: High-refresh rate gaming monitor that delivers smooth visuals and vibrant
+    colors for competitive gaming.
+  list_unit_price_cents: 31499
+  original_unit_price_cents: 37798
+  initial_unit_price_cents: 30869
+  floor_unit_price_cents: 28349
+  concession_ladder_cents:
+  - 30869
+  - 29609
+  - 28349
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 2835
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1593305841991-05c297ba4575?w=500
+  rating: 4.6
+  reviews: '98'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ENTERPRISE-ULTRABOOK
+  name: Enterprise Ultrabook
+  category: Laptop
+  description: Premium ultrabook optimized for business security and performance.
+  list_unit_price_cents: 125999
+  original_unit_price_cents: 151198
+  initial_unit_price_cents: 123479
+  floor_unit_price_cents: 113399
+  concession_ladder_cents:
+  - 123479
+  - 118439
+  - 113399
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 11340
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1504707748692-419802cf939d?w=500
+  rating: 4.6
+  reviews: '112'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ERGO-DESK-LAMP
+  name: Ergo Desk Lamp
+  category: Office Accessory
+  description: Adjustable LED desk lamp with multiple brightness levels to reduce
+    eye strain during long work sessions.
+  list_unit_price_cents: 7199
+  original_unit_price_cents: 8638
+  initial_unit_price_cents: 7055
+  floor_unit_price_cents: 6479
+  concession_ladder_cents:
+  - 7055
+  - 6767
+  - 6479
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 648
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1523380262778-076eb862d38f?w=500
+  rating: 4.4
+  reviews: '100'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ERGO-DESK-LAMP-2
+  name: Ergo Desk Lamp
+  category: Office Accessory
+  description: Adjustable LED desk lamp to reduce eye strain during extended working
+    hours.
+  list_unit_price_cents: 7199
+  original_unit_price_cents: 8638
+  initial_unit_price_cents: 7055
+  floor_unit_price_cents: 6479
+  concession_ladder_cents:
+  - 7055
+  - 6767
+  - 6479
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 648
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1619608135352-868e8313e121?w=500
+  rating: 4.4
+  reviews: '174'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ERGO-WIRELESS-MOUSE
+  name: Ergo Wireless Mouse
+  category: Mouse
+  description: Ergonomically designed mouse for comfortable use during long work sessions.
+  list_unit_price_cents: 3599
+  original_unit_price_cents: 4318
+  initial_unit_price_cents: 3527
+  floor_unit_price_cents: 3239
+  concession_ladder_cents:
+  - 3527
+  - 3383
+  - 3239
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 324
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=500
+  rating: 4.4
+  reviews: '152'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ERGONOMIC-FOOT-REST
+  name: Ergonomic Foot Rest
+  category: Office Accessory
+  description: Designed to relieve foot strain and improve posture during long hours
+    at your desk.
+  list_unit_price_cents: 2249
+  original_unit_price_cents: 2698
+  initial_unit_price_cents: 2204
+  floor_unit_price_cents: 2024
+  concession_ladder_cents:
+  - 2204
+  - 2114
+  - 2024
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 202
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://plus.unsplash.com/premium_photo-1681426775958-4e7ba85a77f1?w=500
+  rating: 4.2
+  reviews: '190'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ERGONOMIC-KEYBOARD
+  name: Ergonomic Keyboard
+  category: Keyboard
+  description: Keyboard designed to reduce strain and provide a comfortable typing
+    experience.
+  list_unit_price_cents: 6299
+  original_unit_price_cents: 7558
+  initial_unit_price_cents: 6173
+  floor_unit_price_cents: 5669
+  concession_ladder_cents:
+  - 6173
+  - 5921
+  - 5669
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 567
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500
+  rating: 4.5
+  reviews: '168'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-GAMING-BEAST-PC
+  name: Gaming Beast PC
+  category: Gaming PC
+  description: Ultimate gaming desktop with a top-tier GPU and CPU for an immersive
+    gaming experience.
+  list_unit_price_cents: 179999
+  original_unit_price_cents: 215998
+  initial_unit_price_cents: 176399
+  floor_unit_price_cents: 161999
+  concession_ladder_cents:
+  - 176399
+  - 169199
+  - 161999
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 16200
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1587202372634-32705e3bf49c?w=500
+  rating: 4.9
+  reviews: '86'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-GAMING-BEAST-PC-2
+  name: Gaming Beast PC
+  category: Gaming PC
+  description: High-end gaming desktop with a top-tier GPU and CPU for immersive gameplay.
+  list_unit_price_cents: 179999
+  original_unit_price_cents: 215998
+  initial_unit_price_cents: 176399
+  floor_unit_price_cents: 161999
+  concession_ladder_cents:
+  - 176399
+  - 169199
+  - 161999
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 16200
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1572314493295-09c6d5ec3cdf?w=500
+  rating: 4.9
+  reviews: '124'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-GAMING-WIRELESS-MOUSE
+  name: Gaming Wireless Mouse
+  category: Mouse
+  description: Responsive and accurate gaming mouse with adjustable DPI settings.
+  list_unit_price_cents: 5399
+  original_unit_price_cents: 6478
+  initial_unit_price_cents: 5291
+  floor_unit_price_cents: 4859
+  concession_ladder_cents:
+  - 5291
+  - 5075
+  - 4859
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 486
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1563297007-0686b7003af7?w=500
+  rating: 4.6
+  reviews: '154'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-MACBOOK-AIR
+  name: MacBook Air
+  category: MacBook
+  description: Lightweight and powerful notebook featuring Apple's M1 chip for everyday
+    productivity.
+  list_unit_price_cents: 107999
+  original_unit_price_cents: 129598
+  initial_unit_price_cents: 105839
+  floor_unit_price_cents: 97199
+  concession_ladder_cents:
+  - 105839
+  - 101519
+  - 97199
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 9720
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500
+  rating: 4.7
+  reviews: '84'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-MACBOOK-AIR-2
+  name: MacBook Air
+  category: MacBook
+  description: Lightweight and efficient notebook powered by Apple M1 chip.
+  list_unit_price_cents: 107999
+  original_unit_price_cents: 129598
+  initial_unit_price_cents: 105839
+  floor_unit_price_cents: 97199
+  concession_ladder_cents:
+  - 105839
+  - 101519
+  - 97199
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 9720
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1625766763788-95dcce9bf5ac?w=500
+  rating: 4.7
+  reviews: '114'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-MACBOOK-AIR-M2
+  name: MacBook Air M2
+  category: MacBook
+  description: Latest MacBook Air with upgraded performance and battery life.
+  list_unit_price_cents: 116999
+  original_unit_price_cents: 140398
+  initial_unit_price_cents: 114659
+  floor_unit_price_cents: 105299
+  concession_ladder_cents:
+  - 114659
+  - 109979
+  - 105299
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 10530
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500
+  rating: 4.7
+  reviews: '120'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-MACBOOK-PRO
+  name: MacBook Pro
+  category: MacBook
+  description: High-performance MacBook Pro designed for creative professionals with
+    demanding applications.
+  list_unit_price_cents: 215999
+  original_unit_price_cents: 259198
+  initial_unit_price_cents: 211679
+  floor_unit_price_cents: 194399
+  concession_ladder_cents:
+  - 211679
+  - 203039
+  - 194399
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 19440
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1518448828347-28e2cf0d6e28?w=500
+  rating: 4.8
+  reviews: '96'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-MACBOOK-PRO-13
+  name: MacBook Pro 13"
+  category: MacBook
+  description: Compact yet powerful MacBook Pro with a retina display.
+  list_unit_price_cents: 152999
+  original_unit_price_cents: 183598
+  initial_unit_price_cents: 149939
+  floor_unit_price_cents: 137699
+  concession_ladder_cents:
+  - 149939
+  - 143819
+  - 137699
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 13770
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?w=500
+  rating: 4.8
+  reviews: '116'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-MACBOOK-PRO-16
+  name: MacBook Pro 16"
+  category: MacBook
+  description: A top-tier MacBook Pro delivering exceptional performance for professionals.
+  list_unit_price_cents: 215999
+  original_unit_price_cents: 259198
+  initial_unit_price_cents: 211679
+  floor_unit_price_cents: 194399
+  concession_ladder_cents:
+  - 211679
+  - 203039
+  - 194399
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 19440
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1717865499857-ec35ce6e65fa?w=500
+  rating: 4.9
+  reviews: '118'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-MECHANICAL-GAMING-KEYBOARD
+  name: Mechanical Gaming Keyboard
+  category: Keyboard
+  description: RGB backlit mechanical keyboard with fast response times for gaming
+    enthusiasts.
+  list_unit_price_cents: 8099
+  original_unit_price_cents: 9718
+  initial_unit_price_cents: 7937
+  floor_unit_price_cents: 7289
+  concession_ladder_cents:
+  - 7937
+  - 7613
+  - 7289
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 729
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1595225476474-87563907a212?w=500
+  rating: 4.7
+  reviews: '166'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-NOISE-CANCELLING-HEADPHONES
+  name: Noise Cancelling Headphones
+  category: Audio
+  description: Over-ear headphones with active noise cancellation for immersive sound.
+  list_unit_price_cents: 13499
+  original_unit_price_cents: 16198
+  initial_unit_price_cents: 13229
+  floor_unit_price_cents: 12149
+  concession_ladder_cents:
+  - 13229
+  - 12689
+  - 12149
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 1215
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500
+  rating: 4.7
+  reviews: '182'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-OVERCLOCKED-GAMING-PC
+  name: Overclocked Gaming PC
+  category: Gaming PC
+  description: Performance-tuned gaming desktop designed for extreme gaming and streaming.
+  list_unit_price_cents: 224999
+  original_unit_price_cents: 269998
+  initial_unit_price_cents: 220499
+  floor_unit_price_cents: 202499
+  concession_ladder_cents:
+  - 220499
+  - 211499
+  - 202499
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 20250
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1587202372634-32705e3bf49c?w=500
+  rating: 4.7
+  reviews: '130'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-PERFORMANCE-LAPTOP-X
+  name: Performance Laptop X
+  category: Laptop
+  description: A powerful machine built for professionals and gamers alike.
+  list_unit_price_cents: 116999
+  original_unit_price_cents: 140398
+  initial_unit_price_cents: 114659
+  floor_unit_price_cents: 105299
+  concession_ladder_cents:
+  - 114659
+  - 109979
+  - 105299
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 10530
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=500
+  rating: 4.7
+  reviews: '106'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-PORTABLE-SSD-1TB
+  name: Portable SSD 1TB
+  category: Storage
+  description: High-speed portable SSD for fast data transfer and reliable storage.
+  list_unit_price_cents: 11699
+  original_unit_price_cents: 14038
+  initial_unit_price_cents: 11465
+  floor_unit_price_cents: 10529
+  concession_ladder_cents:
+  - 11465
+  - 10997
+  - 10529
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 1053
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1662601326685-fe26f65cdb17?w=500
+  rating: 4.8
+  reviews: '184'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-PRECISION-WIRELESS-MOUSE
+  name: Precision Wireless Mouse
+  category: Mouse
+  description: High-precision wireless mouse with customizable buttons and an ergonomic
+    design for comfort.
+  list_unit_price_cents: 4499
+  original_unit_price_cents: 5398
+  initial_unit_price_cents: 4409
+  floor_unit_price_cents: 4049
+  concession_ladder_cents:
+  - 4409
+  - 4229
+  - 4049
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 405
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1586349906319-48d20e9d17e5?w=500
+  rating: 4.5
+  reviews: '92'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-PRECISION-WIRELESS-MOUSE-2
+  name: Precision Wireless Mouse
+  category: Mouse
+  description: High-precision wireless mouse with customizable buttons for productivity.
+  list_unit_price_cents: 4499
+  original_unit_price_cents: 5398
+  initial_unit_price_cents: 4409
+  floor_unit_price_cents: 4049
+  concession_ladder_cents:
+  - 4409
+  - 4229
+  - 4049
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 405
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=500
+  rating: 4.5
+  reviews: '150'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-PRO-BUSINESS-LAPTOP-2
+  name: Pro Business Laptop
+  category: Laptop
+  description: High performance laptop designed for multitasking and business applications.
+  list_unit_price_cents: 89999
+  original_unit_price_cents: 107998
+  initial_unit_price_cents: 88199
+  floor_unit_price_cents: 80999
+  concession_ladder_cents:
+  - 88199
+  - 84599
+  - 80999
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 8100
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=500
+  rating: 4.5
+  reviews: '102'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-PROFESSIONAL-COLOR-MONITOR
+  name: Professional Color Monitor
+  category: Monitor
+  description: Monitors designed for designers and photographers requiring accurate
+    color reproduction.
+  list_unit_price_cents: 53999
+  original_unit_price_cents: 64798
+  initial_unit_price_cents: 52919
+  floor_unit_price_cents: 48599
+  concession_ladder_cents:
+  - 52919
+  - 50759
+  - 48599
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 4860
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1586210579191-33b45e38fa2c?w=500
+  rating: 4.9
+  reviews: '164'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-REFURBISHED-MACBOOK-PRO
+  name: Refurbished MacBook Pro
+  category: MacBook
+  description: Certified refurbished MacBook Pro with premium specs at a great value.
+  list_unit_price_cents: 179999
+  original_unit_price_cents: 215998
+  initial_unit_price_cents: 176399
+  floor_unit_price_cents: 161999
+  concession_ladder_cents:
+  - 176399
+  - 169199
+  - 161999
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 16200
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=500
+  rating: 4.5
+  reviews: '122'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-SMARTWATCH-SERIES-5
+  name: Smartwatch Series 5
+  category: Wearable
+  description: Feature-packed smartwatch with fitness tracking and notifications.
+  list_unit_price_cents: 17999
+  original_unit_price_cents: 21598
+  initial_unit_price_cents: 17639
+  floor_unit_price_cents: 16199
+  concession_ladder_cents:
+  - 17639
+  - 16919
+  - 16199
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 1620
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1544117519-31a4b719223d?w=500
+  rating: 4.6
+  reviews: '186'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ULTRA-SLIM-LAPTOP
+  name: Ultra Slim Laptop
+  category: Laptop
+  description: Lightweight laptop with a sleek design and long battery life.
+  list_unit_price_cents: 80999
+  original_unit_price_cents: 97198
+  initial_unit_price_cents: 79379
+  floor_unit_price_cents: 72899
+  concession_ladder_cents:
+  - 79379
+  - 76139
+  - 72899
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 7290
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=500
+  rating: 4.3
+  reviews: '104'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-ULTRAWIDE-MONITOR
+  name: UltraWide Monitor
+  category: Monitor
+  description: Immersive ultrawide display for enhanced productivity and multimedia
+    experiences.
+  list_unit_price_cents: 35999
+  original_unit_price_cents: 43198
+  initial_unit_price_cents: 35279
+  floor_unit_price_cents: 32399
+  concession_ladder_cents:
+  - 35279
+  - 33839
+  - 32399
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 3240
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1666771410003-8437c4781d49?w=500
+  rating: 4.7
+  reviews: '158'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-VR-HEADSET
+  name: VR Headset
+  category: Gaming
+  description: Step into the world of virtual reality with this immersive VR headset.
+  list_unit_price_cents: 26999
+  original_unit_price_cents: 32398
+  initial_unit_price_cents: 26459
+  floor_unit_price_cents: 24299
+  concession_ladder_cents:
+  - 26459
+  - 25379
+  - 24299
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 2430
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1622979135225-d2ba269cf1ac?w=500
+  rating: 4.7
+  reviews: '198'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-VR-READY-GAMING-PC
+  name: VR Ready Gaming PC
+  category: Gaming PC
+  description: Optimized for virtual reality experiences with advanced cooling and
+    performance.
+  list_unit_price_cents: 197999
+  original_unit_price_cents: 237598
+  initial_unit_price_cents: 194039
+  floor_unit_price_cents: 178199
+  concession_ladder_cents:
+  - 194039
+  - 186119
+  - 178199
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 17820
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1593640408182-31c70c8268f5?w=500
+  rating: 4.8
+  reviews: '128'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-WIRELESS-CHARGING-PAD
+  name: Wireless Charging Pad
+  category: Office Accessory
+  description: Fast wireless charger for smartphones and wearable devices.
+  list_unit_price_cents: 2699
+  original_unit_price_cents: 3238
+  initial_unit_price_cents: 2645
+  floor_unit_price_cents: 2429
+  concession_ladder_cents:
+  - 2645
+  - 2537
+  - 2429
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 243
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1622445275463-afa2ab738c34?w=500
+  rating: 4.5
+  reviews: '176'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-WIRELESS-COMPACT-KEYBOARD
+  name: Wireless Compact Keyboard
+  category: Keyboard
+  description: Portable, wireless keyboard perfect for on-the-go productivity.
+  list_unit_price_cents: 4499
+  original_unit_price_cents: 5398
+  initial_unit_price_cents: 4409
+  floor_unit_price_cents: 4049
+  concession_ladder_cents:
+  - 4409
+  - 4229
+  - 4049
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 405
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500
+  rating: 4.3
+  reviews: '170'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+- sku: EX-WIRELESS-PRESENTER
+  name: Wireless Presenter
+  category: Office Accessory
+  description: Convenient wireless presenter ideal for meetings and presentations.
+  list_unit_price_cents: 2699
+  original_unit_price_cents: 3238
+  initial_unit_price_cents: 2645
+  floor_unit_price_cents: 2429
+  concession_ladder_cents:
+  - 2645
+  - 2537
+  - 2429
+  base_warranty_months: 12
+  warranty_addons_cents:
+    '12': 0
+    '24': 243
+  returns_days: 30
+  delivery_days: 5
+  stock_on_hand: 18
+  incoming_stock: 6
+  incoming_days: 3
+  image_url: https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=500
+  rating: 4.3
+  reviews: '194'
+  tag: Value pick
+  sustainability_certified: false
+  color_name: gray
+incoming_stock: 6
+incoming_days: 3

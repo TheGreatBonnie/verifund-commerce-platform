@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from commerce_core.contracts import RFQ, CounterOffer, Mandate, Offer
 from commerce_core.pricing import SellerPolicy
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 SELLER_SYSTEM_PROMPT = """You are an autonomous seller agent in MarketMesh.
 Choose exactly one action from the allowed options. Never invent a price or warranty
 that is not in the allowed list. The buyer's maximum budget is not available to you.
-Return a concise rationale for the audit trail. Prefer a final offer when concession
+Choose a negotiation strategy (collaborative, competitive, compromise, value-based)
+each round and explain it in rationale. When no feasible price move remains (price-stuck),
+propose up to 2 non-price trade-offs (warranty_months, split_shipment, shipping_cents, delivery_days). Return a concise rationale for the audit trail. Prefer a final offer when concession
 options are exhausted. You may only choose propose, counter, accept, or reject."""
 
 
@@ -21,6 +23,31 @@ class SellerDecision(BaseModel):
     unit_price_cents: int
     warranty_months: int
     rationale: str
+    strategy: Literal["collaborative", "competitive", "compromise", "value-based"] = "collaborative"
+    requested_changes: dict[str, str | int | bool] = {}
+
+    @field_validator("requested_changes")
+    @classmethod
+    def validate_requested_changes(
+        cls, changes: dict[str, str | int | bool]
+    ) -> dict[str, str | int | bool]:
+        allowed = {"warranty_months", "split_shipment", "shipping_cents", "delivery_days"}
+        unsupported = set(changes) - allowed
+        if unsupported:
+            raise ValueError(f"unsupported requested changes: {sorted(unsupported)}")
+        if "warranty_months" in changes and (not isinstance(changes["warranty_months"], int) or isinstance(changes["warranty_months"], bool)):
+            raise ValueError("warranty_months must be an integer")
+        if "split_shipment" in changes and not isinstance(changes["split_shipment"], bool):
+            raise ValueError("split_shipment must be a boolean")
+        if "shipping_cents" in changes:
+            v = changes["shipping_cents"]
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+                raise ValueError("shipping_cents must be a non-negative integer")
+        if "delivery_days" in changes:
+            v = changes["delivery_days"]
+            if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+                raise ValueError("delivery_days must be a positive integer")
+        return changes
 
 
 class SellerDecisionContext(BaseModel):
@@ -120,14 +147,16 @@ class ScriptedSellerPlanner:
 
 class NebiusSellerPlanner:
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        self.llm = ChatOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            temperature=0.2,
-            timeout=30,
-            max_retries=1,
-        ).with_structured_output(SellerDecision)
+        common: dict[str, Any] = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": model,
+            "temperature": 0.2,
+            "timeout": 30,
+            "max_retries": 1,
+        }
+        self.base_llm = ChatOpenAI(**common)
+        self.llm = ChatOpenAI(**common).with_structured_output(SellerDecision)
 
     async def decide(self, context: SellerDecisionContext) -> SellerDecision:
         return cast(

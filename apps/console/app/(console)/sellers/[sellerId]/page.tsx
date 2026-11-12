@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useRegistry } from "@/features/sellers/use-registry";
 import { fetchSellerDashboard } from "@/lib/api";
-import { formatDateTime, shortId } from "@/lib/format";
+import { formatDateTime, shortId, evidenceCounts } from "@/lib/format";
 
 function currency(cents: number, code = "USD") {
   return new Intl.NumberFormat("en-US", {
@@ -170,6 +170,27 @@ export default function SellerDetailPage() {
                 </table>
               </div>
             ) : <p className="mm-seller-no-activity">No offers recorded yet.</p>}
+          </Section>
+
+          <Section title="Settlements" eyebrow="Verifund">
+            {!dashboard ? <DashboardSectionState loading={dashboardQuery.isLoading} error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} /> : (dashboard.settlement ?? []).length ? (
+              <div className="mm-seller-table-scroll">
+                <table className="mm-seller-data-table">
+                  <thead><tr><th>Transaction</th><th>State</th><th>Amount</th><th>Evidence</th></tr></thead>
+                  <tbody>{(dashboard.settlement ?? []).map((item) => {
+                    const counts = evidenceCounts(item.evidence);
+                    return (
+                    <tr key={item.transaction_id}>
+                      <td className="mm-seller-mono">{shortId(item.transaction_id, 14)}</td>
+                      <td><span className="mm-seller-status-tag">{item.state}</span></td>
+                      <td>{item.amount_cents != null ? currency(item.amount_cents, item.currency ?? "USD") : "—"}</td>
+                      <td>{counts ? `${counts.received}/${counts.required}` : "—"}</td>
+                    </tr>
+                    );
+                  })}</tbody>
+                </table>
+              </div>
+            ) : <p className="mm-seller-no-activity">No settlements recorded yet.</p>}
           </Section>
 
           <Section title="Recent orders" eyebrow="Fulfillment">

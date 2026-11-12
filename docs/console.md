@@ -9,6 +9,17 @@ Routes (all under the `(console)` layout with sidebar + thread drawer):
 - `/settings` — console settings + reset local state.
 - `/help` — usage guide and glossary.
 
+Seller workspace (separate layout, see `docs/seller-fulfillment-workspace.md`):
+
+- `/seller/dashboard`, `/seller/orders`, `/seller/fulfillment`,
+  `/seller/fulfillment/[id]`, `/seller/fulfillment/[id]/evidence`,
+  `/seller/fulfillment/[id]/activity`, `/seller/evidence`, `/seller/payouts`.
+- `/fulfillment/access/[token]` — invitation exchange.
+
+API proxies: `POST /api/seller/transactions/[id]/evidence`,
+`POST /api/seller/transactions/[id]/dispute-evidence`,
+`GET /api/seller/transactions/[id]/evidence/[evidenceId]`.
+
 ## Development
 
 ```bash

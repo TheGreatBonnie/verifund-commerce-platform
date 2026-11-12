@@ -18,11 +18,22 @@ from sqlalchemy import (
     Table,
     select,
 )
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 SENSITIVE_KEYS = {"authorization", "cookie", "x-api-key", "token"}
 MAX_PAYLOAD_BYTES = 256 * 1024
+
+
+async def _reflected_column_names(
+    conn: Any, table: str
+) -> set[str]:
+    def _reflect(sync_conn: Any) -> set[str]:
+        inspector = sa_inspect(sync_conn)
+        return {c["name"] for c in inspector.get_columns(table)}
+
+    return set(await conn.run_sync(_reflect))
 
 
 def redact(value: Any) -> Any:
@@ -95,12 +106,20 @@ class TraceStore:
             Column("award_json", JSON, nullable=True),
             Column("order_json", JSON, nullable=True),
             Column("error", String, nullable=True),
+            Column("organization_id", String, nullable=True, index=True),
+            Column("user_id", String, nullable=True),
         )
 
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
+            for column in ("organization_id", "user_id"):
+                cols = await _reflected_column_names(conn, "runs")
+                if column not in cols:
+                    await conn.exec_driver_sql(
+                        f"ALTER TABLE runs ADD COLUMN {column} TEXT"
+                    )
 
     async def record(
         self,
@@ -252,25 +271,53 @@ class TraceStore:
         )
 
     async def upsert_run(self, run_id: str, **fields: Any) -> None:
+        _UNSET = object()
         now = datetime.now(UTC).isoformat()
-        values: dict[str, Any] = {
+        # Resolve optional fields; _UNSET means "not provided by caller".
+        stage = fields.get("stage", _UNSET)
+        mandate = fields.get("mandate_json", fields.get("mandate", _UNSET))
+        award = fields.get("award_json", fields.get("award", _UNSET))
+        order = fields.get("order_json", fields.get("order", _UNSET))
+        error = fields.get("error", _UNSET)
+        organization_id = fields.get("organization_id", _UNSET)
+        user_id = fields.get("user_id", _UNSET)
+
+        insert_values: dict[str, Any] = {
             "run_id": run_id,
             "created_at": now,
             "updated_at": now,
-            "stage": fields.get("stage", "new"),
-            "mandate_json": fields.get("mandate_json", fields.get("mandate")),
-            "award_json": fields.get("award_json", fields.get("award")),
-            "order_json": fields.get("order_json", fields.get("order")),
-            "error": fields.get("error"),
+            "stage": stage if stage is not _UNSET else "new",
+            "mandate_json": mandate if mandate is not _UNSET else None,
+            "award_json": award if award is not _UNSET else None,
+            "order_json": order if order is not _UNSET else None,
+            "error": error if error is not _UNSET else None,
+            "organization_id": organization_id
+            if organization_id is not _UNSET
+            else None,
+            "user_id": user_id if user_id is not _UNSET else None,
         }
-        statement = sqlite_insert(self.runs).values(**values)
+        statement = sqlite_insert(self.runs).values(**insert_values)
+        # On conflict, only overwrite fields the caller actually provided so
+        # that a later stage transition (e.g. "awarded") does not erase an
+        # award/order/mandate persisted by an earlier one.
+        update_set: dict[str, Any] = {"updated_at": now}
+        if stage is not _UNSET:
+            update_set["stage"] = stage
+        if mandate is not _UNSET:
+            update_set["mandate_json"] = mandate
+        if award is not _UNSET:
+            update_set["award_json"] = award
+        if order is not _UNSET:
+            update_set["order_json"] = order
+        if error is not _UNSET:
+            update_set["error"] = error
+        if organization_id is not _UNSET:
+            update_set["organization_id"] = organization_id
+        if user_id is not _UNSET:
+            update_set["user_id"] = user_id
         statement = statement.on_conflict_do_update(
             index_elements=["run_id"],
-            set_={
-                key: value
-                for key, value in values.items()
-                if key not in {"run_id", "created_at"}
-            },
+            set_=update_set,
         )
         async with self.engine.begin() as conn:
             await conn.execute(statement)
@@ -284,12 +331,13 @@ class TraceStore:
             return dict(row._mapping) if row else None
 
     async def list_runs(
-        self, limit: int = 50
+        self, organization_id: str | None = None, *, limit: int = 50
     ) -> builtins.list[dict[str, Any]]:
-        async with self.engine.connect() as conn:
-            result = await conn.execute(
-                select(self.runs)
-                .order_by(self.runs.c.updated_at.desc())
-                .limit(limit)
+        statement = select(self.runs).order_by(self.runs.c.updated_at.desc())
+        if organization_id is not None:
+            statement = statement.where(
+                self.runs.c.organization_id == organization_id
             )
+        async with self.engine.connect() as conn:
+            result = await conn.execute(statement.limit(limit))
             return [dict(row._mapping) for row in result]

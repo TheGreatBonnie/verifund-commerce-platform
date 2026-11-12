@@ -1,0 +1,6 @@
+{
+  "carrier_key": "mock",
+  "tracking_number": "TRK-PACKING_PHOTO_MISSING",
+  "scenario": "packing_photo_missing",
+  "weight_expected_g": 2100
+}

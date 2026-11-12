@@ -13,8 +13,8 @@ def build_buyer_agent_card(base_url: str) -> AgentCard:
         AgentSkill(
             id="commerce.sourcing",
             name="Source and negotiate",
-            description="Discover sellers, negotiate offers, rank them, and prepare a human approval.",
-            tags=["commerce", "sourcing", "negotiation"],
+            description="Discover sellers, negotiate offers (strategy-aware), rank them, and prepare a human approval.",
+            tags=["commerce", "sourcing", "negotiation", "strategy"],
             input_modes=["application/json", "text/plain"],
             output_modes=["application/json", "text/plain"],
         ),

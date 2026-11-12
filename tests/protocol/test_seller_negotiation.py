@@ -17,9 +17,9 @@ from tests.support.a2a import (
     task_state,
 )
 
-PRODUCT_SKU = "MM-WIRELESS-HEADPHONES"
-PRODUCT_HINT = "Wireless Noise-Canceling Headphones"
-INITIAL_UNIT_PRICE_CENTS = 18900
+PRODUCT_SKU = "EX-NOISE-CANCELLING-HEADPHONES"
+PRODUCT_HINT = "Noise Cancelling Headphones"
+INITIAL_UNIT_PRICE_CENTS = 14699
 QUANTITY = 12
 
 
@@ -71,7 +71,7 @@ async def test_rfq_offer_and_counter(seller_session):
 
     counter = CounterOffer(
         negotiation_round=2,
-        target_unit_price_cents=18500,
+        target_unit_price_cents=14000,
         requested_changes={},
         rationale="Can you improve the unit price?",
     )
@@ -96,7 +96,7 @@ async def test_task_ids_are_stable_and_context_is_shared(seller_session):
     client, _ = seller_session
     counter = CounterOffer(
         negotiation_round=2,
-        target_unit_price_cents=18500,
+        target_unit_price_cents=14000,
         requested_changes={},
         rationale="Can you improve the unit price?",
     )

@@ -1,5 +1,13 @@
 import { ConsoleLayout } from "@/components/layout/console-layout";
+import { consoleSession } from "@/lib/console-session";
 
-export default function Layout({ children }: { children: React.ReactNode }) {
-  return <ConsoleLayout>{children}</ConsoleLayout>;
+export const dynamic = "force-dynamic";
+
+export default async function Layout({ children }: { children: React.ReactNode }) {
+  const { userId, orgId } = await consoleSession();
+  return (
+    <ConsoleLayout userId={userId} orgId={orgId}>
+      {children}
+    </ConsoleLayout>
+  );
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,9 +13,11 @@ from sqlalchemy import (
     JSON,
     Column,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
+    UniqueConstraint,
     select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -135,10 +138,94 @@ class SellerStore:
             Column("created_at", String, nullable=False),
         )
 
+        self.seller_agreement_reviews = Table(
+            "seller_agreement_reviews",
+            self.metadata,
+            Column("agreement_id", String, nullable=False),
+            Column("version", Integer, nullable=False),
+            Column("agreement_hash", String, nullable=False),
+            Column("offer_hash", String, nullable=False),
+            Column("terms", String, nullable=False),
+            Column("change_request_id", String, nullable=True),
+            Column("decision", String, nullable=False),
+            Column("reviewed_at", String, nullable=False),
+            Column("task_id", String, nullable=False),
+            Column("context_id", String, nullable=False),
+            UniqueConstraint("agreement_id", "version", name="pk_seller_agreement_reviews"),
+        )
+
+        self.settlement_tokens = Table(
+            "settlement_tokens",
+            self.metadata,
+            Column("transaction_id", String, primary_key=True),
+            Column("seller_id", String, nullable=False),
+            Column("token", String, nullable=False),
+            Column("updated_at", String, nullable=False),
+        )
+        self.evidence_outbox = Table(
+            "evidence_outbox",
+            self.metadata,
+            Column("evidence_key", String, primary_key=True),
+            Column("transaction_id", String, nullable=False),
+            Column("seller_id", String, nullable=False),
+            # Legacy ``kind`` values are preserved for back-compat; new rows
+            # mirror the CP ``requirement_id`` into both columns so the
+            # historic unique constraint keeps deduplicating.
+            Column("kind", String, nullable=False),
+            Column("requirement_id", String, nullable=True),
+            Column("filename", String, nullable=False),
+            Column("media_type", String, nullable=False),
+            Column("content", LargeBinary, nullable=False),
+            Column("note", String, nullable=False, default=""),
+            Column("captured_at", String, nullable=True),
+            Column("status", String, nullable=False, default="pending"),
+            Column("attempts", Integer, nullable=False, default=0),
+            Column("next_attempt_at", String, nullable=False),
+            Column("last_error", String, nullable=True),
+            Column("created_at", String, nullable=False),
+            Column("sent_at", String, nullable=True),
+            UniqueConstraint(
+                "transaction_id",
+                "kind",
+                name="uq_evidence_outbox_transaction_kind",
+            ),
+        )
+
     async def create_schema(self) -> None:
         await configure_sqlite(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
+        await self._migrate_evidence_outbox()
+
+    async def _migrate_evidence_outbox(self) -> None:
+        """Add ``requirement_id`` to pre-migration databases and backfill it.
+
+        Fresh databases already have the column via ``create_all``. Existing
+        SQLite databases only gain it through this idempotent migration.
+        """
+        from sqlalchemy import inspect, text
+
+        async with self.engine.begin() as conn:
+            inspector = await conn.run_sync(
+                lambda sync_conn: (
+                    inspect(sync_conn).get_columns("evidence_outbox")
+                )
+            )
+            columns = {col["name"] for col in inspector}
+            if "requirement_id" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE evidence_outbox "
+                        "ADD COLUMN requirement_id TEXT"
+                    )
+                )
+            if "kind" in columns:
+                await conn.execute(
+                    text(
+                        "UPDATE evidence_outbox SET requirement_id = kind "
+                        "WHERE requirement_id IS NULL"
+                    )
+                )
 
     async def seed_catalog(self, policy: SellerPolicy) -> None:
         for product in policy.catalog():
@@ -343,3 +430,265 @@ class SellerStore:
                 )
                 return {"split_shipment": True, "on_hand": 0}
             raise ValueError("out_of_stock")
+
+    async def save_settlement_token(
+        self, transaction_id: str, seller_id: str, token: str
+    ) -> None:
+        await save_settlement_token(self, transaction_id, seller_id, token)
+
+    async def get_settlement_token(self, transaction_id: str) -> str | None:
+        return await get_settlement_token(self, transaction_id)
+
+    async def save_settlement_context(
+        self, *, transaction_id: str, seller_id: str
+    ) -> None:
+        """Record a transaction as a known settlement without a secret.
+
+        The control plane migrated routes authenticate with the shared
+        internal token + org/seller context, so no bearer token is stored.
+        """
+        await save_settlement_context(
+            self, transaction_id=transaction_id, seller_id=seller_id
+        )
+
+    async def enqueue_evidence(
+        self,
+        *,
+        transaction_id: str,
+        seller_id: str,
+        kind: str | None = None,
+        requirement_id: str | None = None,
+        content: bytes,
+        media_type: str,
+        filename: str,
+        note: str = "",
+        captured_at: str | None = None,
+        created_at: datetime | None = None,
+    ) -> bool:
+        resolved = requirement_id or kind
+        if not resolved:
+            raise ValueError("requirement_id is required")
+        return await enqueue_evidence(
+            self,
+            transaction_id=transaction_id,
+            seller_id=seller_id,
+            kind=resolved,
+            requirement_id=resolved,
+            content=content,
+            media_type=media_type,
+            filename=filename,
+            note=note,
+            captured_at=captured_at,
+            created_at=created_at,
+        )
+
+    async def list_due_evidence(
+        self, *, now: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return await list_due_evidence(self, now=now, limit=limit)
+
+    async def mark_evidence_sent(self, evidence_key: str, *, sent_at: str) -> None:
+        await mark_evidence_sent(self, evidence_key, sent_at=sent_at)
+
+    async def reschedule_evidence(
+        self, evidence_key: str, *, next_attempt_at: str, error: str
+    ) -> None:
+        await reschedule_evidence(
+            self,
+            evidence_key,
+            next_attempt_at=next_attempt_at,
+            error=error,
+        )
+
+    async def fail_evidence(self, evidence_key: str, *, error: str) -> None:
+        await fail_evidence(self, evidence_key, error=error)
+
+    async def get_evidence_outbox(
+        self, transaction_id: str, kind: str
+    ) -> dict[str, Any] | None:
+        return await get_evidence_outbox(self, transaction_id, kind)
+
+    async def list_settlement_tokens(
+        self, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        return await list_settlement_tokens(self, limit)
+
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+async def save_settlement_token(self, transaction_id: str, seller_id: str, token: str) -> None:
+    statement = sqlite_insert(self.settlement_tokens).values(
+        transaction_id=transaction_id,
+        seller_id=seller_id,
+        token=token,
+        updated_at=_iso(datetime.now(UTC)),
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=["transaction_id"],
+        set_={
+            "seller_id": seller_id,
+            "token": token,
+            "updated_at": _iso(datetime.now(UTC)),
+        },
+    )
+    async with self.engine.begin() as conn:
+        await conn.execute(statement)
+
+
+async def get_settlement_token(self, transaction_id: str) -> str | None:
+    async with self.engine.connect() as conn:
+        result = await conn.execute(
+            select(self.settlement_tokens.c.token).where(
+                self.settlement_tokens.c.transaction_id == transaction_id
+            )
+        )
+        row = result.first()
+        return row.token if row else None
+
+
+async def save_settlement_context(
+    self, *, transaction_id: str, seller_id: str
+) -> None:
+    statement = sqlite_insert(self.settlement_tokens).values(
+        transaction_id=transaction_id,
+        seller_id=seller_id,
+        token="",
+        updated_at=_iso(datetime.now(UTC)),
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=["transaction_id"],
+        set_={
+            "seller_id": seller_id,
+            "updated_at": _iso(datetime.now(UTC)),
+        },
+    )
+    async with self.engine.begin() as conn:
+        await conn.execute(statement)
+
+
+async def enqueue_evidence(
+    self,
+    *,
+    transaction_id: str,
+    seller_id: str,
+    kind: str,
+    requirement_id: str | None = None,
+    content: bytes,
+    media_type: str,
+    filename: str,
+    note: str = "",
+    captured_at: str | None = None,
+    created_at: datetime | None = None,
+) -> bool:
+    resolved = requirement_id or kind
+    created = _iso(created_at or datetime.now(UTC))
+    statement = (
+        sqlite_insert(self.evidence_outbox)
+        .values(
+            evidence_key=uuid.uuid4().hex,
+            transaction_id=transaction_id,
+            seller_id=seller_id,
+            kind=resolved,
+            requirement_id=resolved,
+            filename=filename,
+            media_type=media_type,
+            content=content,
+            note=note,
+            captured_at=captured_at,
+            status="pending",
+            attempts=0,
+            next_attempt_at=created,
+            last_error=None,
+            created_at=created,
+            sent_at=None,
+        )
+        .on_conflict_do_nothing(
+            index_elements=["transaction_id", "kind"]
+        )
+    )
+    async with self.engine.begin() as conn:
+        result = await conn.execute(statement)
+    return bool(result.rowcount)
+
+
+async def list_due_evidence(self, *, now: str, limit: int = 20) -> list[dict[str, Any]]:
+    async with self.engine.connect() as conn:
+        result = await conn.execute(
+            select(self.evidence_outbox)
+            .where(
+                self.evidence_outbox.c.status == "pending",
+                self.evidence_outbox.c.next_attempt_at <= now,
+            )
+            .order_by(self.evidence_outbox.c.created_at)
+            .limit(max(1, min(limit, 100)))
+        )
+        return [dict(row._mapping) for row in result]
+
+
+async def mark_evidence_sent(self, evidence_key: str, *, sent_at: str) -> None:
+    async with self.engine.begin() as conn:
+        await conn.execute(
+            self.evidence_outbox.update()
+            .where(self.evidence_outbox.c.evidence_key == evidence_key)
+            .values(status="sent", sent_at=sent_at, last_error=None)
+        )
+
+
+async def reschedule_evidence(
+    self,
+    evidence_key: str,
+    *,
+    next_attempt_at: str,
+    error: str,
+) -> None:
+    async with self.engine.begin() as conn:
+        await conn.execute(
+            self.evidence_outbox.update()
+            .where(self.evidence_outbox.c.evidence_key == evidence_key)
+            .values(
+                attempts=self.evidence_outbox.c.attempts + 1,
+                next_attempt_at=next_attempt_at,
+                last_error=error,
+            )
+        )
+
+
+async def fail_evidence(self, evidence_key: str, *, error: str) -> None:
+    async with self.engine.begin() as conn:
+        await conn.execute(
+            self.evidence_outbox.update()
+            .where(self.evidence_outbox.c.evidence_key == evidence_key)
+            .values(
+                status="failed",
+                attempts=self.evidence_outbox.c.attempts + 1,
+                last_error=error,
+            )
+        )
+
+
+async def get_evidence_outbox(self, transaction_id: str, kind: str) -> dict[str, Any] | None:
+    async with self.engine.connect() as conn:
+        result = await conn.execute(
+            select(self.evidence_outbox).where(
+                self.evidence_outbox.c.transaction_id == transaction_id,
+                self.evidence_outbox.c.kind == kind,
+            )
+        )
+        row = result.first()
+        return dict(row._mapping) if row else None
+
+async def list_settlement_tokens(self, limit: int = 5) -> list[dict[str, Any]]:
+    async with self.engine.connect() as conn:
+        result = await conn.execute(
+            select(
+                self.settlement_tokens.c.transaction_id,
+                self.settlement_tokens.c.seller_id,
+                self.settlement_tokens.c.updated_at,
+            )
+            .order_by(self.settlement_tokens.c.updated_at.desc())
+            .limit(max(1, min(limit, 20)))
+        )
+        return [dict(row._mapping) for row in result]
+

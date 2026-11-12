@@ -9,6 +9,9 @@ COPY apps/registry ./apps/registry
 COPY apps/seller_agent ./apps/seller_agent
 COPY apps/buyer_agent ./apps/buyer_agent
 COPY apps/orchestrator_agent ./apps/orchestrator_agent
+COPY apps/verifund_control_plane ./apps/verifund_control_plane
+COPY apps/verifund_agent ./apps/verifund_agent
+COPY apps/gateway ./apps/gateway
 COPY scripts ./scripts
 
 RUN uv sync --frozen --no-dev

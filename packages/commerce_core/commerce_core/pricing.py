@@ -16,8 +16,7 @@ class SellerCatalogProduct(BaseModel):
     name: str
     category: str
     description: str = ""
-    image_emoji: str = "📦"
-    color: str = "#eef2ed"
+    image_url: str = ""
     list_unit_price_cents: int | None = Field(default=None, gt=0)
     original_unit_price_cents: int | None = Field(default=None, gt=0)
     floor_unit_price_cents: int | None = Field(default=None, gt=0)
@@ -64,8 +63,12 @@ class SellerPolicy(BaseModel):
     color: str = "black"
     sku: str = "NC-700-BLK"
     product_name: str = "Nimbus NC-700 ANC Headset"
+    product_description: str = ""
+    image_url: str = ""
+    product_tag: str = ""
+    product_image_url: str = ""
     products: list[SellerCatalogProduct] = Field(default_factory=list)
-
+    mandate: dict | None = None
     def catalog(self) -> list[SellerCatalogProduct]:
         if self.products:
             return [
@@ -96,7 +99,10 @@ class SellerPolicy(BaseModel):
                 sku=self.sku,
                 name=self.product_name,
                 category=self.categories[0],
-                color=self.color,
+                description=self.product_description,
+                image_url=self.product_image_url or self.image_url,
+                tag=self.product_tag,
+                color_name=self.color,
                 list_unit_price_cents=self.list_unit_price_cents,
                 floor_unit_price_cents=self.floor_unit_price_cents,
                 initial_unit_price_cents=self.initial_unit_price_cents,
@@ -135,6 +141,10 @@ class SellerPolicy(BaseModel):
             update={
                 "sku": product.sku,
                 "product_name": product.name,
+                "product_description": product.description,
+                "image_url": product.image_url,
+                "product_tag": product.tag,
+                "product_image_url": product.image_url,
                 "categories": [product.category],
                 "color": product.color_name,
                 "list_unit_price_cents": product.list_unit_price_cents,

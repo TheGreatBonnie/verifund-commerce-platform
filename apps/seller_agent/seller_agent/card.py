@@ -15,7 +15,9 @@ from commerce_core.extension import EXTENSION_URI
 from commerce_core.pricing import SellerPolicy
 
 
-def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
+def build_agent_card(
+    policy: SellerPolicy, base_url: str, tenant: str | None = None
+) -> AgentCard:
     skills = [
         AgentSkill(
             id="commerce.catalog.search",
@@ -36,8 +38,16 @@ def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
         AgentSkill(
             id="commerce.negotiate",
             name="Negotiate an offer",
-            description="Counter or accept structured offers.",
-            tags=["commerce", "negotiation"],
+            description="Counter or accept structured offers (strategy-aware).",
+            tags=["commerce", "negotiation", "strategy"],
+            input_modes=["application/json"],
+            output_modes=["application/json"],
+        ),
+        AgentSkill(
+            id="commerce.negotiate.tradeoff",
+            name="Propose trade-offs",
+            description="Propose non-price trade-offs (warranty, shipping, delivery, split) when price is stuck.",
+            tags=["commerce", "negotiation", "tradeoff", "strategy"],
             input_modes=["application/json"],
             output_modes=["application/json"],
         ),
@@ -46,6 +56,14 @@ def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
             name="Place an order",
             description="Reserve stock and create an idempotent order.",
             tags=["commerce", "order"],
+            input_modes=["application/json"],
+            output_modes=["application/json"],
+        ),
+        AgentSkill(
+            id="commerce.agreement.review",
+            name="Review a Verifund agreement",
+            description="Validate a Verifund agreement against the stored offer.",
+            tags=["verifund", "agreement"],
             input_modes=["application/json"],
             output_modes=["application/json"],
         ),
@@ -60,6 +78,7 @@ def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
                 url=f"{base_url}/a2a",
                 protocol_binding=TransportProtocol.JSONRPC.value,
                 protocol_version=PROTOCOL_VERSION_CURRENT,
+                tenant=tenant or "",
             )
         ],
         capabilities=AgentCapabilities(
@@ -73,6 +92,11 @@ def build_agent_card(policy: SellerPolicy, base_url: str) -> AgentCard:
                     params={
                         "rating": policy.rating,
                         "sustainability_certified": policy.sustainability_certified,
+                        "negotiation": {
+                            "strategies": ["collaborative", "competitive", "compromise", "value-based"],
+                            "tradeoff_terms": ["warranty_months", "split_shipment", "shipping_cents", "delivery_days"],
+                            "max_tradeoffs": 2,
+                        },
                     },
                 )
             ],

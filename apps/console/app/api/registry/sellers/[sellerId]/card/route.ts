@@ -1,9 +1,11 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ sellerId: string }> },
 ) {
+  await auth.protect();
   const { sellerId } = await params;
   const registry = process.env.REGISTRY_URL ?? "http://127.0.0.1:9105";
   try {

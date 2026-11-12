@@ -1,0 +1,6 @@
+{
+  "carrier_key": "mock",
+  "tracking_number": "TRK-SPECS_MISMATCH",
+  "scenario": "specs_mismatch",
+  "weight_expected_g": 2100
+}

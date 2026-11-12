@@ -1,3 +1,4 @@
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
 import {
   Instrument_Serif,
@@ -40,11 +41,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${plusJakartaSans.variable} ${splineSansMono.variable} ${instrumentSerif.variable} antialiased`}
+        suppressHydrationWarning
       >
-        {children}
+        {/* Bitdefender / SafePay inject bis_skin_checked after SSR but
+            before React hydrates. Strip early so hydration sees the
+            server HTML unchanged. suppressHydrationWarning alone only
+            covers one level, so internal Next divs still warn. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var rm=function(e){if(e&&e.nodeType===1&&e.removeAttribute)e.removeAttribute('bis_skin_checked')};var clean=function(){document.querySelectorAll('[bis_skin_checked]').forEach(rm)};clean();new MutationObserver(function(ms){for(var i=0;i<ms.length;i++){var m=ms[i];rm(m.target);if(m.addedNodes)for(var j=0;j<m.addedNodes.length;j++)rm(m.addedNodes[j])}}).observe(document.documentElement,{attributes:true,subtree:true,attributeFilter:['bis_skin_checked'],childList:true})}catch(e){}`,
+          }}
+        />
+        <ClerkProvider>{children}</ClerkProvider>
       </body>
     </html>
   );

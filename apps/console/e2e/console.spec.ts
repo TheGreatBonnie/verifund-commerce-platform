@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
 
+const VERIFUND_MODE = process.env.VERIFUND_MODE ?? "sandbox";
+
+test.skip(
+  VERIFUND_MODE !== "off",
+  "Legacy MarketMesh flow runs only with Verifund off",
+);
+
 test("buyer runs the demo and orders only after approval", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("MarketMesh", { exact: true })).toBeVisible();

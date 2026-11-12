@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import subprocess
 import sys
@@ -49,7 +50,12 @@ def wait_until_ready(url: str, dev: subprocess.Popen, *, timeout: float = 120) -
     raise RuntimeError(f"timed out waiting for {url}")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--verifund", choices=["off", "fake", "sandbox"], default=None
+    )
+    args = parser.parse_args(argv)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     url = console_url()
 
@@ -59,6 +65,8 @@ def main() -> int:
         mode = os.environ.get("MARKETMESH_LLM_MODE", "scripted").lower()
         key = os.environ.get("NEBIUS_API_KEY", "").strip()
         command = [sys.executable, str(ROOT / "scripts/dev.py")]
+        if args.verifund:
+            command.extend(["--verifund", args.verifund])
         if mode != "live" or not key:
             print("No usable Nebius key; running scripted demo.")
             command.append("--scripted")
@@ -85,6 +93,12 @@ def main() -> int:
     print(f"\nSample brief:\n  {BRIEF}")
     print("\nApprove the recommended award to place the order.")
     print("Stop the stack with `make down`.")
+    settlement_mode = args.verifund or os.environ.get("VERIFUND_MODE", "sandbox")
+    if settlement_mode in {"fake", "sandbox"}:
+        print(
+            "Review the agreement in chat, approve funding, complete checkout, "
+            "then review evidence and approve payout release separately."
+        )
     return 0
 
 

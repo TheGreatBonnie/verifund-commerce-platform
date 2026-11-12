@@ -12,10 +12,8 @@ from commerce_core.pricing import Quote, SellerPolicy, load_policy
 
 PROFILE_DIR = (
     Path(__file__).resolve().parents[2]
-    / "apps"
-    / "seller_agent"
-    / "seller_agent"
-    / "profiles"
+    / "docs"
+    / "templates"
 )
 
 
@@ -96,22 +94,26 @@ def final_offers(
     circuitforge_policy: SellerPolicy,
     aurora_policy: SellerPolicy,
 ) -> list[Offer]:
+    # Use a shared, in-budget EX SKU across sellers so ranking exercises price/service
+    nw = northwind_policy.for_product("EX-PORTABLE-SSD-1TB")
+    cf = circuitforge_policy.for_product("EX-PORTABLE-SSD-1TB")
+    au = aurora_policy.for_product("EX-PORTABLE-SSD-1TB")
     return [
         offer_from_quote(
-            northwind_policy,
-            northwind_policy.quote(12, 28100, 36),
+            nw,
+            nw.quote(12, 11699, 24),
             status=OfferStatus.FINAL,
             round_number=3,
         ),
         offer_from_quote(
-            circuitforge_policy,
-            circuitforge_policy.quote(12, 26312, 24),
+            cf,
+            cf.quote(12, 10529, 24),
             status=OfferStatus.FINAL,
             round_number=3,
         ),
         offer_from_quote(
-            aurora_policy,
-            aurora_policy.quote(12, 28333, 24, allow_split=True),
+            au,
+            au.quote(12, 11114, 36, allow_split=True, incoming_stock=4),
             status=OfferStatus.FINAL,
             round_number=3,
         ),

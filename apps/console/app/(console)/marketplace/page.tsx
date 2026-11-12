@@ -4,9 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowUpRight,
+  Handshake,
   Heart,
-  MessageCircle,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -52,7 +51,7 @@ export default function MarketplacePage() {
         if (sort === "Price: high to low") return second.unit_price_cents - first.unit_price_cents;
         return 0;
       });
-  }, [category, highlyRatedOnly, query, sort]);
+  }, [products, category, highlyRatedOnly, query, sort]);
 
   const startProductRun = (product: MarketplaceProduct) => {
     const brief = [
@@ -67,15 +66,15 @@ export default function MarketplacePage() {
     try {
       window.sessionStorage.setItem("marketmesh:pendingBrief", brief);
     } catch {
-      // The fresh agent page still opens if session storage is unavailable.
+      // Chat still opens if session storage is unavailable.
     }
-    router.push(`/agents/${crypto.randomUUID()}`);
+    router.push("/chat");
   };
 
   return (
-    <div className="mm-marketplace-page">
+    <div className="mm-marketplace-page" suppressHydrationWarning>
       <header className="mm-marketplace-header">
-        <div>
+        <div suppressHydrationWarning>
           <p className="mm-kicker">Discover &amp; compare</p>
           <h1>Marketplace</h1>
           <p className="mm-marketplace-description">
@@ -127,15 +126,15 @@ export default function MarketplacePage() {
         </button>
       </section>
 
-      <div className="mm-marketplace-results" aria-live="polite">
+      <div className="mm-marketplace-results" aria-live="polite" suppressHydrationWarning>
         <span>Showing <strong>{visibleProducts.length}</strong> products</span>
         <span>Live seller listings · prices shown in USD</span>
       </div>
 
       {catalogQuery.isLoading ? (
-        <div className="mm-marketplace-empty" aria-busy="true">Loading live seller catalogs…</div>
+        <div className="mm-marketplace-empty" aria-busy="true" suppressHydrationWarning>Loading live seller catalogs…</div>
       ) : catalogQuery.error ? (
-        <div className="mm-marketplace-empty" role="alert">
+        <div className="mm-marketplace-empty" role="alert" suppressHydrationWarning>
           <h2>Marketplace catalog unavailable</h2>
           <p>{catalogQuery.error.message}</p>
           <Button type="button" variant="outline" size="sm" onClick={() => void catalogQuery.refetch()}>Retry</Button>
@@ -151,7 +150,7 @@ export default function MarketplacePage() {
           ))}
         </section>
       ) : (
-        <div className="mm-marketplace-empty" role="status">
+        <div className="mm-marketplace-empty" role="status" suppressHydrationWarning>
           <Search size={24} aria-hidden="true" />
           <h2>No products found</h2>
           <p>Try another search or category.</p>
@@ -174,9 +173,8 @@ function MarketplaceProductCard({
     <article className="mm-product-card mm-marketplace-product-card">
       <div
         className="mm-product-art mm-marketplace-product-art"
-        style={{ backgroundColor: product.color }}
       >
-        <span aria-hidden="true">{product.image_emoji}</span>
+        {product.image_url ? <img src={product.image_url} alt={product.name} /> : null}
         <small>{product.tag}</small>
         <button
           type="button"
@@ -205,15 +203,13 @@ function MarketplaceProductCard({
           <span>{product.offers.length} seller{product.offers.length === 1 ? "" : "s"}</span>
         </div>
         <Button
-          type="button"
           variant="outline"
           size="sm"
-          className="mm-product-action mm-marketplace-product-action mm-button-signal"
+          className="mm-product-action mm-button-signal"
           onClick={onAskAgent}
-          leftIcon={<MessageCircle size={13} aria-hidden="true" />}
+          leftIcon={<Handshake size={13} aria-hidden="true" />}
         >
           Ask agent to negotiate
-          <ArrowUpRight size={12} aria-hidden="true" />
         </Button>
       </div>
     </article>

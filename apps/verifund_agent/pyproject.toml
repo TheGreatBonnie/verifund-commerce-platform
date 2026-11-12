@@ -1,0 +1,28 @@
+[project]
+name = "marketmesh-verifund-agent"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "marketmesh-commerce-core",
+  "verifund-contracts",
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "a2a-sdk[http-server,fastapi]==1.2.3",
+  "langgraph>=1.2,<2",
+  "langgraph-checkpoint-sqlite>=3.0,<4",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "aiosqlite>=0.20,<1",
+  "httpx>=0.27,<1",
+  "pydantic-settings>=2.6,<3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["verifund_agent"]
+
+[tool.uv.sources]
+marketmesh-commerce-core = { workspace = true }
+verifund-contracts = { workspace = true }

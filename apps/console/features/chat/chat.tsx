@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
+import { approverDisplayName } from "@/lib/clerk-display-name";
 import {
   CopilotChat,
   useAgent,
@@ -10,9 +12,40 @@ import {
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { ApprovalCard } from "@/features/deal-room/components/approval-card";
-import { MessageToA2A } from "@/features/deal-room/components/a2a/MessageToA2A";
-import { MessageFromA2A } from "@/features/deal-room/components/a2a/MessageFromA2A";
+import { ApprovalCard } from "@/features/chat/components/approval-card";
+import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
+import {
+  AgreementReviewCard,
+  AgreementReviewLinkFromResult,
+  CheckoutCard,
+  EvidenceSummaryCard,
+  FundingApprovalCard,
+  ReceiptCard,
+  ReleaseApprovalCard,
+  VerifundStatusCard,
+  AgreementApprovalHitlCard,
+  agreementApprovalArgsSchema,
+  agreementReviewLink,
+  bilateralReviewStatus,
+  fundingApprovalArgsSchema,
+  fundingDecision,
+  parseVerifundToolResult,
+  PayPalCheckoutCard,
+  paypalCheckoutArgsSchema,
+  releaseApprovalArgsSchema,
+  releaseDecision,
+  verifundToolsEnabled,
+} from "./verifund-tools";
+import { fetchRegistry } from "@/lib/api";
+import { ProductSearchCards } from "./product-cards";
+import { ProductRecommendations } from "./product-recommendations";
+import { SourcingMandateCard } from "./sourcing-mandate-card";
+import {
+  formatMandateReceipt,
+  sourcingMandateArgsSchema,
+} from "./sourcing-mandate";
+import { MessageToA2A } from "@/features/chat/components/a2a/MessageToA2A";
+import { MessageFromA2A } from "@/features/chat/components/a2a/MessageFromA2A";
 
 type BuyerState = {
   status?: string;
@@ -29,14 +62,24 @@ type ChatProps = {
   onRunSample: () => void;
   isRunning: boolean;
   isReady: boolean;
+  threadId?: string;
   onBuyerStateUpdate?: (state: BuyerState) => void;
   variant?: "rail" | "embedded";
+  verifundMode?: string;
+  onVerifundAction?: () => void;
 };
 
 const SAMPLE_PROMPT =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
 
-function sellerName(sellerId?: string, cardUrl?: string) {
+function sellerName(
+  sellerId?: string,
+  cardUrl?: string,
+  resolvedName?: string | null,
+) {
+  // Prefer an explicit display name (tool arg or registry lookup) over the
+  // legacy slug/port maps; UUID seller ids otherwise leak into the UI.
+  if (resolvedName) return resolvedName;
   const names: Record<string, string> = {
     "northwind-audio": "Northwind Audio",
     circuitforge: "CircuitForge",
@@ -113,14 +156,69 @@ function responseSummary(rawResult: string) {
   }
 }
 
+function VerifundA2AExchange({
+  status,
+  task,
+  response,
+  children,
+}: {
+  status?: string;
+  task: string;
+  response?: string;
+  children: any;
+}) {
+  return (
+    <div data-testid="verifund-exchange" className="mm-verifund-exchange">
+      <MessageToA2A
+        status={status === "executing" ? "executing" : "complete"}
+        args={{ agentName: "Verifund", task }}
+      />
+      {response ? (
+        <MessageFromA2A
+          status="complete"
+          args={{ agentName: "Verifund" }}
+          response={response}
+        />
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 export function Chat({
   onRunSample,
   isRunning,
   isReady,
+  threadId,
   onBuyerStateUpdate,
   variant = "rail",
+  verifundMode,
+  onVerifundAction,
 }: ChatProps) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
+  const { user } = useUser();
+  const approver = approverDisplayName(user);
+  const [registryNames, setRegistryNames] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRegistry()
+      .then((sellers) => {
+        if (!cancelled) {
+          setRegistryNames(
+            new Map(sellers.map((seller) => [seller.seller_id, seller.name])),
+          );
+        }
+      })
+      .catch(() => {
+        // The slug/port fallback in sellerName still applies without the registry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useHumanInTheLoop(
     {
@@ -153,7 +251,7 @@ export function Chat({
                 onApprove={(note) =>
                   respond({
                     approved: true,
-                    approved_by: "Demo Buyer",
+                    approved_by: approver,
                     note,
                     task_id: args.task_id,
                   })
@@ -161,7 +259,7 @@ export function Chat({
                 onReject={(note) =>
                   respond({
                     approved: false,
-                    approved_by: "Demo Buyer",
+                    approved_by: approver,
                     note,
                     task_id: args.task_id,
                   })
@@ -195,10 +293,459 @@ export function Chat({
     [],
   );
 
+  const verifundEnabled = verifundToolsEnabled(verifundMode);
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_funding_approval",
+      description:
+        "Show the canonical agreement and the Buyer/Seller review status, then wait for an explicit human funding decision.",
+      available: verifundEnabled,
+      parameters: fundingApprovalArgsSchema,
+      render: ({ args, status, respond }) => {
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <FundingApprovalCard
+                args={args as any}
+                onApprove={(note) => {
+                  respond(
+                    fundingDecision(args as any, { approved: true, note }),
+                  );
+                  onVerifundAction?.();
+                }}
+                onReject={(note) => {
+                  respond(
+                    fundingDecision(args as any, { approved: false, note }),
+                  );
+                  onVerifundAction?.();
+                }}
+              />
+            </div>
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_paypal_checkout",
+      description:
+        "Show the embedded PayPal checkout and wait for the buyer to pay, cancel, or fall back to the redirect checkout.",
+      available: verifundEnabled && verifundMode === "sandbox",
+      parameters: paypalCheckoutArgsSchema,
+      render: ({ args, status, respond, result }) => {
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <PayPalCheckoutCard
+                args={args as any}
+                respond={respond}
+                onVerifundAction={onVerifundAction}
+              />
+            </div>
+          );
+        }
+        if (status === "complete") {
+          const state =
+            (result as any)?.state ?? (result as any)?.data?.state ?? "";
+          return (
+            <p
+              className="mm-chat-approval-result"
+              data-testid="verifund-checkout-settled"
+            >
+              Payment result recorded.
+              {state ? ` Settlement: ${state}.` : ""}
+            </p>
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, verifundMode, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_agreement_approval",
+      description:
+        "Show the canonical agreement and wait for an explicit human buyer approval decision.",
+      available: verifundEnabled,
+      parameters: agreementApprovalArgsSchema,
+      render: ({ args, status, respond }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval-pending" role="status">
+              Preparing the agreement for your review…
+            </div>
+          );
+        }
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <AgreementApprovalHitlCard
+                args={args as any}
+                respond={respond}
+                onVerifundAction={onVerifundAction}
+              />
+            </div>
+          );
+        }
+        if (status === "complete") {
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              Agreement decision recorded. Continuing…
+            </p>
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_verifund_release_approval",
+      description:
+        "Show the evidence/verification summary and wait for an explicit human release decision.",
+      available: verifundEnabled,
+      parameters: releaseApprovalArgsSchema,
+      render: ({ args, status, respond }) => {
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <ReleaseApprovalCard
+                args={args as any}
+                onDecision={(decision) => {
+                  respond(decision);
+                  onVerifundAction?.();
+                }}
+              />
+            </div>
+          );
+        }
+        return null;
+      },
+    },
+    [verifundEnabled, onVerifundAction],
+  );
+
+  useHumanInTheLoop(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "request_sourcing_mandate",
+      description:
+        "Collect and confirm a sourcing mandate before handing off to MarketMesh Buyer. " +
+        "Show locked product/offers read-only and collect quantity, firm budget/target, delivery deadline, " +
+        "warranty/returns, and must-have attributes. Block until the user submits or cancels.",
+      parameters: sourcingMandateArgsSchema,
+      render: ({ args, status, respond, result }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval-pending" role="status">
+              Preparing sourcing mandate…
+            </div>
+          );
+        }
+
+        if (status === "executing" && respond) {
+          return (
+            <div className="mm-chat-approval">
+              <SourcingMandateCard
+                args={args as any}
+                onSubmit={(mandate) =>
+                  respond({
+                    confirmed: true,
+                    task_id: (args as any).task_id,
+                    product: (args as any).product,
+                    mandate,
+                  })
+                }
+                onCancel={() =>
+                  respond({
+                    confirmed: false,
+                    task_id: (args as any).task_id,
+                    reason: "user_cancelled",
+                  })
+                }
+              />
+            </div>
+          );
+        }
+
+        if (status === "complete") {
+          let parsed: unknown = result;
+          try {
+            parsed = typeof result === "string" ? JSON.parse(result) : result;
+          } catch {
+            parsed = result;
+          }
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              {formatMandateReceipt(parsed)}
+            </p>
+          );
+        }
+
+        return null;
+      },
+    },
+    [],
+  );
+
+  useRenderTool({
+    name: "search_marketplace_products",
+    parameters: z.object({
+      query: z.string().optional(),
+      category: z.string().optional(),
+      max_unit_price_cents: z.number().optional(),
+      in_stock_only: z.boolean().optional(),
+      use_case: z.string().optional(),
+      preferences: z.array(z.string()).optional(),
+      limit: z.number().optional(),
+    }),
+    render: ({ status, result }) => (
+      <ProductSearchCards status={status} result={result} />
+    ),
+  });
+
+  useRenderTool({
+    name: "present_product_recommendations",
+    parameters: z
+      .object({
+        title: z.string().optional(),
+        context_note: z.string().optional(),
+        max_unit_price_cents: z.number().optional(),
+        products: z.array(z.record(z.unknown())).optional(),
+        recommendation: z.record(z.unknown()).optional(),
+        alternative: z.record(z.unknown()).optional(),
+        total_candidates: z.number().optional(),
+      })
+      .passthrough(),
+    render: ({ status, result }) => (
+      <ProductRecommendations status={status} result={result} />
+    ),
+  });
+
+  useRenderTool({
+    name: "verifund_create_agreement",
+    parameters: z.object({
+      run_id: z.string().optional(),
+      award: z.record(z.unknown()).optional(),
+    }),
+    render: ({ parameters, status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      if (status !== "complete" || !parsed) return null;
+      const task = `Create agreement for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
+
+      let children: any = null;
+      if (
+        parsed.checkpoint === "buyer_approval_required" &&
+        parsed.agreement_review
+      ) {
+        children = (
+          <div className="mm-chat-approval">
+            <AgreementReviewLinkFromResult result={parsed} />
+          </div>
+        );
+      } else {
+        const agreement = parsed.data?.agreement;
+        if (agreement) {
+          children = (
+            <div className="mm-chat-approval">
+              <AgreementReviewCard
+                agreement={agreement as any}
+                buyerReview={(parsed.data?.buyer_review as any) ?? null}
+                sellerDecision={(parsed.data?.seller_decision as any) ?? null}
+              />
+            </div>
+          );
+        }
+      }
+      if (!children) return null;
+      return (
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          {children}
+        </VerifundA2AExchange>
+      );
+    },
+  });
+
+  useFrontendTool(
+    {
+      agentId: "marketmesh_orchestrator",
+      name: "show_agreement_review",
+      description:
+        "Display the canonical agreement review card and its review link. This tool is non-blocking; it never records a decision and never requests funding approval.",
+      available: verifundEnabled,
+      parameters: z.object({
+        agreement: z.record(z.unknown()).optional(),
+        review_url: z.string().optional(),
+        version: z.number().optional(),
+        digest: z.string().optional(),
+        seller_decision: z.record(z.unknown()).optional(),
+        precheck: z.record(z.unknown()).optional(),
+        handle: z
+          .object({
+            task_id: z.string(),
+            context_id: z.string(),
+            run_id: z.string(),
+          })
+          .optional(),
+      }),
+      handler: async (args) => ({
+        status: "displayed",
+        review_url: args.review_url ?? null,
+        next_action: "wait_for_buyer_approval",
+      }),
+      render: ({ args, status, result }) => {
+        if (status === "inProgress") {
+          return (
+            <div className="mm-chat-approval">
+              <p>Preparing agreement review…</p>
+            </div>
+          );
+        }
+        const parsed = {
+          ...(parseVerifundToolResult(result) ?? {}),
+          ...(args as Record<string, unknown>),
+        };
+        const link = agreementReviewLink(parsed);
+        if (!link) return null;
+        return (
+          <div className="mm-chat-approval">
+            <AgreementApprovalCard {...link} />
+          </div>
+        );
+      },
+    },
+    [verifundEnabled],
+  );
+
+  useRenderTool({
+    name: "verifund_status",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ parameters, status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      if (status !== "complete" || !parsed) return null;
+      const task = `Check Verifund status for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
+      return (
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          <VerifundStatusCard
+            status={parsed.status}
+            checkpoint={parsed.checkpoint}
+            state={parsed.state ?? parsed.data?.projection?.state}
+            message={parsed.message}
+          />
+        </VerifundA2AExchange>
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "verifund_evidence_review",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ parameters, status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      if (status !== "complete" || !parsed) return null;
+      const task = `Review evidence for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
+      return (
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          <EvidenceSummaryCard
+            projection={
+              (parsed.data?.projection ?? {
+                evidence: parsed.evidence,
+                verification: parsed.verification,
+              }) as any
+            }
+          />
+        </VerifundA2AExchange>
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "verifund_fund",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ parameters, status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      if (status !== "complete" || !parsed) return null;
+      const url = parsed.checkout_url ?? parsed.data?.checkout_url;
+      const task = `Fund transaction for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = parsed.status
+        ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
+        : undefined;
+      const children =
+        typeof url === "string" ? (
+          <CheckoutCard
+            url={url}
+            expiresAt={parsed.expires_at ?? parsed.data?.expires_at ?? null}
+          />
+        ) : (
+          <VerifundStatusCard
+            status={parsed.status}
+            checkpoint={parsed.checkpoint}
+            state={parsed.state}
+            message={parsed.message}
+          />
+        );
+      return (
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          {children}
+        </VerifundA2AExchange>
+      );
+    },
+  });
+
+  useRenderTool({
+    name: "verifund_receipt",
+    parameters: z.object({ run_id: z.string().optional() }),
+    render: ({ parameters, status, result }) => {
+      const parsed = parseVerifundToolResult(result);
+      const receipt = parsed?.data?.receipt;
+      if (status !== "complete" || !receipt) return null;
+      const task = `Get receipt for run ${String(
+        parameters?.run_id ?? parsed?.data?.run_id ?? "",
+      )}`.trim();
+      const response = "Receipt available";
+      return (
+        <VerifundA2AExchange status={status} task={task} response={response}>
+          <ReceiptCard receipt={receipt as any} />
+        </VerifundA2AExchange>
+      );
+    },
+  });
+
   useRenderTool({
     name: "mediate_seller_call",
     parameters: z.object({
       seller_id: z.string().optional(),
+      seller_name: z.string().optional(),
       seller_card_url: z.string(),
       seller_request: z.record(z.unknown()).optional(),
     }),
@@ -207,6 +754,8 @@ export function Chat({
       const agentName = sellerName(
         parameters.seller_id,
         parameters.seller_card_url,
+        parameters.seller_name ??
+          registryNames.get(parameters.seller_id ?? ""),
       );
       const outgoing = {
         agentName,
@@ -344,6 +893,7 @@ export function Chat({
       <div className="mm-chat-surface">
         <CopilotChat
           agentId="marketmesh_orchestrator"
+          threadId={threadId}
           className="mm-copilot-chat"
           labels={{
             welcomeMessageText:

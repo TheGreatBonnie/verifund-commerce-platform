@@ -26,4 +26,8 @@ class Settings(BaseSettings):
         "circuitforge",
         "aurora",
         "summit-tech",
+        "buyer",
+        "verifund-agent",
+        "host.docker.internal",
     )
+    allowed_card_urls: tuple[str, ...] = ()

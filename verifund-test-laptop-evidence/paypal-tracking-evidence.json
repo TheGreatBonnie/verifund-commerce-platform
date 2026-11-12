@@ -1,0 +1,14 @@
+{
+  "test_mode": true,
+  "transaction_id": "VF-TEST-001",
+  "agreement_id": "AGR-TEST-001",
+  "requirement_id": "shipping_delivery",
+  "evidence_type": "PAYPAL_TRACKING",
+  "source": "PAYPAL_ORDERS_V2_SANDBOX",
+  "paypal_order_id": "REPLACE_WITH_ACTUAL_SANDBOX_ORDER_ID",
+  "capture_id": "REPLACE_WITH_ACTUAL_SANDBOX_CAPTURE_ID",
+  "tracking_number": "TEST-TRACK-001",
+  "carrier": "OTHER",
+  "carrier_name_other": "Verifund Sandbox Carrier",
+  "note": "Fixture only. Replace order_id and capture_id with values returned by your own Sandbox checkout. This is not a real carrier tracking number."
+}

@@ -24,6 +24,8 @@ dependencies = [
   "google-adk>=1.0,<2",
   "ag-ui-adk>=0.1,<1",
   "litellm>=1.84,<2",
+  "svix>=1.40,<2",
+  "clerk-backend-api>=4,<5",
 ]
 
 [dependency-groups]
@@ -38,10 +40,14 @@ dev = [
 [tool.uv.workspace]
 members = [
   "packages/commerce_core",
+  "packages/verifund_contracts",
   "apps/registry",
   "apps/seller_agent",
   "apps/buyer_agent",
   "apps/orchestrator_agent",
+  "apps/verifund_control_plane",
+  "apps/verifund_agent",
+  "apps/gateway",
 ]
 
 [tool.uv]
@@ -49,12 +55,13 @@ package = false
 
 [tool.uv.sources]
 marketmesh-commerce-core = { workspace = true }
+verifund-contracts = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "--import-mode=importlib -q"
 
 [tool.ruff]
 line-length = 100

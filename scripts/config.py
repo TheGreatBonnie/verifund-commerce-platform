@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,7 +10,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / ".env")
+
+
+def load_env(path: Path | None = None) -> None:
+    """Load local .env values into the process environment.
+
+    Kept out of module import so libraries and tests importing this module do
+    not mutate ``os.environ`` as a side effect.
+    """
+    load_dotenv(path or ROOT / ".env")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -24,93 +33,171 @@ def _port(name: str, default: int) -> int:
         return default
 
 
-@dataclass(frozen=True)
-class SellerConfig:
-    seller_id: str
-    profile: str
-    port_var: str
-    token_var: str
-    database_var: str
-    default_port: int
-    default_token: str
-    default_database: str
+VERIFUND_MODES = {"off", "fake", "sandbox"}
 
-    @property
-    def port(self) -> int:
-        return _port(self.port_var, self.default_port)
-
-    @property
-    def token(self) -> str:
-        return _env(self.token_var, self.default_token)
-
-    @property
-    def database_url(self) -> str:
-        return _env(self.database_var, self.default_database)
-
-    @property
-    def profile_path(self) -> Path:
-        return ROOT / "apps/seller_agent/seller_agent/profiles" / self.profile
-
-    @property
-    def base_url(self) -> str:
-        override = os.environ.get(
-            f"{self.seller_id.upper().replace('-', '_')}_PUBLIC_BASE_URL"
-        )
-        if override:
-            return override.rstrip("/")
-        return f"http://127.0.0.1:{self.port}"
-
-    @property
-    def card_url(self) -> str:
-        return f"{self.base_url}/.well-known/agent-card.json"
-
-    @property
-    def log_name(self) -> str:
-        return f"seller-{self.seller_id}"
+def verifund_mode() -> str:
+    mode = _env("VERIFUND_MODE", "sandbox").strip().lower()
+    return mode if mode in VERIFUND_MODES else "off"
 
 
-SELLERS = (
-    SellerConfig(
-        seller_id="northwind-audio",
-        profile="northwind.yaml",
-        port_var="NORTHWIND_PORT",
-        token_var="SELLER_NORTHWIND_TOKEN",
-        database_var="NORTHWIND_DATABASE_URL",
-        default_port=9201,
-        default_token="dev-northwind",
-        default_database="sqlite+aiosqlite:///./data/northwind.db",
-    ),
-    SellerConfig(
-        seller_id="circuitforge",
-        profile="circuitforge.yaml",
-        port_var="CIRCUITFORGE_PORT",
-        token_var="SELLER_CIRCUITFORGE_TOKEN",
-        database_var="CIRCUITFORGE_DATABASE_URL",
-        default_port=9202,
-        default_token="dev-circuitforge",
-        default_database="sqlite+aiosqlite:///./data/circuitforge.db",
-    ),
-    SellerConfig(
-        seller_id="aurora-supply",
-        profile="aurora.yaml",
-        port_var="AURORA_PORT",
-        token_var="SELLER_AURORA_TOKEN",
-        database_var="AURORA_DATABASE_URL",
-        default_port=9203,
-        default_token="dev-aurora",
-        default_database="sqlite+aiosqlite:///./data/aurora.db",
-    ),
-    SellerConfig(
-        seller_id="summit-tech",
-        profile="summit-tech.yaml",
-        port_var="SUMMIT_TECH_PORT",
-        token_var="SELLER_SUMMIT_TECH_TOKEN",
-        database_var="SUMMIT_TECH_DATABASE_URL",
-        default_port=9204,
-        default_token="dev-summit-tech",
-        default_database="sqlite+aiosqlite:///./data/summit-tech.db",
-    ),
-)
+def verifund_port() -> int:
+    return _port("VERIFUND_PORT", 9300)
+
+
+def verifund_agent_port() -> int:
+    return _port("VERIFUND_AGENT_PORT", 9301)
+
+
+def verifund_agent_url() -> str:
+    return _env(
+        "VERIFUND_AGENT_URL",
+        f"http://127.0.0.1:{verifund_agent_port()}",
+    ).rstrip("/")
+
+
+def verifund_agent_card_url() -> str:
+    return _env(
+        "VERIFUND_AGENT_CARD_URL",
+        f"{verifund_agent_url()}/.well-known/agent-card.json",
+    )
+
+
+def verifund_agent_a2a_token() -> str:
+    return _env("VERIFUND_AGENT_A2A_TOKEN", "dev-verifund-agent-a2a")
+
+
+def verifund_agent_internal_token() -> str:
+    return _env(
+        "VERIFUND_AGENT_INTERNAL_TOKEN", "dev-verifund-agent-internal"
+    )
+
+
+def verifund_agent_database_url() -> str:
+    return _env(
+        "VERIFUND_AGENT_DATABASE_URL",
+        "sqlite+aiosqlite:///./data/verifund-agent.db",
+    )
+
+
+def verifund_agent_checkpoint_path() -> str:
+    return _env(
+        "VERIFUND_AGENT_CHECKPOINT_PATH",
+        "./data/verifund-agent-checkpoints.db",
+    )
+
+
+def verifund_url() -> str:
+    return _env(
+        "VERIFUND_URL",
+        _env(
+            "VERIFUND_CONTROL_PLANE_URL",
+            f"http://127.0.0.1:{verifund_port()}",
+        ),
+    ).rstrip("/")
+
+
+def verifund_public_base_url() -> str:
+    return _env("VERIFUND_PUBLIC_BASE_URL", verifund_url()).rstrip("/")
+
+
+def verifund_console_base_url() -> str:
+    return _env(
+        "VERIFUND_CONSOLE_BASE_URL",
+        f"http://127.0.0.1:{console_port()}",
+    ).rstrip("/")
+
+
+def verifund_ops_token() -> str:
+    return _env("VERIFUND_OPS_TOKEN", "dev-verifund-ops")
+
+
+def buyer_internal_token() -> str:
+    return _env("BUYER_INTERNAL_TOKEN", "dev-buyer-internal")
+
+
+def verifund_database_url() -> str:
+    return _env(
+        "VERIFUND_DATABASE_URL",
+        "sqlite+aiosqlite:///./data/verifund.db",
+    )
+
+
+def verifund_evidence_dir() -> str:
+    return _env("VERIFUND_EVIDENCE_DIR", "./data/evidence")
+
+
+def verifund_seller_token_secret() -> str:
+    return _env(
+        "VERIFUND_SELLER_TOKEN_SECRET",
+        "dev-verifund-seller-token-secret",
+    )
+
+
+def verifund_link_secret() -> str:
+    return _env("VERIFUND_LINK_SECRET", "dev-verifund-link-secret")
+
+
+def verifund_receipt_keys() -> str:
+    return _env(
+        "VERIFUND_RECEIPT_KEYS",
+        '{"dev-1":"dev-verifund-receipt-key"}',
+    )
+
+
+def verifund_receipt_active_kid() -> str:
+    return _env("VERIFUND_RECEIPT_ACTIVE_KID", "dev-1")
+
+
+def verifund_fake_webhook_secret() -> str:
+    return _env("VERIFUND_FAKE_WEBHOOK_SECRET", "dev-verifund-fake-webhook")
+
+
+def verifund_timeout_seconds() -> float:
+    raw = _env("VERIFUND_TIMEOUT_SECONDS", "20")
+    try:
+        return float(raw)
+    except ValueError:
+        return 20.0
+
+
+def verifund_auto_evidence() -> str:
+    return _env("VERIFUND_AUTO_EVIDENCE", "true")
+
+
+def verifund_evidence_retry_seconds() -> str:
+    return _env("VERIFUND_EVIDENCE_RETRY_SECONDS", "2")
+
+
+def verifund_inspection_window_hours() -> int:
+    default = "0" if verifund_mode() == "fake" else "24"
+    raw = _env("VERIFUND_INSPECTION_WINDOW_HOURS", default)
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return int(default)
+
+
+def paypal_env() -> str:
+    return _env("PAYPAL_ENV", "sandbox")
+
+
+def paypal_api_base() -> str:
+    return _env("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
+
+
+def paypal_webhook_id() -> str:
+    return _env("PAYPAL_WEBHOOK_ID", "")
+
+
+def paypal_platform_email() -> str:
+    return _env("PAYPAL_PLATFORM_EMAIL", "")
+
+
+def paypal_buyer_email() -> str:
+    return _env("PAYPAL_BUYER_EMAIL", "")
+
+
+
 
 
 def registry_url() -> str:
@@ -131,6 +218,14 @@ def buyer_agui_url() -> str:
 
 def console_port() -> int:
     return _port("CONSOLE_PORT", 3000)
+
+
+def gateway_port() -> int:
+    return _port("GATEWAY_PORT", 10000)
+
+
+def gateway_url() -> str:
+    return _env("GATEWAY_URL", f"http://127.0.0.1:{gateway_port()}").rstrip("/")
 
 
 def llm_mode() -> str:
@@ -155,20 +250,41 @@ def nebius_model() -> str:
     ).strip()
 
 
-def seller_tokens_json() -> str:
-    configured = _env("BUYER_SELLER_TOKENS", "").strip()
-    import json
+def shared_seller_port() -> int:
+    return _port("SELLER_SHARED_PORT", 9200)
 
-    tokens = {seller.seller_id: seller.token for seller in SELLERS}
-    if configured:
-        try:
-            overrides = json.loads(configured)
-        except json.JSONDecodeError:
-            return configured
-        if not isinstance(overrides, dict):
-            return configured
-        tokens.update(overrides)
-    return json.dumps(tokens)
+
+def shared_seller_url() -> str:
+    return _env(
+        "SELLER_SHARED_URL",
+        f"http://127.0.0.1:{shared_seller_port()}",
+    ).rstrip("/")
+
+
+def shared_seller_db_url() -> str:
+    return _env(
+        "SELLER_SHARED_DB_URL",
+        "sqlite+aiosqlite:///./data/sellers.db",
+    )
+
+
+def seller_internal_token() -> str:
+    return _env("SELLER_INTERNAL_TOKEN", "dev-seller-internal")
+
+
+def verifund_settlement_internal_token() -> str:
+    # Legacy static fallback kept for backwards compatibility; the seller
+    # now exchanges per-seller dynamic credentials. Unset means the seller
+    # uses the exchange endpoint gated by SELLER_INTERNAL_TOKEN.
+    return _env("VERIFUND_SETTLEMENT_INTERNAL_TOKEN", "")
+
+
+def seller_checkpoint_path() -> str:
+    return _env("SELLER_CHECKPOINT_PATH", "./data/seller-checkpoints.sqlite")
+
+
+def shared_card_url(seller_id: str) -> str:
+    return f"{shared_seller_url()}/{seller_id}/.well-known/agent-card.json"
 
 
 def orchestrator_port() -> int:

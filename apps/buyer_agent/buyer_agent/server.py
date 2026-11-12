@@ -14,7 +14,7 @@ from commerce_core.db import configure_sqlite
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from buyer_agent import console_api
+from buyer_agent import console_api, settlement_api
 from buyer_agent.card import build_buyer_agent_card
 from buyer_agent.executor import BuyerExecutor
 from buyer_agent.graph import build_buyer_graph
@@ -48,13 +48,28 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        poll_task = None
         try:
             await configure_sqlite(engine)
             store = getattr(services, "store", None)
             if store is not None:
                 await store.create_schema()
+            registry_client = getattr(services, "registry", None)
+            if registry_client is not None:
+                await registry_client.poll_registry()
+                import asyncio
+                poll_interval = getattr(settings, "buyer_registry_poll_seconds", 30)
+
+                async def _poller():
+                    while True:
+                        await asyncio.sleep(poll_interval)
+                        await registry_client.poll_registry()
+
+                poll_task = asyncio.create_task(_poller())
             yield
         finally:
+            if poll_task is not None:
+                poll_task.cancel()
             registry = getattr(services, "registry", None)
             if owns_services and registry is not None:
                 await registry.close()
@@ -75,6 +90,7 @@ def create_app(
         checkpointer=checkpointer,
         graph=graph,
     )
+    app.state.executor = executor
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=task_store,
@@ -104,5 +120,6 @@ def create_app(
         path="/agui",
     )
     app.include_router(console_api.router)
+    app.include_router(settlement_api.router)
 
     return app

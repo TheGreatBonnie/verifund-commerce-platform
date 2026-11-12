@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TypedDict
 
+from commerce_core.binding import BINDING_VERSION
 from commerce_core.contracts import (
     RFQ,
     AcceptOffer,
@@ -21,12 +22,15 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
+from seller_agent.engine import SellerNegotiationEngine
 from seller_agent.planner import (
     ScriptedSellerPlanner,
     SellerDecision,
     SellerDecisionContext,
     SellerPlanner,
 )
+
+_SELLER_ENGINE = SellerNegotiationEngine()
 
 
 class SellerState(TypedDict, total=False):
@@ -223,15 +227,12 @@ def _build_context(
 def _valid_decision(
     decision: SellerDecision, context: SellerDecisionContext
 ) -> bool:
-    if decision.action not in {"propose", "counter", "accept", "reject"}:
-        return False
-    if decision.warranty_months not in context.allowed_warranty_months:
-        return False
-    if decision.unit_price_cents < context.policy.floor_unit_price_cents:
-        return False
-    if decision.action in {"propose", "counter"}:
-        return decision.unit_price_cents in context.allowed_prices
-    return True
+    return _SELLER_ENGINE.validate_decision(
+        decision,
+        allowed_prices=context.allowed_prices,
+        allowed_warranty_months=context.allowed_warranty_months,
+        floor_unit_price_cents=context.policy.floor_unit_price_cents,
+    )
 
 
 async def decide(state: SellerState, config: RunnableConfig) -> dict:
@@ -313,13 +314,12 @@ def _offer_from_quote(
         if previous is not None
         else 0
     )
-    status = (
-        OfferStatus.FINAL
-        if state.get("current_round", 1) >= policy.max_rounds
-        or decision.unit_price_cents == policy.floor_unit_price_cents
-        or policy.next_price_options(decision.unit_price_cents)
-        == [decision.unit_price_cents]
-        else OfferStatus.PROPOSED
+    status = _SELLER_ENGINE.status_for_offer(
+        round=state.get("current_round", 1),
+        max_rounds=policy.max_rounds,
+        unit_price_cents=decision.unit_price_cents,
+        floor_unit_price_cents=policy.floor_unit_price_cents,
+        next_prices=policy.next_price_options(decision.unit_price_cents),
     )
     line_item = OfferLineItem(
         sku=policy.sku,
@@ -328,7 +328,15 @@ def _offer_from_quote(
         unit_price_cents=quote.base_unit_price_cents,
         list_unit_price_cents=policy.list_unit_price_cents,
         warranty_addon_cents=quote.warranty_addon_cents,
-        attributes={"color": policy.color},
+        attributes={
+            "image_url": policy.product_image_url or policy.image_url,
+            "color_name": policy.color,
+            "description": policy.product_description or policy.product_name,
+            "condition": "new",
+            "category": policy.categories[0] if policy.categories else "",
+            "tag": policy.product_tag,
+            "specs": policy.product_description or policy.product_name,
+        },
     )
     return Offer(
         offer_id=str(uuid.uuid4()),
@@ -351,6 +359,7 @@ def _offer_from_quote(
             stock_confidence=quote.stock_confidence,
             split_shipment=quote.split_shipment,
         ),
+        binding_version=BINDING_VERSION,
         status=status,
         round=state.get("current_round", 1),
         rationale=decision.rationale,
@@ -427,6 +436,11 @@ async def accept_offer(state: SellerState, config: RunnableConfig) -> dict:
             raise CommerceProtocolError("offer belongs to another seller")
         if accepted.accepted_total_cents != previous.total_cents:
             raise CommerceProtocolError("accepted total does not match offer")
+        if service.settlement_enabled:
+            await service.validate_acceptance(
+                accepted,
+                token=config["configurable"].get("settlement_token"),
+            )
         updated = previous.model_copy(
             update={"status": OfferStatus.ACCEPTED}
         )
@@ -465,7 +479,19 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
         po = parse_payload(
             "purchase_order", state["incoming"], PurchaseOrderRequest
         )
-        created = await service.order_service.create_order(po)
+        validator = None
+        if service.settlement_enabled:
+            async def validator(request):
+                await service.validate_purchase_order(
+                    request,
+                    token=config["configurable"].get("settlement_token"),
+                )
+
+        created = await service.order_service.create_order(
+            po, settlement_validator=validator
+        )
+        # No auto-enqueued evidence: the seller cannot self-certify delivery
+        # and reference evidence is submitted against the catalog.
     except Exception as exc:  # noqa: BLE001
         code = getattr(exc, "code", CommerceErrorCode.INVALID_REQUEST)
         retryable = getattr(exc, "retryable", False)
@@ -486,7 +512,7 @@ async def order(state: SellerState, config: RunnableConfig) -> dict:
     }
 
 
-def build_graph():
+def build_graph(checkpointer=None):
     # ty cannot match TypedDicts against langgraph's StateLike protocol bound.
     builder = StateGraph(SellerState)  # ty: ignore[invalid-argument-type]
     builder.add_node("classify", classify)
@@ -524,7 +550,7 @@ def build_graph():
     builder.add_edge("accept_offer", END)
     builder.add_edge("reject_offer", END)
     builder.add_edge("order", END)
-    return builder.compile(checkpointer=MemorySaver())
+    return builder.compile(checkpointer=checkpointer or MemorySaver())
 
 
 def error_artifact(error: dict):

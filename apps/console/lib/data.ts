@@ -9,8 +9,8 @@ export const products = [
     reviews: "1.2k",
     seller: "TechWorld Store",
     tag: "Best deal",
-    emoji: "💻",
-    color: "#eaf0fb",
+    image_url:
+      "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
     desc: "Apple M4 · 16GB memory · 256GB SSD · Space Gray",
   },
   {
@@ -23,8 +23,8 @@ export const products = [
     reviews: "856",
     seller: "SoundSpace",
     tag: "Popular",
-    emoji: "🎧",
-    color: "#f1edff",
+    image_url:
+      "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
     desc: "Adaptive audio · 30-hour battery · Wireless",
   },
   {
@@ -37,8 +37,8 @@ export const products = [
     reviews: "932",
     seller: "WorkWell",
     tag: "Negotiable",
-    emoji: "🪑",
-    color: "#e7f7f2",
+    image_url:
+      "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
     desc: "Adjustable lumbar support · Breathable mesh",
   },
   {
@@ -51,8 +51,8 @@ export const products = [
     reviews: "742",
     seller: "TechWorld Store",
     tag: "New",
-    emoji: "⌚",
-    color: "#fff3e7",
+    image_url:
+      "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
     desc: "Health tracking · GPS · All-day battery",
   },
   {
@@ -65,8 +65,8 @@ export const products = [
     reviews: "421",
     seller: "DeskLab",
     tag: "Agent pick",
-    emoji: "🪵",
-    color: "#edf6fa",
+    image_url:
+      "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
     desc: "Electric height adjustment · Memory presets",
   },
   {
@@ -79,8 +79,8 @@ export const products = [
     reviews: "318",
     seller: "CameraPro",
     tag: "Limited offer",
-    emoji: "📷",
-    color: "#f8eef2",
+    image_url:
+      "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
     desc: "4K video · Interchangeable lens · Compact body",
   },
 ];

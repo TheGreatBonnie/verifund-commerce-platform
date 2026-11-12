@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 from buyer_agent.graph import build_buyer_graph
+from commerce_core.contracts import RFQ, AcceptOffer, CounterOffer, PurchaseOrderRequest
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 from tests.support.fake_buyer import FakeServices
-from commerce_core.contracts import RFQ, CounterOffer, AcceptOffer, PurchaseOrderRequest
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ async def _drive_order(graph, cfg, fake_services, max_steps=20):
     sessions = {}
     for _ in range(max_steps):
         snap = await graph.aget_state(cfg)
-        if snap.next in ((), ("finalize",)):
+        if snap.next in ((), ("finalize",)):  # noqa: SIM102
             # finalize may run; check stage
             if snap.values.get("stage") in ("ordered", "rejected", "no_award"):
                 return snap
@@ -102,9 +102,10 @@ async def _drive_order(graph, cfg, fake_services, max_steps=20):
             )
             continue
         # order
-        from commerce_core.contracts import ApprovalReceipt
-        from datetime import datetime, UTC
         import uuid
+        from datetime import UTC, datetime
+
+        from commerce_core.contracts import ApprovalReceipt
         turn = await session.send_order(
             PurchaseOrderRequest(
                 request_id=f"po-{cfg['configurable']['thread_id']}-{seller_id}",

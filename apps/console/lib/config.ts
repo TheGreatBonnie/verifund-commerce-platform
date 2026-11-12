@@ -1,4 +1,8 @@
 export const config = {
+  verifundMode: (process.env.NEXT_PUBLIC_VERIFUND_MODE ?? "sandbox") as
+    | "off"
+    | "fake"
+    | "sandbox",
   llmMode: process.env.NEXT_PUBLIC_MARKETMESH_LLM_MODE ?? "scripted",
   threadsEnabled: process.env.NEXT_PUBLIC_COPILOTKIT_THREADS_ENABLED === "true",
   modelLabel:

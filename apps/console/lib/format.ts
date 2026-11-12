@@ -73,25 +73,7 @@ export const offerExpiry = (validUntil?: string) => {
   return `Offer expires in ${hours} hr`;
 };
 
-export const stageLabel = (stage?: string) => {
-  const labels: Record<string, string> = {
-    new: "Brief",
-    brief_ready: "Brief parsed",
-    sellers_discovered: "Sellers discovered",
-    sourcing_planned: "RFQ composed",
-    negotiating: "Negotiating",
-    awaiting_approval: "Awaiting approval",
-    approved: "Approved",
-    rejected: "Rejected",
-    ordering: "Ordering",
-    ordered: "Ordered",
-    order_failed: "Order failed",
-    no_award: "No award",
-    failed: "Failed",
-    needs_clarification: "Brief needed",
-  };
-  return labels[stage ?? "new"] ?? "Brief";
-};
+export { stageLabel } from "./stages";
 
 export const offerStatus = (status?: string) => {
   const labels: Record<string, string> = {
@@ -103,4 +85,35 @@ export const offerStatus = (status?: string) => {
     error: "Error",
   };
   return labels[status ?? ""] ?? "Open";
+};
+
+/**
+ * Derive evidence counts from either shape the console may receive:
+ * - legacy `{ required: string[], received: string[] }`
+ * - backend `EvidenceSummary { requirements: [{ status, submissions }], items }`
+ * Returns `null` when there is nothing to report (null, `{}`, or zero requirements).
+ */
+export const evidenceCounts = (
+  evidence: unknown,
+): { required: number; received: number } | null => {
+  if (!evidence || typeof evidence !== "object") return null;
+  const ev = evidence as Record<string, any>;
+  if (Array.isArray(ev.required) && Array.isArray(ev.received)) {
+    const required = ev.required.length;
+    if (required === 0) return null;
+    return { required, received: ev.received.length };
+  }
+  if (Array.isArray(ev.requirements)) {
+    const requirements = ev.requirements as Array<Record<string, any>>;
+    const required = requirements.length;
+    if (required === 0) return null;
+    const received = requirements.filter((r) => {
+      if (!r) return false;
+      if (typeof r.status === "string") return r.status !== "not_submitted";
+      if (Array.isArray(r.submissions)) return r.submissions.length > 0;
+      return false;
+    }).length;
+    return { required, received };
+  }
+  return null;
 };

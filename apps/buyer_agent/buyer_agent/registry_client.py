@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -27,26 +28,92 @@ class SellerEndpoint:
     sustainability_certified: bool
 
 
+def seller_path_base(card_url: str) -> str:
+    url = httpx.URL(card_url)
+    suffix = "/.well-known/agent-card.json"
+    path = url.path
+    path = path.removesuffix(suffix)
+    return str(url.copy_with(path=path or "/", query=None, fragment=None)).rstrip("/")
+
+
+def seller_catalog_url(card_url: str) -> str:
+    return f"{seller_path_base(card_url)}/api/catalog"
+
+
+def seller_dashboard_url(card_url: str) -> str:
+    return f"{seller_path_base(card_url)}/api/console/dashboard"
+
+
 class RegistryClient:
     def __init__(
         self,
         *,
         registry_url: str,
         allowed_card_hosts: tuple[str, ...],
-        seller_tokens: dict[str, str],
+        control_plane_url: str = "",
+        buyer_internal_token: str = "",
+        seller_internal_token: str = "",
         trace: TraceStore | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.registry_url = registry_url.rstrip("/")
         self.allowed_card_hosts = allowed_card_hosts
-        self.seller_tokens = seller_tokens
+        self.control_plane_url = (control_plane_url or "").rstrip("/")
+        self.buyer_internal_token = buyer_internal_token
+        self.seller_internal_token = seller_internal_token
         self.trace = trace
         self.http = client or httpx.AsyncClient(timeout=10.0)
         self.fetch_calls = 0
         self._endpoints: dict[str, SellerEndpoint] = {}
+        self._token_cache: dict[str, str] = {}
 
     async def close(self) -> None:
         await self.http.aclose()
+
+    def _candidate_card_urls(self, seller_id: str, card_url: str) -> list[str]:
+        candidates = [card_url]
+        shared_base = os.environ.get("SELLER_SHARED_URL", "").rstrip("/")
+        if shared_base and seller_id:
+            candidates.append(
+                f"{shared_base}/{seller_id}/.well-known/agent-card.json"
+            )
+        # Preserve order while deduplicating.
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for url in candidates:
+            if url and url not in seen:
+                seen.add(url)
+                ordered.append(url)
+        return ordered
+
+    async def _fetch_valid_card(
+        self, seller_id: str, card_url: str
+    ) -> tuple[str, Any] | None:
+        last_error = None
+        for candidate in self._candidate_card_urls(seller_id, card_url):
+            try:
+                card = await fetch_agent_card(
+                    candidate,
+                    client=self.http,
+                    allowed_hosts=self.allowed_card_hosts,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                continue
+            errors = validate_agent_card(card)
+            if errors:
+                last_error = RuntimeError("; ".join(errors))
+                continue
+            return candidate, card
+        if last_error is not None and self.trace is not None:
+            await self.trace.record(
+                "discovery",
+                direction="internal",
+                method="ValidateAgentCard",
+                seller_id=seller_id,
+                payload={"card_url": card_url, "error": str(last_error)},
+            )
+        return None
 
     def endpoint(self, seller_id: str) -> SellerEndpoint:
         try:
@@ -55,6 +122,61 @@ class RegistryClient:
             raise KeyError(
                 f"seller {seller_id!r} was not discovered or failed validation"
             ) from None
+
+    async def _exchange_token(self, seller_id: str) -> str | None:
+        if not self.control_plane_url or not self.buyer_internal_token:
+            return None
+        import logging
+        try:
+            resp = await self.http.post(
+                f"{self.control_plane_url}/v1/internal/agent-token",
+                json={"seller_id": seller_id},
+                headers={"X-Internal-Token": self.buyer_internal_token},
+            )
+            if resp.status_code in (401, 403, 404):
+                self._token_cache.pop(seller_id, None)
+                return None
+            resp.raise_for_status()
+            tok = resp.json()["token"]
+            self._token_cache[seller_id] = tok
+            return tok
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            logging.getLogger(__name__).warning("token exchange failed for %s: %s", seller_id, exc)
+            return self._token_cache.get(seller_id)
+
+    async def poll_registry(self) -> dict[str, SellerEndpoint]:
+        """Fetch GET /v1/sellers, validate cards, atomically swap _endpoints.
+
+        On registry failure (HTTP error, bad JSON) keep the last known map.
+        """
+        import logging
+        try:
+            response = await self.http.get(f"{self.registry_url}/v1/sellers")
+            response.raise_for_status()
+            entries = response.json().get("sellers", [])
+        except (httpx.HTTPError, ValueError) as exc:
+            logging.getLogger(__name__).warning("registry poll failed: %s", exc)
+            return self._endpoints
+        new_endpoints: dict[str, SellerEndpoint] = {}
+        for entry in entries:
+            seller_id, card_url = entry["seller_id"], entry["card_url"]
+            self.fetch_calls += 1
+            fetched = await self._fetch_valid_card(seller_id, card_url)
+            if fetched is None:
+                continue
+            resolved_card_url, card = fetched
+            token = self._token_cache.get(seller_id) or await self._exchange_token(seller_id)
+            if not token:
+                continue
+            metadata = card_commerce_metadata(card)
+            new_endpoints[seller_id] = SellerEndpoint(
+                seller_id=seller_id, name=card.name, card_url=resolved_card_url, card=card,
+                token=token, rating=float(metadata["rating"]),
+                sustainability_certified=bool(metadata["sustainability_certified"]),
+            )
+        self._token_cache = {k: v for k, v in self._token_cache.items() if k in new_endpoints}
+        self._endpoints = new_endpoints
+        return self._endpoints
 
     async def discover(
         self, category: str, product_sku: str | None = None
@@ -73,20 +195,11 @@ class RegistryClient:
             seller_id = result["seller_id"]
             card_url = result["card_url"]
             self.fetch_calls += 1
-            try:
-                card = await fetch_agent_card(
-                    card_url,
-                    client=self.http,
-                    allowed_hosts=self.allowed_card_hosts,
-                )
-            except Exception as exc:  # noqa: BLE001
-                await self._trace_invalid(result, str(exc))
+            fetched = await self._fetch_valid_card(seller_id, card_url)
+            if fetched is None:
                 continue
-            errors = validate_agent_card(card)
-            if errors:
-                await self._trace_invalid(result, "; ".join(errors))
-                continue
-            token = self.seller_tokens.get(seller_id)
+            resolved_card_url, card = fetched
+            token = self._token_cache.get(seller_id) or await self._exchange_token(seller_id)
             if not token:
                 raise ValueError(
                     f"missing buyer credential for seller {seller_id}"
@@ -95,7 +208,7 @@ class RegistryClient:
             endpoint = SellerEndpoint(
                 seller_id=seller_id,
                 name=card.name,
-                card_url=card_url,
+                card_url=resolved_card_url,
                 card=card,
                 token=token,
                 rating=float(metadata["rating"]),
@@ -127,8 +240,7 @@ class RegistryClient:
                     "name": listing["name"],
                     "category": listing["category"],
                     "description": listing.get("description", ""),
-                    "image_emoji": listing.get("image_emoji", "📦"),
-                    "color": listing.get("color", "#eef2ed"),
+                    "image_url": listing.get("image_url", ""),
                     "original_unit_price_cents": listing.get("original_unit_price_cents"),
                     "rating": listing.get("rating", 0),
                     "reviews": listing.get("reviews", ""),
@@ -149,18 +261,9 @@ class RegistryClient:
             )
 
         async def refresh_seller_catalog(seller_id: str, card_url: str) -> None:
-            token = self.seller_tokens.get(seller_id)
-            if not token:
-                return
-            catalog_url = str(
-                httpx.URL(card_url).copy_with(
-                    path="/api/catalog", query=None, fragment=None
-                )
-            )
+            catalog_url = seller_catalog_url(card_url)
             try:
-                live = await self.http.get(
-                    catalog_url, headers={"Authorization": f"Bearer {token}"}
-                )
+                live = await self.http.get(catalog_url)
                 live.raise_for_status()
                 live_products = {
                     product["sku"]: product
@@ -208,9 +311,8 @@ class RegistryClient:
             raise LookupError(f"seller {seller_id!r} is not registered")
         response.raise_for_status()
         seller = response.json()
-        token = self.seller_tokens.get(seller_id)
-        if not token:
-            raise RuntimeError(f"missing buyer credential for seller {seller_id}")
+        if not self.seller_internal_token:
+            raise RuntimeError(f"missing seller internal token for {seller_id}")
 
         card = await fetch_agent_card(
             seller["card_url"],
@@ -221,14 +323,10 @@ class RegistryClient:
         if errors:
             raise RuntimeError("seller Agent Card is invalid: " + "; ".join(errors))
 
-        dashboard_url = str(
-            httpx.URL(seller["card_url"]).copy_with(
-                path="/api/console/dashboard", query=None, fragment=None
-            )
-        )
+        dashboard_url = seller_dashboard_url(seller["card_url"])
         dashboard = await self.http.get(
             dashboard_url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"X-Internal-Token": self.seller_internal_token},
         )
         dashboard.raise_for_status()
         return dashboard.json()

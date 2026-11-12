@@ -13,13 +13,33 @@ from a2a.types.a2a_pb2 import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from commerce_core.a2a_parts import first_envelope
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
+from verifund_contracts import AgreementProjection
+from verifund_control_plane.errors import VerifundError
 
 from buyer_agent.approval import normalize_approval
-from buyer_agent.graph import build_buyer_graph
+from buyer_agent.graph import (
+    build_buyer_graph,
+    memory_namespace,
+)
+from buyer_agent.graph import (
+    thread_id as _thread_id,
+)
 from buyer_agent.planner import select_buyer_planner
+from buyer_agent.review import (
+    parse_review_envelope,
+    parse_review_result_envelope,
+    seller_resume_value,
+)
 from buyer_agent.settings import Settings
+
+# Re-exported so callers can build tenant-prefixed checkpoint ids without
+# importing the graph module.
+thread_id = _thread_id
+
+__all__ = ["BuyerExecutor", "memory_namespace", "thread_id"]
 
 
 class BuyerExecutor(AgentExecutor):
@@ -43,6 +63,21 @@ class BuyerExecutor(AgentExecutor):
             checkpointer=checkpointer,
             planner=self.planner,
         )
+
+    async def resume(self, run_id: str, *, organization_id: str) -> dict:
+        trace = getattr(self.services, "trace", None)
+        record = await trace.get_run(run_id) if trace is not None else None
+        if record is None:
+            raise VerifundError("not_found", "run not found", status_code=404)
+        if record.get("organization_id") != organization_id:
+            raise VerifundError("not_found", "run not found", status_code=404)
+        return {
+            "configurable": {
+                "thread_id": thread_id(organization_id, run_id),
+                "organization_id": organization_id,
+                "services": self.services,
+            }
+        }
 
     def _message_text(self, message: Any) -> str:
         if message is None:
@@ -97,12 +132,94 @@ class BuyerExecutor(AgentExecutor):
             parts=[Part(text=text, media_type=media_type)],
         )
 
+    async def _pending_interrupt(self, config: dict) -> dict | None:
+        snapshot = await self.graph.aget_state(config)
+        interrupts = getattr(snapshot, "interrupts", None) or ()
+        if not interrupts:
+            return None
+        pending = interrupts[0]
+        value = getattr(pending, "value", pending)
+        return value if isinstance(value, dict) else None
+
+    async def _fail(
+        self,
+        event_queue: EventQueue,
+        task_id: str,
+        context_id: str,
+        *,
+        reason: str,
+        message: str,
+        code: str = "invalid_request",
+    ) -> None:
+        response = {
+            "status": "failed",
+            "task_id": task_id,
+            "message": message,
+            "reason": reason,
+            "error": {
+                "code": code,
+                "message": message,
+                "retryable": False,
+                "details": {},
+            },
+        }
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=task_id,
+                context_id=context_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_FAILED,
+                    message=self._agent_message(
+                        json.dumps(response), task_id, context_id, "application/json"
+                    ),
+                ),
+            )
+        )
+
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id or str(uuid.uuid4())
         context_id = context.context_id or task_id
-        thread_id = context_id
         text = self._message_text(context.message)
         payload = self._payload(text)
+        thread_id = context.context_id or str(payload.get("task_id") or task_id)
+
+        message = context.message
+        envelope = first_envelope(message) if message is not None else None
+        review_request = None
+        review_result = None
+        review_kind: str | None = None
+        if envelope is not None and str(envelope.get("schema", "")).endswith(
+            "/agreement-review-request.json"
+        ):
+            assert message is not None
+            try:
+                review_request = parse_review_envelope(message)
+            except ValueError as exc:
+                await self._fail(
+                    event_queue,
+                    task_id,
+                    context_id,
+                    reason="invalid_review",
+                    message=str(exc),
+                )
+                return
+            if (
+                review_request.buyer_task_id != (context.task_id or "")
+                or review_request.buyer_context_id != (context.context_id or "")
+            ):
+                await self._fail(
+                    event_queue,
+                    task_id,
+                    context_id,
+                    reason="not_a_buyer_checkpoint",
+                    message="agreement review does not match the interrupted Buyer task",
+                )
+                return
+            review_kind = "agreement_create"
+        elif envelope is not None and str(envelope.get("schema", "")).endswith(
+            "/agreement-review-result.json"
+        ):
+            review_kind = "seller_review"
 
         if payload.get("resume_error"):
             await event_queue.enqueue_event(
@@ -155,30 +272,105 @@ class BuyerExecutor(AgentExecutor):
             )
         )
 
+        organization_id = payload.get("organization_id")
+        checkpoint_thread = (
+            _thread_id(organization_id, thread_id)
+            if organization_id
+            else thread_id
+        )
         config = {
             "configurable": {
-                "thread_id": thread_id,
+                "thread_id": checkpoint_thread,
+                "organization_id": organization_id,
                 "services": self.services,
                 "planner": self.planner,
             }
         }
 
         try:
-            if "approval" in payload and "task_id" in payload:
-                thread_id = str(payload["task_id"])
-                config["configurable"]["thread_id"] = thread_id
+            resume = None
+            if review_kind is not None:
+                pending = await self._pending_interrupt(config)
+                expected_reason = (
+                    "agreement_create_required"
+                    if review_kind == "agreement_create"
+                    else "seller_review_required"
+                )
+                if pending is None:
+                    await self._fail(
+                        event_queue,
+                        task_id,
+                        context_id,
+                        reason="no_pending_review",
+                        message="No buyer agreement review is pending for this run.",
+                    )
+                    return
+                reason = str(pending.get("reason") or "")
+                if reason != expected_reason:
+                    await self._fail(
+                        event_queue,
+                        task_id,
+                        context_id,
+                        reason="not_a_buyer_checkpoint",
+                        message="The buyer task is not waiting for a Verifund agreement review.",
+                    )
+                    return
+                if review_kind == "agreement_create":
+                    assert review_request is not None
+                    resume = {
+                        "agreement": review_request.agreement.model_dump(mode="json")
+                    }
+                    if pending.get("seller_token_ref"):
+                        resume["seller_token_ref"] = str(pending["seller_token_ref"])
+                else:
+                    agreement = AgreementProjection.model_validate(
+                        pending.get("agreement") or {}
+                    )
+                    assert message is not None
+                    try:
+                        review_result = parse_review_result_envelope(message, agreement)
+                    except ValueError as exc:
+                        await self._fail(
+                            event_queue,
+                            task_id,
+                            context_id,
+                            reason="agreement_mismatch",
+                            message=str(exc),
+                        )
+                        return
+                    resume = seller_resume_value(review_result)
+            if resume is not None:
+                result = await self.graph.ainvoke(Command(resume=resume), config=config)
+            elif "approval" in payload and "task_id" in payload:
                 decision = normalize_approval(payload["approval"])
                 result = await self.graph.ainvoke(Command(resume=decision), config=config)
             elif "seller_result" in payload and "task_id" in payload:
-                thread_id = str(payload["task_id"])
-                config["configurable"]["thread_id"] = thread_id
                 result = await self.graph.ainvoke(
                     Command(resume=payload["seller_result"]), config=config
                 )
             else:
+                snapshot = await self.graph.aget_state(config)
+                if snapshot.values and snapshot.values.get("stage") not in (None, "new"):
+                    await self._fail(
+                        event_queue,
+                        task_id,
+                        context_id,
+                        reason="thread_in_use",
+                        code="thread_in_use",
+                        message=(
+                            "This conversation already contains a run. "
+                            "Start a new conversation for a new purchase."
+                        ),
+                    )
+                    return
                 brief = str(payload.get("brief") or text)
                 result = await self.graph.ainvoke(
-                    {"messages": [HumanMessage(content=brief)], "stage": "new"},
+                    {
+                        "messages": [HumanMessage(content=brief)],
+                        "stage": "new",
+                        "task_id": task_id,
+                        "context_id": context_id,
+                    },
                     config=config,
                 )
         except Exception as exc:  # noqa: BLE001
@@ -209,6 +401,33 @@ class BuyerExecutor(AgentExecutor):
                     "seller_task_id": interrupt_value.get("seller_task_id"),
                     "seller_context_id": interrupt_value.get("seller_context_id"),
                     "message": interrupt_value.get("message", "Seller call required."),
+                }
+            elif reason == "agreement_create_required":
+                response = {
+                    "status": reason,
+                    "task_id": thread_id,
+                    "message": interrupt_value.get("message", "Create the canonical agreement."),
+                    "run_id": interrupt_value.get("run_id"),
+                    "buyer_task_id": interrupt_value.get("buyer_task_id"),
+                    "buyer_context_id": interrupt_value.get("buyer_context_id"),
+                    "award": interrupt_value.get("award"),
+                    "seller_id": interrupt_value.get("seller_id"),
+                    "seller_card_url": interrupt_value.get("seller_card_url"),
+                }
+            elif reason == "seller_review_required":
+                response = {
+                    "status": reason,
+                    "task_id": thread_id,
+                    "message": interrupt_value.get("message", "Seller review required."),
+                    "run_id": interrupt_value.get("run_id"),
+                    "transaction_id": interrupt_value.get("transaction_id"),
+                    "agreement": interrupt_value.get("agreement"),
+                    "seller_id": interrupt_value.get("seller_id"),
+                    "buyer_task_id": interrupt_value.get("buyer_task_id"),
+                    "buyer_context_id": interrupt_value.get("buyer_context_id"),
+                    "buyer_agent_review": interrupt_value.get("buyer_agent_review"),
+                    "seller_task_id": interrupt_value.get("seller_task_id"),
+                    "seller_context_id": interrupt_value.get("seller_context_id"),
                 }
             else:
                 response = {
@@ -247,6 +466,11 @@ class BuyerExecutor(AgentExecutor):
                 final_message = "The award was rejected and no order was placed."
             elif stage == "no_award":
                 final_message = "No eligible award was found."
+            elif stage == "offer_expired":
+                final_message = (
+                    "The selected offer expired before the agreement could be "
+                    "created. Re-run the purchase request to get a fresh offer."
+                )
             else:
                 final_message = "The sourcing run finished."
 
@@ -256,6 +480,10 @@ class BuyerExecutor(AgentExecutor):
             "message": final_message,
             "award": result.get("award"),
             "order": result.get("order"),
+            "agreement": result.get("agreement"),
+            "buyer_agent_review": result.get("buyer_review"),
+            "seller_decision": result.get("seller_decision"),
+            "settlement": result.get("settlement"),
             "error": result.get("error"),
         }
         await event_queue.enqueue_event(

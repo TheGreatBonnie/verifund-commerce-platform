@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import text
 
 router = APIRouter()
@@ -12,6 +13,76 @@ router = APIRouter()
 
 def _services(request: Request):
     return request.app.state.services
+
+
+async def authorize_run_stream(trace, organization_id: str, run_id: str) -> bool:
+    row = await trace.get_run(run_id)
+    return row is not None and row.get("organization_id") == organization_id
+
+
+def _check_internal_token(request: Request) -> None:
+    settings = request.app.state.settings
+    expected = settings.internal_api_token
+    provided = request.headers.get("x-verifund-internal-token", "")
+    if not expected or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _check_console_token(request: Request) -> None:
+    settings = request.app.state.settings
+    expected = settings.console_api_token
+    provided = request.headers.get("x-marketmesh-console-token", "")
+    if not expected or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _requested_organization_id(request: Request) -> str | None:
+    for key in ("organization_id",):
+        value = request.query_params.get(key)
+        if value:
+            return str(value)
+    header_org = request.headers.get("x-buyer-organization-id")
+    if header_org:
+        return str(header_org)
+    return None
+
+
+async def _authorize_run_access(request: Request, run_id: str) -> dict | None:
+    """Fail-closed org-scoped auth for run detail/trace/settlement reads.
+
+    Accepts either the internal service token (with organization_id match)
+    or the console server token (Clerk-protected at the console boundary).
+    When organization_id is supplied it must match the run's stored
+    organization_id (404 otherwise, no existence leak).
+    """
+    internal_ok = False
+    try:
+        _check_internal_token(request)
+        internal_ok = True
+    except HTTPException:
+        internal_ok = False
+    console_ok = False
+    try:
+        _check_console_token(request)
+        console_ok = True
+    except HTTPException:
+        console_ok = False
+    if not (internal_ok or console_ok):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    trace = getattr(_services(request), "trace", None)
+    row = await trace.get_run(run_id) if trace is not None else None
+    if row is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    expected_org = row.get("organization_id")
+    requested = _requested_organization_id(request)
+    if internal_ok:
+        if not requested:
+            raise HTTPException(status_code=400, detail="organization_id is required")
+        if expected_org is not None and requested != expected_org:
+            raise HTTPException(status_code=404, detail="run not found")
+    elif requested is not None and expected_org is not None and requested != expected_org:
+        raise HTTPException(status_code=404, detail="run not found")
+    return row
 
 
 def _run(row: dict) -> dict:
@@ -22,6 +93,8 @@ def _run(row: dict) -> dict:
         "award": row.get("award_json"),
         "order": row.get("order_json"),
         "error": row.get("error"),
+        "organization_id": row.get("organization_id"),
+        "user_id": row.get("user_id"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
@@ -60,21 +133,67 @@ async def metrics(request: Request) -> str:
 
 
 @router.get("/api/runs")
-async def list_runs(request: Request, limit: int = 50) -> list[dict]:
+async def list_runs(
+    request: Request,
+    organization_id: str = "",
+    limit: int = 50,
+) -> list[dict]:
+    _check_internal_token(request)
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="organization_id is required")
     trace = getattr(_services(request), "trace", None)
     if trace is None:
         return []
-    rows = await trace.list_runs(limit=max(1, min(limit, 200)))
+    rows = await trace.list_runs(
+        organization_id, limit=max(1, min(limit, 200))
+    )
     return [_run(row) for row in rows]
+
+
+@router.get("/api/runs/{run_id}/stream")
+async def stream_run(
+    run_id: str,
+    request: Request,
+    organization_id: str = "",
+):
+    _check_internal_token(request)
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="organization_id is required")
+    trace = getattr(_services(request), "trace", None)
+    if trace is None or not await authorize_run_stream(
+        trace, organization_id, run_id
+    ):
+        raise HTTPException(status_code=404, detail="run not found")
+
+    async def events():
+        for event in await trace.list(run_id, limit=500):
+            yield f"data: {json.dumps(asdict(event))}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"cache-control": "no-store"},
+    )
 
 
 @router.get("/api/marketplace/products")
 async def marketplace_products(request: Request) -> dict:
     settings = request.app.state.settings
-    provided = request.headers.get("x-marketmesh-console-token", "")
-    if not settings.console_api_token or not secrets.compare_digest(
-        provided, settings.console_api_token
-    ):
+    # Catalog data (not user-scoped): accept console token OR internal token.
+    internal_ok = False
+    try:
+        _check_internal_token(request)
+        internal_ok = True
+    except HTTPException:
+        pass
+    console_ok = False
+    if not internal_ok:
+        try:
+            _check_console_token(request)
+            console_ok = True
+        except HTTPException:
+            pass
+    if not (internal_ok or console_ok):
         raise HTTPException(status_code=401, detail="unauthorized")
     registry = getattr(_services(request), "registry", None)
     if registry is None:
@@ -92,11 +211,18 @@ async def marketplace_products(request: Request) -> dict:
 
 @router.get("/api/runs/{run_id}")
 async def get_run(run_id: str, request: Request) -> dict:
-    trace = getattr(_services(request), "trace", None)
-    row = await trace.get_run(run_id) if trace is not None else None
-    if row is None:
-        raise HTTPException(status_code=404, detail="run not found")
-    return _run(row)
+    row = await _authorize_run_access(request, run_id)
+    assert row is not None
+    response = _run(row)
+    from buyer_agent.settlement_api import console_authorized, load_settlement_projection
+
+    if console_authorized(request):
+        projection = await load_settlement_projection(
+            request, run_id, refresh=False
+        )
+        if projection is not None:
+            response["settlement"] = projection
+    return response
 
 
 @router.get("/api/runs/{run_id}/trace")
@@ -106,6 +232,9 @@ async def get_trace(
     after_seq: int = 0,
     limit: int = 200,
 ) -> list[dict]:
+    row = await _authorize_run_access(request, run_id)
+    if row is None:
+        return []
     trace = getattr(_services(request), "trace", None)
     if trace is None:
         return []
@@ -117,11 +246,15 @@ async def get_trace(
 
 @router.get("/api/sellers/{seller_id}/dashboard")
 async def get_seller_dashboard(seller_id: str, request: Request) -> dict:
-    settings = request.app.state.settings
-    expected = settings.console_api_token
-    provided = request.headers.get("x-marketmesh-console-token", "")
-    if not expected or not secrets.compare_digest(provided, expected):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    # Catalog/seller dashboard (not user-scoped): console OR internal token.
+    internal_ok = False
+    try:
+        _check_internal_token(request)
+        internal_ok = True
+    except HTTPException:
+        pass
+    if not internal_ok:
+        _check_console_token(request)
 
     registry = getattr(_services(request), "registry", None)
     if registry is None:

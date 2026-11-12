@@ -16,16 +16,27 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from seller_agent.auth import BearerAuthMiddleware
 from seller_agent.card import build_agent_card
+from seller_agent.evidence_outbox import EvidenceOutbox
 from seller_agent.executor import SellerExecutor
+from seller_agent.mandate import load_mandate
 from seller_agent.planner import select_seller_planner
 from seller_agent.service import SellerService
 from seller_agent.settings import Settings
+from seller_agent.settlement import SellerSettlementClient
 from seller_agent.store import SellerStore
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    if settings.config_source == "shared":
+        from seller_agent.shared_app import create_shared_app
+
+        return create_shared_app(settings)
     policy = load_policy(settings.profile_path)
+    with settings.profile_path.open("r", encoding="utf-8") as _handle:
+        import yaml as _yaml
+        _profile = _yaml.safe_load(_handle)
+    mandate = load_mandate(_profile or {})
     engine = create_async_engine(settings.database_url)
     store = SellerStore(engine)
     card = build_agent_card(policy, settings.public_base_url)
@@ -36,7 +47,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.nebius_base_url,
         settings.nebius_model,
     )
-    service = SellerService(store=store, policy=policy, planner=planner)
+    settlement_client = None
+    evidence_outbox = None
+    if settings.verifund_mode != "off":
+        settlement_client = SellerSettlementClient(
+            settings.verifund_url,
+            internal_token=settings.internal_api_token,
+            timeout_seconds=settings.verifund_timeout_seconds,
+        )
+        evidence_outbox = EvidenceOutbox(
+            store,
+            settlement_client,
+            retry_seconds=settings.verifund_evidence_retry_seconds,
+            organization_id=settings.seller_organization_id,
+        )
+    service = SellerService(
+        store=store,
+        policy=policy,
+        mandate=mandate,
+        planner=planner,
+        settlement=settlement_client,
+        settlement_enabled=settings.verifund_mode != "off",
+        evidence_outbox=evidence_outbox,
+        auto_evidence=settings.verifund_auto_evidence,
+        organization_id=settings.seller_organization_id,
+    )
     executor = SellerExecutor(service)
     handler = DefaultRequestHandler(
         agent_executor=executor,
@@ -49,8 +84,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             await store.create_schema()
             await store.seed_catalog(policy)
+            if evidence_outbox is not None:
+                await evidence_outbox.start()
             yield
         finally:
+            if evidence_outbox is not None:
+                await evidence_outbox.stop()
+            if settlement_client is not None:
+                await settlement_client.close()
             await engine.dispose()
 
     app = FastAPI(
@@ -174,6 +215,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for item in orders
                 for order in [item["order"]]
             ],
+            "settlement": await service.settlement_status(),
         }
 
     @app.get("/api/catalog")
@@ -187,8 +229,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "name": product.name,
                     "category": product.category,
                     "description": product.description,
-                    "image_emoji": product.image_emoji,
-                    "color": product.color,
+                    "image_url": product.image_url,
                     "list_unit_price_cents": product.list_unit_price_cents,
                     "original_unit_price_cents": product.original_unit_price_cents,
                     "base_warranty_months": product.base_warranty_months,

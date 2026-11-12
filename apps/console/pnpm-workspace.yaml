@@ -1,0 +1,2 @@
+patchedDependencies:
+  '@ag-ui/a2a-middleware@0.0.6': patches/@ag-ui__a2a-middleware@0.0.6.patch

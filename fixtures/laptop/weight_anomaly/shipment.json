@@ -1,0 +1,6 @@
+{
+  "carrier_key": "mock",
+  "tracking_number": "TRK-WEIGHT_ANOMALY",
+  "scenario": "weight_anomaly",
+  "weight_expected_g": 2100
+}

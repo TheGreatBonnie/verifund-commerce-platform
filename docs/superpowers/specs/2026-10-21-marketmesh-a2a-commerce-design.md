@@ -4,6 +4,12 @@
 **Status:** Approved design, pending spec review  
 **Scope:** Standalone, local-first production prototype in `verifund-a2a/`
 
+> **Superseded in part — 2026-10-27.** The optional Verifund settlement
+> subsystem (`VERIFUND_MODE=fake|sandbox`) is specified in
+> [`2026-10-27-verifund-control-plane-design.md`](./2026-10-27-verifund-control-plane-design.md).
+> The payment, escrow, and transaction-coordinator non-goals below continue to
+> apply unchanged when `VERIFUND_MODE=off`, which remains the default.
+
 ## 1. Purpose
 
 MarketMesh is an open agent-to-agent commerce exchange in which independently operated buyer and seller agents discover one another, exchange structured requests, negotiate prices, compare offers, pause for human approval, and coordinate orders.

@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 
-import httpx
 import pytest
+from a2a.types.a2a_pb2 import Role, SendMessageRequest
 from buyer_agent.server import create_app
 from buyer_agent.settings import Settings
+from commerce_core.a2a_parts import make_message
+from commerce_core.cards import fetch_agent_card
 from langgraph.checkpoint.memory import MemorySaver
 
-from commerce_core.a2a_parts import make_message, first_envelope
-from commerce_core.cards import fetch_agent_card
-from a2a.types.a2a_pb2 import Role, SendMessageRequest
 from tests.support.a2a import make_client
 from tests.support.fake_buyer import FakeServices
 
@@ -18,23 +17,30 @@ from tests.support.fake_buyer import FakeServices
 @pytest.fixture
 async def mediated_buyer_server(tmp_path, seller_runtime):
     # Keep only the live Northwind seller in the fake registry.
+    seller_base_url, _seller_app = seller_runtime
     services = FakeServices()
     keep = {"northwind-audio"}
     services.registry._endpoints = {
         k: v for k, v in services.registry._endpoints.items() if k in keep
     }
+    # Point the fake endpoint at the ephemeral seller; otherwise mediation
+    # would hit a dev server on 9201 instead of the test seller.
+    for endpoint in services.registry._endpoints.values():
+        endpoint.card_url = f"{seller_base_url}/.well-known/agent-card.json"
+    from tests.support.servers import _free_port, run_uvicorn
+
+    port = _free_port()
     settings = Settings(
         host="127.0.0.1",
-        port=9120,
-        public_base_url="http://127.0.0.1:9120",
+        port=port,
+        public_base_url=f"http://127.0.0.1:{port}",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'buyer.db'}",
         checkpoint_path=tmp_path / "checkpoints.db",
         llm_mode="scripted",
     )
     app = create_app(settings, MemorySaver(), services)
-    from tests.support.servers import run_uvicorn
 
-    async with run_uvicorn(app, 9120) as base_url:
+    async with run_uvicorn(app, port) as base_url:
         yield base_url, app
 
 
@@ -69,7 +75,7 @@ async def test_gate_single_seller_call_round_trip(mediated_buyer_server, seller_
                 if p.HasField("text"):
                     try:
                         v = json.loads(p.text)
-                    except Exception:
+                    except Exception:  # noqa
                         continue
                     if isinstance(v, dict) and v.get("reason") == "seller_call":
                         seller_call = v

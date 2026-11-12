@@ -1,0 +1,1209 @@
+# Migrated from scripts/sample_product_data.py
+# Envelope matches apps/console/public/example-catalog-template.yaml
+# Fields filled: all template fields. image kept as image_url.
+# SKU style matches scripts/fixtures/example-catalog.yaml: EX-<SLUGIFIED-NAME>, deduplicated with -2 suffix for repeats.
+# Pricing synthesis: list=price*100, original=120% list, initial=98% list, floor=90% list, ladder=[initial,94% list,floor].
+# Warranty addons: 12m=0, 24m=9% list. Reviews derived: 80+id*2. Tag derived from rating.
+version: 1
+currency: USD
+products:
+  - sku: EX-PRO-BUSINESS-LAPTOP
+    name: 'Pro Business Laptop'
+    category: Laptop
+    description: 'High performance laptop designed for professional multitasking and business applications.'
+    list_unit_price_cents: 99999
+    original_unit_price_cents: 119998
+    initial_unit_price_cents: 97999
+    floor_unit_price_cents: 89999
+    concession_ladder_cents: [97999, 93999, 89999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 8999}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500"
+    rating: 4.5
+    reviews: "82"
+    tag: "Recommended"
+  - sku: EX-MACBOOK-AIR
+    name: 'MacBook Air'
+    category: MacBook
+    description: 'Lightweight and powerful notebook featuring Apple''s M1 chip for everyday productivity.'
+    list_unit_price_cents: 119999
+    original_unit_price_cents: 143998
+    initial_unit_price_cents: 117599
+    floor_unit_price_cents: 107999
+    concession_ladder_cents: [117599, 112799, 107999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 10799}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500"
+    rating: 4.7
+    reviews: "84"
+    tag: "Best Value"
+  - sku: EX-GAMING-BEAST-PC
+    name: 'Gaming Beast PC'
+    category: Gaming PC
+    description: 'Ultimate gaming desktop with a top-tier GPU and CPU for an immersive gaming experience.'
+    list_unit_price_cents: 199999
+    original_unit_price_cents: 239998
+    initial_unit_price_cents: 195999
+    floor_unit_price_cents: 179999
+    concession_ladder_cents: [195999, 187999, 179999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 17999}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1587202372634-32705e3bf49c?w=500"
+    rating: 4.9
+    reviews: "86"
+    tag: "Popular"
+  - sku: EX-ERGO-STANDING-DESK
+    name: 'Ergo Standing Desk'
+    category: Standing Desk
+    description: 'Adjustable standing desk designed to improve posture and reduce the risks of prolonged sitting.'
+    list_unit_price_cents: 39999
+    original_unit_price_cents: 47998
+    initial_unit_price_cents: 39199
+    floor_unit_price_cents: 35999
+    concession_ladder_cents: [39199, 37599, 35999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 3599}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1622126755582-16754165dce8?w=500"
+    rating: 4.6
+    reviews: "88"
+    tag: "Best Value"
+  - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR
+    name: 'UltraComfort Ergonomic Chair'
+    category: Ergonomic Chair
+    description: 'Ergonomic office chair with customizable lumbar support for optimal comfort during long hours.'
+    list_unit_price_cents: 24999
+    original_unit_price_cents: 29998
+    initial_unit_price_cents: 24499
+    floor_unit_price_cents: 22499
+    concession_ladder_cents: [24499, 23499, 22499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 2249}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1580480055273-228ff5388ef8?w=500"
+    rating: 4.8
+    reviews: "90"
+    tag: "Popular"
+  - sku: EX-PRECISION-WIRELESS-MOUSE
+    name: 'Precision Wireless Mouse'
+    category: Mouse
+    description: 'High-precision wireless mouse with customizable buttons and an ergonomic design for comfort.'
+    list_unit_price_cents: 4999
+    original_unit_price_cents: 5998
+    initial_unit_price_cents: 4899
+    floor_unit_price_cents: 4499
+    concession_ladder_cents: [4899, 4699, 4499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 449}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1586349906319-48d20e9d17e5?w=500"
+    rating: 4.5
+    reviews: "92"
+    tag: "Recommended"
+  - sku: EX-ADVANCED-WORKSTATION-LAPTOP
+    name: 'Advanced Workstation Laptop'
+    category: Laptop
+    description: 'A powerful workstation laptop built for intensive creative tasks and complex workflows.'
+    list_unit_price_cents: 149999
+    original_unit_price_cents: 179998
+    initial_unit_price_cents: 146999
+    floor_unit_price_cents: 134999
+    concession_ladder_cents: [146999, 140999, 134999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 13499}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1522199755839-a2bacb67c546?w=500"
+    rating: 4.7
+    reviews: "94"
+    tag: "Best Value"
+  - sku: EX-MACBOOK-PRO
+    name: 'MacBook Pro'
+    category: MacBook
+    description: 'High-performance MacBook Pro designed for creative professionals with demanding applications.'
+    list_unit_price_cents: 239999
+    original_unit_price_cents: 287998
+    initial_unit_price_cents: 235199
+    floor_unit_price_cents: 215999
+    concession_ladder_cents: [235199, 225599, 215999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 21599}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1518448828347-28e2cf0d6e28?w=500"
+    rating: 4.8
+    reviews: "96"
+    tag: "Popular"
+  - sku: EX-ELITE-GAMING-MONITOR
+    name: 'Elite Gaming Monitor'
+    category: Monitor
+    description: 'High-refresh rate gaming monitor that delivers smooth visuals and vibrant colors for competitive gaming.'
+    list_unit_price_cents: 34999
+    original_unit_price_cents: 41998
+    initial_unit_price_cents: 34299
+    floor_unit_price_cents: 31499
+    concession_ladder_cents: [34299, 32899, 31499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 3149}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1593305841991-05c297ba4575?w=500"
+    rating: 4.6
+    reviews: "98"
+    tag: "Best Value"
+  - sku: EX-ERGO-DESK-LAMP
+    name: 'Ergo Desk Lamp'
+    category: Office Accessory
+    description: 'Adjustable LED desk lamp with multiple brightness levels to reduce eye strain during long work sessions.'
+    list_unit_price_cents: 7999
+    original_unit_price_cents: 9598
+    initial_unit_price_cents: 7839
+    floor_unit_price_cents: 7199
+    concession_ladder_cents: [7839, 7519, 7199]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 719}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1523380262778-076eb862d38f?w=500"
+    rating: 4.4
+    reviews: "100"
+    tag: "Available"
+  - sku: EX-PRO-BUSINESS-LAPTOP-2
+    name: 'Pro Business Laptop'
+    category: Laptop
+    description: 'High performance laptop designed for multitasking and business applications.'
+    list_unit_price_cents: 99999
+    original_unit_price_cents: 119998
+    initial_unit_price_cents: 97999
+    floor_unit_price_cents: 89999
+    concession_ladder_cents: [97999, 93999, 89999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 8999}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=500"
+    rating: 4.5
+    reviews: "102"
+    tag: "Recommended"
+  - sku: EX-ULTRA-SLIM-LAPTOP
+    name: 'Ultra Slim Laptop'
+    category: Laptop
+    description: 'Lightweight laptop with a sleek design and long battery life.'
+    list_unit_price_cents: 89999
+    original_unit_price_cents: 107998
+    initial_unit_price_cents: 88199
+    floor_unit_price_cents: 80999
+    concession_ladder_cents: [88199, 84599, 80999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 8099}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=500"
+    rating: 4.3
+    reviews: "104"
+    tag: "Available"
+  - sku: EX-PERFORMANCE-LAPTOP-X
+    name: 'Performance Laptop X'
+    category: Laptop
+    description: 'A powerful machine built for professionals and gamers alike.'
+    list_unit_price_cents: 129999
+    original_unit_price_cents: 155998
+    initial_unit_price_cents: 127399
+    floor_unit_price_cents: 116999
+    concession_ladder_cents: [127399, 122199, 116999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 11699}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=500"
+    rating: 4.7
+    reviews: "106"
+    tag: "Best Value"
+  - sku: EX-BUDGET-LAPTOP-101
+    name: 'Budget Laptop 101'
+    category: Laptop
+    description: 'Affordable laptop perfect for everyday tasks and basic computing.'
+    list_unit_price_cents: 49999
+    original_unit_price_cents: 59998
+    initial_unit_price_cents: 48999
+    floor_unit_price_cents: 44999
+    concession_ladder_cents: [48999, 46999, 44999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 4499}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=500"
+    rating: 4.0
+    reviews: "108"
+    tag: "Available"
+  - sku: EX-CONVERTIBLE-2-IN-1-LAPTOP
+    name: 'Convertible 2-in-1 Laptop'
+    category: Laptop
+    description: 'Versatile laptop with touchscreen and 360-degree hinge functionality.'
+    list_unit_price_cents: 109999
+    original_unit_price_cents: 131998
+    initial_unit_price_cents: 107799
+    floor_unit_price_cents: 98999
+    concession_ladder_cents: [107799, 103399, 98999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 9899}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1544731612-de7f96afe55f?w=500"
+    rating: 4.4
+    reviews: "110"
+    tag: "Available"
+  - sku: EX-ENTERPRISE-ULTRABOOK
+    name: 'Enterprise Ultrabook'
+    category: Laptop
+    description: 'Premium ultrabook optimized for business security and performance.'
+    list_unit_price_cents: 139999
+    original_unit_price_cents: 167998
+    initial_unit_price_cents: 137199
+    floor_unit_price_cents: 125999
+    concession_ladder_cents: [137199, 131599, 125999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 12599}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1504707748692-419802cf939d?w=500"
+    rating: 4.6
+    reviews: "112"
+    tag: "Best Value"
+  - sku: EX-MACBOOK-AIR-2
+    name: 'MacBook Air'
+    category: MacBook
+    description: 'Lightweight and efficient notebook powered by Apple M1 chip.'
+    list_unit_price_cents: 119999
+    original_unit_price_cents: 143998
+    initial_unit_price_cents: 117599
+    floor_unit_price_cents: 107999
+    concession_ladder_cents: [117599, 112799, 107999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 10799}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1625766763788-95dcce9bf5ac?w=500"
+    rating: 4.7
+    reviews: "114"
+    tag: "Best Value"
+  - sku: EX-MACBOOK-PRO-13
+    name: 'MacBook Pro 13"'
+    category: MacBook
+    description: 'Compact yet powerful MacBook Pro with a retina display.'
+    list_unit_price_cents: 169999
+    original_unit_price_cents: 203998
+    initial_unit_price_cents: 166599
+    floor_unit_price_cents: 152999
+    concession_ladder_cents: [166599, 159799, 152999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 15299}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?w=500"
+    rating: 4.8
+    reviews: "116"
+    tag: "Popular"
+  - sku: EX-MACBOOK-PRO-16
+    name: 'MacBook Pro 16"'
+    category: MacBook
+    description: 'A top-tier MacBook Pro delivering exceptional performance for professionals.'
+    list_unit_price_cents: 239999
+    original_unit_price_cents: 287998
+    initial_unit_price_cents: 235199
+    floor_unit_price_cents: 215999
+    concession_ladder_cents: [235199, 225599, 215999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 21599}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1717865499857-ec35ce6e65fa?w=500"
+    rating: 4.9
+    reviews: "118"
+    tag: "Popular"
+  - sku: EX-MACBOOK-AIR-M2
+    name: 'MacBook Air M2'
+    category: MacBook
+    description: 'Latest MacBook Air with upgraded performance and battery life.'
+    list_unit_price_cents: 129999
+    original_unit_price_cents: 155998
+    initial_unit_price_cents: 127399
+    floor_unit_price_cents: 116999
+    concession_ladder_cents: [127399, 122199, 116999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 11699}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500"
+    rating: 4.7
+    reviews: "120"
+    tag: "Best Value"
+  - sku: EX-REFURBISHED-MACBOOK-PRO
+    name: 'Refurbished MacBook Pro'
+    category: MacBook
+    description: 'Certified refurbished MacBook Pro with premium specs at a great value.'
+    list_unit_price_cents: 199999
+    original_unit_price_cents: 239998
+    initial_unit_price_cents: 195999
+    floor_unit_price_cents: 179999
+    concession_ladder_cents: [195999, 187999, 179999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 17999}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=500"
+    rating: 4.5
+    reviews: "122"
+    tag: "Recommended"
+  - sku: EX-GAMING-BEAST-PC-2
+    name: 'Gaming Beast PC'
+    category: Gaming PC
+    description: 'High-end gaming desktop with a top-tier GPU and CPU for immersive gameplay.'
+    list_unit_price_cents: 199999
+    original_unit_price_cents: 239998
+    initial_unit_price_cents: 195999
+    floor_unit_price_cents: 179999
+    concession_ladder_cents: [195999, 187999, 179999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 17999}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1572314493295-09c6d5ec3cdf?w=500"
+    rating: 4.9
+    reviews: "124"
+    tag: "Popular"
+  - sku: EX-COMPACT-GAMING-PC
+    name: 'Compact Gaming PC'
+    category: Gaming PC
+    description: 'Small form factor gaming PC that delivers high performance without taking up much space.'
+    list_unit_price_cents: 149999
+    original_unit_price_cents: 179998
+    initial_unit_price_cents: 146999
+    floor_unit_price_cents: 134999
+    concession_ladder_cents: [146999, 140999, 134999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 13499}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1587202372775-e229f172b9d7?w=500"
+    rating: 4.6
+    reviews: "126"
+    tag: "Best Value"
+  - sku: EX-VR-READY-GAMING-PC
+    name: 'VR Ready Gaming PC'
+    category: Gaming PC
+    description: 'Optimized for virtual reality experiences with advanced cooling and performance.'
+    list_unit_price_cents: 219999
+    original_unit_price_cents: 263998
+    initial_unit_price_cents: 215599
+    floor_unit_price_cents: 197999
+    concession_ladder_cents: [215599, 206799, 197999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 19799}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1593640408182-31c70c8268f5?w=500"
+    rating: 4.8
+    reviews: "128"
+    tag: "Popular"
+  - sku: EX-OVERCLOCKED-GAMING-PC
+    name: 'Overclocked Gaming PC'
+    category: Gaming PC
+    description: 'Performance-tuned gaming desktop designed for extreme gaming and streaming.'
+    list_unit_price_cents: 249999
+    original_unit_price_cents: 299998
+    initial_unit_price_cents: 244999
+    floor_unit_price_cents: 224999
+    concession_ladder_cents: [244999, 234999, 224999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 22499}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1587202372634-32705e3bf49c?w=500"
+    rating: 4.7
+    reviews: "130"
+    tag: "Best Value"
+  - sku: EX-BUDGET-GAMING-PC
+    name: 'Budget Gaming PC'
+    category: Gaming PC
+    description: 'Affordable gaming desktop offering solid performance for esports and casual gaming.'
+    list_unit_price_cents: 119999
+    original_unit_price_cents: 143998
+    initial_unit_price_cents: 117599
+    floor_unit_price_cents: 107999
+    concession_ladder_cents: [117599, 112799, 107999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 10799}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1660855551740-4474188debdb?w=500"
+    rating: 4.3
+    reviews: "132"
+    tag: "Available"
+  - sku: EX-ERGO-STANDING-DESK-2
+    name: 'Ergo Standing Desk'
+    category: Standing Desk
+    description: 'Adjustable standing desk designed to improve posture and productivity.'
+    list_unit_price_cents: 39999
+    original_unit_price_cents: 47998
+    initial_unit_price_cents: 39199
+    floor_unit_price_cents: 35999
+    concession_ladder_cents: [39199, 37599, 35999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 3599}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1623679072629-3aaa0192a391?w=500"
+    rating: 4.6
+    reviews: "134"
+    tag: "Best Value"
+  - sku: EX-SMART-HEIGHT-ADJUSTABLE-DESK
+    name: 'Smart Height Adjustable Desk'
+    category: Standing Desk
+    description: 'Standing desk with memory presets and smooth electronic adjustment.'
+    list_unit_price_cents: 49999
+    original_unit_price_cents: 59998
+    initial_unit_price_cents: 48999
+    floor_unit_price_cents: 44999
+    concession_ladder_cents: [48999, 46999, 44999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 4499}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1622131815452-cc00d8d89f02?w=500"
+    rating: 4.7
+    reviews: "136"
+    tag: "Best Value"
+  - sku: EX-COMPACT-STANDING-DESK
+    name: 'Compact Standing Desk'
+    category: Standing Desk
+    description: 'Perfect for home offices; offers easy adjustment in a compact form.'
+    list_unit_price_cents: 35999
+    original_unit_price_cents: 43198
+    initial_unit_price_cents: 35279
+    floor_unit_price_cents: 32399
+    concession_ladder_cents: [35279, 33839, 32399]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 3239}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1632923946204-a7bc5c848ca6?w=500"
+    rating: 4.4
+    reviews: "138"
+    tag: "Available"
+  - sku: EX-ERGOPRO-STANDING-DESK
+    name: 'ErgoPro Standing Desk'
+    category: Standing Desk
+    description: 'High-capacity standing desk with customizable settings for optimal comfort.'
+    list_unit_price_cents: 44999
+    original_unit_price_cents: 53998
+    initial_unit_price_cents: 44099
+    floor_unit_price_cents: 40499
+    concession_ladder_cents: [44099, 42299, 40499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 4049}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1699831112447-9c8c803f584b?w=500"
+    rating: 4.5
+    reviews: "140"
+    tag: "Recommended"
+  - sku: EX-ULTRACOMFORT-ERGONOMIC-CHAIR-2
+    name: 'UltraComfort Ergonomic Chair'
+    category: Ergonomic Chair
+    description: 'Ergonomic chair with advanced lumbar support for long hours of work.'
+    list_unit_price_cents: 24999
+    original_unit_price_cents: 29998
+    initial_unit_price_cents: 24499
+    floor_unit_price_cents: 22499
+    concession_ladder_cents: [24499, 23499, 22499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 2249}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1681418659069-eef28d44aeab?w=500"
+    rating: 4.8
+    reviews: "142"
+    tag: "Popular"
+  - sku: EX-EXECUTIVE-ERGONOMIC-CHAIR
+    name: 'Executive Ergonomic Chair'
+    category: Ergonomic Chair
+    description: 'High-back chair designed for executives with comfort and style in mind.'
+    list_unit_price_cents: 29999
+    original_unit_price_cents: 35998
+    initial_unit_price_cents: 29399
+    floor_unit_price_cents: 26999
+    concession_ladder_cents: [29399, 28199, 26999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 2699}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://plus.unsplash.com/premium_photo-1661542322251-db8b9bdf8e30?w=500"
+    rating: 4.7
+    reviews: "144"
+    tag: "Best Value"
+  - sku: EX-MESH-ERGONOMIC-CHAIR
+    name: 'Mesh Ergonomic Chair'
+    category: Ergonomic Chair
+    description: 'Breathable mesh chair providing excellent posture support and flexibility.'
+    list_unit_price_cents: 19999
+    original_unit_price_cents: 23998
+    initial_unit_price_cents: 19599
+    floor_unit_price_cents: 17999
+    concession_ladder_cents: [19599, 18799, 17999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 1799}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1594235048794-fae8583a5af5?w=500"
+    rating: 4.5
+    reviews: "146"
+    tag: "Recommended"
+  - sku: EX-ERGO-DELUXE-CHAIR
+    name: 'Ergo Deluxe Chair'
+    category: Ergonomic Chair
+    description: 'Premium ergonomic chair with multiple adjustable features for personalized comfort.'
+    list_unit_price_cents: 32999
+    original_unit_price_cents: 39598
+    initial_unit_price_cents: 32339
+    floor_unit_price_cents: 29699
+    concession_ladder_cents: [32339, 31019, 29699]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 2969}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://plus.unsplash.com/premium_photo-1681558314227-33174756677d?w=500"
+    rating: 4.9
+    reviews: "148"
+    tag: "Popular"
+  - sku: EX-PRECISION-WIRELESS-MOUSE-2
+    name: 'Precision Wireless Mouse'
+    category: Mouse
+    description: 'High-precision wireless mouse with customizable buttons for productivity.'
+    list_unit_price_cents: 4999
+    original_unit_price_cents: 5998
+    initial_unit_price_cents: 4899
+    floor_unit_price_cents: 4499
+    concession_ladder_cents: [4899, 4699, 4499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 449}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=500"
+    rating: 4.5
+    reviews: "150"
+    tag: "Recommended"
+  - sku: EX-ERGO-WIRELESS-MOUSE
+    name: 'Ergo Wireless Mouse'
+    category: Mouse
+    description: 'Ergonomically designed mouse for comfortable use during long work sessions.'
+    list_unit_price_cents: 3999
+    original_unit_price_cents: 4798
+    initial_unit_price_cents: 3919
+    floor_unit_price_cents: 3599
+    concession_ladder_cents: [3919, 3759, 3599]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 359}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=500"
+    rating: 4.4
+    reviews: "152"
+    tag: "Available"
+  - sku: EX-GAMING-WIRELESS-MOUSE
+    name: 'Gaming Wireless Mouse'
+    category: Mouse
+    description: 'Responsive and accurate gaming mouse with adjustable DPI settings.'
+    list_unit_price_cents: 5999
+    original_unit_price_cents: 7198
+    initial_unit_price_cents: 5879
+    floor_unit_price_cents: 5399
+    concession_ladder_cents: [5879, 5639, 5399]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 539}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1563297007-0686b7003af7?w=500"
+    rating: 4.6
+    reviews: "154"
+    tag: "Best Value"
+  - sku: EX-BUDGET-WIRED-MOUSE
+    name: 'Budget Wired Mouse'
+    category: Mouse
+    description: 'Reliable wired mouse offering simplicity and precision at an affordable price.'
+    list_unit_price_cents: 1999
+    original_unit_price_cents: 2398
+    initial_unit_price_cents: 1959
+    floor_unit_price_cents: 1799
+    concession_ladder_cents: [1959, 1879, 1799]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 179}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=500"
+    rating: 4.2
+    reviews: "156"
+    tag: "Available"
+  - sku: EX-ULTRAWIDE-MONITOR
+    name: 'UltraWide Monitor'
+    category: Monitor
+    description: 'Immersive ultrawide display for enhanced productivity and multimedia experiences.'
+    list_unit_price_cents: 39999
+    original_unit_price_cents: 47998
+    initial_unit_price_cents: 39199
+    floor_unit_price_cents: 35999
+    concession_ladder_cents: [39199, 37599, 35999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 3599}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1666771410003-8437c4781d49?w=500"
+    rating: 4.7
+    reviews: "158"
+    tag: "Best Value"
+  - sku: EX-4K-GAMING-MONITOR
+    name: '4K Gaming Monitor'
+    category: Monitor
+    description: 'High resolution gaming monitor with fast refresh rates and vibrant colors.'
+    list_unit_price_cents: 49999
+    original_unit_price_cents: 59998
+    initial_unit_price_cents: 48999
+    floor_unit_price_cents: 44999
+    concession_ladder_cents: [48999, 46999, 44999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 4499}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1585362028211-dee1aba5fdd3?w=500"
+    rating: 4.8
+    reviews: "160"
+    tag: "Popular"
+  - sku: EX-CURVED-OFFICE-MONITOR
+    name: 'Curved Office Monitor'
+    category: Monitor
+    description: 'Ergonomically curved monitor designed to reduce eye strain during long work hours.'
+    list_unit_price_cents: 32999
+    original_unit_price_cents: 39598
+    initial_unit_price_cents: 32339
+    floor_unit_price_cents: 29699
+    concession_ladder_cents: [32339, 31019, 29699]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 2969}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1547119957-637f8679db1e?w=500"
+    rating: 4.4
+    reviews: "162"
+    tag: "Available"
+  - sku: EX-PROFESSIONAL-COLOR-MONITOR
+    name: 'Professional Color Monitor'
+    category: Monitor
+    description: 'Monitors designed for designers and photographers requiring accurate color reproduction.'
+    list_unit_price_cents: 59999
+    original_unit_price_cents: 71998
+    initial_unit_price_cents: 58799
+    floor_unit_price_cents: 53999
+    concession_ladder_cents: [58799, 56399, 53999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 5399}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1586210579191-33b45e38fa2c?w=500"
+    rating: 4.9
+    reviews: "164"
+    tag: "Popular"
+  - sku: EX-MECHANICAL-GAMING-KEYBOARD
+    name: 'Mechanical Gaming Keyboard'
+    category: Keyboard
+    description: 'RGB backlit mechanical keyboard with fast response times for gaming enthusiasts.'
+    list_unit_price_cents: 8999
+    original_unit_price_cents: 10798
+    initial_unit_price_cents: 8819
+    floor_unit_price_cents: 8099
+    concession_ladder_cents: [8819, 8459, 8099]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 809}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1595225476474-87563907a212?w=500"
+    rating: 4.7
+    reviews: "166"
+    tag: "Best Value"
+  - sku: EX-ERGONOMIC-KEYBOARD
+    name: 'Ergonomic Keyboard'
+    category: Keyboard
+    description: 'Keyboard designed to reduce strain and provide a comfortable typing experience.'
+    list_unit_price_cents: 6999
+    original_unit_price_cents: 8398
+    initial_unit_price_cents: 6859
+    floor_unit_price_cents: 6299
+    concession_ladder_cents: [6859, 6579, 6299]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 629}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500"
+    rating: 4.5
+    reviews: "168"
+    tag: "Recommended"
+  - sku: EX-WIRELESS-COMPACT-KEYBOARD
+    name: 'Wireless Compact Keyboard'
+    category: Keyboard
+    description: 'Portable, wireless keyboard perfect for on-the-go productivity.'
+    list_unit_price_cents: 4999
+    original_unit_price_cents: 5998
+    initial_unit_price_cents: 4899
+    floor_unit_price_cents: 4499
+    concession_ladder_cents: [4899, 4699, 4499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 449}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500"
+    rating: 4.3
+    reviews: "170"
+    tag: "Available"
+  - sku: EX-BACKLIT-OFFICE-KEYBOARD
+    name: 'Backlit Office Keyboard'
+    category: Keyboard
+    description: 'Quiet and comfortable keyboard with subtle backlighting for office use.'
+    list_unit_price_cents: 5999
+    original_unit_price_cents: 7198
+    initial_unit_price_cents: 5879
+    floor_unit_price_cents: 5399
+    concession_ladder_cents: [5879, 5639, 5399]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 539}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1601445638532-3c6f6c3aa1d6?w=500"
+    rating: 4.4
+    reviews: "172"
+    tag: "Available"
+  - sku: EX-ERGO-DESK-LAMP-2
+    name: 'Ergo Desk Lamp'
+    category: Office Accessory
+    description: 'Adjustable LED desk lamp to reduce eye strain during extended working hours.'
+    list_unit_price_cents: 7999
+    original_unit_price_cents: 9598
+    initial_unit_price_cents: 7839
+    floor_unit_price_cents: 7199
+    concession_ladder_cents: [7839, 7519, 7199]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 719}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1619608135352-868e8313e121?w=500"
+    rating: 4.4
+    reviews: "174"
+    tag: "Available"
+  - sku: EX-WIRELESS-CHARGING-PAD
+    name: 'Wireless Charging Pad'
+    category: Office Accessory
+    description: 'Fast wireless charger for smartphones and wearable devices.'
+    list_unit_price_cents: 2999
+    original_unit_price_cents: 3598
+    initial_unit_price_cents: 2939
+    floor_unit_price_cents: 2699
+    concession_ladder_cents: [2939, 2819, 2699]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 269}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1622445275463-afa2ab738c34?w=500"
+    rating: 4.5
+    reviews: "176"
+    tag: "Recommended"
+  - sku: EX-BLUETOOTH-SPEAKER
+    name: 'Bluetooth Speaker'
+    category: Office Accessory
+    description: 'Portable Bluetooth speaker with excellent sound quality for your workspace.'
+    list_unit_price_cents: 5999
+    original_unit_price_cents: 7198
+    initial_unit_price_cents: 5879
+    floor_unit_price_cents: 5399
+    concession_ladder_cents: [5879, 5639, 5399]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 539}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500"
+    rating: 4.6
+    reviews: "178"
+    tag: "Best Value"
+  - sku: EX-DESKTOP-WEBCAM
+    name: 'Desktop Webcam'
+    category: Office Accessory
+    description: 'High-definition webcam for video conferencing and streaming.'
+    list_unit_price_cents: 8999
+    original_unit_price_cents: 10798
+    initial_unit_price_cents: 8819
+    floor_unit_price_cents: 8099
+    concession_ladder_cents: [8819, 8459, 8099]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 809}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1623949556303-b0d17d198863?w=500"
+    rating: 4.4
+    reviews: "180"
+    tag: "Available"
+  - sku: EX-NOISE-CANCELLING-HEADPHONES
+    name: 'Noise Cancelling Headphones'
+    category: Audio
+    description: 'Over-ear headphones with active noise cancellation for immersive sound.'
+    list_unit_price_cents: 14999
+    original_unit_price_cents: 17998
+    initial_unit_price_cents: 14699
+    floor_unit_price_cents: 13499
+    concession_ladder_cents: [14699, 14099, 13499]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 1349}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500"
+    rating: 4.7
+    reviews: "182"
+    tag: "Best Value"
+  - sku: EX-PORTABLE-SSD-1TB
+    name: 'Portable SSD 1TB'
+    category: Storage
+    description: 'High-speed portable SSD for fast data transfer and reliable storage.'
+    list_unit_price_cents: 12999
+    original_unit_price_cents: 15598
+    initial_unit_price_cents: 12739
+    floor_unit_price_cents: 11699
+    concession_ladder_cents: [12739, 12219, 11699]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 1169}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1662601326685-fe26f65cdb17?w=500"
+    rating: 4.8
+    reviews: "184"
+    tag: "Popular"
+  - sku: EX-SMARTWATCH-SERIES-5
+    name: 'Smartwatch Series 5'
+    category: Wearable
+    description: 'Feature-packed smartwatch with fitness tracking and notifications.'
+    list_unit_price_cents: 19999
+    original_unit_price_cents: 23998
+    initial_unit_price_cents: 19599
+    floor_unit_price_cents: 17999
+    concession_ladder_cents: [19599, 18799, 17999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 1799}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1544117519-31a4b719223d?w=500"
+    rating: 4.6
+    reviews: "186"
+    tag: "Best Value"
+  - sku: EX-PORTABLE-POWER-BANK
+    name: 'Portable Power Bank'
+    category: Accessories
+    description: 'High capacity power bank to keep your devices charged on the go.'
+    list_unit_price_cents: 3999
+    original_unit_price_cents: 4798
+    initial_unit_price_cents: 3919
+    floor_unit_price_cents: 3599
+    concession_ladder_cents: [3919, 3759, 3599]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 359}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500"
+    rating: 4.3
+    reviews: "188"
+    tag: "Available"
+  - sku: EX-ERGONOMIC-FOOT-REST
+    name: 'Ergonomic Foot Rest'
+    category: Office Accessory
+    description: 'Designed to relieve foot strain and improve posture during long hours at your desk.'
+    list_unit_price_cents: 2499
+    original_unit_price_cents: 2998
+    initial_unit_price_cents: 2449
+    floor_unit_price_cents: 2249
+    concession_ladder_cents: [2449, 2349, 2249]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 224}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://plus.unsplash.com/premium_photo-1681426775958-4e7ba85a77f1?w=500"
+    rating: 4.2
+    reviews: "190"
+    tag: "Available"
+  - sku: EX-LAPTOP-COOLING-PAD
+    name: 'Laptop Cooling Pad'
+    category: Laptop Accessory
+    description: 'Enhance your laptop''s performance by preventing overheating with this cooling pad.'
+    list_unit_price_cents: 3499
+    original_unit_price_cents: 4198
+    initial_unit_price_cents: 3429
+    floor_unit_price_cents: 3149
+    concession_ladder_cents: [3429, 3289, 3149]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 314}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1619953942547-233eab5a70d6?w=500"
+    rating: 4.5
+    reviews: "192"
+    tag: "Recommended"
+  - sku: EX-WIRELESS-PRESENTER
+    name: 'Wireless Presenter'
+    category: Office Accessory
+    description: 'Convenient wireless presenter ideal for meetings and presentations.'
+    list_unit_price_cents: 2999
+    original_unit_price_cents: 3598
+    initial_unit_price_cents: 2939
+    floor_unit_price_cents: 2699
+    concession_ladder_cents: [2939, 2819, 2699]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 269}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=500"
+    rating: 4.3
+    reviews: "194"
+    tag: "Available"
+  - sku: EX-DIGITAL-DRAWING-TABLET
+    name: 'Digital Drawing Tablet'
+    category: Creative Tools
+    description: 'Ideal for digital artists; includes a stylus and customizable shortcuts.'
+    list_unit_price_cents: 8999
+    original_unit_price_cents: 10798
+    initial_unit_price_cents: 8819
+    floor_unit_price_cents: 8099
+    concession_ladder_cents: [8819, 8459, 8099]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 809}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500"
+    rating: 4.6
+    reviews: "196"
+    tag: "Best Value"
+  - sku: EX-VR-HEADSET
+    name: 'VR Headset'
+    category: Gaming
+    description: 'Step into the world of virtual reality with this immersive VR headset.'
+    list_unit_price_cents: 29999
+    original_unit_price_cents: 35998
+    initial_unit_price_cents: 29399
+    floor_unit_price_cents: 26999
+    concession_ladder_cents: [29399, 28199, 26999]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 2699}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1622979135225-d2ba269cf1ac?w=500"
+    rating: 4.7
+    reviews: "198"
+    tag: "Best Value"
+  - sku: EX-MULTI-PORT-USB-HUB
+    name: 'Multi-Port USB Hub'
+    category: Accessories
+    description: 'Expand your connectivity with a multi-port USB hub for all your devices.'
+    list_unit_price_cents: 3999
+    original_unit_price_cents: 4798
+    initial_unit_price_cents: 3919
+    floor_unit_price_cents: 3599
+    concession_ladder_cents: [3919, 3759, 3599]
+    base_warranty_months: 12
+    warranty_addons_cents: {"12": 0, "24": 359}
+    returns_days: 30
+    delivery_days: 5
+    stock_on_hand: 10
+    incoming_stock: 4
+    incoming_days: 7
+    image_url: "https://images.unsplash.com/photo-1625961332771-3f40b0e2bdcf?w=500"
+    rating: 4.4
+    reviews: "200"
+    tag: "Available"

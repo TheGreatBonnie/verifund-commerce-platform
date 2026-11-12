@@ -115,6 +115,8 @@ class Offer(CommerceModel):
     line_items: list[OfferLineItem]
     subtotal_cents: int = Field(ge=0)
     shipping_cents: int = Field(default=0, ge=0)
+    tax_cents: int = Field(default=0, ge=0)
+    fees_cents: int = Field(default=0, ge=0)
     total_cents: int = Field(ge=0)
     delivery_days: int = Field(gt=0)
     delivery_date: datetime | None = None
@@ -124,10 +126,13 @@ class Offer(CommerceModel):
     terms: OfferTerms = Field(default_factory=OfferTerms)
     status: OfferStatus = OfferStatus.PROPOSED
     round: int = Field(default=1, ge=1)
+    binding_version: int = Field(default=1, ge=1)
     rationale: str = ""
+    parent_offer_id: str | None = None
+    supersedes_offer_id: str | None = None
 
     @model_validator(mode="after")
-    def validate_totals(self) -> Offer:
+    def _validate_totals(self) -> Offer:
         computed = 0
         for item in self.line_items:
             if item.quantity <= 0:
@@ -141,8 +146,11 @@ class Offer(CommerceModel):
             ) * item.quantity
         if computed != self.subtotal_cents:
             raise ValueError("subtotal_cents does not match line items")
-        if self.total_cents != self.subtotal_cents + self.shipping_cents:
-            raise ValueError("total_cents does not match subtotal and shipping")
+        if self.total_cents != (
+            self.subtotal_cents + self.shipping_cents
+            + self.tax_cents + self.fees_cents
+        ):
+            raise ValueError("total_cents does not match subtotal, shipping, tax, fees")
         if self.delivery_days <= 0:
             raise ValueError("delivery_days must be positive")
         return self
@@ -154,6 +162,8 @@ class CounterOffer(CommerceModel):
     target_unit_price_cents: int | None = Field(default=None, gt=0)
     requested_changes: dict[str, str | int | bool] = Field(default_factory=dict)
     rationale: str = ""
+    in_response_to_offer_id: str | None = None
+    idempotency_key: str | None = None
 
 
 class AcceptOffer(CommerceModel):
@@ -162,6 +172,11 @@ class AcceptOffer(CommerceModel):
     round: int = Field(ge=1)
     accepted_total_cents: int = Field(gt=0)
     accepted_by_buyer_task: str | None = None
+    settlement_transaction_id: str | None = None
+    agreement_hash: str | None = None
+    settlement_token: str | None = None
+    idempotency_key: str | None = None
+    accepted_at: datetime | None = None
 
 
 class ApprovalReceipt(CommerceModel):
@@ -191,6 +206,9 @@ class PurchaseOrderRequest(CommerceModel):
     approval: ApprovalReceipt
     idempotency_key: str
     expected_total_cents: int = Field(gt=0)
+    settlement_transaction_id: str | None = None
+    agreement_hash: str | None = None
+    settlement_token: str | None = None
 
 
 class Fulfillment(CommerceModel):

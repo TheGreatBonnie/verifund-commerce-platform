@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from commerce_core.contracts import (
@@ -14,6 +15,8 @@ from commerce_core.contracts import (
 )
 
 from seller_agent.store import SellerStore
+
+SettlementValidator = Callable[[PurchaseOrderRequest], Awaitable[None]]
 
 
 class OrderError(Exception):
@@ -72,7 +75,12 @@ class OrderService:
                 "Offer has expired.",
             )
 
-    async def create_order(self, po: PurchaseOrderRequest) -> Order:
+    async def create_order(
+        self,
+        po: PurchaseOrderRequest,
+        *,
+        settlement_validator: SettlementValidator | None = None,
+    ) -> Order:
         now = datetime.now(UTC)
         async with self.store.transaction() as tx:
             existing = await tx.get_order_by_idempotency(po.idempotency_key)
@@ -84,6 +92,16 @@ class OrderService:
                     CommerceErrorCode.INVALID_REQUEST, "Offer not found."
                 )
             self._validate(po, offer)
+            if settlement_validator is not None:
+                try:
+                    await settlement_validator(po)
+                except OrderError:
+                    raise
+                except Exception as exc:
+                    raise OrderError(
+                        CommerceErrorCode.CONFLICT,
+                        str(exc) or "Settlement validation failed.",
+                    ) from exc
             try:
                 reservation = await tx.reserve(
                     offer.line_items[0].sku,
