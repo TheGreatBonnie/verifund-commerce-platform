@@ -17,7 +17,7 @@ This guide reflects the deployment architecture selected for the current demo wi
 | Auth | Clerk (test keys) |
 | Initial data | Sellers onboarded through the console UI |
 
-> **Warning:** This path requires a PostgreSQL migration (the code is SQLite-only) and accepts free-tier limitations. Read [Before you start](#before-you-start--three-blockers) before committing. A zero-code-change alternative is listed in [Alternative topology](#alternative-topology-paid-render--sqlite).
+> **Note:** the PostgreSQL migration in [Step 1](#step-1--migrate-to-postgres) is implemented on this branch, so PostgreSQL is a supported backend. The free-tier limitations are still real. Read [Before you start](#before-you-start--remaining-blockers) before committing. A zero-code-change alternative is listed in [Alternative topology](#alternative-topology-paid-render--sqlite).
 
 ---
 
@@ -110,18 +110,17 @@ flowchart LR
 
 ---
 
-## Before you start — three blockers
+## Before you start — remaining blockers
 
-### 1. The code is SQLite-only; Postgres is not implemented
+### 1. PostgreSQL is supported; know what it does and does not cover
 
-`pyproject.toml` has no PostgreSQL driver, and the codebase contains SQLite-specific logic:
+The drivers, the dialect-aware helpers, the checkpoint savers and the ADK session store are in place, so a `postgresql+psycopg://` URL now works for every service. What it does **not** change:
 
-- `configure_sqlite` (WAL mode, foreign keys).
-- `_ensure_columns` using `PRAGMA table_info`.
-- `langgraph-checkpoint-sqlite` for buyer/seller/verifund-agent checkpoints.
-- The ADK session store (`ORCHESTRATOR_SESSION_DB_URL`).
-
-The Neon design and implementation plan exist under `docs/superpowers/`, but they were never implemented. Switching to Render Postgres is a **multi-day migration**, not a connection-string change. See [Step 1](#step-1--migrate-to-postgres).
+- **Schema management is still runtime DDL.** Tables are created with `metadata.create_all` plus idempotent `ALTER TABLE` column checks, not migrations. Fine for a demo; not a production schema history.
+- **Evidence files stay on local disk.** `VERIFUND_EVIDENCE_DIR` still holds uploaded evidence, which the database does not persist. On free tier that directory is ephemeral.
+- **Tenancy stays application-enforced.** No row-level security is added by the Postgres path.
+- **One instance, several databases.** Render's free tier permits a single Postgres instance, so each service gets its own database inside it (see [Step 1](#step-1--migrate-to-postgres)).
+- **Defaults still point at SQLite.** Local development and the unit suite keep using SQLite; only a deployed URL switches a service to PostgreSQL.
 
 ### 2. Free-tier limitations
 
@@ -143,24 +142,53 @@ The control plane writes evidence files to `VERIFUND_EVIDENCE_DIR`, and the buye
 
 ## Step 1 — Migrate to Postgres
 
-1. Add drivers to `pyproject.toml`:
-   - `psycopg[binary,pool]>=3.2,<4`
-   - `langgraph-checkpoint-postgres`
-   Run `uv lock` afterwards.
-2. Replace every `sqlite+aiosqlite:///` URL with `postgresql+psycopg://`. The affected variables are:
-   - `BUYER_DATABASE_URL`
-   - `REGISTRY_DATABASE_URL`
-   - `SELLER_SHARED_DB_URL`
-   - `VERIFUND_DATABASE_URL`
-   - `VERIFUND_AGENT_DATABASE_URL`
-   - `ORCHESTRATOR_SESSION_DB_URL`
-3. Replace SQLite-specific code:
-   - `configure_sqlite` → PostgreSQL engine configuration (no WAL/PRAGMA).
-   - `_ensure_columns` (`PRAGMA table_info`) → query `information_schema.columns`.
-   - `langgraph-checkpoint-sqlite` → `langgraph-checkpoint-postgres` for the buyer, seller, and verifund-agent checkpoints.
-   - ADK session store → PostgreSQL-backed store.
-4. Create one database per service inside the single Render Postgres instance: `buyer`, `registry`, `sellers`, `verifund`, `verifund_agent`, `orchestrator`. Render's free tier allows only one Postgres instance, but that instance can host multiple databases.
-5. Test locally with Docker Compose and a PostgreSQL service before deploying.
+**Status: implemented.** The drivers, dialect-aware database helpers, checkpoint savers and ADK session store ship on this branch. Choose a PostgreSQL target with URLs and every service switches backend; leave the defaults alone and local development keeps using SQLite.
+
+What the implementation consists of, for review:
+
+- `psycopg[binary,pool]` and `langgraph-checkpoint-postgres` are dependencies.
+- `commerce_core.db` owns the dialect split: `configure_database` (SQLite PRAGMAs vs. a UTC session), `existing_columns` (`information_schema.columns` vs. `PRAGMA table_info`), `dialect_insert` (PostgreSQL vs. SQLite upsert), `portable_ddl`, and `row_was_written`.
+- `commerce_core.checkpoints.open_checkpointer` picks `AsyncPostgresSaver` for a `postgresql+psycopg://` URL and `AsyncSqliteSaver` for a file path.
+- Insert-result checks use `RETURNING`. `psycopg` reports `rowcount == -1` for INSERTs, so duplicate detection and optimistic guards would otherwise invert.
+- The seller review stores (`shared_review_store`, `agreement_store`) run on either backend instead of raw `sqlite3`.
+
+### 1.1 Provision the databases
+
+Render's free tier allows one Postgres instance, so each service gets a database inside it: `buyer`, `registry`, `sellers`, `verifund`, `verifund_agent`, `orchestrator`. Render exposes one connection string per instance; the script creates the rest and prints the URLs to paste into the Blueprint.
+
+```bash
+uv run python scripts/provision_postgres.py \
+  --base-url "postgresql://USER:PASSWORD@HOST/DATABASE" \
+  --show-passwords
+```
+
+Then set, on the `gateway` service:
+
+| Variable | Value |
+| --- | --- |
+| `BUYER_DATABASE_URL` | `postgresql+psycopg://…/buyer` |
+| `REGISTRY_DATABASE_URL` | `postgresql+psycopg://…/registry` |
+| `SELLER_SHARED_DB_URL` | `postgresql+psycopg://…/sellers` |
+| `VERIFUND_DATABASE_URL` | `postgresql+psycopg://…/verifund` |
+| `VERIFUND_AGENT_DATABASE_URL` | `postgresql+psycopg://…/verifund_agent` |
+| `ORCHESTRATOR_SESSION_DB_URL` | `postgresql+psycopg://…/orchestrator` |
+| `BUYER_CHECKPOINT_URL` | `postgresql+psycopg://…/buyer` |
+| `SELLER_CHECKPOINT_URL` | `postgresql+psycopg://…/sellers` |
+| `VERIFUND_AGENT_CHECKPOINT_URL` | `postgresql+psycopg://…/verifund_agent` |
+
+Leave `DATABASE_URL` and the bare `CHECKPOINT_PATH` unset. The merged gateway runs every service in one process, and those generic names would collide (see the env-var ownership table above).
+
+### 1.2 Test locally first
+
+`docker-compose.yml` now includes a PostgreSQL 18 service that creates the six databases on first start:
+
+```bash
+docker compose up -d postgres
+uv run python scripts/provision_postgres.py \
+  --base-url "postgresql://marketmesh:marketmesh@127.0.0.1:5432/marketmesh"
+```
+
+The Compose init script already created them, so the command should report that all databases are present. Point the service URLs in `docker-compose.yml` at PostgreSQL to exercise that path locally.
 
 ---
 
@@ -173,265 +201,39 @@ The control plane writes evidence files to `VERIFUND_EVIDENCE_DIR`, and the buye
 
 ### 2.2 Render Blueprint
 
-Create `render.yaml` at the repository root:
+`render.yaml` at the repository root deploys the **merged gateway** as a single
+Docker web service. Do not paste a six-service blueprint: this branch mounts all
+six FastAPI apps behind one process (see
+[Merged gateway topology](#merged-gateway-topology)).
 
-```yaml
-services:
-  - type: web
-    runtime: docker
-    name: orchestrator
-    plan: free
-    region: oregon
-    dockerfilePath: ./Dockerfile.python
-    dockerCommand: python -m orchestrator_agent
-    healthCheckPath: /health
-    envVars:
-      - fromGroup: shared
-      - fromGroup: orchestrator
+Apply it with **Render → New → Blueprint**, select this repository and the
+`deploy/render` branch, and Render prompts for every `sync: false` value.
 
-  - type: web
-    runtime: docker
-    name: buyer
-    plan: free
-    region: oregon
-    dockerfilePath: ./Dockerfile.python
-    dockerCommand: python -m buyer_agent
-    healthCheckPath: /health
-    envVars:
-      - fromGroup: shared
-      - fromGroup: buyer
+| Item | Value |
+| --- | --- |
+| Service | `gateway` (Docker, `python -m gateway`) |
+| Port | `10000` (`PORT`) |
+| Health check | `/health` |
+| Database | one free Postgres instance, `marketmesh` |
+| Env group | `gateway-shared` for secrets shared by all six services |
 
-  - type: web
-    runtime: docker
-    name: registry
-    plan: free
-    region: oregon
-    dockerfilePath: ./Dockerfile.python
-    dockerCommand: python -m registry
-    healthCheckPath: /health
-    envVars:
-      - fromGroup: shared
-      - fromGroup: registry
+Three values are easy to get wrong because the merged process reads each one
+once for every service:
 
-  - type: web
-    runtime: docker
-    name: seller-shared
-    plan: free
-    region: oregon
-    dockerfilePath: ./Dockerfile.python
-    dockerCommand: python -m seller_agent
-    healthCheckPath: /health
-    envVars:
-      - fromGroup: shared
-      - fromGroup: seller
+- `REGISTRY_URL` must be `https://gateway.onrender.com/registry`. Its default is
+  `http://127.0.0.1:9100`, so seller activation silently fails to publish an
+  Agent Card.
+- The registry authenticates writes with `ADMIN_TOKEN`, while the control plane
+  sends `REGISTRY_ADMIN_TOKEN`. Set both to the same secret.
+- `VERIFUND_AGENT_CARD_URL` must be the gateway-prefixed card URL; its default
+  is `http://127.0.0.1:9301/...`.
 
-  - type: web
-    runtime: docker
-    name: control-plane
-    plan: free
-    region: oregon
-    dockerfilePath: ./Dockerfile.python
-    dockerCommand: python -m verifund_control_plane
-    healthCheckPath: /health
-    envVars:
-      - fromGroup: shared
-      - fromGroup: control-plane
-
-  - type: web
-    runtime: docker
-    name: verifund-agent
-    plan: free
-    region: oregon
-    dockerfilePath: ./Dockerfile.python
-    dockerCommand: python -m verifund_agent
-    healthCheckPath: /ready
-    envVars:
-      - fromGroup: shared
-      - fromGroup: verifund-agent
-
-databases:
-  - name: marketmesh
-    plan: free
-    region: oregon
-    databaseName: marketmesh
-    user: marketmesh
-
-envVarGroups:
-  - name: shared
-    envVars:
-      - key: HOST
-        value: 0.0.0.0
-      - key: MARKETMESH_LLM_MODE
-        value: live
-      - key: NEBIUS_API_KEY
-        sync: false
-      - key: NEBIUS_BASE_URL
-        value: https://api.tokenfactory.us-central1.nebius.com/v1/
-      - key: NEBIUS_MODEL
-        value: deepseek-ai/DeepSeek-V4-Flash-0731
-      - key: VERIFUND_MODE
-        value: sandbox
-
-  - name: orchestrator
-    envVars:
-      - key: PORT
-        value: "9000"
-      - key: ORCHESTRATOR_URL
-        value: https://orchestrator.onrender.com
-      - key: ORCHESTRATOR_AGUI_URL
-        value: https://orchestrator.onrender.com
-      - key: BUYER_A2A_URL
-        value: https://buyer.onrender.com
-      - key: SELLER_SHARED_URL
-        value: https://seller-shared.onrender.com
-      - key: BUYER_INTERNAL_URL
-        value: https://buyer.onrender.com
-      - key: BUYER_INTERNAL_TOKEN
-        sync: false
-      - key: VERIFUND_AGENT_URL
-        value: https://verifund-agent.onrender.com
-      - key: VERIFUND_AGENT_CARD_URL
-        value: https://verifund-agent.onrender.com/.well-known/agent-card.json
-      - key: VERIFUND_AGENT_A2A_TOKEN
-        sync: false
-      - key: COPILOTKIT_AGENT_MODEL
-        value: openai:deepseek-ai/DeepSeek-V4-Flash-0731
-      - key: OPENAI_BASE_URL
-        value: https://api.tokenfactory.us-central1.nebius.com/v1/
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: ORCHESTRATOR_SESSION_DB_URL
-        sync: false
-
-  - name: buyer
-    envVars:
-      - key: PORT
-        value: "9100"
-      - key: REGISTRY_URL
-        value: https://registry.onrender.com
-      - key: BUYER_DATABASE_URL
-        sync: false
-      - key: BUYER_CHECKPOINT_PATH
-        sync: false
-      - key: BUYER_CONSOLE_API_TOKEN
-        sync: false
-      - key: BUYER_REGISTRY_POLL_SECONDS
-        value: "30"
-      - key: SELLER_INTERNAL_TOKEN
-        sync: false
-      - key: ALLOWED_CARD_HOSTS
-        value: '["orchestrator.onrender.com","buyer.onrender.com","seller-shared.onrender.com","control-plane.onrender.com","verifund-agent.onrender.com"]'
-      - key: VERIFUND_URL
-        value: https://control-plane.onrender.com
-      - key: VERIFUND_OPS_TOKEN
-        sync: false
-      - key: BUYER_INTERNAL_TOKEN
-        sync: false
-      - key: VERIFUND_CONTROL_PLANE_URL
-        value: https://control-plane.onrender.com
-      - key: VERIFUND_AGENT_INTERNAL_TOKEN
-        sync: false
-
-  - name: registry
-    envVars:
-      - key: PORT
-        value: "9105"
-      - key: REGISTRY_DATABASE_URL
-        sync: false
-      - key: REGISTRY_ADMIN_TOKEN
-        sync: false
-      - key: ALLOWED_CARD_HOSTS
-        value: '["orchestrator.onrender.com","buyer.onrender.com","seller-shared.onrender.com","control-plane.onrender.com","verifund-agent.onrender.com"]'
-      - key: ALLOWED_CARD_URLS
-        value: "[]"
-
-  - name: seller
-    envVars:
-      - key: PORT
-        value: "9200"
-      - key: SELLER_CONFIG_SOURCE
-        value: shared
-      - key: SELLER_SHARED_DB_URL
-        sync: false
-      - key: SELLER_INTERNAL_TOKEN
-        sync: false
-      - key: PUBLIC_BASE_URL
-        value: https://seller-shared.onrender.com
-      - key: VERIFUND_URL
-        value: https://control-plane.onrender.com
-      - key: SELLER_CHECKPOINT_PATH
-        sync: false
-
-  - name: control-plane
-    envVars:
-      - key: PORT
-        value: "9300"
-      - key: VERIFUND_PUBLIC_BASE_URL
-        value: https://control-plane.onrender.com
-      - key: VERIFUND_CONSOLE_BASE_URL
-        value: https://<project>.vercel.app
-      - key: VERIFUND_ALLOW_PUBLIC_BIND
-        value: "1"
-      - key: VERIFUND_OPS_TOKEN
-        sync: false
-      - key: VERIFUND_SELLER_TOKEN_SECRET
-        sync: false
-      - key: VERIFUND_LINK_SECRET
-        sync: false
-      - key: VERIFUND_RECEIPT_KEYS
-        sync: false
-      - key: VERIFUND_RECEIPT_ACTIVE_KID
-        sync: false
-      - key: VERIFUND_DATABASE_URL
-        sync: false
-      - key: VERIFUND_EVIDENCE_DIR
-        value: /app/data/evidence
-      - key: VERIFUND_TENANCY_ENABLED
-        value: "true"
-      - key: PAYPAL_ENV
-        value: sandbox
-      - key: PAYPAL_API_BASE
-        value: https://api-m.sandbox.paypal.com
-      - key: PAYPAL_CLIENT_ID
-        sync: false
-      - key: PAYPAL_CLIENT_SECRET
-        sync: false
-      - key: PAYPAL_WEBHOOK_ID
-        sync: false
-      - key: PAYPAL_PLATFORM_EMAIL
-        sync: false
-      - key: PAYPAL_BUYER_EMAIL
-        sync: false
-      - key: VERIFUND_SELLER_PAYOUT_EMAILS
-        sync: false
-      - key: CLERK_SECRET_KEY
-        sync: false
-      - key: CLERK_JWT_KEY
-        sync: false
-      - key: CLERK_WEBHOOK_SIGNING_SECRET
-        sync: false
-
-  - name: verifund-agent
-    envVars:
-      - key: PORT
-        value: "9301"
-      - key: VERIFUND_AGENT_URL
-        value: https://verifund-agent.onrender.com
-      - key: VERIFUND_AGENT_A2A_TOKEN
-        sync: false
-      - key: VERIFUND_AGENT_INTERNAL_TOKEN
-        sync: false
-      - key: VERIFUND_AGENT_DATABASE_URL
-        sync: false
-      - key: VERIFUND_AGENT_CHECKPOINT_PATH
-        sync: false
-      - key: BUYER_INTERNAL_URL
-        value: https://buyer.onrender.com
-```
+The complete list of keys and values lives in `render.yaml`; the secrets are the
+`sync: false` entries.
 
 ### 2.3 Notes on the Blueprint
 
-- `PORT` is set per service. Render routes public traffic to the port defined by `PORT`; the default is `10000`, so overriding it is required.
+- `PORT` is set once, on `gateway`. Render routes public traffic to that port; the default is already `10000`, which is what the Blueprint uses.
 - `sync: false` means Render prompts for the value when the Blueprint is first applied. Use it for every secret.
 - The `*.onrender.com` subdomains assume the service names are available. Verify the exact URLs in the Render dashboard after the first deploy and correct any env vars that reference them.
 - `ALLOWED_CARD_HOSTS` and `ALLOWED_CARD_URLS` control which Agent Card URLs the buyer and registry will fetch. With dynamic onboarding, `ALLOWED_CARD_URLS` can stay empty and the shared host is allowed.

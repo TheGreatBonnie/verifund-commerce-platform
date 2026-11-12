@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
+from commerce_core.db import existing_columns
 from sqlalchemy import select
 
 SEED_SELLERS = {"northwind-audio", "circuitforge", "aurora-supply", "summit-tech"}
@@ -98,9 +99,7 @@ async def seed_demo_agents(store, settings) -> None:
 
 
 async def _ensure_columns(conn) -> None:
-    cols = {
-        row[1] for row in await conn.exec_driver_sql("PRAGMA table_info(transactions)")
-    }
+    cols = await existing_columns(conn, "transactions")
     if "buyer_organization_id" not in cols:
         await conn.exec_driver_sql(
             "ALTER TABLE transactions ADD COLUMN buyer_organization_id TEXT"

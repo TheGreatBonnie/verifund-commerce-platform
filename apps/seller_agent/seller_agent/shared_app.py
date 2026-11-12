@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hmac
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -14,10 +13,10 @@ from a2a.types.a2a_pb2 import (
     AgentInterface,
 )
 from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
+from commerce_core.checkpoints import open_checkpointer, prepare_checkpoint_storage
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from google.protobuf.json_format import MessageToDict
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from starlette.routing import Route
@@ -282,8 +281,8 @@ def create_shared_app(
         app.state.settings = settings
         app.state.credential_verifier = verifier
 
-        checkpoint_path = Path(settings.checkpoint_path)
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_source = settings.checkpointer_source
+        prepare_checkpoint_storage(checkpoint_source)
         settlement = None
         if settings.verifund_mode != "off":
             settlement = SellerSettlementClient(
@@ -292,9 +291,7 @@ def create_shared_app(
                 timeout_seconds=settings.verifund_timeout_seconds,
             )
 
-        async with AsyncSqliteSaver.from_conn_string(
-            str(checkpoint_path)
-        ) as checkpointer:
+        async with open_checkpointer(checkpoint_source) as checkpointer:
 
             def owner_resolver(context) -> str:
                 caller = (context.state or {}).get("caller") or {}

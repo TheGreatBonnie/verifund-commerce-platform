@@ -13,9 +13,9 @@ from verifund_control_plane.agreements.repository import AgreementRepository
 from verifund_control_plane.agreements.service import AgreementService
 from verifund_control_plane.agreements.tokens import ApprovalTokenService
 from verifund_control_plane.api import buyer, checkout, fulfillment, health, ops, seller, webhooks
-from verifund_control_plane.challenge_extractor import FixtureChallengeExtractor
 from verifund_control_plane.carrier import MockCarrierAdapter
-from verifund_control_plane.db import configure_sqlite, create_engine
+from verifund_control_plane.challenge_extractor import FixtureChallengeExtractor
+from verifund_control_plane.db import configure_database, create_engine
 from verifund_control_plane.errors import (
     VerifundError,
     error_response,
@@ -177,7 +177,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await configure_sqlite(engine)
+        await configure_database(engine)
         if hasattr(app.state, "repo"):
             await app.state.repo.create_schema()
         if hasattr(app.state, "tenancy"):

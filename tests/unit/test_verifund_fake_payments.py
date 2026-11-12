@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pytest
-from verifund_control_plane.db import configure_sqlite, create_engine
+from verifund_control_plane.db import configure_database, create_engine
 from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.paypal.fake import FakePaymentPort
@@ -24,7 +24,7 @@ class Txn:
 @pytest.fixture
 async def repo(tmp_path):
     engine = create_engine(f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}")
-    await configure_sqlite(engine)
+    await configure_database(engine)
     repository = Repository(engine)
     await repository.create_schema()
     try:

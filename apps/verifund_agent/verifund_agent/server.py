@@ -7,7 +7,7 @@ from a2a.server.routes import (
     create_jsonrpc_routes,
 )
 from a2a.server.tasks.database_task_store import DatabaseTaskStore
-from commerce_core.db import configure_sqlite
+from commerce_core.db import configure_database
 from fastapi import FastAPI
 from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -49,7 +49,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
-            await configure_sqlite(engine)
+            await configure_database(engine)
             yield
         finally:
             await buyer.close()

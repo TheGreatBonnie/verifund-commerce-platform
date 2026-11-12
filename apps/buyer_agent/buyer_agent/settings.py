@@ -30,6 +30,16 @@ class Settings(BaseSettings):
             "BUYER_CHECKPOINT_PATH", "CHECKPOINT_PATH"
         ),
     )
+    checkpoint_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BUYER_CHECKPOINT_URL"),
+    )
+
+    @property
+    def checkpointer_source(self) -> str:
+        """PostgreSQL URL when configured, otherwise the SQLite file path."""
+
+        return self.checkpoint_url or str(self.checkpoint_path)
     allowed_card_hosts: tuple[str, ...] = Field(
         default=DEFAULT_CARD_HOSTS,
         validation_alias=AliasChoices(

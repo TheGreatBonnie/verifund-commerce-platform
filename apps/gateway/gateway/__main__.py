@@ -7,7 +7,8 @@ from pathlib import Path
 import uvicorn
 from buyer_agent.server import create_app as create_buyer
 from buyer_agent.settings import Settings as BuyerSettings
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from commerce_core.checkpoints import open_checkpointer, prepare_checkpoint_storage
+from commerce_core.db import sqlite_file_path
 from orchestrator_agent.server import create_app as create_orchestrator
 from orchestrator_agent.settings import Settings as OrchestratorSettings
 from registry.api import create_app as create_registry
@@ -36,15 +37,18 @@ async def gateway_stack():
     control_plane_settings = ControlPlaneSettings()
     control_plane_settings.validate_for_mode()
 
-    Path(buyer_settings.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(agent_settings.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
-    session_db = orchestrator_settings.session_db_url.split("///", 1)[-1]
-    Path(session_db).parent.mkdir(parents=True, exist_ok=True)
+    buyer_checkpoint = buyer_settings.checkpointer_source
+    agent_checkpoint = agent_settings.checkpointer_source
+    prepare_checkpoint_storage(buyer_checkpoint)
+    prepare_checkpoint_storage(agent_checkpoint)
+    session_db = sqlite_file_path(orchestrator_settings.session_db_url)
+    if session_db is not None:
+        Path(session_db).parent.mkdir(parents=True, exist_ok=True)
 
-    async with AsyncSqliteSaver.from_conn_string(
-        str(buyer_settings.checkpoint_path)
-    ) as buyer_checkpointer, AsyncSqliteSaver.from_conn_string(
-        str(agent_settings.checkpoint_path)
+    async with open_checkpointer(
+        buyer_checkpoint
+    ) as buyer_checkpointer, open_checkpointer(
+        agent_checkpoint
     ) as agent_checkpointer:
         sub_apps = {
             "orchestrator": create_orchestrator(orchestrator_settings),

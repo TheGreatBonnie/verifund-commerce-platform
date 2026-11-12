@@ -32,6 +32,16 @@ class Settings(BaseSettings):
         default="./data/seller-checkpoints.sqlite",
         validation_alias=AliasChoices("SELLER_CHECKPOINT_PATH"),
     )
+    checkpoint_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SELLER_CHECKPOINT_URL"),
+    )
+
+    @property
+    def checkpointer_source(self) -> str:
+        """PostgreSQL URL when configured, otherwise the SQLite file path."""
+
+        return self.checkpoint_url or str(self.checkpoint_path)
     demo_credentials_path: Path = Field(
         default=Path("data/demo-credentials.json"),
         validation_alias=AliasChoices("SELLER_DEMO_CREDENTIALS_PATH"),

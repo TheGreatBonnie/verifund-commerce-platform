@@ -5,10 +5,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from commerce_core.db import dialect_insert, existing_columns
 from sqlalchemy import JSON, Column, MetaData, String, Table, select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from verifund_control_plane.db import configure_sqlite
+from verifund_control_plane.db import configure_database
 
 
 def _now() -> str:
@@ -195,17 +195,12 @@ class TenancyRepository:
         )
 
     async def create_schema(self) -> None:
-        await configure_sqlite(self.engine)
+        await configure_database(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
             # Idempotent column migration for existing buyer_profiles
             try:
-                cols = [
-                    r[0]
-                    for r in (
-                        await conn.exec_driver_sql("PRAGMA table_info(buyer_profiles) ")
-                    ).all()
-                ]
+                cols = await existing_columns(conn, "buyer_profiles")
                 if "clerk_user_id" not in cols:
                     await conn.exec_driver_sql(
                         "ALTER TABLE buyer_profiles ADD COLUMN clerk_user_id TEXT"
@@ -470,7 +465,9 @@ class TenancyRepository:
         return await self.create_personal_organization(user_id)
 
     async def add_platform_admin(self, user_id: str, granted_by: str | None = None) -> None:
-        stmt = sqlite_insert(self.platform_admins).values(
+        stmt = dialect_insert(
+            self.platform_admins, self.engine.dialect.name
+        ).values(
             user_id=user_id, granted_by=granted_by, created_at=_now()
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["user_id"])

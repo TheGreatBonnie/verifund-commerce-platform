@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from a2a.types.a2a_pb2 import StreamResponse
-from commerce_core.db import configure_sqlite
+from commerce_core.db import configure_database, dialect_insert
 from google.protobuf import json_format
 from sqlalchemy import (
     JSON,
@@ -19,7 +19,6 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 SENSITIVE_KEYS = {"authorization", "cookie", "x-api-key", "token"}
@@ -111,7 +110,7 @@ class TraceStore:
         )
 
     async def create_schema(self) -> None:
-        await configure_sqlite(self.engine)
+        await configure_database(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
             for column in ("organization_id", "user_id"):
@@ -296,7 +295,9 @@ class TraceStore:
             else None,
             "user_id": user_id if user_id is not _UNSET else None,
         }
-        statement = sqlite_insert(self.runs).values(**insert_values)
+        statement = dialect_insert(
+            self.runs, self.engine.dialect.name
+        ).values(**insert_values)
         # On conflict, only overwrite fields the caller actually provided so
         # that a later stage transition (e.g. "awarded") does not erase an
         # award/order/mandate persisted by an earlier one.

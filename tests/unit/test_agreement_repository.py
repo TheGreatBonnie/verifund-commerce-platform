@@ -7,13 +7,13 @@ from verifund_control_plane.agreements.models import (
     AgreementVersion,
 )
 from verifund_control_plane.agreements.repository import AgreementRepository
-from verifund_control_plane.db import configure_sqlite, create_engine
+from verifund_control_plane.db import configure_database, create_engine
 
 
 @pytest.fixture
 async def repo(tmp_path):
     engine = create_engine(f"sqlite+aiosqlite:///{tmp_path}/t.db")
-    await configure_sqlite(engine)
+    await configure_database(engine)
     r = AgreementRepository(engine)
     async with engine.begin() as conn:
         await r.create_schema(conn)

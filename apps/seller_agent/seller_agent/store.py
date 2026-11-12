@@ -7,7 +7,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from commerce_core.contracts import Offer, Order
-from commerce_core.db import configure_sqlite
+from commerce_core.db import (
+    configure_database,
+    dialect_insert,
+    row_was_written,
+)
 from commerce_core.pricing import SellerPolicy
 from sqlalchemy import (
     JSON,
@@ -20,7 +24,6 @@ from sqlalchemy import (
     UniqueConstraint,
     select,
 )
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 
@@ -192,7 +195,7 @@ class SellerStore:
         )
 
     async def create_schema(self) -> None:
-        await configure_sqlite(self.engine)
+        await configure_database(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
         await self._migrate_evidence_outbox()
@@ -229,7 +232,9 @@ class SellerStore:
 
     async def seed_catalog(self, policy: SellerPolicy) -> None:
         for product in policy.catalog():
-            statement = sqlite_insert(self.inventory).values(
+            statement = dialect_insert(
+                self.inventory, self.engine.dialect.name
+            ).values(
                 sku=product.sku,
                 on_hand=product.stock_on_hand,
                 incoming=product.incoming_stock,
@@ -307,7 +312,9 @@ class SellerStore:
             "incoming": incoming,
             "incoming_days": incoming_days,
         }
-        statement = sqlite_insert(self.inventory).values(**values)
+        statement = dialect_insert(
+            self.inventory, self.engine.dialect.name
+        ).values(**values)
         statement = statement.on_conflict_do_update(
             index_elements=["sku"],
             set_={
@@ -324,7 +331,7 @@ class SellerStore:
     ) -> None:
         async with self.engine.begin() as conn:
             await conn.execute(
-                sqlite_insert(self.offers)
+                dialect_insert(self.offers, self.engine.dialect.name)
                 .values(
                     offer_id=offer.offer_id,
                     task_id=task_id,
@@ -519,7 +526,9 @@ def _iso(value: datetime) -> str:
 
 
 async def save_settlement_token(self, transaction_id: str, seller_id: str, token: str) -> None:
-    statement = sqlite_insert(self.settlement_tokens).values(
+    statement = dialect_insert(
+        self.settlement_tokens, self.engine.dialect.name
+    ).values(
         transaction_id=transaction_id,
         seller_id=seller_id,
         token=token,
@@ -551,7 +560,9 @@ async def get_settlement_token(self, transaction_id: str) -> str | None:
 async def save_settlement_context(
     self, *, transaction_id: str, seller_id: str
 ) -> None:
-    statement = sqlite_insert(self.settlement_tokens).values(
+    statement = dialect_insert(
+        self.settlement_tokens, self.engine.dialect.name
+    ).values(
         transaction_id=transaction_id,
         seller_id=seller_id,
         token="",
@@ -585,7 +596,7 @@ async def enqueue_evidence(
     resolved = requirement_id or kind
     created = _iso(created_at or datetime.now(UTC))
     statement = (
-        sqlite_insert(self.evidence_outbox)
+        dialect_insert(self.evidence_outbox, self.engine.dialect.name)
         .values(
             evidence_key=uuid.uuid4().hex,
             transaction_id=transaction_id,
@@ -607,10 +618,11 @@ async def enqueue_evidence(
         .on_conflict_do_nothing(
             index_elements=["transaction_id", "kind"]
         )
+        .returning(self.evidence_outbox.c.evidence_key)
     )
     async with self.engine.begin() as conn:
         result = await conn.execute(statement)
-    return bool(result.rowcount)
+    return row_was_written(result)
 
 
 async def list_due_evidence(self, *, now: str, limit: int = 20) -> list[dict[str, Any]]:

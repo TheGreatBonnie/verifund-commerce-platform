@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from commerce_core.contracts import Offer, Order
+from commerce_core.db import row_was_written
 from commerce_core.pricing import SellerCatalogProduct, SellerPolicy
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -682,12 +683,13 @@ class OrgScopedStore(SellerStore):
                    VALUES (:o, :id, :t, :s, :k, :k, :f, :m, :c, :n, :cap,
                            :now, :now, :a)
                    ON CONFLICT(organization_id, transaction_id, kind)
-                   DO NOTHING"""
+                   DO NOTHING
+                   RETURNING outbox_id"""
             ), {"o": self.organization_id, "id": uuid.uuid4().hex,
                 "t": transaction_id, "s": seller_id, "k": resolved,
                 "f": filename, "m": media_type, "c": content, "n": note,
                 "cap": captured_at, "now": now, "a": self.agent_id})
-        return bool(result.rowcount)
+        return row_was_written(result)
 
     async def list_due_evidence(
         self, *, now: str, limit: int = 20

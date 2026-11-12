@@ -92,7 +92,7 @@ class SellerService:
         self.mandate = mandate or SellerMandate()
         from pathlib import Path
         self.review_store = review_store or SellerAgreementReviewStore(
-            Path("data/seller_agreement_reviews.db")
+            Path("data/seller_agreement_reviews.db"), engine=store.engine
         )
         self.settlement_enabled = settlement_enabled
         self.evidence_outbox = evidence_outbox

@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from commerce_core.cards import DEFAULT_CARD_HOSTS
-from commerce_core.db import configure_sqlite
+from commerce_core.db import (
+    configure_database,
+    dialect_insert,
+    existing_columns,
+)
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -16,7 +20,6 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 
@@ -67,19 +70,21 @@ class RegistryStore:
 
     @staticmethod
     async def _ensure_projection_columns(conn) -> None:
+        is_postgres = conn.dialect.name == "postgresql"
+        true_literal = "TRUE" if is_postgres else "1"
+        false_literal = "FALSE" if is_postgres else "0"
         additions = {
             "sellers": (
                 ("organization_id", "organization_id VARCHAR"),
-                ("verified", "verified BOOLEAN NOT NULL DEFAULT 1"),
+                ("verified", f"verified BOOLEAN NOT NULL DEFAULT {true_literal}"),
             ),
             "agents": (
                 ("organization_id", "organization_id VARCHAR"),
-                ("published", "published BOOLEAN NOT NULL DEFAULT 0"),
+                ("published", f"published BOOLEAN NOT NULL DEFAULT {false_literal}"),
             ),
         }
         for table, columns in additions.items():
-            rows = await conn.execute(text(f"PRAGMA table_info({table})"))
-            existing = {row[1] for row in rows}
+            existing = await existing_columns(conn, table)
             for name, ddl in columns:
                 if name not in existing:
                     await conn.execute(
@@ -87,7 +92,7 @@ class RegistryStore:
                     )
 
     async def create_schema(self) -> None:
-        await configure_sqlite(self.engine)
+        await configure_database(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
             await self._ensure_projection_columns(conn)
@@ -120,7 +125,9 @@ class RegistryStore:
             "organization_id": organization_id,
             "verified": verified,
         }
-        statement = sqlite_insert(self.sellers).values(**values)
+        statement = dialect_insert(
+            self.sellers, self.engine.dialect.name
+        ).values(**values)
         statement = statement.on_conflict_do_update(
             index_elements=["seller_id"],
             set_={
@@ -290,7 +297,9 @@ class RegistryStore:
             "organization_id": organization_id,
             "published": published,
         }
-        statement = sqlite_insert(self.agents).values(**values)
+        statement = dialect_insert(
+            self.agents, self.engine.dialect.name
+        ).values(**values)
         statement = statement.on_conflict_do_update(
             index_elements=["agent_id"],
             set_={key: value for key, value in values.items() if key != "agent_id"},

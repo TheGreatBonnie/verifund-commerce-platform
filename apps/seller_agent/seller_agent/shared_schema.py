@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from commerce_core.db import configure_database, existing_columns, portable_ddl
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 SHARED_DDL: list[str] = [
@@ -135,20 +136,14 @@ SHARED_DDL: list[str] = [
 
 
 async def configure_shared_engine(engine: AsyncEngine) -> None:
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
-        await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
-        await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+    await configure_database(engine)
 
 
 async def create_shared_schema(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         for ddl in SHARED_DDL:
-            await conn.exec_driver_sql(ddl)
-        rows = (
-            await conn.exec_driver_sql("PRAGMA table_info(evidence_outbox)")
-        ).fetchall()
-        columns = {str(row._mapping["name"]) for row in rows}
+            await conn.exec_driver_sql(portable_ddl(ddl, conn.dialect.name))
+        columns = await existing_columns(conn, "evidence_outbox")
         if "requirement_id" not in columns:
             await conn.exec_driver_sql(
                 "ALTER TABLE evidence_outbox ADD COLUMN requirement_id TEXT"

@@ -3,9 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from commerce_core.db import configure_sqlite
+from commerce_core.db import configure_database, dialect_insert, row_was_written
 from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from buyer_agent.settlement_store_base import isoformat
@@ -37,7 +36,7 @@ class SettlementStore:
         )
 
     async def create_schema(self) -> None:
-        await configure_sqlite(self.engine)
+        await configure_database(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
 
@@ -55,7 +54,9 @@ class SettlementStore:
         resolved = seller_token if seller_token is not None else token
         if resolved is None:
             raise ValueError("token is required")
-        statement = sqlite_insert(self.secrets).values(
+        statement = dialect_insert(
+            self.secrets, self.engine.dialect.name
+        ).values(
             transaction_id=transaction_id,
             run_id=run_id,
             seller_id=seller_id,
@@ -115,7 +116,9 @@ class SettlementStore:
         if cached is not None and "agreement" in cached and "agreement" not in projection:
             projection = {**projection, "agreement": cached["agreement"]}
         last_seq = int(projection.get("last_seq") or 0)
-        statement = sqlite_insert(self.projections).values(
+        statement = dialect_insert(
+            self.projections, self.engine.dialect.name
+        ).values(
             run_id=run_id,
             transaction_id=str(projection["transaction_id"]),
             payload=projection,
@@ -130,10 +133,10 @@ class SettlementStore:
                 "updated_at": isoformat(datetime.now(UTC)),
             },
             where=self.projections.c.last_seq < last_seq,
-        )
+        ).returning(self.projections.c.run_id)
         async with self.engine.begin() as conn:
             result = await conn.execute(statement)
-        return result.rowcount == 1
+        return row_was_written(result)
 
     async def get_projection(self, run_id: str) -> dict[str, Any] | None:
         async with self.engine.connect() as conn:

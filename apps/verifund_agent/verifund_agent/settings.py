@@ -54,3 +54,13 @@ class Settings(BaseSettings):
             "VERIFUND_AGENT_CHECKPOINT_PATH", "CHECKPOINT_PATH"
         ),
     )
+    checkpoint_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("VERIFUND_AGENT_CHECKPOINT_URL"),
+    )
+
+    @property
+    def checkpointer_source(self) -> str:
+        """PostgreSQL URL when configured, otherwise the SQLite file path."""
+
+        return self.checkpoint_url or str(self.checkpoint_path)

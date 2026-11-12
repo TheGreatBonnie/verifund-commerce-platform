@@ -4,33 +4,31 @@ import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from sqlalchemy import event
+from commerce_core.db import configure_database, is_postgres_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from verifund_control_plane.errors import VerifundError
 
+__all__ = ["configure_database", "create_engine", "transaction"]
+
 
 def create_engine(database_url: str) -> AsyncEngine:
+    if is_postgres_url(database_url):
+        return create_async_engine(
+            database_url,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+        )
+    # SQLite keeps its connect timeout; psycopg does not accept it.
     return create_async_engine(
         database_url,
         connect_args={"timeout": 5.0},
         pool_pre_ping=True,
     )
-
-
-async def configure_sqlite(engine: AsyncEngine) -> None:
-    @event.listens_for(engine.sync_engine, "connect")
-    def _set_pragmas(dbapi_connection, _record):  # type: ignore[no-untyped-def]
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA busy_timeout=5000")
-        cursor.close()
-
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
-        await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
 
 
 @asynccontextmanager

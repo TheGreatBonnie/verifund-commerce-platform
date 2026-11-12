@@ -10,7 +10,7 @@ from a2a.server.routes import (
 )
 from a2a.server.tasks.database_task_store import DatabaseTaskStore
 from ag_ui_langgraph import LangGraphAgent, add_langgraph_fastapi_endpoint
-from commerce_core.db import configure_sqlite
+from commerce_core.db import configure_database
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -50,7 +50,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         poll_task = None
         try:
-            await configure_sqlite(engine)
+            await configure_database(engine)
             store = getattr(services, "store", None)
             if store is not None:
                 await store.create_schema()

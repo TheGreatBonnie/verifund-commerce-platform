@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from commerce_core.db import dialect_insert, existing_columns, row_was_written
 from sqlalchemy import (
     JSON,
     Column,
@@ -21,11 +22,10 @@ from sqlalchemy import (
     tuple_,
 )
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from verifund_contracts import EvidenceItem, TransactionState
 
-from verifund_control_plane.db import configure_sqlite, transaction
+from verifund_control_plane.db import configure_database, transaction
 from verifund_control_plane.domain import TransactionRecord, assert_transition
 from verifund_control_plane.errors import VerifundError
 
@@ -471,7 +471,7 @@ class Repository:
         )
 
     async def create_schema(self) -> None:
-        await configure_sqlite(self.engine)
+        await configure_database(self.engine)
         async with self.engine.begin() as conn:
             await conn.run_sync(self.metadata.create_all)
             # SQLite has no in-place migrations. Existing demo databases get
@@ -522,22 +522,16 @@ class Repository:
             await self._ensure_column(conn, "seller_tokens", "organization_id", "TEXT")
 
     async def _ensure_column(self, conn, table: str, name: str, ddl_type: str) -> None:
-        cols = {
-            row[1]
-            for row in await conn.exec_driver_sql(f'PRAGMA table_info("{table}")')
-        }
+        cols = await existing_columns(conn, table)
         if name not in cols:
+            if conn.dialect.name == "postgresql" and ddl_type.upper() == "REAL":
+                ddl_type = "DOUBLE PRECISION"
             await conn.exec_driver_sql(
                 f'ALTER TABLE "{table}" ADD COLUMN "{name}" {ddl_type}'
             )
 
     async def _migrate_requirement_declaration_values(self, conn) -> None:
-        cols = {
-            row[1]
-            for row in await conn.exec_driver_sql(
-                'PRAGMA table_info("requirement_declarations")'
-            )
-        }
+        cols = await existing_columns(conn, "requirement_declarations")
         if "values" in cols and "declared_values" in cols:
             await conn.exec_driver_sql(
                 'UPDATE "requirement_declarations" '
@@ -995,7 +989,7 @@ class Repository:
         status_code: int = 200,
     ) -> None:
         statement = (
-            sqlite_insert(self.idempotency)
+            dialect_insert(self.idempotency, self.engine.dialect.name)
             .values(
                 scope=scope,
                 key=key,
@@ -1056,7 +1050,7 @@ class Repository:
         captured_at: datetime | None = None,
     ) -> tuple[EvidenceItem, bool]:
         statement = (
-            sqlite_insert(self.evidence)
+            dialect_insert(self.evidence, self.engine.dialect.name)
             .values(
                 evidence_id=item.evidence_id,
                 transaction_id=transaction_id,
@@ -1087,9 +1081,10 @@ class Repository:
                 confidence=getattr(item, "confidence", None),
             )
             .on_conflict_do_nothing(index_elements=["transaction_id", "sha256"])
+            .returning(self.evidence.c.evidence_id)
         )
         result = await conn.execute(statement)
-        if result.rowcount == 1:
+        if row_was_written(result):
             return item, True
         existing = await self.get_evidence_by_sha(
             transaction_id, item.sha256, conn
@@ -1430,7 +1425,7 @@ class Repository:
         resource_id: str | None = None,
     ) -> None:
         statement = (
-            sqlite_insert(self.webhook_events)
+            dialect_insert(self.webhook_events, self.engine.dialect.name)
             .values(
                 event_id=event_id,
                 event_type=event_type,
@@ -1465,7 +1460,7 @@ class Repository:
         source: str = "paypal",
     ) -> bool:
         statement = (
-            sqlite_insert(self.webhook_events)
+            dialect_insert(self.webhook_events, self.engine.dialect.name)
             .values(
                 event_id=event_id,
                 event_type=event_type,
@@ -1482,9 +1477,10 @@ class Repository:
                 source=source,
             )
             .on_conflict_do_nothing(index_elements=["event_id"])
+            .returning(self.webhook_events.c.event_id)
         )
         result = await conn.execute(statement)
-        return result.rowcount == 1
+        return row_was_written(result)
 
     async def mark_webhook_event(
         self, event_id: str, status: str, *, last_error: str | None = None
@@ -1559,7 +1555,7 @@ class Repository:
     ) -> None:
         now = _iso(datetime.now(UTC))
         statement = (
-            sqlite_insert(self.payout_items)
+            dialect_insert(self.payout_items, self.engine.dialect.name)
             .values(
                 item_id=item_id,
                 transaction_id=transaction_id,
@@ -1833,7 +1829,7 @@ class Repository:
         kid: str,
     ) -> None:
         statement = (
-            sqlite_insert(self.receipts)
+            dialect_insert(self.receipts, self.engine.dialect.name)
             .values(
                 transaction_id=transaction_id,
                 payload=payload,
@@ -2229,10 +2225,14 @@ class Repository:
             )
 
     async def insert_carrier_event(self, event: dict[str, Any]) -> bool:
-        stmt = sqlite_insert(self.carrier_events).values(**event).on_conflict_do_nothing(index_elements=["carrier_key", "provider_event_id"])
+        stmt = dialect_insert(
+            self.carrier_events, self.engine.dialect.name
+        ).values(**event).on_conflict_do_nothing(
+            index_elements=["carrier_key", "provider_event_id"]
+        ).returning(self.carrier_events.c.carrier_key)
         async with self.engine.begin() as conn:
             result = await conn.execute(stmt)
-        return bool(getattr(result, "rowcount", 0) == 1)
+        return row_was_written(result)
 
     async def list_carrier_events(self, shipment_id: str) -> list[dict[str, Any]]:
         stmt = select(self.carrier_events).where(self.carrier_events.c.shipment_id == shipment_id).order_by(self.carrier_events.c.event_at)
@@ -2241,7 +2241,9 @@ class Repository:
         return [dict(r) for r in rows]
 
     async def upsert_delivery_confirmation(self, confirmation: dict[str, Any]) -> None:
-        stmt = sqlite_insert(self.delivery_confirmations).values(**confirmation).on_conflict_do_nothing(index_elements=["shipment_id"])
+        stmt = dialect_insert(
+            self.delivery_confirmations, self.engine.dialect.name
+        ).values(**confirmation).on_conflict_do_nothing(index_elements=["shipment_id"])
         async with self.engine.begin() as conn:
             await conn.execute(stmt)
 

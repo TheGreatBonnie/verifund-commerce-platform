@@ -15,6 +15,23 @@ x-model-env: &model-env
   NEBIUS_MODEL: ${NEBIUS_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}
 
 services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: marketmesh
+      POSTGRES_PASSWORD: marketmesh
+      POSTGRES_DB: marketmesh
+    volumes:
+      - marketmesh-pg:/var/lib/postgresql/data
+      - ./scripts/postgres/init-databases.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketmesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   registry:
     <<: *python-service
     command: python -m registry
@@ -263,3 +280,4 @@ services:
 
 volumes:
   marketmesh-data:
+  marketmesh-pg:

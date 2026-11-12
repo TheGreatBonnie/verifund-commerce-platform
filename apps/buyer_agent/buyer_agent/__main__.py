@@ -1,8 +1,7 @@
 import asyncio
-from pathlib import Path
 
 import uvicorn
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from commerce_core.checkpoints import open_checkpointer, prepare_checkpoint_storage
 
 from buyer_agent.server import create_app
 from buyer_agent.settings import Settings
@@ -10,10 +9,9 @@ from buyer_agent.settings import Settings
 
 async def main() -> None:
     settings = Settings()
-    Path(settings.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
-    async with AsyncSqliteSaver.from_conn_string(
-        str(settings.checkpoint_path)
-    ) as checkpointer:
+    source = settings.checkpointer_source
+    prepare_checkpoint_storage(source)
+    async with open_checkpointer(source) as checkpointer:
         app = create_app(settings, checkpointer)
         config = uvicorn.Config(
             app, host=settings.host, port=settings.port, log_level="info"

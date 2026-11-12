@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from verifund_contracts import EvidenceItem
-from verifund_control_plane.db import configure_sqlite, create_engine
+from verifund_control_plane.db import configure_database, create_engine
 from verifund_control_plane.repository import Repository
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -13,7 +13,7 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 @pytest.fixture
 async def repo(tmp_path):
     engine = create_engine(f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}")
-    await configure_sqlite(engine)
+    await configure_database(engine)
     repository = Repository(engine)
     await repository.create_schema()
     try:

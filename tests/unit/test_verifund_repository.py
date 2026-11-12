@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from verifund_contracts import TransactionState
-from verifund_control_plane.db import configure_sqlite, create_engine
+from verifund_control_plane.db import configure_database, create_engine
 from verifund_control_plane.domain import TransactionRecord
 from verifund_control_plane.errors import VerifundError
 from verifund_control_plane.repository import AuditInput, EventInput, Repository
@@ -49,7 +49,7 @@ def record() -> TransactionRecord:
 @pytest.fixture
 async def repo(tmp_path):
     engine = create_engine(f"sqlite+aiosqlite:///{tmp_path / 'verifund.db'}")
-    await configure_sqlite(engine)
+    await configure_database(engine)
     repository = Repository(engine)
     await repository.create_schema()
     try:

@@ -11,10 +11,16 @@ services:
       - fromGroup: gateway-shared
       - key: PORT
         value: "10000"
+      - key: BUYER_CONSOLE_API_TOKEN
+        sync: false
+      - key: REGISTRY_URL
+        value: https://gateway.onrender.com/registry
       - key: BUYER_DATABASE_URL
         sync: false
       - key: BUYER_CHECKPOINT_PATH
         value: /app/data/buyer-checkpoints.db
+      - key: BUYER_CHECKPOINT_URL
+        sync: false
       - key: BUYER_PUBLIC_BASE_URL
         value: https://gateway.onrender.com/buyer
       - key: REGISTRY_DATABASE_URL
@@ -23,6 +29,8 @@ services:
         sync: false
       - key: SELLER_CHECKPOINT_PATH
         value: /app/data/seller-checkpoints.db
+      - key: SELLER_CHECKPOINT_URL
+        sync: false
       - key: SELLER_CONFIG_SOURCE
         value: shared
       - key: PUBLIC_BASE_URL
@@ -33,8 +41,12 @@ services:
         sync: false
       - key: VERIFUND_AGENT_CHECKPOINT_PATH
         value: /app/data/agent-checkpoints.db
+      - key: VERIFUND_AGENT_CHECKPOINT_URL
+        sync: false
       - key: VERIFUND_AGENT_URL
         value: https://gateway.onrender.com/verifund-agent
+      - key: VERIFUND_AGENT_CARD_URL
+        value: https://gateway.onrender.com/verifund-agent/.well-known/agent-card.json
       - key: ORCHESTRATOR_SESSION_DB_URL
         sync: false
       - key: VERIFUND_URL
@@ -49,6 +61,8 @@ services:
         value: https://gateway.onrender.com/control-plane
       - key: VERIFUND_CONSOLE_BASE_URL
         sync: false
+      - key: VERIFUND_EVIDENCE_DIR
+        value: /app/data/evidence
       - key: VERIFUND_ALLOW_PUBLIC_BIND
         value: "1"
       - key: ALLOWED_CARD_HOSTS
@@ -66,6 +80,22 @@ envVarGroups:
     envVars:
       - key: HOST
         value: 0.0.0.0
+      # The registry reads ADMIN_TOKEN; the control plane sends the same secret
+      # as REGISTRY_ADMIN_TOKEN when it publishes Agent Cards.
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: REGISTRY_ADMIN_TOKEN
+        sync: false
+      # Inter-service tokens. All six services share one process, so one value
+      # per token keeps every caller and callee in agreement.
+      - key: BUYER_INTERNAL_TOKEN
+        sync: false
+      - key: SELLER_INTERNAL_TOKEN
+        sync: false
+      - key: VERIFUND_AGENT_A2A_TOKEN
+        sync: false
+      - key: VERIFUND_AGENT_INTERNAL_TOKEN
+        sync: false
       - key: MARKETMESH_LLM_MODE
         value: live
       - key: NEBIUS_API_KEY

@@ -37,10 +37,10 @@ def _award():
 async def test_create_and_seller_accept(tmp_path):
     from verifund_control_plane.agreements.repository import AgreementRepository
     from verifund_control_plane.agreements.tokens import ApprovalTokenService
-    from verifund_control_plane.db import configure_sqlite, create_engine
+    from verifund_control_plane.db import configure_database, create_engine
     from verifund_control_plane.settings import Settings
     engine = create_engine(f"sqlite+aiosqlite:///{tmp_path}/t.db")
-    await configure_sqlite(engine)
+    await configure_database(engine)
     repo = AgreementRepository(engine)
     async with engine.begin() as conn:
         await repo.create_schema(conn)
