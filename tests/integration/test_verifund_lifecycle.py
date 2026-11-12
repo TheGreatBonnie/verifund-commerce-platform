@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import httpx
 import pytest
+from buyer_agent.settlement_flow import build_award_request
 from sqlalchemy import update
 from verifund_control_plane.app import create_app
 from verifund_control_plane.settings import Settings
@@ -15,11 +16,15 @@ from tests.support.award_flow import (
     accept,
     approve,
     award,
+    award_payload,
     fund_and_capture,
     purchase_order,
+    upload_file,
     upload_json,
+    upload_reference,
 )
 from tests.support.seller_auth import clerk_seller_headers, seed_seller_profile
+from tests.unit.test_buyer_settlement_flow import award_payload as buyer_award_payload
 
 
 async def seller_headers(api):
@@ -198,6 +203,103 @@ async def test_fake_lifecycle_reaches_released_with_receipt(api):
         "platform_cash": 123400,
         "seller_paid": 123400,
     }
+
+
+def canonical_catalog() -> list[dict]:
+    """The catalog the buyer agent actually authors for an award."""
+    request = build_award_request(
+        "run-1", {"buyer_id": "demo-buyer"}, buyer_award_payload()
+    )
+    return [requirement.model_dump(mode="json") for requirement in request.requirements]
+
+
+async def test_canonical_catalog_reaches_release_with_machine_readable_evidence(api):
+    award_body = await award(api, award_payload(requirements=canonical_catalog()))
+    txid = award_body["transaction_id"]
+    await accept(api, award_body)
+    await approve(api, award_body)
+    await fund_and_capture(api, award_body)
+    reported = await api.post(
+        f"/transactions/{txid}/purchase-order",
+        json=purchase_order(award_body),
+        headers={**OPS, "idempotency-key": f"po:{txid}"},
+    )
+    assert reported.status_code == 200, reported.text
+    headers = await seller_headers(api)
+
+    photos = await upload_file(
+        api,
+        award_body,
+        "product_photos",
+        data=b"\xff\xd8\xff\xe0product",
+        filename="photos.jpg",
+        media_type="image/jpeg",
+        headers=headers,
+    )
+    assert photos.status_code == 201, photos.text
+    serial = await upload_file(
+        api,
+        award_body,
+        "serial",
+        data=b"\xff\xd8\xff\xe0serial",
+        filename="serial.jpg",
+        media_type="image/jpeg",
+        headers=headers,
+    )
+    assert serial.status_code == 201, serial.text
+    hardware = await upload_file(
+        api,
+        award_body,
+        "hardware",
+        data=b"ram_gb,64\nstorage_tb,2\n",
+        filename="diagnostics.csv",
+        media_type="text/csv",
+        headers=headers,
+    )
+    assert hardware.status_code == 201, hardware.text
+    warranty = await upload_json(
+        api, award_body, "warranty", {"warranty_days": 120}, headers=headers
+    )
+    assert warranty.status_code == 201, warranty.text
+    invoice = await upload_json(
+        api,
+        award_body,
+        "invoice",
+        {
+            "total_cents": 123400,
+            "currency": "USD",
+            "seller_id": "northwind-audio",
+            "line_items": ["NC-700 x12"],
+        },
+        headers=headers,
+    )
+    assert invoice.status_code == 201, invoice.text
+    shipping = await upload_reference(
+        api, award_body, "shipping", "TRK-1", "tracking", headers=headers
+    )
+    assert shipping.status_code == 201, shipping.text
+
+    await settle_scans_and_verify(api, txid)
+    state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
+    assert state["state"] == "VERIFICATION_PENDING"
+
+    await seed_system_delivery(api, award_body, NOW - timedelta(hours=30))
+    await settle_scans_and_verify(api, txid)
+    state = (await api.get(f"/transactions/{txid}/state", headers=OPS)).json()
+    assert state["state"] == "RELEASE_PERMITTED"
+    assert state["verification"]["rollup"] == "RELEASE_PERMITTED"
+    assert all(
+        requirement["status"] == "pass"
+        for requirement in state["verification"]["requirements"]
+    )
+
+    released = await api.post(
+        f"/transactions/{txid}/release",
+        json={"released_by": "demo-reviewer", "note": "Verified", "override": False},
+        headers=OPS,
+    )
+    assert released.status_code == 200, released.text
+    assert released.json()["state"] == "RELEASED"
 
 
 async def test_purchase_order_mismatch_is_rejected(api):

@@ -73,12 +73,17 @@ ALLOWED_TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
         }
     ),
     TransactionState.RELEASED: frozenset({TransactionState.REVIEW_REQUIRED}),
+    # Review is reversible: ops can hand the transaction back to the seller
+    # (spec §3.5), either to collect more evidence or to re-run verification
+    # after resolving the review.
     TransactionState.REVIEW_REQUIRED: frozenset(
         {
             TransactionState.RELEASE_PERMITTED,
             TransactionState.PAYOUT_PENDING,
             TransactionState.RELEASED,
             TransactionState.CANCELED,
+            TransactionState.REMEDIATION_REQUIRED,
+            TransactionState.VERIFICATION_PENDING,
         }
     ),
     TransactionState.REMEDIATION_REQUIRED: frozenset(

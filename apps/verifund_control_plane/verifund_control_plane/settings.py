@@ -135,6 +135,9 @@ class Settings(BaseSettings):
     funding_timeout_hours: int = Field(
         default=24, validation_alias="VERIFUND_FUNDING_TIMEOUT_HOURS"
     )
+    remediation_deadline_hours: int = Field(
+        default=72, validation_alias="VERIFUND_REMEDIATION_DEADLINE_HOURS"
+    )
     payout_alert_hours: int = Field(
         default=1, validation_alias="VERIFUND_PAYOUT_ALERT_HOURS"
     )

@@ -101,14 +101,7 @@ def _requirement_catalog(
                     check_id="serial_readable",
                     description="Serial number photograph is present and legible.",
                     operator="exists",
-                    verification_method="extraction",
-                ),
-                RequirementCheck(
-                    check_id="serial_matches_device",
-                    description="Extracted serial number matches the device being shipped.",
-                    operator="eq",
-                    verification_method="extraction",
-                    ai_derived=True,
+                    verification_method="deterministic",
                 ),
             ],
         ),
@@ -146,7 +139,14 @@ def _requirement_catalog(
             owner="seller",
             kind="other",
             source="file",
-            accepted_formats=["application/pdf", "image/jpeg", "image/png", "image/webp"],
+            accepted_formats=[
+                "application/pdf",
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "application/json",
+                "text/csv",
+            ],
             checks=[
                 RequirementCheck(
                     check_id="warranty_gte_90_days",
@@ -201,11 +201,23 @@ def _requirement_catalog(
         Requirement(
             requirement_id="invoice",
             title="Invoice",
-            description="Invoice matching the agreement totals, currency, seller, and line items.",
+            description=(
+                "Invoice matching the agreement totals, currency, seller, and line items. "
+                "Machine-readable uploads (application/json, text/csv) must carry "
+                "`total_cents`, `currency`, `seller_id`, and `line_items` as "
+                "`\"SKU xQTY\"` strings."
+            ),
             owner="seller",
             kind="invoice",
             source="file",
-            accepted_formats=["application/pdf", "image/jpeg", "image/png", "image/webp"],
+            accepted_formats=[
+                "application/pdf",
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "application/json",
+                "text/csv",
+            ],
             checks=[
                 RequirementCheck(
                     check_id="invoice_total_matches",
@@ -216,8 +228,8 @@ def _requirement_catalog(
                     expected_value=amount_cents,
                     operator="eq",
                     unit="cents",
-                    verification_method="extraction",
-                    ai_derived=True,
+                    verification_method="deterministic",
+                    ai_derived=False,
                 ),
                 RequirementCheck(
                     check_id="currency_matches",
@@ -238,8 +250,8 @@ def _requirement_catalog(
                     description="Invoice contains the award line items.",
                     expected_value=line_items_expected,
                     operator="contains",
-                    verification_method="extraction",
-                    ai_derived=True,
+                    verification_method="deterministic",
+                    ai_derived=False,
                 ),
             ],
         ),

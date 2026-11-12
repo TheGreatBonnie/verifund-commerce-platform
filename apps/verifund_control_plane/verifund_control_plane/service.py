@@ -1237,7 +1237,10 @@ class VerifundService:
                     },
                     actor,
                 )
-                if current.state == TransactionState.FULFILLMENT_PENDING:
+                if current.state in {
+                    TransactionState.FULFILLMENT_PENDING,
+                    TransactionState.REMEDIATION_REQUIRED,
+                }:
                     updated = await self.repo.transition(
                         conn,
                         transaction_id,
@@ -2208,19 +2211,25 @@ class VerifundService:
                 await self._projection_for(transaction_id, "buyer")
             ).model_dump(mode="json")
         items = await self.repo.list_evidence(transaction_id)
-        if record.state == TransactionState.FULFILLMENT_PENDING:
+        if record.state in {
+            TransactionState.FULFILLMENT_PENDING,
+            TransactionState.REMEDIATION_REQUIRED,
+        }:
             if not items:
                 return (
                     await self._projection_for(transaction_id, "buyer")
                 ).model_dump(mode="json")
             async with self.repo.transaction() as conn:
                 current = await self.repo.get_transaction(transaction_id, conn)
-                if current.state == TransactionState.FULFILLMENT_PENDING:
+                if current.state in {
+                    TransactionState.FULFILLMENT_PENDING,
+                    TransactionState.REMEDIATION_REQUIRED,
+                }:
                     await self.repo.transition(
                         conn,
                         transaction_id,
                         expected_version=current.version,
-                        expected_state=TransactionState.FULFILLMENT_PENDING,
+                        expected_state=current.state,
                         new_state=TransactionState.VERIFICATION_PENDING,
                         changes={},
                         audit=AuditInput(actor, "verification_started"),
@@ -2300,9 +2309,58 @@ class VerifundService:
             return (
                 await self._projection(updated, "buyer", items=items)
             ).model_dump(mode="json")
-        # An objective FAIL rollup maps to REMEDIATION_REQUIRED in the target
-        # design; the state lands with the state-machine task (Task 16), so the
-        # failure path routes to REVIEW_REQUIRED until then.
+        # Spec §3.2/§3.5: an objective FAIL on a seller-owned requirement sends
+        # the transaction back to the seller. REVIEW_REQUIRED is reserved for
+        # genuine review (extraction, transaction-level mismatches).
+        verification = {
+            "status": "failed",
+            "reasons": [reason.value for reason in reasons],
+            "rollup": result.rollup,
+            "checked_at": self._iso(self._now()),
+            "override_allowed": result.override_allowed,
+            "requirements": slim_requirements,
+        }
+        failure_events = [
+            EventInput(
+                "verification_failed",
+                {"reasons": [reason.value for reason in reasons]},
+                actor,
+            )
+        ]
+        failure_audit = AuditInput(
+            actor,
+            "verification_failed",
+            payload={"reasons": [reason.value for reason in reasons]},
+        )
+        if result.rollup == TransactionState.REMEDIATION_REQUIRED.value:
+            deadline = self._iso(
+                self._now()
+                + timedelta(hours=self.settings.remediation_deadline_hours)
+            )
+            async with self.repo.transaction() as conn:
+                current = await self.repo.get_transaction(transaction_id, conn)
+                updated = await self.repo.transition(
+                    conn,
+                    transaction_id,
+                    expected_version=current.version,
+                    expected_state=TransactionState.VERIFICATION_PENDING,
+                    new_state=TransactionState.REMEDIATION_REQUIRED,
+                    changes={
+                        "verification": verification,
+                        "deadlines": {
+                            **(current.deadlines or {}),
+                            "remediation": deadline,
+                        },
+                    },
+                    events=[
+                        *failure_events,
+                        EventInput("remediation_required", {}, actor),
+                    ],
+                    audit=failure_audit,
+                )
+            return (
+                await self._projection(updated, "buyer", items=items)
+            ).model_dump(mode="json")
         async with self.repo.transaction() as conn:
             current = await self.repo.get_transaction(transaction_id, conn)
             updated = await self.repo.transition(
@@ -2311,29 +2369,12 @@ class VerifundService:
                 expected_version=current.version,
                 expected_state=TransactionState.VERIFICATION_PENDING,
                 new_state=TransactionState.REVIEW_REQUIRED,
-                changes={
-                    "verification": {
-                        "status": "failed",
-                        "reasons": [reason.value for reason in reasons],
-                        "rollup": result.rollup,
-                        "checked_at": self._iso(self._now()),
-                        "override_allowed": result.override_allowed,
-                        "requirements": slim_requirements,
-                    }
-                },
+                changes={"verification": verification},
                 events=[
-                    EventInput(
-                        "verification_failed",
-                        {"reasons": [reason.value for reason in reasons]},
-                        actor,
-                    ),
+                    *failure_events,
                     EventInput("review_required", {}, actor),
                 ],
-                audit=AuditInput(
-                    actor,
-                    "verification_failed",
-                    payload={"reasons": [reason.value for reason in reasons]},
-                ),
+                audit=failure_audit,
             )
         return (
             await self._projection(updated, "buyer", items=items)
@@ -3520,7 +3561,10 @@ class VerifundService:
                 status_code=409,
             )
         deadlines = dict(record.deadlines or {})
-        deadlines["remediation"] = (self._now() + timedelta(hours=72)).isoformat()
+        deadlines["remediation"] = (
+            self._now()
+            + timedelta(hours=self.settings.remediation_deadline_hours)
+        ).isoformat()
         async with self.repo.transaction() as conn:
             current = await self.repo.get_transaction(transaction_id, conn)
             await self.repo.revoke_seller_tokens(conn, transaction_id, self._now())

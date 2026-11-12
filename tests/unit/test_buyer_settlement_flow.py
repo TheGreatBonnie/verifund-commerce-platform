@@ -270,6 +270,7 @@ def test_buyer_authors_seven_requirements():
     assert invoice.kind == "invoice"
     assert invoice.source == "file"
     assert invoice.accepted_formats
+    assert {"application/json", "text/csv"} & set(invoice.accepted_formats)
     invoice_checks = {c.check_id: c for c in invoice.checks}
     assert list(invoice_checks) == [
         "invoice_total_matches",
@@ -280,17 +281,50 @@ def test_buyer_authors_seven_requirements():
     total_check = invoice_checks["invoice_total_matches"]
     assert total_check.operator == "eq"
     assert total_check.expected_value == 123400
-    assert total_check.ai_derived is True
+    assert total_check.ai_derived is False
+    assert total_check.verification_method == "deterministic"
     assert invoice_checks["currency_matches"].expected_value == "USD"
     assert invoice_checks["seller_matches"].expected_value == "northwind-audio"
     line_items_check = invoice_checks["line_items_match"]
     assert line_items_check.operator == "contains"
     assert "NC-700" in str(line_items_check.expected_value)
+    assert line_items_check.verification_method == "deterministic"
+
+    serial = by_id["serial"]
+    assert [c.check_id for c in serial.checks] == ["serial_readable"]
+    assert serial.checks[0].verification_method == "deterministic"
+
+    warranty = by_id["warranty"]
+    assert {"application/json", "text/csv"} & set(warranty.accepted_formats)
 
     assert "serial_number" not in by_id
     hardware = by_id["hardware"]
     assert "text/csv" in hardware.accepted_formats
     assert [c.check_id for c in hardware.checks] == ["ram_gte_32gb", "storage_gte_1tb"]
+
+
+def test_catalog_checks_are_all_deterministic():
+    request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
+    extraction = [
+        (requirement.requirement_id, check.check_id)
+        for requirement in request.requirements
+        for check in requirement.checks
+        if check.verification_method != "deterministic"
+    ]
+    assert extraction == []
+
+
+def test_requirements_needing_a_parsed_value_accept_a_machine_readable_format():
+    request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
+    machine_readable = {"application/json", "text/csv", "text/plain"}
+    unparseable = [
+        requirement.requirement_id
+        for requirement in request.requirements
+        if requirement.source == "file"
+        and any(check.operator != "exists" for check in requirement.checks)
+        and not machine_readable & set(requirement.accepted_formats)
+    ]
+    assert unparseable == []
 
 
 def test_evidence_required_is_deprecated_mirror_of_requirements():

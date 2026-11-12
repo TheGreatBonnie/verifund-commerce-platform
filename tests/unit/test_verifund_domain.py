@@ -131,6 +131,21 @@ def test_non_overridable_reasons_match_spec():
     assert ReviewReason.MANUAL_FLAG not in NON_OVERRIDABLE_REASONS
 
 
+def test_review_required_is_reversible():
+    review = ALLOWED_TRANSITIONS[TransactionState.REVIEW_REQUIRED]
+    assert TransactionState.REMEDIATION_REQUIRED in review
+    assert TransactionState.VERIFICATION_PENDING in review
+
+
+def test_return_to_remediation_action_has_a_transition():
+    assert "return_to_remediation" in allowed_actions(
+        TransactionState.REVIEW_REQUIRED, "buyer"
+    )
+    assert_transition(
+        TransactionState.REVIEW_REQUIRED, TransactionState.REMEDIATION_REQUIRED
+    )
+
+
 def test_allowed_actions_are_actor_specific():
     assert "upload_evidence" in allowed_actions(TransactionState.FUNDED, "seller")
     assert "release" not in allowed_actions(TransactionState.FUNDED, "seller")

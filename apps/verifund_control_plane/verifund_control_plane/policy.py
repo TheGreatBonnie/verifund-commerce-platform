@@ -506,6 +506,12 @@ def evaluate(
             for item in verified_items
             if matches_requirement(requirement, item) and item.sha256 not in invalid_sha
         ]
+        # A resubmission supersedes earlier artifacts for the same requirement
+        # (spec §3.5 remediation loop): evaluate newest first so a corrected
+        # value wins over the failing one it replaces. Files still accumulate
+        # within an attempt; this only sets precedence when two artifacts carry
+        # the same observed key.
+        matched.sort(key=lambda item: item.created_at, reverse=True)
         usable, pending_scan = _evaluation_items(requirement, matched)
         if gate_declarations:
             open_attempt = max(
