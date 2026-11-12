@@ -6837,3 +6837,267 @@ paypal-button {
 .mm-recommendation-callout.is-alt strong {
   color: var(--ink-soft);
 }
+
+/* ---------- Buyer Transactions & Fulfillment (chat-first) ---------- */
+
+.mm-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mm-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.mm-page-header h1 {
+  margin: 4px 0 0;
+  font-family: var(--font-instrument-serif), Georgia, serif;
+  font-size: 34px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.mm-page-header .mm-muted {
+  margin: 6px 0 0;
+  max-width: 72ch;
+}
+
+.mm-muted {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.mm-link,
+.mm-page a:not(.mm-button):not(.mm-nav-item) {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 2px;
+}
+
+.mm-link:hover,
+.mm-page a:not(.mm-button):not(.mm-nav-item):hover {
+  text-decoration-color: var(--ink);
+}
+
+.mm-panel h2 {
+  margin: 0 0 10px;
+  font-family: var(--font-instrument-serif), Georgia, serif;
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.mm-panel h3 {
+  margin: 12px 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.mm-panel p {
+  margin: 0 0 8px;
+}
+
+.mm-panel p:last-child {
+  margin-bottom: 0;
+}
+
+.mm-panel ul,
+.mm-panel ol {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.mm-panel li {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mm-panel dl {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.mm-panel dl > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.mm-panel dt {
+  color: var(--muted);
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mm-panel dd {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mm-panel pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.mm-panel-warning {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: linear-gradient(180deg, rgba(255, 247, 237, 0.9), var(--panel));
+}
+
+.mm-panel-warning h2 {
+  color: #92400e;
+}
+
+.mm-panel [role="alert"],
+.mm-page [role="alert"] {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(185, 28, 28, 0.25);
+  border-radius: var(--radius);
+  background: rgba(254, 242, 242, 0.9);
+  color: #991b1b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.mm-panel button,
+.mm-page button.mm-text-action,
+.mm-page .mm-panel a.mm-link {
+  font: inherit;
+}
+
+.mm-panel button:not(.mm-button):not(.mm-nav-item):not(.mm-mode-toggle-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mm-panel button:not(.mm-button):not(.mm-nav-item):not(.mm-mode-toggle-button):hover {
+  background: var(--paper);
+}
+
+.mm-panel button:not(.mm-button):not(.mm-nav-item):not(.mm-mode-toggle-button):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mm-panel textarea,
+.mm-panel input[type="text"],
+.mm-panel input[type="number"],
+.mm-panel input:not([type]),
+.mm-panel select {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.mm-panel textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+
+.mm-panel label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.mm-panel dialog,
+.mm-page dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+}
+
+.mm-panel dialog::backdrop,
+.mm-page dialog::backdrop {
+  background: rgba(17, 24, 39, 0.35);
+}
+
+.mm-panel dialog form,
+.mm-page dialog form {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.mm-panel dialog h3,
+.mm-page dialog h3 {
+  margin: 0 0 4px;
+  font-family: var(--font-instrument-serif), Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.mm-buyer-list-item {
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.mm-buyer-list-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+@media (max-width: 900px) {
+  .mm-page-header h1 {
+    font-size: 28px;
+  }
+
+  .mm-panel dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
