@@ -155,6 +155,26 @@ class OrgScopedTransaction:
              "a": self.store.agent_id})
 
 
+def product_upsert_statement(cols: dict[str, Any]):
+    """Build the product upsert for the given column mapping.
+
+    The timestamps are bound as values rather than computed by the database.
+    SQLite's ``datetime('now')`` has no PostgreSQL equivalent, and these
+    columns are TEXT holding an ISO timestamp everywhere else in this store.
+    """
+    insert_cols = ", ".join(cols)
+    insert_vals = ", ".join(f":{k}" for k in cols)
+    update_cols = ", ".join(
+        f"{k}=:{k}"
+        for k in cols
+        if k not in ("sku", "organization_id", "created_at")
+    )
+    return text(
+        f"INSERT INTO products ({insert_cols}) VALUES ({insert_vals}) "
+        f"ON CONFLICT(organization_id, sku) DO UPDATE SET {update_cols}"
+    )
+
+
 class OrgScopedStore(SellerStore):
     def __init__(self, engine: AsyncEngine, *, organization_id: str,
                  agent_id: str | None = None) -> None:
@@ -305,6 +325,7 @@ class OrgScopedStore(SellerStore):
                          "WHERE organization_id = :o AND sku = :s"),
                     {"o": self.organization_id, "s": p["sku"]},
                 )).first()
+                now = datetime.now(UTC).isoformat()
                 cols: dict[str, Any] = {
                     "organization_id": self.organization_id,
                     "sku": p["sku"],
@@ -333,16 +354,10 @@ class OrgScopedStore(SellerStore):
                     "sustainability_certified": (
                         None if p.get("sustainability_certified") is None
                         else (1 if p["sustainability_certified"] else 0)),
+                    "created_at": now,
+                    "updated_at": now,
                 }
-                insert_cols = ", ".join(cols)
-                insert_vals = ", ".join(f":{k}" for k in cols)
-                update_cols = ", ".join(
-                    f"{k}=:{k}" for k in cols if k not in ("sku", "organization_id"))
-                await conn.execute(text(
-                    f"INSERT INTO products ({insert_cols}) VALUES ({insert_vals}) "
-                    f"ON CONFLICT(organization_id, sku) DO UPDATE SET {update_cols},"
-                    f" updated_at = datetime('now')"
-                ), cols)
+                await conn.execute(product_upsert_statement(cols), cols)
                 await conn.execute(text(
                     """INSERT INTO inventory (organization_id, sku, on_hand,
                                             incoming, incoming_days)
