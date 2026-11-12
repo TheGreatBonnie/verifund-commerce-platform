@@ -87,52 +87,82 @@ export function SourcingMandateCard({ args, onSubmit, onCancel }: Props) {
         </div>
       </div>
 
-      <div className="mm-note-field">
-        <label htmlFor="sm-quantity"><span>Quantity</span></label>
-        <input id="sm-quantity" type="number" min={1} value={draft.quantity}
-          onChange={(e) => update({ quantity: Number(e.target.value) })} />
-      </div>
+      <label className="mm-note-field" htmlFor="sm-quantity">
+        <span>Quantity</span>
+        <input
+          id="sm-quantity"
+          type="number"
+          min={1}
+          value={draft.quantity}
+          onChange={(e) => update({ quantity: Number(e.target.value) })}
+        />
+      </label>
 
-      <div className="mm-note-field">
-        <label htmlFor="sm-budget"><span>Budget ceiling/target (amount)</span></label>
-        <input id="sm-budget" type="text" inputMode="decimal" value={draft.budgetAmount}
-          onChange={(e) => update({ budgetAmount: e.target.value })} placeholder="e.g. 1500.00" />
-      </div>
+      <label className="mm-note-field" htmlFor="sm-budget">
+        <span>Budget ceiling/target (amount)</span>
+        <input
+          id="sm-budget"
+          type="text"
+          inputMode="decimal"
+          value={draft.budgetAmount}
+          onChange={(e) => update({ budgetAmount: e.target.value })}
+          placeholder="e.g. 1500.00"
+        />
+      </label>
 
-      <div className="mm-note-field">
-        <label htmlFor="sm-currency"><span>Currency</span></label>
-        <input id="sm-currency" type="text" value={draft.budgetCurrency}
-          onChange={(e) => update({ budgetCurrency: e.target.value })} />
-      </div>
+      <label className="mm-note-field" htmlFor="sm-currency">
+        <span>Currency</span>
+        <input
+          id="sm-currency"
+          type="text"
+          value={draft.budgetCurrency}
+          onChange={(e) => update({ budgetCurrency: e.target.value })}
+        />
+      </label>
 
-      <div className="mm-note-field">
-        <label htmlFor="sm-basis"><span>Budget basis</span></label>
-        <select id="sm-basis" value={draft.budgetBasis}
-          onChange={(e) => update({ budgetBasis: e.target.value as MandateDraft["budgetBasis"] })}>
+      <label className="mm-note-field" htmlFor="sm-basis">
+        <span>Budget basis</span>
+        <select
+          id="sm-basis"
+          value={draft.budgetBasis}
+          onChange={(e) => update({ budgetBasis: e.target.value as MandateDraft["budgetBasis"] })}
+        >
           <option value="per_unit">Per unit</option>
           <option value="total">Total</option>
         </select>
-      </div>
+      </label>
 
-      <div className="mm-note-field">
-        <label htmlFor="sm-deadline"><span>Delivery deadline (need by)</span></label>
-        <input id="sm-deadline" type="date" value={draft.deliveryDeadline}
-          onChange={(e) => update({ deliveryDeadline: e.target.value })} />
-      </div>
+      <label className="mm-note-field" htmlFor="sm-deadline">
+        <span>Delivery deadline (need by)</span>
+        <input
+          id="sm-deadline"
+          type="date"
+          value={draft.deliveryDeadline}
+          onChange={(e) => update({ deliveryDeadline: e.target.value })}
+        />
+      </label>
 
-      <div className="mm-note-field">
-        <label htmlFor="sm-warranty"><span>Warranty & returns requirements</span></label>
-        <textarea id="sm-warranty" rows={2} value={draft.warrantyReturns}
+      <label className="mm-note-field" htmlFor="sm-warranty">
+        <span>Warranty & returns requirements</span>
+        <textarea
+          id="sm-warranty"
+          rows={2}
+          value={draft.warrantyReturns}
           onChange={(e) => update({ warrantyReturns: e.target.value })}
-          placeholder="e.g. >=1 year warranty, 30-day returns" />
-      </div>
+          placeholder="e.g. >=1 year warranty, 30-day returns"
+        />
+      </label>
 
-      <div className="mm-note-field">
-        <label htmlFor="sm-musthave"><span>Must-have attributes (comma or newline separated)</span></label>
-        <textarea id="sm-musthave" rows={2} value={draft.mustHaveAttributes}
+      <label className="mm-note-field" htmlFor="sm-musthave">
+        <span>Must-have attributes (comma or newline separated)</span>
+        <textarea
+          id="sm-musthave"
+          rows={2}
+          value={draft.mustHaveAttributes}
           onChange={(e) => update({ mustHaveAttributes: e.target.value })}
-          placeholder="e.g. 8GB RAM, 256GB SSD, 13-inch" />
-      </div>
+          placeholder="e.g. 8GB RAM, 256GB SSD, 13-inch"
+        />
+      </label>
 
       {errors.length ? (
         <p className="mm-chat-approval-result" role="alert">{errors.join(" ")}</p>

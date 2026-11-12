@@ -3045,9 +3045,10 @@ paypal-button {
   text-transform: uppercase;
 }
 
-.mm-note-field textarea {
+.mm-note-field textarea,
+.mm-note-field input,
+.mm-note-field select {
   width: 100%;
-  resize: vertical;
   padding: 7px 8px;
   border: 1px solid var(--rule-strong);
   border-radius: 2px;
@@ -3057,6 +3058,11 @@ paypal-button {
   line-height: 1.45;
 }
 
+.mm-note-field textarea {
+  resize: vertical;
+}
+
+.mm-note-field input::placeholder,
 .mm-note-field textarea::placeholder {
   color: #948e81;
 }
