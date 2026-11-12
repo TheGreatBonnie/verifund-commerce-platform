@@ -406,8 +406,8 @@ def verifund_enabled(mode: str) -> bool:
     return mode != "off"
 
 
-def verifund_agent_environment(mode: str) -> dict[str, str]:
-    env = _base_env(mode)
+def verifund_agent_environment(llm_mode: str, verifund_mode: str = "sandbox") -> dict[str, str]:
+    env = _base_env(llm_mode)
     for name in AGENT_FORBIDDEN_ENV:
         env.pop(name, None)
     env.update(
@@ -428,7 +428,7 @@ def verifund_agent_environment(mode: str) -> dict[str, str]:
                 verifund_agent_checkpoint_path()
             ),
             "BUYER_INTERNAL_URL": buyer_url(),
-            "VERIFUND_MODE": mode,
+            "VERIFUND_MODE": verifund_mode,
         }
     )
     return env
@@ -503,12 +503,15 @@ def gateway_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, 
     env.update(orchestrator_environment(mode, verifund_mode))
     env.update(control_plane_environment(mode, verifund_mode))
     if verifund_enabled(verifund_mode):
-        env.update(verifund_agent_environment(verifund_mode))
+        env.update(verifund_agent_environment(mode, verifund_mode))
 
     # Never let a bare fallback shadow the service-specific variables.
     env.pop("DATABASE_URL", None)
     env.pop("CHECKPOINT_PATH", None)
 
+    verifund_public_base_url = _env_value(
+        "VERIFUND_PUBLIC_BASE_URL", f"{base}/control-plane"
+    ).rstrip("/")
     env.update(
         {
             "HOST": _env_value("HOST", "127.0.0.1"),
@@ -524,7 +527,7 @@ def gateway_environment(mode: str, verifund_mode: str = "sandbox") -> dict[str, 
             "SELLER_SHARED_URL": f"{base}/sellers",
             "VERIFUND_URL": f"{base}/control-plane",
             "VERIFUND_CONTROL_PLANE_URL": f"{base}/control-plane",
-            "VERIFUND_PUBLIC_BASE_URL": f"{base}/control-plane",
+            "VERIFUND_PUBLIC_BASE_URL": verifund_public_base_url,
             "VERIFUND_AGENT_URL": f"{base}/verifund-agent",
             "VERIFUND_AGENT_CARD_URL": (
                 f"{base}/verifund-agent/.well-known/agent-card.json"
@@ -792,7 +795,7 @@ def run_stack(
             agent = start_child(
                 "verifund-agent",
                 [sys.executable, "-m", "verifund_agent"],
-                env=verifund_agent_environment(settlement_mode),
+                env=verifund_agent_environment(mode, settlement_mode),
                 url=f"{verifund_agent_url()}/health",
             )
             children.append(agent)

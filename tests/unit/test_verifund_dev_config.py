@@ -198,8 +198,9 @@ def test_fake_mode_wires_buyer_seller_orchestrator_and_agent(monkeypatch):
     )
     assert orchestrator["VERIFUND_AGENT_A2A_TOKEN"] == "agent-a2a-token"
 
-    agent = dev.verifund_agent_environment("fake")
+    agent = dev.verifund_agent_environment("scripted", "fake")
     assert agent["VERIFUND_MODE"] == "fake"
+    assert agent["MARKETMESH_LLM_MODE"] == "scripted"
     assert agent["PORT"] == "9301"
     assert agent["VERIFUND_AGENT_PORT"] == "9301"
     assert agent["VERIFUND_AGENT_URL"] == config.verifund_agent_url()
@@ -229,8 +230,9 @@ def test_agent_environment_is_least_privilege(monkeypatch):
         "VERIFUND_AGENT_A2A_TOKEN",
         "VERIFUND_AGENT_INTERNAL_TOKEN",
     )
-    env = dev.verifund_agent_environment("fake")
+    env = dev.verifund_agent_environment("scripted", "fake")
     assert env["VERIFUND_MODE"] == "fake"
+    assert env["MARKETMESH_LLM_MODE"] == "scripted"
     assert env["PORT"] == "9301"
     assert env["VERIFUND_AGENT_PORT"] == "9301"
     assert env["VERIFUND_AGENT_URL"] == "http://127.0.0.1:9301"
