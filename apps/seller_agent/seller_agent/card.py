@@ -38,7 +38,7 @@ def build_agent_card(
         AgentSkill(
             id="commerce.negotiate",
             name="Negotiate an offer",
-            description="Counter or accept structured offers (strategy-aware, catalog-grounded).",
+            description="Counter or accept structured offers (strategy-aware).",
             tags=["commerce", "negotiation", "strategy"],
             input_modes=["application/json"],
             output_modes=["application/json"],

@@ -34,9 +34,18 @@ def test_seller_card_still_validates(northwind_policy):
     assert validate_agent_card(_seller_card(northwind_policy)) == []
 
 
-def test_buyer_sourcing_advertises_strategy_and_grounding():
+def test_buyer_sourcing_advertises_strategy_not_grounding():
     card = build_buyer_agent_card("http://127.0.0.1:9100")
     sourcing = next(s for s in card.skills if s.id == "commerce.sourcing")
     text = (sourcing.description + " " + " ".join(list(sourcing.tags))).lower()
     assert "strategy" in text
-    assert "grounded" in text or "catalog" in text
+    assert "grounded" not in text
+    assert "catalog" not in text
+
+
+def test_seller_negotiate_does_not_claim_catalog_grounding(northwind_policy):
+    card = _seller_card(northwind_policy)
+    negotiate = next(s for s in card.skills if s.id == "commerce.negotiate")
+    text = (negotiate.description + " " + " ".join(list(negotiate.tags))).lower()
+    assert "grounded" not in text
+    assert "catalog" not in text
