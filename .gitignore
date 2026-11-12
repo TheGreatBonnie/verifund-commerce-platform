@@ -24,6 +24,11 @@ logs/
 next-env.d.ts
 *.tsbuildinfo
 
+# Graphify (generated knowledge graph artifacts)
+graphify-out/
+**/.graphify*
+**/.graphify*/
+
 .agents/
 data/evidence/
 
