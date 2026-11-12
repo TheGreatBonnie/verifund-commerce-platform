@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from gateway.app import MOUNT_PREFIXES, build_app
@@ -41,3 +41,20 @@ def test_build_app_mounts_every_prefix_and_runs_lifespans() -> None:
             assert response.json() == {"service": name}
         for name in names:
             assert subs[name].state.started is True
+
+
+def test_sub_apps_see_prefix_stripped_paths() -> None:
+    seen: list[str] = []
+    sub = FastAPI()
+
+    @sub.get("/health")
+    async def health(request: Request) -> dict:
+        seen.append(request.url.path)
+        return {"status": "ok"}
+
+    app = build_app({name: sub for name in MOUNT_PREFIXES.values()})
+
+    with TestClient(app) as client:
+        assert client.get("/buyer/health").status_code == 200
+
+    assert seen == ["/health"]
