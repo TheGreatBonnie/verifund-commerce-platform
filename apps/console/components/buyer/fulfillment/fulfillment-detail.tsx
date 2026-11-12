@@ -66,7 +66,7 @@ export function FulfillmentDetail({ transactionId }: { transactionId: string }) 
 
   return (
     <main className="mm-page" aria-label="Fulfillment detail">
-      <header className="mm-page-header" style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+      <header className="mm-page-header">
         <div>
           <p className="mm-kicker">Fulfillment</p>
           <h1>Fulfillment for {transactionId}</h1>
@@ -78,44 +78,72 @@ export function FulfillmentDetail({ transactionId }: { transactionId: string }) 
       <BlockersPanel blockers={fulfillment.blockers ?? []} />
 
       <section className="mm-panel" aria-label="Requirements and evidence">
-        <h2>Requirements & evidence</h2>
+        <div className="mm-buyer-panel-head">
+          <h2>Requirements & evidence</h2>
+          <div className="mm-buyer-inline-actions">
+            <BuyerEvidenceDialog transactionId={transactionId} requirements={fulfillment.requirements ?? []} onSubmitted={refresh} />
+          </div>
+        </div>
         {(fulfillment.requirements ?? []).length === 0 ? (
           <p className="mm-muted">No requirement details available.</p>
         ) : (
-          <ul>
+          <ul className="mm-buyer-list">
             {(fulfillment.requirements ?? []).map((r: any) => (
-              <li key={r.requirement_id ?? r.id ?? JSON.stringify(r)}>
-                <strong>{r.title ?? r.requirement_id ?? r.id}</strong>
-                {r.status ? ` — ${r.status}` : ""}
-                {r.owner ? ` (${r.owner})` : ""}
+              <li key={r.requirement_id ?? r.id ?? JSON.stringify(r)} className="mm-buyer-list-item" style={{ gridTemplateColumns: "1fr" }}>
+                <div className="mm-buyer-row-main">
+                  <div className="mm-buyer-row-title">{r.title ?? r.requirement_id ?? r.id}</div>
+                  <div className="mm-buyer-meta">
+                    <span>Status: {r.status ?? "unknown"}</span>
+                    {r.owner ? <span>Owner: {r.owner}</span> : null}
+                    {r.kind ? <span>Kind: {r.kind}</span> : null}
+                  </div>
+                </div>
               </li>
             ))}
           </ul>
         )}
         {(fulfillment.evidence ?? []).length > 0 ? (
-          <>
+          <div className="mm-buyer-section-stack" style={{ marginTop: 12 }}>
             <h3>Evidence</h3>
-            <ul>
+            <ul className="mm-buyer-list">
               {(fulfillment.evidence ?? []).map((e: any, idx: number) => (
-                <li key={e.evidence_id ?? idx}>{e.title ?? e.kind ?? e.evidence_id ?? "Evidence item"} {e.scan_status ? `· ${e.scan_status}` : ""}</li>
+                <li key={e.evidence_id ?? idx} className="mm-buyer-list-item" style={{ gridTemplateColumns: "1fr" }}>
+                  <div className="mm-buyer-row-main">
+                    <div className="mm-buyer-row-title">{e.title ?? e.kind ?? e.evidence_id ?? "Evidence item"}</div>
+                    <div className="mm-buyer-meta">
+                      {e.scan_status ? <span>Scan: {e.scan_status}</span> : null}
+                      {e.view_label ? <span>View: {e.view_label}</span> : null}
+                      {e.requirement_id ? <span>Requirement: {e.requirement_id}</span> : null}
+                    </div>
+                  </div>
+                </li>
               ))}
             </ul>
-          </>
+          </div>
         ) : null}
-        <BuyerEvidenceDialog transactionId={transactionId} requirements={fulfillment.requirements ?? []} onSubmitted={refresh} />
       </section>
 
       <section className="mm-panel" aria-label="Shipment and tracking">
-        <h2>Shipment & carrier timeline</h2>
+        <div className="mm-buyer-panel-head">
+          <h2>Shipment & carrier timeline</h2>
+        </div>
         {fulfillment.shipment ? (
-          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(fulfillment.shipment, null, 2)}</pre>
+          <pre>{JSON.stringify(fulfillment.shipment, null, 2)}</pre>
         ) : (
           <p className="mm-muted">No shipment data available.</p>
         )}
         {(fulfillment.carrier_events ?? []).length > 0 ? (
-          <ul>
+          <ul className="mm-buyer-list" style={{ marginTop: 10 }}>
             {(fulfillment.carrier_events ?? []).map((ev: any, idx: number) => (
-              <li key={idx}>{ev.status ?? ev.event ?? JSON.stringify(ev)} {ev.occurred_at ? `· ${ev.occurred_at}` : ""}</li>
+              <li key={idx} className="mm-buyer-list-item" style={{ gridTemplateColumns: "1fr" }}>
+                <div className="mm-buyer-row-main">
+                  <div className="mm-buyer-row-title">{ev.status ?? ev.event ?? "Carrier event"}</div>
+                  <div className="mm-buyer-meta">
+                    {ev.occurred_at ? <span>{ev.occurred_at}</span> : null}
+                    {ev.location ? <span>{ev.location}</span> : null}
+                  </div>
+                </div>
+              </li>
             ))}
           </ul>
         ) : null}
@@ -130,16 +158,20 @@ export function FulfillmentDetail({ transactionId }: { transactionId: string }) 
       />
 
       <section className="mm-panel" aria-label="Fulfillment actions">
-        <h2>Actions</h2>
+        <div className="mm-buyer-panel-head">
+          <h2>Actions</h2>
+        </div>
         <p className="mm-muted">Actions are enabled only when allowed by authoritative transaction state. Fulfillment completion does not imply payout authorization.</p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="mm-buyer-inline-actions">
           <button disabled={!allowed.includes("accept")} onClick={() => runAction(() => acceptBuyerTransaction(transactionId))}>Accept</button>
           <button disabled={!(allowed.includes("delivery_confirmed") || allowed.includes("confirm_delivery"))} onClick={() => runAction(() => confirmBuyerDelivery(transactionId, {}))}>Confirm delivery</button>
         </div>
         {actionError ? <p role="alert">{actionError}</p> : null}
       </section>
 
-      <p><Link href={`/transactions/${encodeURIComponent(transactionId)}`}>View transaction details</Link></p>
+      <div className="mm-buyer-inline-actions">
+        <Link href={`/transactions/${encodeURIComponent(transactionId)}`}>View transaction details</Link>
+      </div>
     </main>
   );
 }

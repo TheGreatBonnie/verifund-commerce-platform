@@ -5,6 +5,10 @@ import { useEffect, useState } from "react";
 import { listBuyerTransactions, type ApiError } from "@/lib/buyer-transaction-api";
 import type { BuyerTransactionListResponse } from "@/lib/buyer-transaction-types";
 
+function labelize(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function TransactionsPage() {
   const [data, setData] = useState<BuyerTransactionListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,33 +42,52 @@ export default function TransactionsPage() {
       {data ? (
         <>
           <section className="mm-panel" aria-label="Overview">
-            <h2>Overview</h2>
+            <div className="mm-buyer-panel-head">
+              <h2>Overview</h2>
+            </div>
             {data.aggregates && Object.keys(data.aggregates).length > 0 ? (
-              <ul>
+              <div className="mm-buyer-overview-grid">
                 {Object.entries(data.aggregates).map(([k, v]) => (
-                  <li key={k}><strong>{k}:</strong> {v}</li>
+                  <div key={k} className="mm-buyer-stat">
+                    <span className="mm-buyer-stat-label">{labelize(k)}</span>
+                    <span className="mm-buyer-stat-value">{v}</span>
+                  </div>
                 ))}
-              </ul>
+              </div>
             ) : (
               <p className="mm-muted">Aggregate counts unavailable.</p>
             )}
           </section>
 
           <section className="mm-panel" aria-label="Transaction list">
-            <h2>Transactions</h2>
+            <div className="mm-buyer-panel-head">
+              <h2>Transactions</h2>
+            </div>
             {data.items.length === 0 ? (
               <p className="mm-muted">No transactions available.</p>
             ) : (
-              <ul>
+              <ul className="mm-buyer-list">
                 {data.items.map((t) => (
-                  <li key={t.transaction_id} style={{ marginBottom: 12 }}>
-                    <div><Link href={`/transactions/${encodeURIComponent(t.transaction_id)}`}>{t.transaction_id}</Link></div>
-                    <div className="mm-muted">
-                      {t.product_name ? `${t.product_name} · ` : ""}
-                      Status: {t.transaction_status ?? "unknown"} · Payment: {t.payment_status ?? "unknown"}
-                      {t.fulfillment_status ? ` · Fulfillment: ${t.fulfillment_status}` : ""}
+                  <li key={t.transaction_id} className="mm-buyer-list-item">
+                    <div className="mm-buyer-row-main">
+                      <div className="mm-buyer-row-title">
+                        <Link href={`/transactions/${encodeURIComponent(t.transaction_id)}`}>{t.transaction_id}</Link>
+                      </div>
+                      <div className="mm-buyer-meta">
+                        {t.product_name ? <span>{t.product_name}</span> : null}
+                        {t.seller_name ? <span>Seller: {t.seller_name}</span> : null}
+                        <span>Status: {t.transaction_status ?? "unknown"}</span>
+                        <span>Payment: {t.payment_status ?? "unknown"}</span>
+                        {t.fulfillment_status ? <span>Fulfillment: {t.fulfillment_status}</span> : null}
+                        {t.agreed_amount_cents != null ? (
+                          <span>Amount: {(t.agreed_amount_cents / 100).toFixed(2)} {t.currency ?? ""}</span>
+                        ) : null}
+                      </div>
                     </div>
-                    <div><Link href={`/fulfillment/${encodeURIComponent(t.transaction_id)}`}>View fulfillment</Link></div>
+                    <div className="mm-buyer-row-actions">
+                      <Link href={`/transactions/${encodeURIComponent(t.transaction_id)}`}>View transaction</Link>
+                      <Link href={`/fulfillment/${encodeURIComponent(t.transaction_id)}`}>View fulfillment</Link>
+                    </div>
                   </li>
                 ))}
               </ul>
