@@ -14,7 +14,7 @@ services:
       - key: BUYER_CONSOLE_API_TOKEN
         sync: false
       - key: REGISTRY_URL
-        value: https://gateway.onrender.com/registry
+        value: https://gateway-795m.onrender.com/registry
       - key: BUYER_DATABASE_URL
         sync: false
       - key: BUYER_CHECKPOINT_PATH
@@ -22,7 +22,7 @@ services:
       - key: BUYER_CHECKPOINT_URL
         sync: false
       - key: BUYER_PUBLIC_BASE_URL
-        value: https://gateway.onrender.com/buyer
+        value: https://gateway-795m.onrender.com/buyer
       - key: REGISTRY_DATABASE_URL
         sync: false
       - key: SELLER_SHARED_DB_URL
@@ -34,7 +34,7 @@ services:
       - key: SELLER_CONFIG_SOURCE
         value: shared
       - key: PUBLIC_BASE_URL
-        value: https://gateway.onrender.com/sellers
+        value: https://gateway-795m.onrender.com/sellers
       - key: VERIFUND_DATABASE_URL
         sync: false
       - key: VERIFUND_AGENT_DATABASE_URL
@@ -44,21 +44,21 @@ services:
       - key: VERIFUND_AGENT_CHECKPOINT_URL
         sync: false
       - key: VERIFUND_AGENT_URL
-        value: https://gateway.onrender.com/verifund-agent
+        value: https://gateway-795m.onrender.com/verifund-agent
       - key: VERIFUND_AGENT_CARD_URL
-        value: https://gateway.onrender.com/verifund-agent/.well-known/agent-card.json
+        value: https://gateway-795m.onrender.com/verifund-agent/.well-known/agent-card.json
       - key: ORCHESTRATOR_SESSION_DB_URL
         sync: false
       - key: VERIFUND_URL
-        value: https://gateway.onrender.com/control-plane
+        value: https://gateway-795m.onrender.com/control-plane
       - key: VERIFUND_CONTROL_PLANE_URL
-        value: https://gateway.onrender.com/control-plane
+        value: https://gateway-795m.onrender.com/control-plane
       - key: BUYER_INTERNAL_URL
-        value: https://gateway.onrender.com/buyer
+        value: https://gateway-795m.onrender.com/buyer
       - key: SELLER_SHARED_URL
-        value: https://gateway.onrender.com/sellers
+        value: https://gateway-795m.onrender.com/sellers
       - key: VERIFUND_PUBLIC_BASE_URL
-        value: https://gateway.onrender.com/control-plane
+        value: https://gateway-795m.onrender.com/control-plane
       - key: VERIFUND_CONSOLE_BASE_URL
         sync: false
       - key: VERIFUND_EVIDENCE_DIR
@@ -66,7 +66,7 @@ services:
       - key: VERIFUND_ALLOW_PUBLIC_BIND
         value: "1"
       - key: ALLOWED_CARD_HOSTS
-        value: '["gateway.onrender.com", "127.0.0.1", "localhost"]'
+        value: '["gateway-795m.onrender.com", "127.0.0.1", "localhost"]'
 
 databases:
   - name: marketmesh

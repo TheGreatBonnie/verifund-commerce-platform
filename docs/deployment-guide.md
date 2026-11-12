@@ -50,7 +50,7 @@ All six backend services are **public web services**. Free-tier services cannot 
 ### Merged gateway topology
 
 `render.yaml` deploys **one** Docker service, `gateway`, on
-`https://gateway.onrender.com`. It imports each service's existing FastAPI app
+`https://gateway-795m.onrender.com`. It imports each service's existing FastAPI app
 and mounts it under a path prefix, so the logical services above share one
 origin and one port:
 
@@ -63,10 +63,10 @@ origin and one port:
 | `/control-plane` | verifund control plane | 9300 |
 | `/verifund-agent` | verifund agent | 9301 |
 
-`GET https://gateway.onrender.com/health` is the Render health check. The
+`GET https://gateway-795m.onrender.com/health` is the Render health check. The
 prefix is stripped before dispatch, so every service keeps its existing
 unprefixed routes: a seller card lives at
-`https://gateway.onrender.com/sellers/northwind-audio/.well-known/agent-card.json`.
+`https://gateway-795m.onrender.com/sellers/northwind-audio/.well-known/agent-card.json`.
 
 Run the same topology locally with `make dev` (alias `make dev-gateway`). It
 starts `python -m gateway` on `http://127.0.0.1:10000` plus the console, with
@@ -80,15 +80,15 @@ All six services read env vars in one process, so these collisions matter:
 
 | Var | Readers | Resolution |
 | --- | --- | --- |
-| `PUBLIC_BASE_URL` | buyer (fallback), seller | Set `PUBLIC_BASE_URL=https://gateway.onrender.com/sellers` for the seller and `BUYER_PUBLIC_BASE_URL=https://gateway.onrender.com/buyer` for the buyer |
+| `PUBLIC_BASE_URL` | buyer (fallback), seller | Set `PUBLIC_BASE_URL=https://gateway-795m.onrender.com/sellers` for the seller and `BUYER_PUBLIC_BASE_URL=https://gateway-795m.onrender.com/buyer` for the buyer |
 | `DATABASE_URL` | buyer, registry, seller, verifund-agent (fallback) | Never set it; always set the service-specific `*_DATABASE_URL` |
 | `CHECKPOINT_PATH` | buyer, verifund-agent (fallback) | Never set it; always set `BUYER_CHECKPOINT_PATH` / `VERIFUND_AGENT_CHECKPOINT_PATH` |
 | `PORT` | every service's settings (unused for binding) | Set once; the gateway binds it |
 | `HOST` | verifund-agent settings, gateway | Set `0.0.0.0` |
-| `VERIFUND_URL` | buyer, seller | `https://gateway.onrender.com/control-plane` |
-| `BUYER_INTERNAL_URL` | orchestrator, verifund-agent | `https://gateway.onrender.com/buyer` |
-| `SELLER_SHARED_URL` | control plane, console | `https://gateway.onrender.com/sellers` |
-| `VERIFUND_AGENT_URL` | orchestrator, verifund-agent | `https://gateway.onrender.com/verifund-agent` |
+| `VERIFUND_URL` | buyer, seller | `https://gateway-795m.onrender.com/control-plane` |
+| `BUYER_INTERNAL_URL` | orchestrator, verifund-agent | `https://gateway-795m.onrender.com/buyer` |
+| `SELLER_SHARED_URL` | control plane, console | `https://gateway-795m.onrender.com/sellers` |
+| `VERIFUND_AGENT_URL` | orchestrator, verifund-agent | `https://gateway-795m.onrender.com/verifund-agent` |
 
 ```mermaid
 flowchart LR
@@ -220,7 +220,7 @@ Apply it with **Render → New → Blueprint**, select this repository and the
 Three values are easy to get wrong because the merged process reads each one
 once for every service:
 
-- `REGISTRY_URL` must be `https://gateway.onrender.com/registry`. Its default is
+- `REGISTRY_URL` must be `https://gateway-795m.onrender.com/registry`. Its default is
   `http://127.0.0.1:9100`, so seller activation silently fails to publish an
   Agent Card.
 - The registry authenticates writes with `ADMIN_TOKEN`, while the control plane
@@ -251,16 +251,16 @@ The complete list of keys and values lives in `render.yaml`; the secrets are the
 
    | Variable | Value |
    | --- | --- |
-   | `BUYER_AGUI_URL` | `https://gateway.onrender.com/buyer/agui` |
-   | `BUYER_API_URL` | `https://gateway.onrender.com/buyer` |
-   | `BUYER_A2A_URL` | `https://gateway.onrender.com/buyer` |
+   | `BUYER_AGUI_URL` | `https://gateway-795m.onrender.com/buyer/agui` |
+   | `BUYER_API_URL` | `https://gateway-795m.onrender.com/buyer` |
+   | `BUYER_A2A_URL` | `https://gateway-795m.onrender.com/buyer` |
    | `BUYER_CONSOLE_API_TOKEN` | shared secret |
    | `BUYER_INTERNAL_TOKEN` | shared secret |
-   | `ORCHESTRATOR_AGUI_URL` | `https://gateway.onrender.com/orchestrator` |
-   | `ORCHESTRATOR_URL` | `https://gateway.onrender.com/orchestrator` |
-   | `REGISTRY_URL` | `https://gateway.onrender.com/registry` |
-   | `SELLER_SHARED_URL` | `https://gateway.onrender.com/sellers` |
-   | `VERIFUND_CONTROL_PLANE_URL` | `https://gateway.onrender.com/control-plane` |
+   | `ORCHESTRATOR_AGUI_URL` | `https://gateway-795m.onrender.com/orchestrator` |
+   | `ORCHESTRATOR_URL` | `https://gateway-795m.onrender.com/orchestrator` |
+   | `REGISTRY_URL` | `https://gateway-795m.onrender.com/registry` |
+   | `SELLER_SHARED_URL` | `https://gateway-795m.onrender.com/sellers` |
+   | `VERIFUND_CONTROL_PLANE_URL` | `https://gateway-795m.onrender.com/control-plane` |
    | `VERIFUND_OPS_TOKEN` | shared secret |
    | `PAYPAL_CLIENT_SECRET` | PayPal sandbox secret |
    | `CPK_INTELLIGENCE_API_KEY` | optional |
@@ -285,8 +285,8 @@ The complete list of keys and values lives in `render.yaml`; the secrets are the
 ## Step 4 — Configure PayPal Sandbox
 
 1. Create a PayPal Developer account and a sandbox app. Record `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`.
-2. Create a sandbox webhook pointing at `https://gateway.onrender.com/control-plane/webhooks/paypal`. Copy the webhook ID into `PAYPAL_WEBHOOK_ID`.
-3. Set `VERIFUND_PUBLIC_BASE_URL=https://gateway.onrender.com/control-plane`. Sandbox mode requires HTTPS; Render provides it.
+2. Create a sandbox webhook pointing at `https://gateway-795m.onrender.com/control-plane/webhooks/paypal`. Copy the webhook ID into `PAYPAL_WEBHOOK_ID`.
+3. Set `VERIFUND_PUBLIC_BASE_URL=https://gateway-795m.onrender.com/control-plane`. Sandbox mode requires HTTPS; Render provides it.
 4. Payer return and cancel URLs are built from `public_base_url` (`/return/{token}` and `/cancel/{token}`) and redirect to the console's `/runs/{runId}`.
 5. Create separate sandbox accounts for the platform, the buyer, and each seller. Put the seller emails in `VERIFUND_SELLER_PAYOUT_EMAILS`; the values must be unique.
 6. The control plane's sandbox guard refuses default secrets, a missing webhook ID, a non-HTTPS public URL, and the live PayPal host. All of the above must be real values.
@@ -300,7 +300,7 @@ See `docs/verifund-paypal-sandbox.md` for the full account, webhook, tunnel, and
 1. Create a Clerk app. This guide uses test keys; see the caveat below.
 2. Console: set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`.
 3. Control plane: set `CLERK_SECRET_KEY`, `CLERK_JWT_KEY`, and `CLERK_WEBHOOK_SIGNING_SECRET`.
-4. Point the Clerk webhook at `https://gateway.onrender.com/control-plane/v1/webhooks/clerk` so tenancy users and organizations sync.
+4. Point the Clerk webhook at `https://gateway-795m.onrender.com/control-plane/v1/webhooks/clerk` so tenancy users and organizations sync.
 5. Configure the Vercel domain in Clerk.
 
 > **Caveat:** Clerk test keys are intended for development and are rate-limited. For a public demo, production keys are safer. The control plane's real tenancy path expects them.
