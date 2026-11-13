@@ -40,7 +40,6 @@ class VerifundState(TypedDict, total=False):
     agreement_version: int
     agreement_hash: str
     seller_token_ref: str
-    award: dict
     buyer_task_id: str
     buyer_context_id: str
     agreement: dict
@@ -402,23 +401,26 @@ async def create_agreement(
     state: VerifundState, config: RunnableConfig
 ) -> dict[str, Any]:
     buyer = _buyer(config)
-    award = state.get("award") or {}
     run_id = state.get("run_id") or ""
-    if award.get("run_id") != run_id:
-        raise VerifundProtocolError("award run does not match the lifecycle task")
     buyer_task_id = state.get("buyer_task_id") or ""
     buyer_context_id = state.get("buyer_context_id") or ""
     if not buyer_task_id or not buyer_context_id:
         raise VerifundProtocolError(
             "agreement creation requires the original Buyer task and context"
         )
+    # The Buyer owns the award. It is fetched over the internal API instead of
+    # taken from the task payload, so a model-authored copy of it can never
+    # reach the canonical agreement.
+    award = await buyer.get_award(run_id)
+    if award.get("run_id") != run_id:
+        raise VerifundProtocolError("award run does not match the lifecycle task")
     response = await buyer.create_agreement(
         run_id,
         BuyerAgreementRequest(
             award=award,
             buyer_task_id=buyer_task_id,
             buyer_context_id=buyer_context_id,
-            idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
+            idempotency_key=f"award:{run_id}:{award.get('offer_id')}",
         ),
     )
     created = BuyerAgreementResponse.model_validate(response)
