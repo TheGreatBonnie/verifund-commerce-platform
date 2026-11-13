@@ -9,6 +9,7 @@ from commerce_core.contracts import (
     Offer,
     Preferences,
 )
+from commerce_core.negotiation import ALLOWED_REQUESTED_CHANGE_KEYS
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -26,8 +27,16 @@ target_unit_price_cents. Asking for any other change voids the whole counter.
 Return structured output only."""
 
 # A SKU may contain internal periods, but a period at the end of a sentence is
-# punctuation rather than part of the identifier.
-SKU_PATTERN = r"\bProduct SKU:\s*([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)"
+# punctuation rather than part of the identifier. The label is matched loosely
+# because the brief that names the product may write it several ways.
+SKU_PATTERN = (
+    r"\b(?:Product\s+SKU|Item\s+SKU|SKU)\s*[:=]\s*"
+    r"([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)"
+)
+
+# The number of trade-offs a counter may carry. The model ranks them, so the
+# first ones are the ones the buyer acts on.
+MAX_PROPOSED_TRADEOFFS = 2
 
 
 class CounterChoice(BaseModel):
@@ -43,12 +52,15 @@ class CounterChoice(BaseModel):
     def validate_requested_changes(
         cls, changes: dict[str, str | int | bool]
     ) -> dict[str, str | int | bool]:
-        allowed = {"warranty_months", "split_shipment", "shipping_cents", "delivery_days"}
-        unsupported = set(changes) - allowed
-        if unsupported:
-            raise ValueError(
-                f"unsupported requested changes: {sorted(unsupported)}"
-            )
+        # Unsupported changes are dropped, not rejected. The guardrail still
+        # holds — only supported terms survive — but a model that asks for one
+        # unsupported change no longer loses the whole counter it reasoned its
+        # way to.
+        changes = {
+            key: value
+            for key, value in changes.items()
+            if key in ALLOWED_REQUESTED_CHANGE_KEYS
+        }
         if "warranty_months" in changes and (
             not isinstance(changes["warranty_months"], int)
             or isinstance(changes["warranty_months"], bool)
@@ -73,15 +85,17 @@ class CounterChoice(BaseModel):
     def validate_proposed_tradeoffs(
         cls, tradeoffs: list[dict[str, str | int | bool]]
     ) -> list[dict[str, str | int | bool]]:
-        allowed = {"warranty_months", "split_shipment", "shipping_cents", "delivery_days"}
-        if len(tradeoffs) > 2:
-            raise ValueError("proposed_tradeoffs must contain at most 2 entries")
+        # The model ranks its trade-offs, so the first two that name a
+        # supported change are the ones the buyer can act on. The rest are
+        # dropped rather than voiding the counter.
+        usable: list[dict[str, str | int | bool]] = []
         for item in tradeoffs:
             if not isinstance(item, dict) or "key" not in item or "value" not in item:
-                raise ValueError("proposed_tradeoffs entries must have key and value")
-            if item["key"] not in allowed:
-                raise ValueError(f"unsupported tradeoff key: {item['key']!r}")
-        return tradeoffs
+                continue
+            if item["key"] not in ALLOWED_REQUESTED_CHANGE_KEYS:
+                continue
+            usable.append(item)
+        return usable[:MAX_PROPOSED_TRADEOFFS]
 
 
 class BuyerPlanner(Protocol):
@@ -382,23 +396,54 @@ def _catalog_entry(
     return candidates[0] if candidates else None
 
 
+def _stated_sku(text: str) -> str | None:
+    """The SKU the brief names, if it names one."""
+    match = re.search(SKU_PATTERN, text, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _listed_in_catalog(sku: str, products: list[dict[str, Any]]) -> bool:
+    """Whether the catalog lists this SKU."""
+    return any(str(product.get("sku")) == sku for product in products)
+
+
 def ground_mandate(
     mandate: Mandate, text: str, products: list[dict[str, Any]] | None
 ) -> Mandate:
     """Resolve a mandate's product identity against the published catalog.
 
     The catalog is the source of truth for the identifiers the registry
-    indexes, so it wins over anything the brief parser guessed.
+    indexes, so it wins over anything the brief parser guessed. A SKU the
+    catalog does not list cannot identify a seller — discovery filters on it,
+    and a filter that matches nothing hides every seller — so it is never
+    used.
     """
-    entry = _catalog_entry(mandate.product_sku, text, products)
-    if entry is None:
+    if not products:
         return mandate
+    entry = None
+    for candidate in (_stated_sku(text), mandate.product_sku):
+        if candidate and _listed_in_catalog(candidate, products):
+            entry = next(
+                product
+                for product in products
+                if str(product.get("sku")) == candidate
+            )
+            break
+    if entry is None:
+        entry = _catalog_entry(None, text, products)
     updates: dict[str, Any] = {}
-    if not mandate.product_sku and entry.get("sku"):
-        updates["product_sku"] = str(entry["sku"])
-    grounded = str(entry.get("category") or "").strip()
-    if grounded:
-        updates["category"] = grounded
+    if entry is not None:
+        if entry.get("sku"):
+            updates["product_sku"] = str(entry["sku"])
+        grounded = str(entry.get("category") or "").strip()
+        if grounded:
+            updates["category"] = grounded
+    elif mandate.product_sku and not _listed_in_catalog(
+        mandate.product_sku, products
+    ):
+        # Nothing in the catalog matches and the SKU is not a catalog
+        # product, so it cannot identify a seller.
+        updates["product_sku"] = None
     if not updates:
         return mandate
     return mandate.model_copy(update=updates)

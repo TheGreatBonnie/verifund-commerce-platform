@@ -32,9 +32,10 @@ class SellerDecision(BaseModel):
         cls, changes: dict[str, str | int | bool]
     ) -> dict[str, str | int | bool]:
         allowed = {"warranty_months", "split_shipment", "shipping_cents", "delivery_days"}
-        unsupported = set(changes) - allowed
-        if unsupported:
-            raise ValueError(f"unsupported requested changes: {sorted(unsupported)}")
+        # Unsupported changes are dropped, not rejected. The guardrail still
+        # holds — only supported terms survive — but a model that asks for one
+        # unsupported change no longer loses the whole decision.
+        changes = {k: v for k, v in changes.items() if k in allowed}
         if "warranty_months" in changes and (not isinstance(changes["warranty_months"], int) or isinstance(changes["warranty_months"], bool)):
             raise ValueError("warranty_months must be an integer")
         if "split_shipment" in changes and not isinstance(changes["split_shipment"], bool):

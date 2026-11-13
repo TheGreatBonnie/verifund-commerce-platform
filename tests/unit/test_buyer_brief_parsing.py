@@ -108,6 +108,55 @@ async def test_interpret_brief_grounds_the_catalog_when_the_planner_fails() -> N
     assert result["mandate"]["category"] == "MacBook"
 
 
+async def test_interpret_brief_accepts_a_bare_sku_label() -> None:
+    """The brief may name the SKU without the 'Product ' prefix."""
+    trace = FakeTrace()
+    services = SimpleNamespace(trace=trace, registry=FakeRegistry(CATALOG))
+    state = cast(
+        BuyerState,
+        {
+            "messages": [
+                HumanMessage(content="Negotiate for the MacBook Air. SKU: EX-MACBOOK-AIR.")
+            ]
+        },
+    )
+    config = {"configurable": {"thread_id": "run-1", "services": services}}
+
+    result = await interpret_brief(state, config)
+
+    assert result["mandate"]["product_sku"] == "EX-MACBOOK-AIR"
+    assert result["mandate"]["category"] == "MacBook"
+
+
+async def test_interpret_brief_distrusts_a_sku_the_catalog_does_not_list() -> None:
+    """A SKU the catalog does not list cannot identify a seller.
+
+    Discovery filters on the SKU, so believing a wrong one would hide every
+    seller — the failure the catalog grounding exists to prevent.
+    """
+    trace = FakeTrace()
+    services = SimpleNamespace(trace=trace, registry=FakeRegistry(CATALOG))
+    state = cast(
+        BuyerState,
+        {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        "Negotiate for the MacBook Air. "
+                        "Product SKU: EX-NOT-IN-CATALOG."
+                    )
+                )
+            ]
+        },
+    )
+    config = {"configurable": {"thread_id": "run-1", "services": services}}
+
+    result = await interpret_brief(state, config)
+
+    assert result["mandate"]["product_sku"] == "EX-MACBOOK-AIR"
+    assert result["mandate"]["category"] == "MacBook"
+
+
 class FailingPlanner:
     """A brief parser that always fails, to measure the retry budget."""
 

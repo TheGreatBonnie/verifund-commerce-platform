@@ -59,3 +59,16 @@ def test_mandate_from_text_reads_a_stated_quantity():
     mandate = mandate_from_text("Negotiate for the MacBook Air, quantity 2.")
 
     assert mandate.quantity == 2
+
+
+def test_mandate_from_text_accepts_a_bare_sku_label():
+    """The handoff brief may name the SKU without the 'Product ' prefix."""
+    mandate = mandate_from_text("Negotiate for the MacBook Air. SKU: EX-MACBOOK-AIR.")
+
+    assert mandate.product_sku == "EX-MACBOOK-AIR"
+
+
+def test_mandate_from_text_accepts_an_item_sku_label():
+    mandate = mandate_from_text("Negotiate for the MacBook Air. Item SKU: EX-MACBOOK-AIR")
+
+    assert mandate.product_sku == "EX-MACBOOK-AIR"

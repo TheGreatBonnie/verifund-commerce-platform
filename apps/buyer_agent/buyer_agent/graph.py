@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import operator
-import re
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -45,7 +44,6 @@ from verifund_contracts import (
 
 from buyer_agent.engine_session import BuyerNegotiationSessionEngine
 from buyer_agent.planner import (
-    SKU_PATTERN,
     BuyerPlanner,
     CounterChoice,
     ScriptedBuyerPlanner,
@@ -246,10 +244,8 @@ async def interpret_brief(state: BuyerState, config: dict) -> dict:
                 ],
             }
     mandate = mandate.model_copy(update={"run_id": run_id})
-    sku_match = re.search(SKU_PATTERN, text, re.IGNORECASE)
-    if sku_match:
-        mandate = mandate.model_copy(update={"product_sku": sku_match.group(1)})
-    # Grounding runs after the SKU is settled so the category comes from the
+    # Grounding settles the product identity: it reads the SKU the brief
+    # names, checks it against the catalog, and grounds the category from the
     # catalog entry of the product the brief is actually about.
     mandate = ground_mandate(mandate, text, products)
     source = "scripted.fallback" if fallback_used else "scripted.decision"
