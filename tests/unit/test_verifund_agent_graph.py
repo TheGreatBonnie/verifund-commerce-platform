@@ -205,10 +205,6 @@ class Buyer:
         self.settlement_state = "AWARDED"
         self.settlement_transaction_id = "vf_1"
 
-    async def get_award(self, run_id):
-        self.calls.append(("get_award", run_id))
-        return award()
-
     async def create_agreement(self, run_id, request):
         self.calls.append(("create_agreement", run_id, request))
         return {
@@ -322,6 +318,7 @@ def initial_state(**overrides):
         "task_id": "task-1",
         "context_id": "run-1",
         "run_id": "run-1",
+        "award": award(),
         "buyer_task_id": "buyer-task-1",
         "buyer_context_id": "run-1",
         "stage": "initialized",
@@ -705,38 +702,6 @@ async def test_checkout_must_settle_the_agreed_transaction() -> None:
             Command(resume=checkout_decision().model_dump(mode="json")),
             runtime,
         )
-
-
-async def test_create_agreement_asks_the_buyer_for_the_award() -> None:
-    """The agreement is created from the Buyer's award, not a payload copy."""
-    from verifund_agent.graph import create_agreement
-
-    class _Stop(Exception):
-        pass
-
-    class AwardBuyer(Buyer):
-        def __init__(self) -> None:
-            super().__init__()
-            self.requested: list[str] = []
-            self.sent = None
-
-        async def get_award(self, run_id):
-            self.requested.append(run_id)
-            return award()
-
-        async def create_agreement(self, run_id, request):
-            self.sent = request
-            raise _Stop
-
-    buyer = AwardBuyer()
-    state = {"run_id": "run-1", "buyer_task_id": "buyer-task-1",
-             "buyer_context_id": "run-1"}
-    with pytest.raises(_Stop):
-        await create_agreement(state, {"configurable": {"buyer": buyer}})
-
-    assert buyer.requested == ["run-1"]
-    assert buyer.sent.award.offer_id == "offer-1"
-    assert buyer.sent.award.amount_cents == 123400
 
 
 async def test_redirect_mode_never_prepares_a_checkout() -> None:

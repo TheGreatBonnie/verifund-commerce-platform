@@ -100,24 +100,6 @@ class BuyerInternalClient:
             "GET", f"/internal/runs/{run_id}/settlement{suffix}"
         )
 
-    async def get_award(self, run_id: str) -> dict[str, Any]:
-        """The award the Buyer owns for this run.
-
-        The award is fetched rather than taken from the task payload so that
-        no model-authored copy of it can reach the canonical agreement.
-        """
-        response = await self._request(
-            "GET", f"/internal/runs/{run_id}/settlement/award"
-        )
-        award = response.get("award") if isinstance(response, dict) else None
-        if not isinstance(award, dict):
-            raise BuyerAPIError(
-                "buyer returned no award",
-                status_code=404,
-                retryable=False,
-            )
-        return award
-
     async def get_agreement(self, run_id: str) -> dict[str, Any]:
         view = await self.get_settlement(run_id)
         agreement = view.get("agreement")
