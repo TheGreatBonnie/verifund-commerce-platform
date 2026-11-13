@@ -325,10 +325,10 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
         tool_context: ToolContext | None = None,
     ) -> dict:
         """Call a seller and resume the buyer's checkpoint with its response."""
-        thread_id = (
-            getattr(getattr(tool_context, "session", None), "id", None)
-            or buyer_task_id
-        )
+        # The buyer reports the thread its checkpoint is on as its task_id.
+        # The orchestrator's own session is a different thread, and resuming
+        # there finds no buyer state, so the buyer would start a fresh run
+        # instead of continuing the negotiation.
         result = await _mediate_seller_call(
             buyer_task_id=buyer_task_id,
             seller_card_url=seller_card_url,
@@ -336,8 +336,8 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             seller_request=seller_request,
             seller_id=seller_id,
             seller_task_id=seller_task_id,
-            seller_context_id=seller_context_id or thread_id,
-            buyer_context_id=thread_id,
+            seller_context_id=seller_context_id or buyer_task_id,
+            buyer_context_id=buyer_task_id,
             settlement_secret_ref=settlement_secret_ref,
             buyer_internal_url=settings.buyer_internal_url,
             buyer_internal_token=settings.buyer_internal_token,

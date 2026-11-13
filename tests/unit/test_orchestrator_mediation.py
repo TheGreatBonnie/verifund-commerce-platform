@@ -117,9 +117,37 @@ async def test_orchestrator_tool_binds_configured_buyer_url(monkeypatch):
     )
     assert observed["buyer_a2a_url"] == "http://buyer-configured"
     assert observed["seller_id"] == "aurora-supply"
-    assert observed["buyer_context_id"] == "thread-1"
-    assert observed["seller_context_id"] == "thread-1"
     assert observed["control_plane_url"] == Settings().verifund_control_plane_url
+
+
+@pytest.mark.asyncio
+async def test_the_mediation_tool_resumes_the_buyer_on_the_buyer_thread(monkeypatch):
+    """The resume has to land on the thread the buyer's checkpoint is on.
+
+    The buyer reports that thread as its ``task_id``. The orchestrator's own
+    session is a different thread, and resuming there finds no buyer state,
+    so the buyer starts a fresh run instead of continuing the negotiation.
+    """
+    from orchestrator_agent import agent
+    from orchestrator_agent.settings import Settings
+
+    observed = {}
+
+    async def fake_mediate(**kwargs):
+        observed.update(kwargs)
+        return {"resumed": True}
+
+    monkeypatch.setattr(agent, "_mediate_seller_call", fake_mediate)
+    tool = agent._build_mediation_tool(Settings())
+    await tool.func(
+        buyer_task_id="buyer-context-1",
+        seller_card_url="http://seller/.well-known/agent-card.json",
+        seller_id="aurora-supply",
+        tool_context=SimpleNamespace(session=SimpleNamespace(id="orchestrator-thread-9")),
+    )
+
+    assert observed["buyer_context_id"] == "buyer-context-1"
+    assert observed["seller_context_id"] == "buyer-context-1"
 
 
 @pytest.mark.asyncio
