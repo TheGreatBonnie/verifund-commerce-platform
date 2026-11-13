@@ -10,6 +10,7 @@ import {
   bilateralReviewStatus,
   fundingApprovalArgsSchema,
   fundingDecision,
+  releaseApprovalArgsSchema,
   releaseDecision,
   releaseGate,
   verifundStatusLabel,
@@ -132,6 +133,23 @@ describe("verifund chat tools", () => {
     expect(bilateralReviewStatus(tampered)).toBe("mismatch");
   });
 
+  it("accepts funding approval args without an embedded agreement", () => {
+    // The award/agreement payload now arrives via CopilotKit shared state, so
+    // HITL tool args carry binding + review decisions without the payload.
+    const parsed = fundingApprovalArgsSchema.parse({
+      run_id: "run-1",
+      transaction_id: "vf_1",
+      agreement_version: 1,
+      agreement_hash: HASH,
+      buyer_review: accepted,
+      seller_decision: accepted,
+      message: "Approve funding for this agreement.",
+    });
+    expect(parsed.run_id).toBe("run-1");
+    expect(parsed.transaction_id).toBe("vf_1");
+    expect(parsed.buyer_review).toEqual(accepted);
+  });
+
   it("accepts persisted funding payloads without line-item attributes", () => {
     const args = fundingArgs();
     const legacyLine = {
@@ -142,7 +160,21 @@ describe("verifund chat tools", () => {
       ...args,
       agreement: { ...args.agreement, line_items: [legacyLine] },
     });
-    expect(parsed.agreement.line_items[0].attributes).toEqual({});
+    expect(parsed.agreement?.line_items[0].attributes).toEqual({});
+  });
+
+  it("accepts release approval args without a projection payload", () => {
+    // The transaction projection now arrives via CopilotKit shared state, so
+    // release HITL args only need binding + decision inputs.
+    const parsed = releaseApprovalArgsSchema.parse({
+      run_id: "run-1",
+      transaction_id: "vf_1",
+      agreement_version: 1,
+      agreement_hash: HASH,
+      message: "Release this transaction.",
+    });
+    expect(parsed.run_id).toBe("run-1");
+    expect(parsed.transaction_id).toBe("vf_1");
   });
 
   it("labels every lifecycle checkpoint and terminal outcome", () => {

@@ -72,7 +72,9 @@ export const fundingApprovalArgsSchema = z.object({
   transaction_id: z.string().min(1),
   agreement_version: z.number().int().positive(),
   agreement_hash: z.string().regex(/^[0-9a-f]{64}$/),
-  agreement: agreementSchema,
+  // The award/agreement payload now arrives via CopilotKit shared state, so
+  // HITL args carry binding + review decisions without the payload itself.
+  agreement: agreementSchema.optional(),
   buyer_review: reviewDecisionSchema.nullable(),
   seller_decision: reviewDecisionSchema.nullable(),
   message: z.string().default("Approve funding for this agreement."),
@@ -83,7 +85,8 @@ export const releaseApprovalArgsSchema = z.object({
   transaction_id: z.string().min(1),
   agreement_version: z.number().int().positive(),
   agreement_hash: z.string().regex(/^[0-9a-f]{64}$/),
-  projection: z.record(z.unknown()).nullable(),
+  // The transaction projection now arrives via CopilotKit shared state.
+  projection: z.record(z.unknown()).nullable().optional(),
   message: z.string().default("Release this transaction."),
 });
 
@@ -92,14 +95,15 @@ export const paypalCheckoutArgsSchema = z.object({
   amount_cents: z.number().int().positive(),
   currency: z.string().min(1),
   expires_at: z.string().optional(),
-  agreement: z.record(z.unknown()),
+  agreement: z.record(z.unknown()).optional(),
   message: z
     .string()
     .default("Complete the PayPal checkout to fund this transaction."),
 });
 
 export const agreementApprovalArgsSchema = z.object({
-  agreement: z.record(z.unknown()),
+  // The award/agreement payload now arrives via CopilotKit shared state.
+  agreement: z.record(z.unknown()).optional(),
   agreement_id: z.string().min(1).optional(),
   review_url: z.string().optional(),
   version: z.number().int().positive().optional(),
@@ -282,8 +286,8 @@ export function bilateralReviewStatus(
   // LLM relay can drop the nested copy (same class as the earlier
   // agreement_id drop), so the top level is authoritative when present.
   const expectedVersion =
-    args.agreement_version ?? agreement.agreement_version;
-  const expectedHash = args.agreement_hash ?? agreement.agreement_hash;
+    args.agreement_version ?? agreement?.agreement_version;
+  const expectedHash = args.agreement_hash ?? agreement?.agreement_hash;
   const bound = (review: ReviewDecision) =>
     review.agreement_version === expectedVersion &&
     review.agreement_hash === expectedHash;
@@ -300,13 +304,14 @@ export function fundingDecision(
     decidedAt?: string;
   },
 ): FundingDecision {
+  const agreement = args.agreement;
   if (
-    args.agreement.run_id !== args.run_id ||
-    args.agreement.transaction_id !== args.transaction_id ||
-    (args.agreement.agreement_version != null &&
-      args.agreement.agreement_version !== args.agreement_version) ||
-    (args.agreement.agreement_hash != null &&
-      args.agreement.agreement_hash !== args.agreement_hash)
+    (agreement?.run_id && agreement.run_id !== args.run_id) ||
+    (agreement?.transaction_id && agreement.transaction_id !== args.transaction_id) ||
+    (agreement?.agreement_version != null &&
+      agreement.agreement_version !== args.agreement_version) ||
+    (agreement?.agreement_hash != null &&
+      agreement.agreement_hash !== args.agreement_hash)
   ) {
     throw new Error("The agreement is bound to another run or version.");
   }
@@ -619,8 +624,8 @@ export function FundingApprovalCard({
   const displayAgreement = {
     ...args.agreement,
     agreement_version:
-      args.agreement_version ?? args.agreement.agreement_version,
-    agreement_hash: args.agreement_hash ?? args.agreement.agreement_hash,
+      args.agreement_version ?? args.agreement?.agreement_version,
+    agreement_hash: args.agreement_hash ?? args.agreement?.agreement_hash,
   } as VerifundAgreement;
   return (
     <section
