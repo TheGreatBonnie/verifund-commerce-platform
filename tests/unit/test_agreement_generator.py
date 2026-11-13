@@ -1,7 +1,5 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 from verifund_contracts.models import (
     AwardLineItem,
     AwardRequest,
@@ -17,50 +15,6 @@ from verifund_control_plane.agreements.generator import (
 from verifund_control_plane.agreements.models import AgreementError
 
 
-def _requirements():
-    from verifund_contracts import Requirement, RequirementCheck
-
-    return [
-        Requirement(
-            requirement_id="hardware",
-            title="Hardware diagnostic report",
-            description="Diagnostic report showing at least 32 GB of RAM.",
-            owner="seller",
-            kind="other",
-            source="file",
-            accepted_formats=["text/csv"],
-            checks=[
-                RequirementCheck(
-                    check_id="ram_gte_32gb",
-                    description="At least 32 GB of RAM.",
-                    expected_value=32,
-                    operator="gte",
-                    unit="GB",
-                    verification_method="deterministic",
-                ),
-            ],
-            required=True,
-        ),
-        Requirement(
-            requirement_id="delivery_confirmation",
-            title="Delivery confirmation",
-            description="System-generated from carrier record and buyer confirmation.",
-            owner="system",
-            kind="delivery_confirmation",
-            source="reference",
-            checks=[
-                RequirementCheck(
-                    check_id="carrier_and_buyer_agree",
-                    description="Carrier record and buyer confirmation agree on delivery.",
-                    operator="exists",
-                    verification_method="deterministic",
-                ),
-            ],
-            required=True,
-        ),
-    ]
-
-
 def _award():
     return AwardRequest(
         run_id="run-1", buyer_id="buyer-1", seller_id="seller-1",
@@ -74,7 +28,6 @@ def _award():
         delivery_days=5, warranty_months=12, returns_days=30,
         offer_round=2, offer_hash="a" * 64,
         offer_valid_until=datetime.now(UTC) + timedelta(hours=1),
-        requirements=_requirements(),
         remedies=RemedyTerms(
             non_delivery=RemedyPolicy.CANCEL_AND_REFUND,
             late_delivery=RemedyPolicy.CANCEL_AND_REFUND,
@@ -170,11 +123,11 @@ def test_generator_copies_requirements():
     validate_terms(terms, award)
 
 
-def test_generator_rejects_an_award_without_a_requirement_catalog():
-    award = _award().model_copy(update={"requirements": []})
-    with pytest.raises(AgreementError) as excinfo:
-        build_terms(award, datetime.now(UTC))
-    assert excinfo.value.code == "invalid_requirements"
+def test_generator_requirements_empty_for_grandfathered_callers():
+    terms = build_terms(_award(), datetime.now(UTC))
+    assert terms["requirements"] == []
+    # Deprecated mirror stays for legacy callers.
+    assert "delivery_confirmation" in terms["evidence_required"]
 
 
 def test_generator_rejects_floor_violating_catalog():
