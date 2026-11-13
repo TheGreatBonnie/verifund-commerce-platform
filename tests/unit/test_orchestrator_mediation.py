@@ -120,3 +120,39 @@ async def test_orchestrator_tool_binds_configured_buyer_url(monkeypatch):
     assert observed["buyer_context_id"] == "thread-1"
     assert observed["seller_context_id"] == "thread-1"
     assert observed["control_plane_url"] == Settings().verifund_control_plane_url
+
+
+@pytest.mark.asyncio
+async def test_the_mediation_tool_reaches_the_mediator(monkeypatch):
+    """The tool's call site has to match the mediator's signature.
+
+    The orchestrator passes the hosts the mediator may fetch agent cards
+    from. If the mediator does not declare them the call raises TypeError
+    before the mediator starts, the tool dies with BACKGROUND_EXECUTION_ERROR
+    and the negotiation never happens. Patching the mediator out hides this,
+    so this test runs the real one.
+    """
+    from orchestrator_agent import agent, mediation
+    from orchestrator_agent.settings import Settings
+
+    sent = []
+
+    async def fake_send(base_url, message, token=None):
+        sent.append(base_url)
+        return []
+
+    async def fake_caller_token(*args, **kwargs):
+        return "vf_agent_test"
+
+    monkeypatch.setattr(mediation, "_a2a_send", fake_send)
+    monkeypatch.setattr(mediation, "_resolve_caller_token", fake_caller_token)
+
+    tool = agent._build_mediation_tool(Settings())
+    result = await tool.func(
+        buyer_task_id="buyer-run",
+        seller_card_url="http://seller/.well-known/agent-card.json",
+        seller_id="aurora-supply",
+    )
+
+    assert "error" not in result
+    assert sent, "the mediator never ran"

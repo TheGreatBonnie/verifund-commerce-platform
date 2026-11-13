@@ -343,7 +343,6 @@ def _build_mediation_tool(settings: Settings) -> FunctionTool:
             buyer_internal_token=settings.buyer_internal_token,
             buyer_internal_timeout_seconds=settings.buyer_internal_timeout_seconds,
             control_plane_url=settings.verifund_control_plane_url,
-            allowed_card_hosts=settings.allowed_card_hosts,
         )
         if seller_name and isinstance(result, dict):
             result.setdefault("seller_name", seller_name)
