@@ -539,7 +539,6 @@ export function Chat({
     name: "verifund_create_agreement",
     parameters: z.object({
       run_id: z.string().optional(),
-      award: z.record(z.unknown()).optional(),
     }),
     render: ({ parameters, status, result }) => {
       const parsed = parseVerifundToolResult(result);
