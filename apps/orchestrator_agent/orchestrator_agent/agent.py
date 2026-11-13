@@ -209,12 +209,10 @@ protocol instead of the legacy order flow.
 
 - Call verifund_create_agreement only after the Buyer pauses
   with agreement_create_required. Pass the exact run_id, the
-  original Buyer task and context, the seller card URL, and
-  the seller ID. Never pass the award: the Verifund agent
-  fetches it from the Buyer, so no model-authored copy of the
-  award can reach the canonical agreement. The tool mediates
-  the Buyer agreement review, the Seller agreement review, and
-  the Buyer's recorded Seller decision. Never call the Seller
+  original Buyer task and context, the flat award, the seller
+  card URL, and the seller ID. The tool mediates the Buyer
+  agreement review, the Seller agreement review, and the
+  Buyer's recorded Seller decision. Never call the Seller
   directly and never invent a review.
 - After verifund_create_agreement, inspect status and
   checkpoint before doing anything else.
@@ -515,17 +513,19 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         run_id: str,
         buyer_task_id: str,
         buyer_context_id: str,
+        award: dict,
         seller_card_url: str,
         seller_id: str,
     ) -> dict:
         """Start the Verifund lifecycle and complete the bilateral review."""
         return await lifecycle.start(
             run_id=run_id,
+            award=award,
             buyer_task_id=buyer_task_id,
             buyer_context_id=buyer_context_id,
             seller_card_url=seller_card_url,
             seller_id=seller_id,
-            idempotency_key=f"agreement:{run_id}",
+            idempotency_key=f"agreement:{run_id}:{award.get('offer_id')}",
         )
 
     async def verifund_status(
