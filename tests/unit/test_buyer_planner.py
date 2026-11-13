@@ -1,6 +1,26 @@
 from buyer_agent.planner import mandate_from_text
 
 
+def test_buyer_prompt_tells_the_model_the_only_changes_it_may_request():
+    """The counter allowlist has to be in the prompt, or the model invents keys.
+
+    A model that asks for one unsupported change loses the whole counter:
+    the response is rejected and the buyer falls back to a scripted decision.
+    """
+    from buyer_agent.planner import BUYER_SYSTEM_PROMPT
+
+    prompt = BUYER_SYSTEM_PROMPT
+    assert "only changes" in prompt.lower()
+    for key in (
+        "warranty_months",
+        "split_shipment",
+        "shipping_cents",
+        "delivery_days",
+    ):
+        assert key in prompt
+    assert "target_unit_price_cents" in prompt
+
+
 def test_marketplace_sku_trailing_sentence_period_is_not_part_of_sku():
     mandate = mandate_from_text(
         "Find and negotiate the best terms for Smartwatch Series 10. "
