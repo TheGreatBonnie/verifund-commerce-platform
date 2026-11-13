@@ -10,6 +10,7 @@ const hooks = vi.hoisted(() => ({
   runAgent: vi.fn(),
   fetchRegistry: vi.fn(),
   useUser: vi.fn(),
+  agentState: { award: null as Record<string, unknown> | null },
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -23,7 +24,7 @@ vi.mock("@clerk/nextjs", () => ({
 vi.mock("@copilotkit/react-core/v2", () => ({
   CopilotChat: vi.fn(() => <div data-testid="copilot-chat" />),
   useAgent: () => ({
-    agent: { messages: [], addMessage: hooks.addMessage },
+    agent: { messages: [], addMessage: hooks.addMessage, state: hooks.agentState },
     isReady: true,
   }),
   useCopilotKit: () => ({ copilotkit: { runAgent: hooks.runAgent } }),
@@ -82,6 +83,27 @@ describe("chat verifund tools", () => {
       ([tool]) => tool.name,
     );
     expect(renderNames).not.toContain("show_agreement_review");
+  });
+
+  it("renders the agreement approval HITL from CopilotKit shared state", () => {
+    hooks.agentState.award = { amount_cents: 123400, currency: "USD" };
+    renderChat();
+
+    const call = hooks.useHumanInTheLoop.mock.calls.find(
+      ([tool]) => tool.name === "request_verifund_agreement_approval",
+    );
+    render(
+      call![0].render({
+        args: { task_id: "vf-task-1", message: "Create the canonical agreement." },
+        status: "executing",
+        respond: vi.fn(),
+      }),
+    );
+
+    // The HITL card renders the award published to CopilotKit shared state.
+    expect(screen.getByTestId("agreement-approval-hitl")).toBeInTheDocument();
+    expect(screen.getAllByText("$1,234.00").length).toBeGreaterThan(0);
+    hooks.agentState.award = null;
   });
 });
 

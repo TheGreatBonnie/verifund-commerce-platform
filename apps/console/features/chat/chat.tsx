@@ -387,10 +387,22 @@ export function Chat({
           );
         }
         if (status === "executing" && respond) {
+          // The award now travels through CopilotKit shared state (agent → UI).
+          // Fall back to tool args only when shared state has not published it.
+          const sharedAward = (
+            (agent.state as Record<string, any> | undefined)?.award as
+              | Record<string, any>
+              | undefined
+          );
           return (
             <div className="mm-chat-approval">
               <AgreementApprovalHitlCard
-                args={args as any}
+                args={
+                  {
+                    ...args,
+                    agreement: sharedAward ?? (args as any).agreement,
+                  } as any
+                }
                 respond={respond}
                 onVerifundAction={onVerifundAction}
               />
