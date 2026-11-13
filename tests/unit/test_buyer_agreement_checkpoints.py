@@ -161,6 +161,29 @@ def state(**overrides) -> dict:
     }
 
 
+def test_agreement_mismatch_reason_binds_the_obligation_catalog() -> None:
+    agreement_with_catalog = agreement(
+        terms={
+            **agreement().terms,
+            "requirements": [{"requirement_id": "hardware"}, {"requirement_id": "delivery"}],
+        }
+    )
+    assert (
+        agreement_mismatch_reason(
+            agreement_with_catalog,
+            state(requirement_ids=["hardware", "delivery"]),
+        )
+        is None
+    )
+    gutted = agreement(
+        terms={**agreement().terms, "requirements": []}
+    )
+    assert (
+        agreement_mismatch_reason(gutted, state(requirement_ids=["hardware", "delivery"]))
+        == "requirements_mismatch"
+    )
+
+
 def test_agreement_mismatch_reason_binds_terms_to_the_award() -> None:
     assert agreement_mismatch_reason(agreement(), state()) is None
     assert (
@@ -324,8 +347,12 @@ async def test_create_settlement_award_waits_for_the_canonical_agreement(
 
     def fake_interrupt(value: Any) -> dict:
         captured.update(value if isinstance(value, dict) else {})
+        award_payload = value["award"] if isinstance(value, dict) else {}
+        requirements = award_payload.get("requirements") or []
         return {
-            "agreement": agreement().model_dump(mode="json"),
+            "agreement": agreement(
+                terms={**agreement().terms, "requirements": requirements}
+            ).model_dump(mode="json"),
             "seller_token_ref": "run:run-1:transaction:vf_1",
         }
 
