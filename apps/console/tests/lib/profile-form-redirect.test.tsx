@@ -8,9 +8,9 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh }),
 }));
 
-const saveProfileAction = vi.fn(async (..._args: unknown[]) => ({ ok: true, data: {} }));
+const saveProfileAction = vi.fn(async (..._args: any[]) => ({ ok: true, data: {} }));
 vi.mock("@/app/(seller-onboarding)/seller/onboarding/actions", () => ({
-  saveProfileAction: (...args: unknown[]) => saveProfileAction(...args),
+  saveProfileAction: (...args: any[]) => saveProfileAction(...args),
 }));
 
 import { ProfileForm } from "@/components/seller-agent/ProfileForm";
