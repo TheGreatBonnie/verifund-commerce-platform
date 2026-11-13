@@ -117,6 +117,50 @@ def _catalog_item(policy: SellerPolicy) -> dict:
     }
 
 
+
+
+def _filter_counter_changes(
+    changes: dict[str, object], allowed_warranties: list[int]
+) -> tuple[dict[str, object], list[str]]:
+    """Drop changes the seller cannot grant instead of rejecting the counter.
+
+    A seller can grant a warranty month from its policy and it can commit to a
+    split shipment. It cannot grant a different delivery SLA or a shipping
+    price, and a warranty month it does not offer is ignored. Dropping the
+    ungrantable parts lets the seller answer the counter on the terms it can
+    actually move.
+    """
+    grantable = {"warranty_months", "split_shipment"}
+    kept: dict[str, object] = {}
+    dropped: list[str] = []
+    for key, value in changes.items():
+        if key not in grantable:
+            dropped.append(key)
+            continue
+        if key == "warranty_months":
+            try:
+                warranty = int(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                dropped.append(key)
+                continue
+            if warranty not in allowed_warranties:
+                dropped.append(key)
+                continue
+            kept[key] = warranty
+            continue
+        if key == "split_shipment":
+            if isinstance(value, bool):
+                kept[key] = value
+            elif str(value).lower() in {"true", "1", "yes"}:
+                kept[key] = True
+            elif str(value).lower() in {"false", "0", "no"}:
+                kept[key] = False
+            else:
+                dropped.append(key)
+            continue
+    return kept, dropped
+
+
 def _parse_requested_warranty(
     changes: dict[str, str | int | bool], allowed: list[int]
 ) -> int | None:
@@ -170,20 +214,14 @@ async def prepare(state: SellerState, config: RunnableConfig) -> dict:
                 previous.line_items[0].sku if previous.line_items else None
             )
             allowed_warranties = sorted(policy.warranty_addons_cents)
-            requested_warranty = _parse_requested_warranty(
+            filtered_changes, _dropped = _filter_counter_changes(
                 counter.requested_changes, allowed_warranties
             )
-            unsupported = set(counter.requested_changes) - {
-                "warranty_months",
-                "split_shipment",
-            }
-            if unsupported:
-                raise CommerceProtocolError(
-                    f"unsupported requested changes: {sorted(unsupported)}"
-                )
-            allow_split = bool(
-                counter.requested_changes.get("split_shipment", False)
+            requested_warranty = _parse_requested_warranty(
+                filtered_changes, allowed_warranties
             )
+            allow_split = bool(filtered_changes.get("split_shipment", False))
+            counter = counter.model_copy(update={"requested_changes": filtered_changes})
             previous_base = previous.line_items[0].unit_price_cents
             return {
                 "counter": counter,

@@ -788,6 +788,38 @@ def mandate_qty(state):
     return Mandate.model_validate(state["mandate"]).quantity
 
 
+def mandate_checks_for(mandate: Mandate, offer: Offer) -> list[str]:
+    """The mandate checks a human can read and act on."""
+    return [
+        f"Price ${offer.total_cents / 100:,.2f} ≤ ${mandate.max_total_cents / 100:,.2f} budget",
+        f"Delivery {offer.delivery_days}d ≤ {mandate.deadline_days}d",
+        f"Warranty {offer.warranty_months} mo ≥ {mandate.min_warranty_months} mo",
+        f"Returns {offer.returns_days}d ≥ {mandate.min_returns_days}d",
+    ]
+
+
+def winner_savings_cents(
+    seller_id: str, negotiations: list[dict[str, Any]], final_offer: Offer
+) -> int:
+    """How far the winner moved from its own opening quote.
+
+    Summing competitors' quotes is not money the buyer saved; it is money the
+    buyer was never going to pay. Savings are the winner's own negotiated
+    reduction, floored at zero when the negotiation never moved the price.
+    """
+    opening_total: int | None = None
+    for negotiation in negotiations:
+        if negotiation.get("seller_id") != seller_id:
+            continue
+        rounds = negotiation.get("rounds") or []
+        if rounds:
+            opening_total = Offer.model_validate(rounds[0]).total_cents
+        break
+    if opening_total is None:
+        return 0
+    return max(0, opening_total - final_offer.total_cents)
+
+
 async def rank_offers(state: BuyerState, config: dict) -> dict:
     services = _services(config)
     run_id = state["run_id"]
@@ -818,21 +850,15 @@ async def rank_offers(state: BuyerState, config: dict) -> dict:
             ],
         }
     winner: ScoredOffer = ranked[0]
-    initial_totals = []
-    for negotiation in state.get("negotiations", []):
-        rounds = negotiation.get("rounds", [])
-        if rounds:
-            initial_totals.append(Offer.model_validate(rounds[0]).total_cents)
-    savings = sum(initial_totals) - winner.offer.total_cents
+    negotiations = state.get("negotiations", [])
+    savings = winner_savings_cents(winner.offer.seller_id, negotiations, winner.offer)
     award = AwardPackage(
         winner=winner.offer,
         score=winner.score,
         alternatives=[item.offer for item in ranked[1:]],
         scores={item.offer.seller_id: item.score for item in ranked},
         savings_cents=savings,
-        mandate_checks=[
-            f"{item.offer.seller_id}: eligible" for item in ranked
-        ],
+        mandate_checks=mandate_checks_for(mandate, winner.offer),
     )
     fallback_used = False
     explanation = ""
@@ -847,11 +873,15 @@ async def rank_offers(state: BuyerState, config: dict) -> dict:
     if not explanation:
         fallback_used = True
         best = winner.offer.total_cents
+        savings_note = (
+            f", saving ${savings / 100:,.2f} versus its opening quote"
+            if savings > 0
+            else ""
+        )
         explanation = (
             f"{winner.offer.seller_name} wins the award at ${best / 100:,.2f} "
-            f"with a score of {winner.score:.1f}. The offer satisfies every "
-            f"mandate constraint and saves ${savings / 100:,.2f} versus the "
-            f"initial quotes."
+            f"with a score of {winner.score:.1f}. The offer satisfies the "
+            f"mandate's budget, delivery, warranty, and returns checks{savings_note}."
         )
     trace = [
         await _record_decision(

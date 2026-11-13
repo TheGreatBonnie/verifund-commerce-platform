@@ -37,7 +37,20 @@ def wrap_payload(kind: str, payload: BaseModel) -> dict[str, Any]:
 
 
 def unwrap_payload(kind: str, envelope: dict[str, Any]) -> dict[str, Any]:
-    parsed = CommerceEnvelope.model_validate(envelope)
+    candidate = envelope
+    if isinstance(envelope, dict) and "payload" not in envelope and "schema" in envelope:
+        # A caller may hoist the payload fields next to the envelope keys.
+        # Re-wrap so the envelope validates and the payload is read from one place.
+        candidate = {
+            "schema": envelope.get("schema"),
+            "schema_version": envelope.get("schema_version", "1.0"),
+            "payload": {
+                k: v
+                for k, v in envelope.items()
+                if k not in {"schema", "schema_version"}
+            },
+        }
+    parsed = CommerceEnvelope.model_validate(candidate)
     if parsed.schema_uri != expected_schema(kind):
         raise ValueError(f"unexpected schema for {kind}: {parsed.schema_uri}")
     if parsed.schema_version != "1.0":

@@ -13,6 +13,8 @@ from a2a.types.a2a_pb2 import (
 )
 from commerce_core.a2a_parts import make_message, part_value
 from commerce_core.cards import DEFAULT_CARD_HOSTS, fetch_agent_card
+from commerce_core.contracts import RFQ, AcceptOffer, CounterOffer, PurchaseOrderRequest
+from commerce_core.extension import SCHEMA_FILES, expected_schema
 
 # Hosts whose agent cards this process may fetch. The local stack answers on
 # loopback hostnames; a deployed gateway publishes its cards on its public
@@ -173,6 +175,105 @@ async def _resolve_settlement_token(
     return token
 
 
+
+_KIND_BY_SCHEMA = {expected_schema(kind): kind for kind in SCHEMA_FILES}
+_PAYLOAD_MODELS = {
+    "rfq": RFQ,
+    "counter_offer": CounterOffer,
+    "accept_offer": AcceptOffer,
+    "purchase_order": PurchaseOrderRequest,
+}
+
+
+def _coerce_scalar(value: Any) -> Any:
+    """Coerce a string scalar the LLM flattened (types travel as strings)."""
+    if not isinstance(value, str):
+        return value
+    low = value.lower()
+    if low == "true":
+        return True
+    if low == "false":
+        return False
+    if value == "":
+        return value
+    if value.lstrip("-").isdigit():
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _coerce_payload(kind: str, payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    coerced: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key == "requested_changes":
+            if value == "" or value is None:
+                coerced[key] = {}
+                continue
+            if isinstance(value, dict):
+                coerced[key] = {k: _coerce_scalar(v) for k, v in value.items()}
+                continue
+        if key == "constraints" and isinstance(value, dict):
+            coerced[key] = {k: _coerce_scalar(v) for k, v in value.items()}
+            continue
+        if key == "preferences" and isinstance(value, dict):
+            coerced[key] = {k: _coerce_scalar(v) for k, v in value.items()}
+            continue
+        coerced[key] = _coerce_scalar(value)
+    return coerced
+
+
+def normalize_seller_request(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Repair an envelope the orchestrator LLM mangled before it reaches a seller.
+
+    A model that copies a nested envelope into a tool argument may hoist the
+    payload's fields to the top level and stringify scalars. The seller
+    validates strictly, so the request is normalised and validated here; an
+    envelope that still cannot be made valid is rejected rather than sent.
+    """
+    if not envelope:
+        return {}
+    env = deepcopy(envelope)
+    schema = env.get("schema")
+    kind = _KIND_BY_SCHEMA.get(schema)
+    if kind is None:
+        # Not a commerce envelope we recognise; pass it through unchanged.
+        return env
+
+    payload = env.get("payload")
+    hoisted = not isinstance(payload, dict)
+    if hoisted:
+        # Hoisted shape: payload fields sit at the top level next to schema.
+        payload = {
+            k: v
+            for k, v in env.items()
+            if k not in {"schema", "schema_version"}
+        }
+        env = {
+            "schema": schema,
+            "schema_version": env.get("schema_version", "1.0"),
+            "payload": payload,
+        }
+
+    coerced = _coerce_payload(kind, env["payload"])
+    needs_repair = hoisted or coerced != env["payload"]
+    env["payload"] = coerced
+    model = _PAYLOAD_MODELS.get(kind)
+    if model is not None:
+        if needs_repair:
+            # Validate and round-trip so the seller receives the canonical shape.
+            parsed = model.model_validate(env["payload"])
+            env["payload"] = parsed.model_dump(mode="json")
+        else:
+            # A well-formed envelope is left untouched; validate it so a broken
+            # one still fails loudly rather than reaching the seller.
+            model.model_validate(env["payload"])
+    return env
+
+
 async def mediate_seller_call(
     buyer_task_id: str,
     seller_card_url: str,
@@ -191,7 +292,7 @@ async def mediate_seller_call(
 ) -> dict[str, Any]:
     """Mediate a single buyer seller-call pause through the orchestrator."""
     try:
-        request_envelope = seller_request or {}
+        request_envelope = normalize_seller_request(seller_request or {})
         resolved_token: str | None = None
         if settlement_secret_ref:
             if not buyer_internal_url or not buyer_internal_token:

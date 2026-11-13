@@ -3,12 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+# Every change the counter schema can name.
 ALLOWED_REQUESTED_CHANGE_KEYS = {
     "warranty_months",
     "split_shipment",
     "shipping_cents",
     "delivery_days",
 }
+
+# The changes a seller can actually grant with its current policy. Shipping and
+# delivery are not negotiable in the seller's offer, so asking for them can
+# never be satisfied — and a counter that carries them must not be rejected for
+# that alone.
+SELLER_COUNTER_CHANGE_KEYS = {"warranty_months", "split_shipment"}
 
 ALLOWED_STRATEGIES = {"collaborative", "competitive", "compromise", "value-based"}
 

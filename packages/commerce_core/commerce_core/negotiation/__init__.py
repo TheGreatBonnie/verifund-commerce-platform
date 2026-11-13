@@ -3,6 +3,7 @@
 from commerce_core.negotiation.artifacts import build_negotiation_history_artifact
 from commerce_core.negotiation.concessions import (
     ALLOWED_REQUESTED_CHANGE_KEYS,
+    SELLER_COUNTER_CHANGE_KEYS,
     AllowedBuyerCounter,
     RejectResult,
     constrain_buyer_counter,
@@ -25,6 +26,7 @@ from commerce_core.negotiation.trust import TrustReject, verify_offer_binding
 __all__ = [
     "ALLOWED_REQUESTED_CHANGE_KEYS",
     "PAYLOAD_NAMES",
+    "SELLER_COUNTER_CHANGE_KEYS",
     "AllowedBuyerCounter",
     "DeadlockDecision",
     "RejectResult",

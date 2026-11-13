@@ -32,15 +32,25 @@ def hard_constraint_failures(mandate: Mandate, offer: Offer) -> list[str]:
     return failures
 
 
-def score_offer(mandate: Mandate, offer: Offer) -> float:
-    target_total = int(mandate.max_total_cents * 0.9)
-    headroom = mandate.max_total_cents - offer.total_cents
+def score_offer(
+    mandate: Mandate,
+    offer: Offer,
+    *,
+    price_floor_total_cents: int | None = None,
+) -> float:
+    # Price is scored against the spread from the cheapest eligible offer to
+    # the buyer's ceiling, so it discriminates among qualified offers instead
+    # of saturating for everything under budget. The cheapest eligible offer
+    # takes full marks; an offer at the ceiling takes none.
+    floor = (
+        offer.total_cents
+        if price_floor_total_cents is None
+        else price_floor_total_cents
+    )
+    span = max(1, mandate.max_total_cents - floor)
     price = max(
         0.0,
-        min(
-            100.0,
-            headroom / max(1, mandate.max_total_cents - target_total) * 100,
-        ),
+        min(100.0, (mandate.max_total_cents - offer.total_cents) / span * 100.0),
     )
     delivery = max(
         0.0,
@@ -79,10 +89,20 @@ class ScoredOffer:
 
 
 def rank_offers(mandate: Mandate, offers: list[Offer]) -> list[ScoredOffer]:
+    eligible = [
+        offer for offer in offers if not hard_constraint_failures(mandate, offer)
+    ]
+    if not eligible:
+        return []
+    floor = min(offer.total_cents for offer in eligible)
     scored = [
-        ScoredOffer(offer=offer, score=score_offer(mandate, offer))
-        for offer in offers
-        if not hard_constraint_failures(mandate, offer)
+        ScoredOffer(
+            offer=offer,
+            score=score_offer(
+                mandate, offer, price_floor_total_cents=floor
+            ),
+        )
+        for offer in eligible
     ]
     return sorted(
         scored,
