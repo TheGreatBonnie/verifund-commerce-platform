@@ -133,7 +133,7 @@ class BuyerAgreementService:
                 "award does not belong to this run", status_code=403
             )
         response = await self.client.award(
-            award, idempotency_key=f"award:{run_id}:{award.offer_id}"
+            award, idempotency_key=request.idempotency_key
         )
         agreement = AgreementProjection.model_validate(response["agreement"])
         if agreement.run_id != run_id or agreement.transaction_id != response["transaction_id"]:

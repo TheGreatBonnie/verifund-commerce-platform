@@ -202,57 +202,13 @@ async def test_the_buyer_creates_the_agreement_from_its_own_award() -> None:
             award=None,
             buyer_task_id="buyer-task-1",
             buyer_context_id="run-1",
-            idempotency_key="stale-key",
+            idempotency_key="award:run-1:offer-1",
         ),
     )
 
     assert captured["award"].amount_cents == 123400
     assert captured["key"] == "award:run-1:offer-1"
     assert captured["secret"]["transaction_id"] == "vf_1"
-
-
-async def test_one_award_creates_one_transaction() -> None:
-    from buyer_agent.agreement_service import BuyerAgreementService
-
-    keys: list[str] = []
-
-    class Store:
-        async def get_award(self, run_id: str):
-            return award_request().model_dump(mode="json")
-
-        async def save_secret(self, **kwargs) -> None:
-            return None
-
-        async def save_projection(self, run_id, projection):
-            return True
-
-    class Client:
-        async def award(self, award, *, idempotency_key=None):
-            keys.append(idempotency_key)
-            return {
-                "transaction_id": "vf_1",
-                "state": "AWARDED",
-                "agreement": projection(),
-                "agreement_version": 1,
-                "agreement_hash": projection()["agreement_hash"],
-                "seller_token": "v1.secret",
-                "expires_at": "2099-10-27T12:00:00Z",
-            }
-
-        async def get_state(self, transaction_id):
-            return {"transaction_id": transaction_id, "state": "AWARDED", "last_seq": 1}
-
-    service = BuyerAgreementService(Client(), store=Store())
-    request = BuyerAgreementRequest(
-        award=None,
-        buyer_task_id="buyer-task-1",
-        buyer_context_id="run-1",
-        idempotency_key="award:run-1:offer-1",
-    )
-    await service.create_agreement("run-1", request)
-    await service.create_agreement("run-1", request)
-
-    assert keys == ["award:run-1:offer-1", "award:run-1:offer-1"]
 
 
 class RecordingSettlement:

@@ -33,9 +33,6 @@ from verifund_contracts import (
     wrap_verifund_task_request,
 )
 
-AGREEMENT_START_TIMEOUT_SECONDS = 180
-
-
 from orchestrator_agent.mediation import (
     _a2a_send,
     _buyer_response,
@@ -580,34 +577,6 @@ class VerifundLifecycle:
         self.funding_poll_max_attempts = funding_poll_max_attempts
 
     async def start(
-        self,
-        *,
-        run_id: str,
-        buyer_task_id: str,
-        buyer_context_id: str,
-        seller_card_url: str,
-        seller_id: str,
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        try:
-            return await asyncio.wait_for(
-                self._start(
-                    run_id=run_id,
-                    buyer_task_id=buyer_task_id,
-                    buyer_context_id=buyer_context_id,
-                    seller_card_url=seller_card_url,
-                    seller_id=seller_id,
-                    idempotency_key=idempotency_key,
-                ),
-                timeout=AGREEMENT_START_TIMEOUT_SECONDS,
-            )
-        except TimeoutError as exc:
-            raise VerifundProtocolError(
-                "the agreement lifecycle did not finish within "
-                f"{AGREEMENT_START_TIMEOUT_SECONDS} seconds"
-            ) from exc
-
-    async def _start(
         self,
         *,
         run_id: str,
