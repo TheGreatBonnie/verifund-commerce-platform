@@ -33,6 +33,9 @@ from verifund_contracts import (
     wrap_verifund_task_request,
 )
 
+AGREEMENT_START_TIMEOUT_SECONDS = 180
+
+
 from orchestrator_agent.mediation import (
     _a2a_send,
     _buyer_response,
@@ -197,7 +200,6 @@ class VerifundA2AClient:
         self,
         *,
         run_id: str,
-        award: dict[str, Any],
         buyer_task_id: str,
         buyer_context_id: str,
         idempotency_key: str,
@@ -206,7 +208,6 @@ class VerifundA2AClient:
             skill=VerifundSkill.AGREEMENT_CREATE,
             run_id=run_id,
             payload={
-                "award": award,
                 "buyer_task_id": buyer_task_id,
                 "buyer_context_id": buyer_context_id,
             },
@@ -582,7 +583,34 @@ class VerifundLifecycle:
         self,
         *,
         run_id: str,
-        award: dict[str, Any],
+        buyer_task_id: str,
+        buyer_context_id: str,
+        seller_card_url: str,
+        seller_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        try:
+            return await asyncio.wait_for(
+                self._start(
+                    run_id=run_id,
+                    buyer_task_id=buyer_task_id,
+                    buyer_context_id=buyer_context_id,
+                    seller_card_url=seller_card_url,
+                    seller_id=seller_id,
+                    idempotency_key=idempotency_key,
+                ),
+                timeout=AGREEMENT_START_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise VerifundProtocolError(
+                "the agreement lifecycle did not finish within "
+                f"{AGREEMENT_START_TIMEOUT_SECONDS} seconds"
+            ) from exc
+
+    async def _start(
+        self,
+        *,
+        run_id: str,
         buyer_task_id: str,
         buyer_context_id: str,
         seller_card_url: str,
@@ -591,7 +619,6 @@ class VerifundLifecycle:
     ) -> dict[str, Any]:
         handle, result = await self.verifund.start(
             run_id=run_id,
-            award=award,
             buyer_task_id=buyer_task_id,
             buyer_context_id=buyer_context_id,
             idempotency_key=idempotency_key,

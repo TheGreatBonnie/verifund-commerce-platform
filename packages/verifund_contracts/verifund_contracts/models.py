@@ -531,7 +531,9 @@ class SellerAgreementDecisionRequest(VerifundModel):
 
 
 class BuyerAgreementRequest(VerifundModel):
-    award: AwardRequest
+    # The award is optional in the request: the Buyer resolves the award it
+    # owns and rejects a posted award that differs from it.
+    award: AwardRequest | None = None
     buyer_task_id: str = Field(min_length=1)
     buyer_context_id: str = Field(min_length=1)
     idempotency_key: str = Field(min_length=1)

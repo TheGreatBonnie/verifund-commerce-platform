@@ -245,14 +245,6 @@ class VerifundAgentService:
         task_id: str,
         context_id: str,
     ) -> VerifundTaskResult:
-        award = request.payload.get("award") or {}
-        if award.get("run_id") != request.run_id:
-            return self._failed(
-                skill=request.skill,
-                task_id=task_id,
-                run_id=request.run_id,
-                message="award run does not match the task run",
-            )
         buyer_task_id = str(request.payload.get("buyer_task_id") or "")
         buyer_context_id = str(request.payload.get("buyer_context_id") or "")
         if not buyer_task_id or not buyer_context_id:
@@ -283,7 +275,6 @@ class VerifundAgentService:
                 "task_id": task_id,
                 "context_id": context_id,
                 "run_id": request.run_id,
-                "award": award,
                 "buyer_task_id": buyer_task_id,
                 "buyer_context_id": buyer_context_id,
                 "checkout_mode": self.checkout_mode,

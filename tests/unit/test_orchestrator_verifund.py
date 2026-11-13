@@ -384,6 +384,37 @@ def lifecycle(
     )
 
 
+class _Stop(Exception):
+    pass
+
+
+class RecordingVerifund:
+    def __init__(self) -> None:
+        self.captured: dict[str, Any] = {}
+
+    async def start(self, **kwargs):
+        self.captured = kwargs
+        raise _Stop
+
+
+async def test_the_lifecycle_never_carries_an_award() -> None:
+    """The award is fetched by the Verifund agent from the Buyer."""
+    recording = RecordingVerifund()
+    subject = lifecycle(recording)  # type: ignore[arg-type]
+
+    with pytest.raises(_Stop):
+        await subject.start(
+            run_id="run-1",
+            buyer_task_id="buyer-task-1",
+            buyer_context_id="run-1",
+            seller_card_url="http://seller/card",
+            seller_id="northwind-audio",
+            idempotency_key="agreement:run-1",
+        )
+
+    assert "award" not in recording.captured
+
+
 async def test_lifecycle_reviews_buyer_then_seller_and_exposes_funding_hitl() -> None:
     verifund = FakeVerifund(
         start_result=task_result(
@@ -403,7 +434,6 @@ async def test_lifecycle_reviews_buyer_then_seller_and_exposes_funding_hitl() ->
     value = lifecycle(verifund, buyer, seller)
     result = await value.start(
         run_id=AGREEMENT.run_id,
-        award={"run_id": AGREEMENT.run_id, "offer_id": AGREEMENT.offer_id},
         buyer_task_id="buyer-task-1",
         buyer_context_id="run-1",
         seller_card_url="http://seller/.well-known/agent-card.json",
@@ -441,7 +471,6 @@ async def test_lifecycle_defers_the_buyer_decision_to_the_human_approval() -> No
     seller = FakeSeller()
     result = await lifecycle(verifund, buyer, seller).start(
         run_id=AGREEMENT.run_id,
-        award={"run_id": AGREEMENT.run_id, "offer_id": AGREEMENT.offer_id},
         buyer_task_id="buyer-task-1",
         buyer_context_id="run-1",
         seller_card_url="http://seller/.well-known/agent-card.json",
@@ -500,7 +529,6 @@ async def test_lifecycle_never_funds_after_seller_rejection() -> None:
     buyer = FakeBuyer()
     result = await lifecycle(verifund, buyer, FakeSeller("rejected")).start(
         run_id=AGREEMENT.run_id,
-        award={"run_id": AGREEMENT.run_id, "offer_id": AGREEMENT.offer_id},
         buyer_task_id="buyer-task-1",
         buyer_context_id="run-1",
         seller_card_url="http://seller/.well-known/agent-card.json",
@@ -778,7 +806,6 @@ async def test_verifund_client_reuses_one_task_for_status_and_resume() -> None:
     )
     handle, _result = await client.start(
         run_id=AGREEMENT.run_id,
-        award={"run_id": AGREEMENT.run_id},
         buyer_task_id="buyer-task-1",
         buyer_context_id="run-1",
         idempotency_key="agreement:run-1:offer-1",

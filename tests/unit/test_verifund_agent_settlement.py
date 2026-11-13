@@ -307,6 +307,10 @@ class Buyer:
             "seller_token_ref": "run:run-1:transaction:vf_1",
         }
 
+    async def get_award(self, run_id):
+        self.calls.append(("get_award", run_id))
+        return award()
+
     async def approve_funding(self, run_id, decision):
         self.calls.append(("approve_funding", run_id, decision))
         self.view_projection = projection("FUNDING_PENDING")
@@ -509,6 +513,7 @@ async def test_graph_funding_rejection_never_orders() -> None:
     )
     assert done["stage"] == "funding_rejected"
     assert [call[0] for call in buyer.calls] == [
+        "get_award",
         "create_agreement",
         "get_settlement",
         "get_settlement",

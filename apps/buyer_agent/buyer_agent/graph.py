@@ -1197,6 +1197,13 @@ async def create_settlement_award(state: BuyerState, config: dict) -> dict:
         raise AgreementProtocolError(
             "the awarded seller is not a validated seller"
         )
+    requirement_ids = [r.requirement_id for r in award.requirements]
+    # The Buyer owns this award. It is persisted before the pause so the
+    # Verifund agent can fetch it over the internal API instead of carrying a
+    # model-authored copy of it across the orchestrator.
+    settlement_store = getattr(services, "settlement", None)
+    if settlement_store is not None:
+        await settlement_store.save_award(run_id, award.model_dump(mode="json"))
     interrupted = interrupt(
         {
             "reason": "agreement_create_required",
@@ -1223,7 +1230,8 @@ async def create_settlement_award(state: BuyerState, config: dict) -> dict:
         raise AgreementProtocolError(
             "canonical agreement does not match the awarded offer"
         )
-    if agreement_mismatch_reason(agreement, state):
+    check_state = {**state, "requirement_ids": requirement_ids}
+    if agreement_mismatch_reason(agreement, check_state):
         raise AgreementProtocolError(
             "canonical agreement does not match the awarded offer"
         )
@@ -1244,6 +1252,7 @@ async def create_settlement_award(state: BuyerState, config: dict) -> dict:
     return {
         "agreement": settlement["agreement"],
         "settlement": settlement,
+        "requirement_ids": requirement_ids,
         "stage": "awarded",
     }
 
@@ -1450,6 +1459,15 @@ def agreement_mismatch_reason(agreement, state: Mapping[str, Any]) -> str | None
     for key, value in expected.items():
         if value is not None and actual.get(key) != value:
             return "terms_mismatch"
+    expected_ids = list(state.get("requirement_ids") or [])
+    if expected_ids:
+        actual_ids = [
+            str(item.get("requirement_id"))
+            for item in (actual.get("terms") or {}).get("requirements") or []
+            if isinstance(item, dict)
+        ]
+        if actual_ids != expected_ids:
+            return "requirements_mismatch"
     expected_lines = [
         {
             "sku": item["sku"],

@@ -34,6 +34,16 @@ class SettlementStore:
             Column("last_seq", Integer, nullable=False),
             Column("updated_at", String, nullable=False),
         )
+        # The award the Buyer owns for a run. It is written when the Buyer
+        # pauses for the canonical agreement and read back by the Verifund
+        # agent so no model-authored copy can reach the agreement.
+        self.awards = Table(
+            "settlement_awards",
+            self.metadata,
+            Column("run_id", String, primary_key=True),
+            Column("payload", JSON, nullable=False),
+            Column("created_at", String, nullable=False),
+        )
 
     async def create_schema(self) -> None:
         await configure_database(self.engine)
@@ -156,3 +166,27 @@ class SettlementStore:
     async def get_agreement(self, run_id: str) -> dict[str, Any] | None:
         projection = await self.get_projection(run_id)
         return (projection or {}).get("agreement")
+
+    async def save_award(self, run_id: str, award: dict[str, Any]) -> None:
+        statement = dialect_insert(
+            self.awards, self.engine.dialect.name
+        ).values(
+            run_id=run_id,
+            payload=award,
+            created_at=isoformat(datetime.now(UTC)),
+        ).on_conflict_do_update(
+            index_elements=["run_id"],
+            set_={
+                "payload": award,
+                "created_at": isoformat(datetime.now(UTC)),
+            },
+        )
+        async with self.engine.begin() as conn:
+            await conn.execute(statement)
+
+    async def get_award(self, run_id: str) -> dict[str, Any] | None:
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(
+                select(self.awards).where(self.awards.c.run_id == run_id)
+            )).first()
+        return dict(row.payload) if row is not None else None

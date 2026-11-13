@@ -282,6 +282,10 @@ class Buyer:
         agreement = AGREEMENT.model_copy(update={"status": "AGREED"}).model_dump(mode="json")
         return agreement
 
+    async def get_award(self, run_id):
+        self.calls.append(("get_award", run_id))
+        return award()
+
 
 def service() -> tuple[VerifundAgentService, Buyer]:
     buyer = Buyer()
@@ -420,7 +424,8 @@ async def test_agreement_create_rejects_a_run_mismatch() -> None:
     )
     assert result.status == "failed"
     assert "run" in result.message.lower()
-    assert buyer.calls == []
+    # The award is fetched from the buyer before the run binding is checked.
+    assert buyer.calls == [("get_award", "run-2")]
 
 
 async def test_agreement_create_rejects_a_second_run_on_the_same_thread() -> None:

@@ -11,6 +11,7 @@ from commerce_core.contracts import (
 )
 from verifund_contracts import (
     AgreementProjection,
+    AwardRequest,
     BuyerAgreementRequest,
     BuyerAgreementResponse,
     BuyerOrderReportRequest,
@@ -62,6 +63,8 @@ class SettlementStoreProtocol(Protocol):
 
     async def get_agreement(self, run_id: str) -> dict[str, Any] | None: ...
 
+    async def get_award(self, run_id: str) -> dict[str, Any] | None: ...
+
 
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
@@ -111,11 +114,26 @@ class BuyerAgreementService:
     async def create_agreement(
         self, run_id: str, request: BuyerAgreementRequest
     ) -> dict[str, Any]:
-        award = request.award
+        # The Buyer owns the award. It is resolved from the Buyer's store, and
+        # a posted award that differs from it is rejected rather than used, so
+        # a model-authored copy can never bind the canonical agreement.
+        stored = await self._store.get_award(run_id)
+        if stored is None:
+            raise AgreementBindingError(
+                "the Buyer has no award for this run", status_code=409
+            )
+        award = AwardRequest.model_validate(stored)
+        if request.award is not None and request.award != award:
+            raise AgreementBindingError(
+                "the posted award does not match the Buyer's award",
+                status_code=409,
+            )
         if award.run_id != run_id:
-            raise AgreementBindingError("award does not belong to this run", status_code=403)
+            raise AgreementBindingError(
+                "award does not belong to this run", status_code=403
+            )
         response = await self.client.award(
-            award, idempotency_key=request.idempotency_key
+            award, idempotency_key=f"award:{run_id}:{award.offer_id}"
         )
         agreement = AgreementProjection.model_validate(response["agreement"])
         if agreement.run_id != run_id or agreement.transaction_id != response["transaction_id"]:
