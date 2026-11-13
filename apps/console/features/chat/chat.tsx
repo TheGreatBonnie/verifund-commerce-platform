@@ -305,10 +305,20 @@ export function Chat({
       parameters: fundingApprovalArgsSchema,
       render: ({ args, status, respond }) => {
         if (status === "executing" && respond) {
+          const sharedAward = (
+            (agent.state as Record<string, any> | undefined)?.award as
+              | Record<string, any>
+              | undefined
+          );
           return (
             <div className="mm-chat-approval">
               <FundingApprovalCard
-                args={args as any}
+                args={
+                  {
+                    ...args,
+                    agreement: sharedAward ?? args.agreement,
+                  } as any
+                }
                 onApprove={(note) => {
                   respond(
                     fundingDecision(args as any, { approved: true, note }),
@@ -341,10 +351,20 @@ export function Chat({
       parameters: paypalCheckoutArgsSchema,
       render: ({ args, status, respond, result }) => {
         if (status === "executing" && respond) {
+          const sharedAward = (
+            (agent.state as Record<string, any> | undefined)?.award as
+              | Record<string, any>
+              | undefined
+          );
           return (
             <div className="mm-chat-approval">
               <PayPalCheckoutCard
-                args={args as any}
+                args={
+                  {
+                    ...args,
+                    agreement: sharedAward ?? args.agreement,
+                  } as any
+                }
                 respond={respond}
                 onVerifundAction={onVerifundAction}
               />
@@ -432,10 +452,20 @@ export function Chat({
       parameters: releaseApprovalArgsSchema,
       render: ({ args, status, respond }) => {
         if (status === "executing" && respond) {
+          const sharedProjection = (
+            (agent.state as Record<string, any> | undefined)?.projection as
+              | Record<string, any>
+              | undefined
+          );
           return (
             <div className="mm-chat-approval">
               <ReleaseApprovalCard
-                args={args as any}
+                args={
+                  {
+                    ...args,
+                    projection: sharedProjection ?? args.projection,
+                  } as any
+                }
                 onDecision={(decision) => {
                   respond(decision);
                   onVerifundAction?.();

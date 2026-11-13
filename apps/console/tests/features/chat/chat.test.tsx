@@ -13,6 +13,13 @@ const hooks = vi.hoisted(() => ({
   agentState: { award: null as Record<string, unknown> | null },
 }));
 
+const HASH = "a".repeat(64);
+const accepted = {
+  status: "accepted" as const,
+  agreement_version: 1,
+  agreement_hash: HASH,
+};
+
 vi.mock("@/lib/api", () => ({
   fetchRegistry: hooks.fetchRegistry,
 }));
@@ -102,6 +109,54 @@ describe("chat verifund tools", () => {
 
     // The HITL card renders the award published to CopilotKit shared state.
     expect(screen.getByTestId("agreement-approval-hitl")).toBeInTheDocument();
+    expect(screen.getAllByText("$1,234.00").length).toBeGreaterThan(0);
+    hooks.agentState.award = null;
+  });
+
+  it("renders the funding HITL from CopilotKit shared state", () => {
+    hooks.agentState.award = {
+      amount_cents: 123400,
+      currency: "USD",
+      seller_id: "northwind-audio",
+      transaction_id: "vf_1",
+      agreement_version: 1,
+      agreement_hash: "a".repeat(64),
+      delivery_days: 7,
+      warranty_months: 24,
+      returns_days: 30,
+      line_items: [
+        {
+          sku: "NC-700",
+          name: "Nimbus NC-700 ANC Headset",
+          quantity: 12,
+          unit_price_cents: 10000,
+          warranty_addon_cents: 0,
+          attributes: {},
+        },
+      ],
+    };
+    renderChat();
+
+    const call = hooks.useHumanInTheLoop.mock.calls.find(
+      ([tool]) => tool.name === "request_verifund_funding_approval",
+    );
+    render(
+      call![0].render({
+        args: {
+          run_id: "run-1",
+          transaction_id: "vf_1",
+          agreement_version: 1,
+          agreement_hash: "a".repeat(64),
+          buyer_review: accepted,
+          seller_decision: accepted,
+          message: "Approve funding for this agreement.",
+        },
+        status: "executing",
+        respond: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByTestId("verifund-funding")).toBeInTheDocument();
     expect(screen.getAllByText("$1,234.00").length).toBeGreaterThan(0);
     hooks.agentState.award = null;
   });
