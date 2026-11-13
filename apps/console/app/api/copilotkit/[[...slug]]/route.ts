@@ -22,6 +22,10 @@ import {
 // Force dynamic rendering for the API route to avoid build-time fetching
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+// The Buyer handoff runs inside this request. Give the function room for the
+// orchestrator's turns and the Buyer's sourcing run instead of letting the
+// platform cut the run off mid-negotiation.
+export const maxDuration = 300;
 
 const buyerAgent: SellerAgent = {
   url: normalizeAgentBaseUrl(
@@ -224,12 +228,17 @@ const orchestratorInstructions = `
   - If the result is confirmed === true with a complete
     mandate: call send_message_to_a2a_agent with
     agentName="MarketMesh Buyer" and a task containing the
-    confirmed mandate plus the grounded product context (SKU,
-    name, image_url when known, unit price, offers). Stay in
-    the current thread; do not navigate, do not place an order,
-    and do not create an award outcome. request_award_approval
-    and Verifund HITL approvals remain mandatory. Do not place
-    an order.
+    confirmed mandate plus the grounded product context. The
+    task MUST include the product identifier on its own line
+    in the exact form "Product SKU: <sku>" (for example
+    "Product SKU: EX-MACBOOK-AIR"), followed by the product
+    name, image_url when known, unit price, and offers. The
+    Buyer resolves the product and the sellers to approach
+    from that line, so include it whenever a product was
+    grounded. Stay in the current thread; do not navigate, do
+    not place an order, and do not create an award outcome.
+    request_award_approval and Verifund HITL approvals remain
+    mandatory. Do not place an order.
   - If the result is confirmed === false or reason is
     "user_cancelled": stop the handoff and report that the
     mandate was not confirmed, no sourcing/negotiation started,

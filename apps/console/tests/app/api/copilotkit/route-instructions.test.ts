@@ -25,4 +25,14 @@ describe("orchestrator sourcing mandate instructions", () => {
     expect(source).toMatch(/read-only/i);
     expect(source).toMatch(/Do not place an order|do not place an order/);
   });
+
+  it("pins the Product SKU line the Buyer parses", () => {
+    expect(source).toContain("Product SKU:");
+    expect(source).toMatch(/MUST\s+include/i);
+    expect(source).toMatch(/Product SKU:\s*<sku>/i);
+  });
+
+  it("declares a serverless budget for the handoff route", () => {
+    expect(source).toMatch(/export const maxDuration\s*=\s*\d+/);
+  });
 });
