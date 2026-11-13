@@ -296,6 +296,10 @@ class Buyer:
         self.release_state = "PAYOUT_PENDING"
         self.receipt_ready = True
 
+    async def get_award(self, run_id):
+        self.calls.append(("get_award", run_id))
+        return award()
+
     async def create_agreement(self, run_id, request):
         self.calls.append(("create_agreement", run_id, request))
         return {
@@ -316,7 +320,7 @@ class Buyer:
             "expires_at": "2026-10-27T12:30:00Z",
         }
 
-    async def get_settlement(self, run_id):
+    async def get_settlement(self, run_id, *, refresh=False):
         self.calls.append(("get_settlement", run_id))
         self._sync_count = getattr(self, "_sync_count", 0) + 1
         if self._sync_count == 1:
@@ -509,6 +513,7 @@ async def test_graph_funding_rejection_never_orders() -> None:
     )
     assert done["stage"] == "funding_rejected"
     assert [call[0] for call in buyer.calls] == [
+        "get_award",
         "create_agreement",
         "get_settlement",
         "get_settlement",

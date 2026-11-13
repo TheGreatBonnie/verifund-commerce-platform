@@ -57,10 +57,15 @@ def build_terms(award: AwardRequest, now: datetime) -> dict[str, Any]:
         for li in award.line_items
     ):
         raise ValueError("invalid_terms")
-    # Creation floors for the requirement catalog (spec §3.1.1). Enforced only
-    # when a catalog is authored; grandfathered awards carry none.
-    if award.requirements:
-        validate_requirements(list(award.requirements))
+    # Every new agreement is obligation-catalog-driven (spec §3.1.1). A legacy
+    # evidence-only award would bind an agreement that cannot be fulfilled under
+    # the catalog, so the catalog is mandatory at creation.
+    if not award.requirements:
+        raise AgreementError(
+            "invalid_requirements",
+            "at least one requirement catalog entry is required",
+        )
+    validate_requirements(list(award.requirements))
     return {
         "schema": "verifund.agreement.v1",
         "agreement_type": "goods",
