@@ -427,6 +427,24 @@ async def internal_get_settlement(
         raise _binding_error(exc) from exc
 
 
+@router.get("/internal/runs/{run_id}/settlement/award")
+async def internal_get_award(run_id: str, request: Request) -> dict[str, Any]:
+    """The award the Buyer owns for this run.
+
+    The Verifund agent fetches the award from here instead of accepting one
+    from the task payload, so a model-authored copy can never reach the
+    canonical agreement.
+    """
+    _require_verifund_agent(request)
+    store = getattr(_agreements(request), "store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="settlement store unavailable")
+    award = await store.get_award(run_id)
+    if award is None:
+        raise HTTPException(status_code=404, detail="award not found")
+    return {"award": award}
+
+
 @router.post("/internal/runs/{run_id}/settlement/agreement")
 async def internal_create_agreement(
     run_id: str, body: BuyerAgreementRequest, request: Request

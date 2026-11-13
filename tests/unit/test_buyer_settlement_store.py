@@ -36,6 +36,16 @@ async def test_secret_round_trip_and_delete(store):
     assert await store.get_secret("run-1", "vf_1", "seller_accept") is None
 
 
+async def test_award_round_trip(store):
+    assert await store.get_award("run-1") is None
+    await store.save_award("run-1", {"run_id": "run-1", "offer_id": "offer-1"})
+    award = await store.get_award("run-1")
+    assert award is not None
+    assert award["offer_id"] == "offer-1"
+    await store.save_award("run-1", {"run_id": "run-1", "offer_id": "offer-2"})
+    assert (await store.get_award("run-1"))["offer_id"] == "offer-2"
+
+
 async def test_projection_round_trip(store):
     assert (
         await store.save_projection(
