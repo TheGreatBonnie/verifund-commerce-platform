@@ -23,6 +23,19 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 
+def _fold_category(value: str) -> str:
+    """Normalise a category for comparison: case and spacing insensitive."""
+    return " ".join((value or "").strip().casefold().split())
+
+
+def _category_matches(categories: list[str], category: str) -> bool:
+    """Whether a seller's categories contain the requested category."""
+    needle = _fold_category(category)
+    if not needle:
+        return True
+    return any(_fold_category(entry) == needle for entry in categories or [])
+
+
 class RegistryStore:
     def __init__(self, engine: AsyncEngine) -> None:
         self.engine = engine
@@ -238,10 +251,28 @@ class RegistryStore:
                     )
                 )
                 listing_sellers = {row.seller_id for row in rows}
-        for seller in await self.list_sellers():
+        sellers = await self.list_sellers()
+        # The registry only narrows by a category it actually indexes. A caller
+        # that asks for a category outside the registry's vocabulary gets every
+        # extension-matching seller rather than an empty result set: silently
+        # returning nothing makes a naming difference look like a supply
+        # outage.
+        enforce_category = any(
+            _fold_category(entry) == _fold_category(category)
+            for seller in sellers
+            for entry in seller.get("categories", []) or []
+            if _fold_category(category)
+        )
+        for seller in sellers:
             if not seller.get("verified", True):
                 continue
-            if not product_sku and category not in seller["categories"]:
+            # A product SKU names the product outright, so it decides who is
+            # asked and the category does not narrow the result further.
+            if (
+                not product_sku
+                and enforce_category
+                and not _category_matches(seller["categories"], category)
+            ):
                 continue
             if listing_sellers is not None and seller["seller_id"] not in listing_sellers:
                 continue
