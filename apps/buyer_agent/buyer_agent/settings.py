@@ -59,11 +59,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("NEBIUS_API_KEY"),
     )
     nebius_base_url: str = Field(
-        default="https://api.tokenfactory.us-central1.nebius.com/v1/",
+        default="https://api.tokenfactory.eu-north1.nebius.com/v1/",
         validation_alias=AliasChoices("NEBIUS_BASE_URL"),
     )
     nebius_model: str = Field(
-        default="deepseek-ai/DeepSeek-V4-Flash-0731",
+        default="MiniMaxAI/MiniMax-M3",
         validation_alias=AliasChoices("NEBIUS_MODEL"),
     )
     buyer_llm_model: str | None = Field(

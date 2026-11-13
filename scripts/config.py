@@ -239,14 +239,14 @@ def nebius_api_key() -> str:
 def nebius_base_url() -> str:
     return _env(
         "NEBIUS_BASE_URL",
-        "https://api.tokenfactory.us-central1.nebius.com/v1/",
+        "https://api.tokenfactory.eu-north1.nebius.com/v1/",
     ).rstrip("/")
 
 
 def nebius_model() -> str:
     return _env(
         "NEBIUS_MODEL",
-        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "MiniMaxAI/MiniMax-M3",
     ).strip()
 
 

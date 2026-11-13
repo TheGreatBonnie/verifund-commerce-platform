@@ -104,15 +104,15 @@ envVarGroups:
       - key: NEBIUS_API_KEY
         sync: false
       - key: NEBIUS_BASE_URL
-        value: https://api.tokenfactory.uk-south1.nebius.com/v1
+        value: https://api.tokenfactory.eu-north1.nebius.com/v1/
       - key: NEBIUS_MODEL
-        value: deepseek-ai/DeepSeek-V4-Pro-0813
+        value: MiniMaxAI/MiniMax-M3
       # The Buyer extracts structured facts from a brief and has to answer
       # inside the handoff's time budget. The orchestrator's reasoning model
       # spends its output budget thinking and then returns a truncated
       # answer, which the Buyer cannot afford.
       - key: BUYER_LLM_MODEL
-        value: openai/gpt-oss-120b
+        value: MiniMaxAI/MiniMax-M3
       - key: NEBIUS_EMBEDDING_BASE_URL
         value: https://api.tokenfactory.eu-north1.nebius.com/v1/
       - key: NEBIUS_EMBEDDING_MODEL
