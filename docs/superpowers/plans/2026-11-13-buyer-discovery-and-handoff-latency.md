@@ -44,7 +44,7 @@ The registry filters sellers with `if not product_sku and category not in seller
 - Consumes: nothing from other tasks.
 - Produces: module-level `registry.store._fold_category(value: str) -> str` and `registry.store._category_matches(categories: list[str], category: str) -> bool`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/unit/test_registry_discovery.py`:
 
@@ -127,7 +127,7 @@ async def test_discover_ignores_an_empty_category(store):
     ]
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```
 cd /Applications/Projects/hackathon/paypal-verifund-platform/verifund-a2a
@@ -136,7 +136,7 @@ cd /Applications/Projects/hackathon/paypal-verifund-platform/verifund-a2a
 
 Expected: the case-insensitive test fails (`found == []`), and the unknown-category and empty-category tests fail (`found == []`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `apps/registry/registry/store.py`, add at module level (below the imports):
 
@@ -194,7 +194,7 @@ In `RegistryStore.discover`, replace the seller loop with:
 
 Keep the `product_sku` listing lookup that already precedes this block.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```
 .venv/bin/python -m pytest tests/unit/test_registry_discovery.py -q
@@ -202,7 +202,7 @@ Keep the `product_sku` listing lookup that already precedes this block.
 
 Expected: all pass.
 
-- [ ] **Step 5: Run the full backend suite for regressions**
+- [x] **Step 5: Run the full backend suite for regressions**
 
 ```
 .venv/bin/python -m pytest tests/unit tests/protocol -q
@@ -210,7 +210,7 @@ Expected: all pass.
 
 Expected: no new failures. (Pre-existing unrelated failures: `tests/unit/test_shared_review_store.py::test_reviews_are_org_scoped` and three in `tests/unit/test_verifund_seller_reads.py` — these are SQLite-only failures that predate this work.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/registry/registry/store.py tests/unit/test_registry_discovery.py
@@ -234,7 +234,7 @@ git commit -m "fix(registry): match discovery categories case-insensitively and 
   - `buyer_agent.planner.ground_mandate(mandate: Mandate, text: str, products: list[dict[str, Any]] | None) -> Mandate`
   - `buyer_agent.planner.mandate_from_text(text: str, products: list[dict[str, Any]] | None = None) -> Mandate` — now grounds `category` as well as `product_sku`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/unit/test_buyer_brief_parsing.py`:
 
@@ -322,7 +322,7 @@ def test_mandate_from_text_grounds_the_category_from_the_catalog_product():
     assert mandate.category == "MacBook"
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```
 .venv/bin/python -m pytest tests/unit/test_buyer_brief_parsing.py tests/unit/test_buyer_planner.py -q
@@ -330,7 +330,7 @@ def test_mandate_from_text_grounds_the_category_from_the_catalog_product():
 
 Expected: the new tests fail — `product_sku` is `None` and `category` is `"consumer-electronics"`.
 
-- [ ] **Step 3: Implement the planner changes**
+- [x] **Step 3: Implement the planner changes**
 
 In `apps/buyer_agent/buyer_agent/planner.py`, replace the catalog branch inside `mandate_from_text`:
 
@@ -434,7 +434,7 @@ Do not reintroduce a hard-coded category vocabulary anywhere: the registry
 derives its categories from what sellers publish, so a copy of that list in
 the buyer is a second source of truth that drifts.
 
-- [ ] **Step 4: Implement the graph changes**
+- [x] **Step 4: Implement the graph changes**
 
 In `apps/buyer_agent/buyer_agent/graph.py`, add a module-level helper above `interpret_brief`:
 
@@ -487,7 +487,7 @@ In `interpret_brief`, replace the planner loop and fallback:
 
 Add `ground_mandate` to the `from buyer_agent.planner import (...)` block.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 ```
 .venv/bin/python -m pytest tests/unit/test_buyer_brief_parsing.py tests/unit/test_buyer_planner.py -q
@@ -495,7 +495,7 @@ Add `ground_mandate` to the `from buyer_agent.planner import (...)` block.
 
 Expected: all pass, including the pre-existing `test_marketplace_sku_trailing_sentence_period_is_not_part_of_sku` and `test_sku_with_internal_period_keeps_it`.
 
-- [ ] **Step 6: Run the full backend suite**
+- [x] **Step 6: Run the full backend suite**
 
 ```
 .venv/bin/python -m pytest tests/unit tests/protocol -q
@@ -503,7 +503,7 @@ Expected: all pass, including the pre-existing `test_marketplace_sku_trailing_se
 
 Expected: no new failures.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/buyer_agent/buyer_agent/planner.py apps/buyer_agent/buyer_agent/graph.py \
@@ -541,7 +541,7 @@ A reasoning model is the wrong tool for a latency-bound structured extraction, s
   - `buyer_agent.settings.Settings.buyer_model: str` — `buyer_llm_model` or `nebius_model`.
   - `NebiusBuyerPlanner.brief_llm` configured with `max_retries=0` and `request_timeout=45`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/unit/test_buyer_brief_parsing.py`:
 
@@ -603,7 +603,7 @@ def test_buyer_model_falls_back_to_the_shared_model():
     assert settings.buyer_model == settings.nebius_model
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```
 .venv/bin/python -m pytest tests/unit/test_buyer_brief_parsing.py -q
@@ -611,7 +611,7 @@ def test_buyer_model_falls_back_to_the_shared_model():
 
 Expected: `planner.calls == 2` (not 1), and `max_retries` is `1` (not 0).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `apps/buyer_agent/buyer_agent/planner.py`, in `NebiusBuyerPlanner.__init__`:
 
@@ -674,7 +674,7 @@ In `apps/buyer_agent/buyer_agent/graph.py`, in `interpret_brief`:
         mandate = None
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```
 .venv/bin/python -m pytest tests/unit/test_buyer_brief_parsing.py -q
@@ -682,7 +682,7 @@ In `apps/buyer_agent/buyer_agent/graph.py`, in `interpret_brief`:
 
 Expected: all pass.
 
-- [ ] **Step 5: Run the full backend suite**
+- [x] **Step 5: Run the full backend suite**
 
 ```
 .venv/bin/python -m pytest tests/unit tests/protocol -q
@@ -690,7 +690,7 @@ Expected: all pass.
 
 Expected: no new failures.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/buyer_agent/buyer_agent/planner.py apps/buyer_agent/buyer_agent/graph.py \
@@ -714,7 +714,7 @@ The Buyer resolves the product from a `Product SKU: <sku>` line. The orchestrato
 - Consumes: the Buyer contract from Task 2 (`Product SKU: <sku>`).
 - Produces: no new exports.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `apps/console/tests/app/api/copilotkit/route-instructions.test.ts`:
 
@@ -726,7 +726,7 @@ Append to `apps/console/tests/app/api/copilotkit/route-instructions.test.ts`:
   });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```
 cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
@@ -734,7 +734,7 @@ cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
 
 Expected: FAIL — the source does not contain `Product SKU:`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `apps/console/app/api/copilotkit/[[...slug]]/route.ts`, replace the confirmation branch of the instructions:
 
@@ -769,7 +769,7 @@ with:
     mandatory. Do not place an order.
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 ```
 cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
@@ -777,7 +777,7 @@ cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add "apps/console/app/api/copilotkit/[[...slug]]/route.ts" \
@@ -799,7 +799,7 @@ The Buyer call runs inside the console's AG-UI request. Vercel terminates a func
 - Consumes: nothing from other tasks.
 - Produces: `export const maxDuration = 300` from the route module.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `apps/console/tests/app/api/copilotkit/route-instructions.test.ts`:
 
@@ -809,7 +809,7 @@ Append to `apps/console/tests/app/api/copilotkit/route-instructions.test.ts`:
   });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```
 cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
@@ -817,7 +817,7 @@ cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
 
 Expected: FAIL — no `maxDuration` export.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `apps/console/app/api/copilotkit/[[...slug]]/route.ts`, next to the existing route exports:
 
@@ -831,7 +831,7 @@ export const revalidate = 0;
 export const maxDuration = 300;
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 ```
 cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
@@ -839,7 +839,7 @@ cd apps/console && pnpm test tests/app/api/copilotkit/route-instructions.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Run the console suite and typecheck**
+- [x] **Step 5: Run the console suite and typecheck**
 
 ```
 cd apps/console && pnpm test && pnpm typecheck
@@ -847,7 +847,7 @@ cd apps/console && pnpm test && pnpm typecheck
 
 Expected: the pre-existing failures stay pre-existing and nothing new appears (`product-art-css`, `route-guards`, `example-catalog`; `tests/lib/profile-form-redirect.test.tsx` has a pre-existing TS2556).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add "apps/console/app/api/copilotkit/[[...slug]]/route.ts" \
@@ -859,7 +859,7 @@ git commit -m "fix(console): declare a serverless budget for the Buyer handoff r
 
 ## Deploy and verify
 
-- [ ] Push `deploy/render` — Render auto-deploys the gateway service.
+- [x] Push `deploy/render` — Render auto-deploys the gateway service.
 - [ ] Wait for the deploy, then check `render deploys list srv-dbqvs2ifngtc73eft8b0`.
 - [ ] Verify the discovery fix live:
   ```
@@ -868,10 +868,93 @@ git commit -m "fix(console): declare a serverless budget for the Buyer handoff r
     -d '{"category":"consumer-electronics","required_extension":"https://marketmesh.example/extensions/commerce/v1"}'
   ```
   Expected: one seller (Northwind Audio), not an empty list.
-- [ ] Push `deploy/console`, then deploy the console with the Vercel CLI from `apps/console`.
+- [x] Push `deploy/console`, then deploy the console with the Vercel CLI from `apps/console`.
 - [ ] Drive one handoff end to end in the browser and confirm the Buyer reaches the seller.
 - [ ] Confirm the brief-parse latency on the live service from the `buyer` database:
   ```
   psql ... -c "select run_id, created_at, updated_at, stage from runs order by updated_at desc limit 5"
   ```
   Expected: `created_at` and `updated_at` within a few seconds of each other, not minutes apart.
+
+---
+
+## Execution record
+
+The plan above was executed as written for Tasks 1–3 and Track B. Three further
+defects were found while verifying against the live deployment and fixed as
+scoped additions; they are recorded here rather than folded into the plan text.
+
+### Task 3b — the buyer's counter decision was discarded half the time
+
+`CounterChoice` rejects the whole response when it asks for a change outside
+`{warranty_months, split_shipment, shipping_cents, delivery_days}`. The prompt
+named those keys as examples of trade-offs but never said the list was
+exhaustive, so the model also asked for `returns_days` and `unit_price_cents`.
+One unsupported change voided the entire counter: the buyer discarded the
+model's decision, fell back to a scripted one, and paid for the model call all
+the same.
+
+Fix: state the allowlist in `BUYER_SYSTEM_PROMPT`. Measured over four runs per
+model, with the catalog candidates appended:
+
+| model | prompt | median | failures |
+|---|---|---|---|
+| `deepseek-ai/DeepSeek-V4-Pro-0813` | before | 27.6 s | 1/4 |
+| `deepseek-ai/DeepSeek-V4-Pro-0813` | after | 17.5 s | 0/4 |
+| `openai/gpt-oss-120b` | before | 2.6 s | 2/4 |
+| `openai/gpt-oss-120b` | after | 1.6 s | 0/4 |
+
+Commit `f5088f8` on `deploy/render`.
+
+### Task 3c — the mediation tool crashed every seller call
+
+`agent.py` passed `allowed_card_hosts=` to `mediation.mediate_seller_call()`,
+which does not declare that parameter. The call raised `TypeError` before the
+mediator started, so every seller call died with `BACKGROUND_EXECUTION_ERROR`
+and the run never negotiated.
+
+This was masked until Task 2 made discovery succeed: before the fix the run
+died earlier, at discovery. The existing test patched the mediator out with
+`**kwargs`, which hid the mismatch; the new test runs the real mediator.
+
+Commit `8014e78` on `deploy/render`.
+
+### Task 3d — the resume landed on the wrong thread
+
+The mediation tool passed the orchestrator's own session id as the buyer's
+context id, but the buyer's checkpoint lives on the thread the buyer reports as
+its `task_id` (observed live: the buyer's context was `3b36f637…` while the
+orchestrator's session was `221093c4…`). Resuming on the orchestrator's thread
+finds no buyer state, so the buyer starts a fresh run instead of continuing the
+negotiation.
+
+The buyer's contract is "resume on the message's `context_id`" (asserted by
+`tests/unit/test_buyer_executor_resume.py`), so the orchestrator was fixed
+rather than the buyer.
+
+Commit `5e4c91b` on `deploy/render`.
+
+### Measured result, live
+
+| | before | after |
+|---|---|---|
+| Buyer brief parse (`interpret_brief`) | 117–191 s | 8.0 s |
+| Buyer discovery | 0 sellers — `failed` | 1 seller |
+| Seller call | `TypeError`, run aborted | RFQ, counter, offer |
+| Negotiation outcome | — | `no_award`: the seller's floor of $1,079.99/unit exceeds the buyer's $400/unit ceiling |
+
+The brief that used to produce `No independently validated sellers were found.`
+now reaches the seller in 24.7 s with a bare `SKU:` label and 11.0 s with the
+`Product SKU:` label.
+
+### Not changed, and why
+
+- **The orchestrator's model.** Its turns run ~23 s, and tool selection is the
+  kind of task a reasoning model is for. The buyer is different: it extracts
+  structured facts and has to answer inside the handoff's budget, so it gets
+  `BUYER_LLM_MODEL` (default `openai/gpt-oss-120b`).
+- **The orchestrator's LLM timeout.** No turn has hung, and a timeout wrong by
+  a little would break working behaviour. Worth setting deliberately.
+- **The seller's retry budget.** `timeout=30, max_retries=1` is already two
+  attempts with a scripted fallback, and the seller's calls are succeeding at
+  11–14 s.
