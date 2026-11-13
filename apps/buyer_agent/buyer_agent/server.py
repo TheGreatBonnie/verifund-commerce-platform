@@ -38,7 +38,7 @@ def create_app(
         settings.llm_mode,
         settings.nebius_api_key,
         settings.nebius_base_url,
-        settings.nebius_model,
+        settings.buyer_model,
     )
     graph = build_buyer_graph(
         services=services,

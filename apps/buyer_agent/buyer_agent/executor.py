@@ -56,7 +56,7 @@ class BuyerExecutor(AgentExecutor):
             settings.llm_mode,
             settings.nebius_api_key,
             settings.nebius_base_url,
-            settings.nebius_model,
+            settings.buyer_model,
         )
         self.graph = graph or build_buyer_graph(
             services=services,

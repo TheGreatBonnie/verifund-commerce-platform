@@ -49,6 +49,7 @@ from buyer_agent.planner import (
     BuyerPlanner,
     CounterChoice,
     ScriptedBuyerPlanner,
+    ground_mandate,
     mandate_from_text,
 )
 from buyer_agent.settlement_flow import build_award_request, settlement_enabled
@@ -172,6 +173,23 @@ def fallback_rfq_message(mandate: Mandate) -> str:
     )
 
 
+async def _catalog_products(services: Any) -> list[dict[str, Any]]:
+    """The published catalog, used to ground a brief against real products.
+
+    Discovery can only name products and categories the registry indexes, so
+    the brief is resolved against the catalog rather than a guess. A catalog
+    that cannot be read leaves the brief ungrounded instead of failing.
+    """
+    registry = getattr(services, "registry", None)
+    marketplace_products = getattr(registry, "marketplace_products", None)
+    if marketplace_products is None:
+        return []
+    try:
+        return list(await marketplace_products())
+    except Exception:  # noqa: BLE001
+        return []
+
+
 async def interpret_brief(state: BuyerState, config: dict) -> dict:
     run_id = config["configurable"]["thread_id"].split(":", 1)[-1]
     messages = state.get("messages", [])
@@ -195,20 +213,22 @@ async def interpret_brief(state: BuyerState, config: dict) -> dict:
     text = human.content if isinstance(human.content, str) else str(human.content)
     planner = _planner(config, ScriptedBuyerPlanner())
     services = _services(config)
+    products = await _catalog_products(services)
     mandate = None
     fallback_used = False
-    for _ in range(2):
-        try:
-            mandate = await planner.parse_brief(text)
-            if not isinstance(mandate, Mandate):
-                mandate = Mandate.model_validate(mandate)
-            break
-        except Exception:  # noqa: BLE001
-            mandate = None
+    # One attempt. A brief parser that times out must not hold the handoff
+    # open for a second full attempt: the catalog-grounded fallback below
+    # already knows the product the brief is about.
+    try:
+        mandate = await planner.parse_brief(text, products)
+        if not isinstance(mandate, Mandate):
+            mandate = Mandate.model_validate(mandate)
+    except Exception:  # noqa: BLE001
+        mandate = None
     if mandate is None:
         fallback_used = True
         try:
-            mandate = mandate_from_text(text)
+            mandate = mandate_from_text(text, products)
         except Exception as exc:  # noqa: BLE001
             error = _error(f"Could not parse the brief: {exc}")
             return {
@@ -229,6 +249,9 @@ async def interpret_brief(state: BuyerState, config: dict) -> dict:
     sku_match = re.search(SKU_PATTERN, text, re.IGNORECASE)
     if sku_match:
         mandate = mandate.model_copy(update={"product_sku": sku_match.group(1)})
+    # Grounding runs after the SKU is settled so the category comes from the
+    # catalog entry of the product the brief is actually about.
+    mandate = ground_mandate(mandate, text, products)
     source = "scripted.fallback" if fallback_used else "scripted.decision"
     rationale = (
         "Used regex fallback for the shopping brief."

@@ -3,6 +3,7 @@ from buyer_agent.planner import (
     ScriptedBuyerPlanner,
     select_buyer_planner,
 )
+from buyer_agent.settings import Settings
 from seller_agent.planner import (
     NebiusSellerPlanner,
     ScriptedSellerPlanner,
@@ -52,3 +53,15 @@ def test_seller_selects_scripted_planner_without_key() -> None:
     )
 
     assert isinstance(planner, ScriptedSellerPlanner)
+
+
+def test_buyer_model_prefers_its_own_setting() -> None:
+    settings = Settings(_env_file=None, buyer_llm_model="openai/gpt-oss-120b")
+
+    assert settings.buyer_model == "openai/gpt-oss-120b"
+
+
+def test_buyer_model_falls_back_to_the_shared_model() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.buyer_model == settings.nebius_model

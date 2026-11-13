@@ -361,6 +361,25 @@ In `apps/buyer_agent/buyer_agent/planner.py`, replace the catalog branch inside 
     )
 ```
 
+Also widen the quantity match so a stated quantity survives the fallback. The
+current pattern only recognises `"2 units"`; a brief that says `"quantity 2"`
+silently falls back to twelve units:
+
+```python
+    quantity_match = re.search(
+        r"\b(\d{1,3})\s+(?:x\s+)?(?:Nimbus|units?|headsets?)"
+        r"|\b(?:quantity|qty)\b\s*[:=]?\s*(\d{1,4})",
+        text,
+        re.IGNORECASE,
+    )
+    ...
+    quantity = (
+        int(quantity_match.group(1) or quantity_match.group(2))
+        if quantity_match
+        else (1 if sku_match else 12)
+    )
+```
+
 Add at module level in `planner.py`:
 
 ```python
@@ -498,14 +517,29 @@ git commit -m "fix(buyer): ground the sourcing brief against the published catal
 
 `NebiusBuyerPlanner` uses `ChatOpenAI(timeout=45, max_retries=1)` and `interpret_brief` retries the planner twice, so a failed parse costs `2 x (45 s + 45 s) = 180 s` before the deterministic fallback runs. One attempt with no SDK-level retry bounds the stall at a single timeout, and Task 2's catalog grounding means the fallback is already correct.
 
+The model is the other half of the stall. Measured against the deployed endpoint (`api.tokenfactory.uk-south1.nebius.com`, 3 runs per brief):
+
+| model | median | outcome |
+|---|---|---|
+| `deepseek-ai/DeepSeek-V4-Pro-0813` | **43.5 s** | 2 of 3 runs fail: `LengthFinishReasonError` — the model burns all 8192 output tokens reasoning and returns a truncated response |
+| `openai/gpt-oss-120b` | **2.2 s** | 3 of 3 succeed |
+
+A reasoning model is the wrong tool for a latency-bound structured extraction, so the Buyer gets its own model setting instead of sharing the orchestrator's.
+
 **Files:**
 - Modify: `apps/buyer_agent/buyer_agent/planner.py:141-155` (`NebiusBuyerPlanner.__init__`)
+- Modify: `apps/buyer_agent/buyer_agent/planner.py:346-354` (`select_buyer_planner`)
+- Modify: `apps/buyer_agent/buyer_agent/settings.py` (add `buyer_llm_model` and `buyer_model`)
+- Modify: `apps/buyer_agent/buyer_agent/server.py:37-41` and `apps/buyer_agent/buyer_agent/executor.py:55-60` (pass the effective model)
 - Modify: `apps/buyer_agent/buyer_agent/graph.py:200-207` (`interpret_brief` retry loop)
-- Test: `tests/unit/test_buyer_brief_parsing.py`
+- Test: `tests/unit/test_buyer_brief_parsing.py`, `tests/unit/test_llm_providers.py`
 
 **Interfaces:**
 - Consumes: `buyer_agent.planner.NebiusBuyerPlanner` (existing).
-- Produces: `NebiusBuyerPlanner.brief_llm` configured with `max_retries=0` and `request_timeout=45`.
+- Produces:
+  - `buyer_agent.settings.Settings.buyer_llm_model: str | None` — env `BUYER_LLM_MODEL`.
+  - `buyer_agent.settings.Settings.buyer_model: str` — `buyer_llm_model` or `nebius_model`.
+  - `NebiusBuyerPlanner.brief_llm` configured with `max_retries=0` and `request_timeout=45`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -554,6 +588,21 @@ def test_nebius_planner_does_not_retry_inside_the_sdk() -> None:
     assert planner.brief_llm.request_timeout == 45
 ```
 
+Append to `tests/unit/test_llm_providers.py`:
+
+```python
+def test_buyer_model_prefers_its_own_setting():
+    settings = Settings(_env_file=None, buyer_llm_model="openai/gpt-oss-120b")
+
+    assert settings.buyer_model == "openai/gpt-oss-120b"
+
+
+def test_buyer_model_falls_back_to_the_shared_model():
+    settings = Settings(_env_file=None)
+
+    assert settings.buyer_model == settings.nebius_model
+```
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```
@@ -581,6 +630,38 @@ In `apps/buyer_agent/buyer_agent/planner.py`, in `NebiusBuyerPlanner.__init__`:
         }
 ```
 
+In `apps/buyer_agent/buyer_agent/settings.py`, add:
+
+```python
+    buyer_llm_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BUYER_LLM_MODEL"),
+    )
+
+    @property
+    def buyer_model(self) -> str:
+        """The model the Buyer's own planner calls use.
+
+        The Buyer extracts structured facts from a brief and has to answer
+        inside the handoff's time budget, so it does not have to share the
+        orchestrator's reasoning model.
+        """
+        return self.buyer_llm_model or self.nebius_model
+```
+
+In `apps/buyer_agent/buyer_agent/server.py` and
+`apps/buyer_agent/buyer_agent/executor.py`, pass the effective model to
+`select_buyer_planner`:
+
+```python
+        planner = select_buyer_planner(
+            settings.llm_mode,
+            settings.nebius_api_key,
+            settings.nebius_base_url,
+            settings.buyer_model,
+        )
+```
+
 In `apps/buyer_agent/buyer_agent/graph.py`, in `interpret_brief`:
 
 ```python
@@ -588,8 +669,7 @@ In `apps/buyer_agent/buyer_agent/graph.py`, in `interpret_brief`:
     fallback_used = False
     try:
         mandate = await planner.parse_brief(text, products)
-        if not isinstance(mandate, Mandate):
-            mandate = Mandate.model_validate(mandate)
+        if not isinstance(mandate, Mandate):            mandate = Mandate.model_validate(mandate)
     except Exception:  # noqa: BLE001
         mandate = None
 ```

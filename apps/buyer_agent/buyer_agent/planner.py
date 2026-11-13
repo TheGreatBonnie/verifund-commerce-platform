@@ -145,15 +145,17 @@ class NebiusBuyerPlanner:
             "base_url": base_url,
             "model": model,
             "temperature": 0,
+            # One attempt, no SDK-level retry. The brief parser is not the
+            # authority on the product — the catalog is — so a slow or failed
+            # model call must not hold the handoff open. The caller falls back
+            # to a catalog-grounded mandate instead.
             "timeout": 45,
-            "max_retries": 1,
+            "max_retries": 0,
         }
         self.base_llm = ChatOpenAI(**common)
-        self.brief_llm = ChatOpenAI(**common).with_structured_output(Mandate)
-        self.counter_llm = ChatOpenAI(**common).with_structured_output(
-            CounterChoice
-        )
-        self.explain_llm = ChatOpenAI(**common)
+        self.brief_llm = self.base_llm.with_structured_output(Mandate)
+        self.counter_llm = self.base_llm.with_structured_output(CounterChoice)
+        self.explain_llm = self.base_llm
 
     async def parse_brief(self, text: str, products: list[dict] | None = None) -> Mandate:
         prompt_text = text
@@ -173,10 +175,11 @@ class NebiusBuyerPlanner:
                 ]
             ),
         )
-        # The registry indexes sellers under a small, fixed set of categories.
-        # Keep the LLM from inventing a category that matches no seller.
-        if mandate.category not in {"audio", "consumer-electronics"}:
-            mandate.category = "consumer-electronics"
+        # The model's category is a guess, and forcing it onto a fixed value
+        # is what hid every seller from discovery. The catalog is the
+        # authority on categories; the registry ignores a category it does
+        # not index, and `ground_mandate` replaces this one with the
+        # catalog's.
         return mandate
 
     async def choose_counter(
@@ -294,7 +297,8 @@ def retrieve_candidates(brief_text: str, products: list[dict], limit: int = 3) -
 
 def mandate_from_text(text: str, products: list[dict] | None = None) -> Mandate:
     quantity_match = re.search(
-        r"\b(\d{1,3})\s+(?:x\s+)?(?:Nimbus|units?|headsets?)",
+        r"\b(\d{1,3})\s+(?:x\s+)?(?:Nimbus|units?|headsets?)"
+        r"|\b(?:quantity|qty)\b\s*[:=]?\s*(\d{1,4})",
         text,
         re.IGNORECASE,
     )
@@ -309,7 +313,11 @@ def mandate_from_text(text: str, products: list[dict] | None = None) -> Mandate:
         text,
         re.IGNORECASE,
     )
-    quantity = int(quantity_match.group(1)) if quantity_match else (1 if sku_match else 12)
+    quantity = (
+        int(quantity_match.group(1) or quantity_match.group(2))
+        if quantity_match
+        else (1 if sku_match else 12)
+    )
     max_total = 340000
     if budget_match:
         try:
@@ -317,21 +325,29 @@ def mandate_from_text(text: str, products: list[dict] | None = None) -> Mandate:
             max_total = value * 100 if value < 10000 else value
         except ValueError:
             pass
-    product_hint = product_match.group(1).strip() if product_match else "Nimbus NC-700 ANC Headset"
+    product_hint = (
+        product_match.group(1).strip()
+        if product_match
+        else "Nimbus NC-700 ANC Headset"
+    )
     product_sku = sku_match.group(1) if sku_match else None
-    if products is not None and not product_sku:
-        candidates = retrieve_candidates(text, products)
-        if candidates:
-            top = candidates[0]
-            sku = top.get("sku")
-            name = top.get("name")
-            if sku:
-                product_sku = str(sku)
-            if name:
-                product_hint = str(name)
+    category = "consumer-electronics"
+    entry = _catalog_entry(product_sku, text, products)
+    if entry is not None:
+        if not product_sku and entry.get("sku"):
+            product_sku = str(entry["sku"])
+        name = entry.get("name")
+        if name:
+            product_hint = str(name)
+        # The catalog carries the category the registry indexes sellers under.
+        # A category invented here would hide every seller behind the
+        # registry's discovery filter.
+        grounded = str(entry.get("category") or "").strip()
+        if grounded:
+            category = grounded
     return Mandate(
         run_id="demo-run",
-        category="consumer-electronics",
+        category=category,
         product_hint=product_hint,
         product_sku=product_sku,
         quantity=quantity,
@@ -341,6 +357,48 @@ def mandate_from_text(text: str, products: list[dict] | None = None) -> Mandate:
         min_returns_days=30,
         preferences=Preferences(sustainability=True, color="black"),
     )
+
+
+def _catalog_entry(
+    product_sku: str | None, text: str, products: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """The catalog entry for the product a brief is about.
+
+    A SKU the brief stated names the product outright, so its catalog entry
+    is the one that matters. Without a SKU the brief is matched against the
+    catalog the way the marketplace search matches it.
+    """
+    if not products:
+        return None
+    if product_sku:
+        for product in products:
+            if str(product.get("sku")) == product_sku:
+                return product
+        return None
+    candidates = retrieve_candidates(text, products)
+    return candidates[0] if candidates else None
+
+
+def ground_mandate(
+    mandate: Mandate, text: str, products: list[dict[str, Any]] | None
+) -> Mandate:
+    """Resolve a mandate's product identity against the published catalog.
+
+    The catalog is the source of truth for the identifiers the registry
+    indexes, so it wins over anything the brief parser guessed.
+    """
+    entry = _catalog_entry(mandate.product_sku, text, products)
+    if entry is None:
+        return mandate
+    updates: dict[str, Any] = {}
+    if not mandate.product_sku and entry.get("sku"):
+        updates["product_sku"] = str(entry["sku"])
+    grounded = str(entry.get("category") or "").strip()
+    if grounded:
+        updates["category"] = grounded
+    if not updates:
+        return mandate
+    return mandate.model_copy(update=updates)
 
 
 def select_buyer_planner(

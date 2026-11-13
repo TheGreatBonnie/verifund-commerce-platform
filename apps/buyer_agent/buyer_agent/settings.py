@@ -66,6 +66,10 @@ class Settings(BaseSettings):
         default="deepseek-ai/DeepSeek-V4-Flash-0731",
         validation_alias=AliasChoices("NEBIUS_MODEL"),
     )
+    buyer_llm_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BUYER_LLM_MODEL"),
+    )
     buyer_internal_token: str = Field(
         default="dev-buyer-internal",
         validation_alias=AliasChoices("BUYER_INTERNAL_TOKEN"),
@@ -121,3 +125,15 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:3000",
         validation_alias=AliasChoices("VERIFUND_CONSOLE_BASE_URL", "BUYER_CONSOLE_BASE_URL"),
     )
+
+    @property
+    def buyer_model(self) -> str:
+        """The model the Buyer's own planner calls use.
+
+        The Buyer extracts structured facts from a brief and has to answer
+        inside the handoff's time budget, so it does not have to share the
+        orchestrator's reasoning model. A reasoning model spends its output
+        budget thinking and then returns a truncated answer, which is a
+        timeout the handoff cannot afford.
+        """
+        return self.buyer_llm_model or self.nebius_model
