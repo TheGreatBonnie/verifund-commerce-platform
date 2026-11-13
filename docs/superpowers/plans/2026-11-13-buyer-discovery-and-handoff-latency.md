@@ -958,3 +958,67 @@ now reaches the seller in 24.7 s with a bare `SKU:` label and 11.0 s with the
 - **The seller's retry budget.** `timeout=30, max_retries=1` is already two
   attempts with a scripted fallback, and the seller's calls are succeeding at
   11–14 s.
+
+---
+
+## Second round: model selection and the remaining protocol gaps
+
+Approved after benchmarking the public text-to-text catalog against the buyer's
+and orchestrator's real workloads.
+
+### Task 4: the default model has to exist on the public endpoint
+
+`deepseek-ai/DeepSeek-V4-Flash-0731` was the hard-coded default in all three
+agents and in `scripts/config.py`. It was removed from Token Factory Serverless
+on 2026-11-09, so the default answered every model call with "You do not have
+access to model". It only worked because Render's env-var group overrode it.
+
+Every default now names a model that is in the public catalog and reachable:
+`MiniMaxAI/MiniMax-M3`. The base URL moves to `eu-north1`, the region that
+serves the whole catalog (12 of the 14 public text-to-text models, against 8
+from `uk-south1`).
+
+`tests/unit/test_model_defaults.py` pins this: no agent may default to a model
+that has left Serverless, and every agent's default endpoint must be the
+catalog region.
+
+### Task 5: a counter is not voided by one unsupported change
+
+`CounterChoice` rejected the whole response when the model asked for a change
+outside the allowlist, or listed more than two trade-offs. Measured across
+seven models, that was the counter's only failure mode: 0/4 to 4/4 failures
+per model, and stating the cap in the prompt did not help.
+
+Unsupported changes and trade-offs are now dropped, and the ranked trade-offs
+are truncated to the two the buyer can act on. The guardrail is unchanged —
+only supported terms survive — but the counter the model reasoned its way to
+is no longer thrown away with them. The same relaxation applies to the seller's
+`SellerDecision`, which had the identical pattern.
+
+`ALLOWED_REQUESTED_CHANGE_KEYS` in `commerce_core.negotiation` is now the one
+allowlist both planners use, rather than two local copies.
+
+### Task 6: the buyer reads the SKU however the brief writes it
+
+`SKU_PATTERN` required the literal `Product SKU:`, so a brief saying
+`SKU: EX-MACBOOK-AIR` lost the identifier. The label is now matched loosely
+(`Product SKU`, `Item SKU`, `SKU`, with `:` or `=`), and a bare SKU is resolved
+from the catalog by name.
+
+The Buyer also stops believing a SKU the catalog does not list. Discovery
+filters on the SKU, so a wrong one hides every seller — the failure the
+catalog grounding exists to prevent. A stated SKU that the catalog lists wins;
+one it does not is replaced by the catalog entry for the product the brief
+describes; one that matches nothing is dropped so discovery falls back to the
+category filter.
+
+### Measured
+
+| | before | after |
+|---|---|---|
+| Default model | removed from Serverless | `MiniMaxAI/MiniMax-M3`, in the catalog |
+| Default endpoint | `uk-south1`, 8 of 14 catalog models | `eu-north1`, 12 of 14 |
+| Buyer brief parse | 2.2 s (gpt-oss-120b) | 1.2 s (MiniMax-M3) |
+| Orchestrator turn | 2.0 s (DeepSeek-V4-Pro) | 1.6 s (MiniMax-M3) |
+| Counter rejected by the validator | 0–4 of 4 per model | 0 |
+| SKU label accepted | `Product SKU:` only | `Product SKU:` / `Item SKU:` / `SKU:` |
