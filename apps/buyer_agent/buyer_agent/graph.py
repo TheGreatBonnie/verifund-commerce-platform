@@ -1201,7 +1201,9 @@ async def create_settlement_award(state: BuyerState, config: dict) -> dict:
     # The Buyer owns this award. It is persisted before the pause so the
     # Verifund agent can fetch it over the internal API instead of carrying a
     # model-authored copy of it across the orchestrator.
-    settlement_store = getattr(services, "settlement", None)
+    # `services.settlement` is the HTTP client; the award store is the one the
+    # settlement API also serves from (`services.store.settlement`).
+    settlement_store = getattr(getattr(services, "store", None), "settlement", None)
     if settlement_store is not None:
         await settlement_store.save_award(run_id, award.model_dump(mode="json"))
     interrupted = interrupt(

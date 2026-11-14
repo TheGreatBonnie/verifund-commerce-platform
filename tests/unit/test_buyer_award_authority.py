@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import pytest
 from buyer_agent.graph import create_settlement_award
+from buyer_agent.settlement_client import BuyerSettlementClient
 from verifund_contracts import (
     AgreementProjection,
     AwardLineItem,
@@ -306,11 +307,23 @@ def _state() -> dict[str, Any]:
 
 
 async def test_the_buyer_persists_the_award_it_pauses_with() -> None:
+    # Wire the builder the way build_services() does: `settlement` is the HTTP
+    # client and the award store lives on `store.settlement`.
     settlement = RecordingSettlement()
-    services = SimpleNamespace(settlement=settlement, trace=None, registry=None)
+    services = SimpleNamespace(
+        settlement=BuyerSettlementClient("http://127.0.0.1:9", ops_token="ops"),
+        store=SimpleNamespace(settlement=settlement),
+        trace=None,
+        registry=None,
+    )
 
-    with pytest.raises(RuntimeError):
-        await create_settlement_award(_state(), {"configurable": {"services": services}})
+    try:
+        with pytest.raises(RuntimeError):
+            await create_settlement_award(
+                _state(), {"configurable": {"services": services}}
+            )
+    finally:
+        await services.settlement.close()
 
     assert "run-1" in settlement.awards
     award = settlement.awards["run-1"]
