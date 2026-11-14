@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from typing import Any
 
@@ -38,6 +39,8 @@ from buyer_agent.settings import Settings
 # Re-exported so callers can build tenant-prefixed checkpoint ids without
 # importing the graph module.
 thread_id = _thread_id
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["BuyerExecutor", "memory_namespace", "thread_id"]
 
@@ -373,16 +376,18 @@ class BuyerExecutor(AgentExecutor):
                     },
                     config=config,
                 )
-        except Exception as exc:  # noqa: BLE001
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=task_id,
-                    context_id=context_id,
-                    status=TaskStatus(
-                        state=TaskState.TASK_STATE_FAILED,
-                        message=self._agent_message(str(exc), task_id, context_id),
-                    ),
-                )
+        except Exception as exc:
+            # Callers only understand JSON status envelopes. A plain text
+            # failure is dropped by the response parser, which surfaces as
+            # "Buyer returned no structured response" and hides the real error.
+            logger.exception("Buyer run failed during %s", str(review_kind or "execution"))
+            await self._fail(
+                event_queue,
+                task_id,
+                context_id,
+                reason="buyer_graph_error",
+                message=f"{type(exc).__name__}: {exc}",
+                code="buyer_graph_error",
             )
             return
 

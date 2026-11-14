@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -49,6 +50,28 @@ from orchestrator_agent.mediation import (
 Sender = Callable[..., Awaitable[list]]
 TokenResolver = Callable[..., Awaitable[str]]
 SettlementResolver = Callable[..., Awaitable[str]]
+
+logger = logging.getLogger(__name__)
+
+
+def _frame_summary(frames: list, *, limit: int = 600) -> str:
+    """Compact, redacted description of the frames a caller received."""
+    parts = []
+    for frame in frames:
+        kind = frame.WhichOneof("payload") if frame is not None else "?"
+        message = None
+        if kind == "status_update":
+            message = frame.status_update.status.message
+        elif kind == "task":
+            message = frame.task.status.message
+        texts = [
+            part.text
+            for part in getattr(message, "parts", [])
+            if part.HasField("text")
+        ]
+        parts.append(f"{kind}={texts!r}")
+    summary = "; ".join(parts)
+    return summary[:limit]
 
 
 class VerifundProtocolError(RuntimeError):
@@ -342,6 +365,14 @@ class BuyerA2AAgents:
         frames = await self._send(self.buyer_a2a_url, message)
         response = _buyer_response(frames)
         if response is None:
+            # Without the raw frames this failure is invisible: the caller only
+            # sees that no JSON envelope arrived. Log what the Buyer actually
+            # sent so the real cause is diagnosable from the service log.
+            logger.warning(
+                "Buyer returned no structured response for task %s: %s",
+                task_id,
+                _frame_summary(frames),
+            )
             raise VerifundProtocolError("Buyer returned no structured response")
         return response
 
