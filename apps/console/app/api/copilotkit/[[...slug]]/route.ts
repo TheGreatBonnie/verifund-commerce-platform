@@ -250,10 +250,13 @@ const orchestratorInstructions = `
 
   When the Buyer returns status approval_required:
 
-  1. Extract the exact task_id, message, award, and mandate
-    from the Buyer response.
+  1. Read the exact task_id and message from the Buyer
+    response.
   2. Call the frontend request_award_approval tool with
-    those exact values.
+    those values. Never copy the award or the mandate into
+    the tool arguments: the console loads the award from the
+    Buyer, and a copied award truncates the call so the user
+    never sees an approval card.
   3. Do not ask for approval through plain chat text.
   4. Wait for the actual tool result before continuing.
   5. Proceed only when the returned decision explicitly

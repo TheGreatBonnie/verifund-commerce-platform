@@ -35,4 +35,9 @@ describe("orchestrator sourcing mandate instructions", () => {
   it("declares a serverless budget for the handoff route", () => {
     expect(source).toMatch(/export const maxDuration\s*=\s*\d+/);
   });
+
+  it("keeps the award out of the approval tool arguments", () => {
+    expect(source).not.toMatch(/Extract the exact task_id, message, award/i);
+    expect(source).toMatch(/never copy the award/i);
+  });
 });

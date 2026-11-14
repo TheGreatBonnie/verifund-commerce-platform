@@ -12,7 +12,7 @@ import {
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { ApprovalCard } from "@/features/chat/components/approval-card";
+import { AwardApproval } from "@/features/chat/components/award-approval";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import {
   AgreementReviewCard,
@@ -225,11 +225,11 @@ export function Chat({
       agentId: "marketmesh_orchestrator",
       name: "request_award_approval",
       description:
-        "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the award and task ID from that Buyer response without changing them.",
+        "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the task_id and message from that Buyer response; the console loads the award from the Buyer, so never copy the award object into the arguments.",
       parameters: z.object({
         task_id: z.string(),
-        message: z.string(),
-        award: z.record(z.unknown()),
+        message: z.string().optional(),
+        award: z.record(z.unknown()).optional(),
         mandate: z.record(z.unknown()).optional(),
       }),
       render: ({ args, status, respond, result }) => {
@@ -244,7 +244,8 @@ export function Chat({
         if (status === "executing" && respond) {
           return (
             <div className="mm-chat-approval">
-              <ApprovalCard
+              <AwardApproval
+                taskId={args.task_id}
                 award={args.award as any}
                 mandate={args.mandate as any}
                 message={args.message}
