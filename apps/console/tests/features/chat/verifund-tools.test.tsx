@@ -76,7 +76,7 @@ describe("verifund chat tools", () => {
     expect(verifundToolsEnabled("sandbox")).toBe(true);
   });
 
-  it("requires both agents to accept the same version and hash", () => {
+  it("gates funding on acceptance and the authoritative binding, not on relayed review bindings", () => {
     expect(bilateralReviewStatus(fundingArgs())).toBe("ready");
     expect(
       bilateralReviewStatus(fundingArgs({ buyer_review: null })),
@@ -84,20 +84,39 @@ describe("verifund chat tools", () => {
     expect(
       bilateralReviewStatus(fundingArgs({ seller_decision: null })),
     ).toBe("seller_pending");
+    // The review copies are relayed by the orchestrator's LLM; stale or
+    // dropped binding fields on them must not block funding.
     expect(
       bilateralReviewStatus(
         fundingArgs({
           seller_decision: { ...accepted, agreement_hash: "b".repeat(64) },
         }),
       ),
-    ).toBe("mismatch");
+    ).toBe("ready");
     expect(
       bilateralReviewStatus(
         fundingArgs({
           buyer_review: { ...accepted, agreement_version: 2 },
         }),
       ),
-    ).toBe("mismatch");
+    ).toBe("ready");
+    expect(
+      bilateralReviewStatus(
+        fundingArgs({
+          seller_decision: { status: "accepted" },
+        }),
+      ),
+    ).toBe("ready");
+    // Without an authoritative binding there is nothing to fund against.
+    expect(
+      bilateralReviewStatus(
+        fundingArgs({
+          agreement_version: undefined,
+          agreement_hash: undefined,
+          agreement: undefined,
+        }),
+      ),
+    ).toBe("unbound");
   });
 
   it("stays ready when the LLM drops the nested agreement version but the top-level binding still matches both reviews", () => {
@@ -124,13 +143,21 @@ describe("verifund chat tools", () => {
     ).not.toThrow();
   });
 
-  it("still reports mismatch when a review is bound to different terms than the top-level binding", () => {
+  it("does not block funding when a lossy relay keeps stale review bindings", () => {
     const live = fundingArgs();
-    const tampered = {
+    const relayed = {
       ...live,
-      seller_decision: { ...live.seller_decision, agreement_hash: "b".repeat(64) },
+      buyer_review: {
+        ...live.buyer_review,
+        agreement_version: 2,
+        agreement_hash: "b".repeat(64),
+      },
+      seller_decision: { status: "accepted" },
     } as any;
-    expect(bilateralReviewStatus(tampered)).toBe("mismatch");
+    expect(bilateralReviewStatus(relayed)).toBe("ready");
+    expect(() =>
+      fundingDecision(relayed, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
   });
 
   it("accepts funding approval args without an embedded agreement", () => {

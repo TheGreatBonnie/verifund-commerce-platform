@@ -273,7 +273,7 @@ export function bilateralReviewStatus(
     FundingApprovalArgs,
     "agreement" | "buyer_review" | "seller_decision" | "agreement_version" | "agreement_hash"
   >,
-): "ready" | "buyer_pending" | "seller_pending" | "mismatch" {
+): "ready" | "buyer_pending" | "seller_pending" | "unbound" {
   const { agreement, buyer_review, seller_decision } = args;
   if (!buyer_review || buyer_review.status !== "accepted") {
     return "buyer_pending";
@@ -281,17 +281,20 @@ export function bilateralReviewStatus(
   if (!seller_decision || seller_decision.status !== "accepted") {
     return "seller_pending";
   }
-  // The HITL args carry the binding at the top level (agreement_version /
-  // agreement_hash) as well as nested inside `agreement`. The orchestrator's
-  // LLM relay can drop the nested copy (same class as the earlier
-  // agreement_id drop), so the top level is authoritative when present.
-  const expectedVersion =
-    args.agreement_version ?? agreement?.agreement_version;
-  const expectedHash = args.agreement_hash ?? agreement?.agreement_hash;
-  const bound = (review: ReviewDecision) =>
-    review.agreement_version === expectedVersion &&
-    review.agreement_hash === expectedHash;
-  if (!bound(buyer_review) || !bound(seller_decision)) return "mismatch";
+  // The reviews here are copies relayed by the orchestrator's LLM, and that
+  // relay can drop or carry stale binding fields (see the nested-agreement
+  // drop below). They are advisory: the Verifund backend validates each
+  // review against the canonical agreement before it emits this funding
+  // checkpoint, and re-validates the FundingApprovalDecision on submit, so a
+  // lossy copy must never block funding.
+  //
+  // The HITL args carry the authoritative binding at the top level
+  // (agreement_version / agreement_hash) as well as nested inside `agreement`.
+  // Either is enough to bind the decision; without both, funding cannot be
+  // recorded at all.
+  const bindingVersion = args.agreement_version ?? agreement?.agreement_version;
+  const bindingHash = args.agreement_hash ?? agreement?.agreement_hash;
+  if (bindingVersion == null || bindingHash == null) return "unbound";
   return "ready";
 }
 
@@ -642,8 +645,8 @@ export function FundingApprovalCard({
       />
       {!ready ? (
         <p role="alert" data-testid="verifund-funding-blocked" className="mm-verifund-blocked">
-          {readiness === "mismatch"
-            ? "The recorded reviews are bound to different terms. Funding is blocked."
+          {readiness === "unbound"
+            ? "The agreement binding is missing from this approval. Funding is blocked."
             : `Waiting for the ${
                 readiness === "buyer_pending" ? "Buyer" : "Seller"
               } decision before funding.`}
