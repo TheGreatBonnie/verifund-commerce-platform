@@ -1,11 +1,12 @@
 /**
  * Displays incoming A2A responses (Agent → Orchestrator).
- * Blue box with sender/receiver badges. Actual data renders separately in main UI.
+ * Actual data renders separately in the main UI.
  */
 
 "use client";
 
 import React from "react";
+import { cn } from "@/lib/cn";
 import { getAgentStyle } from "./agent-styles";
 import { useResolvedAgentName } from "./use-resolved-agent-name";
 
@@ -40,38 +41,38 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
   const agentStyle = getAgentStyle(displayName ?? args.agentName);
 
   return (
-    <div className="my-2 a2a-message-card a2a-message-card-incoming">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-        <div className="a2a-message-layout">
-          <div className="a2a-message-route">
-            <div className="flex flex-col items-center">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold border-2 ${agentStyle.bgColor} ${agentStyle.textColor} ${agentStyle.borderColor} flex items-center gap-1`}
-              >
-                <span>{agentStyle.icon}</span>
-                <span>{displayName}</span>
-              </span>
-              {agentStyle.framework && (
-                <span className="text-[9px] text-gray-500 mt-0.5">
-                  {agentStyle.framework}
-                </span>
+    <div className="a2a-message-card mm-a2a-card mm-a2a-card--incoming">
+      <div className="a2a-message-layout">
+        <div className="a2a-message-route">
+          <div className="mm-a2a-node">
+            <span
+              className={cn(
+                "mm-agent-badge mm-a2a-badge",
+                `mm-a2a-badge--${agentStyle.tone}`,
               )}
-            </div>
-
-            <span className="text-gray-400 text-sm">→</span>
-
-            <div className="flex flex-col items-center">
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-700 text-white">
-                Orchestrator
-              </span>
-              <span className="text-[9px] text-gray-500 mt-0.5">ADK</span>
-            </div>
+            >
+              <span aria-hidden="true">{agentStyle.glyph}</span>
+              <span>{displayName}</span>
+            </span>
+            {agentStyle.role ? (
+              <span className="mm-kicker mm-a2a-role">{agentStyle.role}</span>
+            ) : null}
           </div>
 
-          <span className="text-xs text-gray-600 a2a-message-copy">
-            {failed ? `⚠ ${response || "Seller call failed"}` : `✓ ${response || "Response received"}`}
-          </span>
+          <span className="mm-a2a-connector" aria-hidden="true">→</span>
+
+          <div className="mm-a2a-node">
+            <span className="mm-agent-badge mm-a2a-badge mm-a2a-badge--orchestrator">
+              Orchestrator
+            </span>
+            <span className="mm-kicker mm-a2a-role">ADK</span>
+          </div>
         </div>
+
+        <span className={cn("mm-status mm-a2a-status", failed && "is-error")}>
+          <span aria-hidden="true">{failed ? "⚠" : "✓"}</span>
+          <span>{failed ? response || "Seller call failed" : response || "Response received"}</span>
+        </span>
       </div>
     </div>
   );

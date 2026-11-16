@@ -1,11 +1,12 @@
 /**
  * Displays outgoing A2A messages (Orchestrator → Agent).
- * Green box with sender/receiver badges and task description.
+ * Uses the Verifund console's panel/rule/mono language from agent-styles tones.
  */
 
 "use client";
 
 import React from "react";
+import { cn } from "@/lib/cn";
 import { getAgentStyle, truncateTask } from "./agent-styles";
 import { useResolvedAgentName } from "./use-resolved-agent-name";
 
@@ -40,35 +41,36 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
   const agentStyle = getAgentStyle(displayName ?? args.agentName);
 
   return (
-    <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 my-2 a2a-message-enter a2a-message-card a2a-message-card-outgoing">
+    <div className="a2a-message-enter a2a-message-card mm-a2a-card mm-a2a-card--outgoing">
       <div className="a2a-message-layout">
         <div className="a2a-message-route">
-          <div className="flex flex-col items-center">
-            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-700 text-white">
+          <div className="mm-a2a-node">
+            <span className="mm-agent-badge mm-a2a-badge mm-a2a-badge--orchestrator">
               Orchestrator
             </span>
-            <span className="text-[9px] text-gray-500 mt-0.5">ADK</span>
+            <span className="mm-kicker mm-a2a-role">ADK</span>
           </div>
 
-          <span className="text-gray-400 text-sm">→</span>
+          <span className="mm-a2a-connector" aria-hidden="true">→</span>
 
-          <div className="flex flex-col items-center">
+          <div className="mm-a2a-node">
             <span
-              className={`px-3 py-1 rounded-full text-xs font-semibold border-2 ${agentStyle.bgColor} ${agentStyle.textColor} ${agentStyle.borderColor} flex items-center gap-1`}
+              className={cn(
+                "mm-agent-badge mm-a2a-badge",
+                `mm-a2a-badge--${agentStyle.tone}`,
+              )}
             >
-              <span>{agentStyle.icon}</span>
+              <span aria-hidden="true">{agentStyle.glyph}</span>
               <span>{displayName}</span>
             </span>
-            {agentStyle.framework && (
-              <span className="text-[9px] text-gray-500 mt-0.5">
-                {agentStyle.framework}
-              </span>
-            )}
+            {agentStyle.role ? (
+              <span className="mm-kicker mm-a2a-role">{agentStyle.role}</span>
+            ) : null}
           </div>
         </div>
 
         <span
-          className="text-gray-700 text-sm a2a-message-copy"
+          className="a2a-message-copy mm-a2a-copy"
           title={task}
         >
           {truncateTask(task)}
