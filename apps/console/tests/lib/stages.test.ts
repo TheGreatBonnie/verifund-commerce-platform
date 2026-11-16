@@ -16,6 +16,16 @@ describe("settlement stages", () => {
     expect(stageLabel("ordered")).toBe("Ordered");
   });
 
+  it("labels an escalated agreement review", () => {
+    expect(stageLabel("operator_required")).toBe("Seller operator required");
+    expect(stageLabel("changes_requested")).toBe("Changes requested");
+  });
+
+  it("treats an escalated agreement review as a pause", () => {
+    expect(isPausedStage("operator_required")).toBe(true);
+    expect(isPausedStage("changes_requested")).toBe(true);
+  });
+
   it("treats released and canceled as terminal in settlement mode", () => {
     expect(isTerminalStage("released", true)).toBe(true);
     expect(isTerminalStage("canceled", true)).toBe(true);

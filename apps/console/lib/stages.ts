@@ -15,6 +15,8 @@ const LABELS: Record<string, string> = {
   failed: "Failed",
   awarded: "Awarded",
   agreed: "Agreed",
+  operator_required: "Seller operator required",
+  changes_requested: "Changes requested",
   funding_pending: "Funding pending",
   funded: "Funded",
   fulfillment_pending: "Fulfillment pending",
@@ -54,6 +56,8 @@ export const PAUSED_STAGES = new Set([
   "release_permitted",
   "review_required",
   "dispute_open",
+  "operator_required",
+  "changes_requested",
 ]);
 
 export function stageLabel(stage?: string): string {
