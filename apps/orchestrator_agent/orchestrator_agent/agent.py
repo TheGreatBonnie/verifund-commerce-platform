@@ -3,6 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal, Optional
 
+# ADK imports litellm lazily on the first LLM call. That import takes seconds
+# on the free Render container and blocks the shared event loop, so pay the
+# cost here, while the gateway is still starting up.
+import litellm  # noqa: F401
 from ag_ui_adk import AGUIToolset
 from commerce_core.retrieval import NebiusEmbeddings, ProductRetriever
 from google.adk.agents import LlmAgent
@@ -17,6 +21,8 @@ from verifund_contracts import (
 from orchestrator_agent import marketplace
 from orchestrator_agent.mediation import (
     mediate_seller_call as _mediate_seller_call,
+)
+from orchestrator_agent.mediation import (
     set_card_hosts,
 )
 from orchestrator_agent.settings import Settings
