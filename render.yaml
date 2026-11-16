@@ -23,7 +23,9 @@ services:
     branch: deploy/render
     dockerfilePath: ./Dockerfile.python
     dockerCommand: python -m gateway
-    healthCheckPath: /health
+    # No HTTP health check: a busy agent run can stall the single-worker event
+    # loop and fail Render's 5s probe, causing 60s-timeout restarts. Render's
+    # default TCP probe still monitors the port without depending on the loop.
     envVars:
       - fromGroup: gateway-shared
       - key: PORT
