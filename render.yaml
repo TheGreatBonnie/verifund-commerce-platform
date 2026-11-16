@@ -1,9 +1,26 @@
+# Render blueprint for the merged MarketMesh gateway.
+#
+# The running service is `gateway`, built from the `deploy/render` branch.
+# Render assigned it the slug `gateway-795m`, so its hostname is
+# `gateway-795m.onrender.com`; `gateway.onrender.com` is a different host
+# and answers 404. Every URL below points at the real host.
+#
+# The live service is not blueprint-managed, so this file describes what the
+# running gateway needs rather than driving it. Creating a service from it
+# reproduces the running configuration.
+#
+# The six sub-apps share one Postgres instance and each uses its own logical
+# database on it (buyer, sellers, registry, orchestrator, verifund,
+# verifund_agent). A blueprint cannot express that split, so those URLs stay
+# `sync: false` and are set in the dashboard.
+
 services:
   - type: web
     runtime: docker
     name: gateway
     plan: free
     region: oregon
+    branch: deploy/render
     dockerfilePath: ./Dockerfile.python
     dockerCommand: python -m gateway
     healthCheckPath: /health
@@ -11,62 +28,66 @@ services:
       - fromGroup: gateway-shared
       - key: PORT
         value: "10000"
-      - key: BUYER_CONSOLE_API_TOKEN
-        sync: false
+      - key: ALLOWED_CARD_HOSTS
+        value: '["gateway-795m.onrender.com", "127.0.0.1", "localhost"]'
       - key: REGISTRY_URL
         value: https://gateway-795m.onrender.com/registry
-      - key: BUYER_DATABASE_URL
-        sync: false
-      - key: BUYER_CHECKPOINT_PATH
-        value: /app/data/buyer-checkpoints.db
-      - key: BUYER_CHECKPOINT_URL
-        sync: false
+      - key: BUYER_A2A_URL
+        value: https://gateway-795m.onrender.com/buyer
       - key: BUYER_PUBLIC_BASE_URL
         value: https://gateway-795m.onrender.com/buyer
-      - key: REGISTRY_DATABASE_URL
-        sync: false
-      - key: SELLER_SHARED_DB_URL
-        sync: false
-      - key: SELLER_CHECKPOINT_PATH
-        value: /app/data/seller-checkpoints.db
-      - key: SELLER_CHECKPOINT_URL
-        sync: false
-      - key: SELLER_CONFIG_SOURCE
-        value: shared
+      - key: BUYER_INTERNAL_URL
+        value: https://gateway-795m.onrender.com/buyer
       - key: PUBLIC_BASE_URL
         value: https://gateway-795m.onrender.com/sellers
-      - key: VERIFUND_DATABASE_URL
-        sync: false
-      - key: VERIFUND_AGENT_DATABASE_URL
-        sync: false
-      - key: VERIFUND_AGENT_CHECKPOINT_PATH
-        value: /app/data/agent-checkpoints.db
-      - key: VERIFUND_AGENT_CHECKPOINT_URL
-        sync: false
-      - key: VERIFUND_AGENT_URL
-        value: https://gateway-795m.onrender.com/verifund-agent
-      - key: VERIFUND_AGENT_CARD_URL
-        value: https://gateway-795m.onrender.com/verifund-agent/.well-known/agent-card.json
-      - key: ORCHESTRATOR_SESSION_DB_URL
-        sync: false
+      - key: SELLER_SHARED_URL
+        value: https://gateway-795m.onrender.com/sellers
       - key: VERIFUND_URL
         value: https://gateway-795m.onrender.com/control-plane
       - key: VERIFUND_CONTROL_PLANE_URL
         value: https://gateway-795m.onrender.com/control-plane
-      - key: BUYER_INTERNAL_URL
-        value: https://gateway-795m.onrender.com/buyer
-      - key: SELLER_SHARED_URL
-        value: https://gateway-795m.onrender.com/sellers
       - key: VERIFUND_PUBLIC_BASE_URL
         value: https://gateway-795m.onrender.com/control-plane
+      - key: VERIFUND_AGENT_URL
+        value: https://gateway-795m.onrender.com/verifund-agent
+      - key: VERIFUND_AGENT_CARD_URL
+        value: https://gateway-795m.onrender.com/verifund-agent/.well-known/agent-card.json
       - key: VERIFUND_CONSOLE_BASE_URL
-        sync: false
-      - key: VERIFUND_EVIDENCE_DIR
-        value: /app/data/evidence
+        value: https://verifund-console.vercel.app
       - key: VERIFUND_ALLOW_PUBLIC_BIND
         value: "1"
-      - key: ALLOWED_CARD_HOSTS
-        value: '["gateway-795m.onrender.com", "127.0.0.1", "localhost"]'
+      - key: VERIFUND_EVIDENCE_DIR
+        value: /app/data/evidence
+      - key: BUYER_CHECKPOINT_PATH
+        value: /app/data/buyer-checkpoints.db
+      - key: SELLER_CHECKPOINT_PATH
+        value: /app/data/seller-checkpoints.db
+      - key: VERIFUND_AGENT_CHECKPOINT_PATH
+        value: /app/data/agent-checkpoints.db
+      - key: SELLER_CONFIG_SOURCE
+        value: shared
+      - key: BUYER_DATABASE_URL
+        sync: false
+      - key: BUYER_CHECKPOINT_URL
+        sync: false
+      - key: REGISTRY_DATABASE_URL
+        sync: false
+      - key: SELLER_SHARED_DB_URL
+        sync: false
+      - key: SELLER_CHECKPOINT_URL
+        sync: false
+      - key: ORCHESTRATOR_SESSION_DB_URL
+        sync: false
+      - key: VERIFUND_DATABASE_URL
+        sync: false
+      - key: VERIFUND_AGENT_DATABASE_URL
+        sync: false
+      - key: VERIFUND_AGENT_CHECKPOINT_URL
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_JWT_KEY
+        sync: false
 
 databases:
   - name: marketmesh
@@ -80,83 +101,61 @@ envVarGroups:
     envVars:
       - key: HOST
         value: 0.0.0.0
-      # The registry reads ADMIN_TOKEN; the control plane sends the same secret
-      # as REGISTRY_ADMIN_TOKEN when it publishes Agent Cards.
-      - key: ADMIN_TOKEN
-        sync: false
-      - key: REGISTRY_ADMIN_TOKEN
-        sync: false
-      # Inter-service tokens. All six services share one process, so one value
-      # per token keeps every caller and callee in agreement. Render generates
-      # these on the first sync and preserves them afterwards.
-      # BUYER_INTERNAL_TOKEN is also read by the Vercel console: copy the
-      # generated value into the console's environment.
-      - key: BUYER_INTERNAL_TOKEN
-        generateValue: true
-      - key: SELLER_INTERNAL_TOKEN
-        generateValue: true
-      - key: VERIFUND_AGENT_A2A_TOKEN
-        generateValue: true
-      - key: VERIFUND_AGENT_INTERNAL_TOKEN
-        generateValue: true
       - key: MARKETMESH_LLM_MODE
         value: live
-      - key: NEBIUS_API_KEY
-        sync: false
       - key: NEBIUS_BASE_URL
         value: https://api.tokenfactory.eu-north1.nebius.com/v1/
       - key: NEBIUS_MODEL
         value: MiniMaxAI/MiniMax-M3
-      # The Buyer extracts structured facts from a brief and has to answer
-      # inside the handoff's time budget. The orchestrator's reasoning model
-      # spends its output budget thinking and then returns a truncated
-      # answer, which the Buyer cannot afford.
       - key: BUYER_LLM_MODEL
         value: MiniMaxAI/MiniMax-M3
       - key: NEBIUS_EMBEDDING_BASE_URL
         value: https://api.tokenfactory.eu-north1.nebius.com/v1/
       - key: NEBIUS_EMBEDDING_MODEL
         value: Qwen/Qwen3-Embedding-8B
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: REGISTRY_ADMIN_TOKEN
+        sync: false
+      - key: BUYER_INTERNAL_TOKEN
+        sync: false
+      - key: SELLER_INTERNAL_TOKEN
+        sync: false
+      - key: VERIFUND_AGENT_INTERNAL_TOKEN
+        sync: false
+      - key: VERIFUND_AGENT_A2A_TOKEN
+        sync: false
       - key: VERIFUND_MODE
         value: sandbox
-      # Render generates these on the first sync (base64, 256-bit, well over
-      # the 32-byte minimum the control plane enforces) and preserves them
-      # afterwards. VERIFUND_OPS_TOKEN is also read by the Vercel console:
-      # copy the generated value into the console's environment.
       - key: VERIFUND_OPS_TOKEN
-        generateValue: true
+        sync: false
       - key: VERIFUND_SELLER_TOKEN_SECRET
-        generateValue: true
+        sync: false
       - key: VERIFUND_LINK_SECRET
-        generateValue: true
-      # The receipt key stays manual: VERIFUND_RECEIPT_KEYS is a JSON map whose
-      # key must equal VERIFUND_RECEIPT_ACTIVE_KID, so Render cannot generate
-      # the two values independently.
+        sync: false
       - key: VERIFUND_RECEIPT_KEYS
         sync: false
       - key: VERIFUND_RECEIPT_ACTIVE_KID
-        sync: false
+        value: sandbox-1
       - key: VERIFUND_TENANCY_ENABLED
         value: "true"
+      - key: VERIFUND_SELLER_PAYOUT_EMAILS
+        value: '{"northwind-audio":"northwind-audio@business.example.com","circuitforge":"circuitforge@business.example.com","aurora-supply":"aurora@business.example.com","summit-tech":"summit-tech@business.example.com"}'
       - key: PAYPAL_ENV
         value: sandbox
       - key: PAYPAL_API_BASE
         value: https://api-m.sandbox.paypal.com
       - key: PAYPAL_CLIENT_ID
-        sync: false
+        value: AdQ2QMNHAO_3XTqRVuCghBm31rlNc6SGSBOTRPi07L6pCd6hRW2IMTh7nc1gPZ_8x36l_27OMsG5MzlX
       - key: PAYPAL_CLIENT_SECRET
         sync: false
       - key: PAYPAL_WEBHOOK_ID
-        sync: false
+        value: 8V288063ET8232308
       - key: PAYPAL_PLATFORM_EMAIL
-        sync: false
+        value: verifund@business.example.com
       - key: PAYPAL_BUYER_EMAIL
-        sync: false
-      - key: VERIFUND_SELLER_PAYOUT_EMAILS
-        sync: false
-      - key: CLERK_SECRET_KEY
-        sync: false
-      - key: CLERK_JWT_KEY
-        sync: false
+        value: marketmeshbuyer@personal.example.com
       - key: CLERK_WEBHOOK_SIGNING_SECRET
         sync: false
