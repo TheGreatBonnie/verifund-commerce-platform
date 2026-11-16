@@ -232,7 +232,11 @@ class BuyerAgreementService:
                     "settlement",
                 )
                 if isinstance(secret, dict):
-                    seller_token = secret.get("token")
+                    # SettlementStore persists this as `seller_token`; older
+                    # stores used `token`. The header is required by the
+                    # seller-decision route, so a miss yields a 422 and the
+                    # escalated decision is never recorded.
+                    seller_token = secret.get("seller_token") or secret.get("token")
             except Exception:  # noqa
                 seller_token = None
         payload = {

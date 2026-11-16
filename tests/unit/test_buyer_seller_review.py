@@ -175,3 +175,33 @@ async def test_the_escalated_decision_body_matches_the_control_plane_contract():
     assert request.offer_hash == "b" * 64
     assert request.actor_id == "northwind-audio"
     assert captured["idempotency_key"] == "seller-decision:agr-1:1"
+
+
+async def test_escalated_decision_sends_the_stored_seller_token():
+    captured: dict = {}
+
+    class Client:
+        async def get_agreement(self, agreement_id):
+            return {"agreement_id": agreement_id, "transaction_id": "vf_1"}
+
+        async def record_seller_decision(
+            self, agreement_id, payload, *, seller_token=None, idempotency_key=None
+        ):
+            captured["seller_token"] = seller_token
+            return {"status": "PENDING_SELLER", "version": 1}
+
+    class Store:
+        async def get_secret(self, run_id, transaction_id, purpose):
+            # SettlementStore stores the seller token under `seller_token`.
+            return {
+                "run_id": run_id,
+                "transaction_id": transaction_id,
+                "purpose": purpose,
+                "seller_token": "v1.seller-token",
+            }
+
+    service = BuyerAgreementService(client=Client(), store=Store())
+    decision = AgreementReviewResult.model_validate(BASE_DECISION)
+    await service.record_seller_decision("agr-1", decision)
+
+    assert captured["seller_token"] == "v1.seller-token"
