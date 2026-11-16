@@ -1,5 +1,7 @@
+import asyncio
 from contextlib import asynccontextmanager
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from gateway.app import MOUNT_PREFIXES, build_app
@@ -40,6 +42,23 @@ def test_build_app_mounts_every_prefix_and_runs_lifespans() -> None:
             assert response.json() == {"service": name}
         for name in names:
             assert subs[name].state.started is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_lifespan_does_not_arm_faulthandler_dumps(monkeypatch) -> None:
+    import gateway.loop_watch as lw
+
+    armed = []
+    monkeypatch.setattr(
+        lw.faulthandler, "dump_traceback_later", lambda **kw: armed.append(kw)
+    )
+    monkeypatch.setattr(lw.faulthandler, "cancel_dump_traceback_later", lambda: None)
+
+    app = build_app({name: make_sub(name) for name in MOUNT_PREFIXES.values()})
+    async with app.router.lifespan_context(app):
+        await asyncio.sleep(0.4)
+
+    assert armed == []
 
 
 def test_active_request_label_is_visible_during_a_request() -> None:

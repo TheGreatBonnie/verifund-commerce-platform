@@ -48,7 +48,10 @@ def build_app(sub_apps: dict[str, FastAPI]) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        async with watch_loop(), AsyncExitStack() as stack:
+        # Lag warnings are enough to spot a stall. Dumping every thread with
+        # faulthandler crashed the process on this container (SIGSEGV 139) when
+        # native extensions are active.
+        async with watch_loop(dump_stacks=False), AsyncExitStack() as stack:
             for name in MOUNT_PREFIXES.values():
                 sub_app = sub_apps[name]
                 await stack.enter_async_context(
