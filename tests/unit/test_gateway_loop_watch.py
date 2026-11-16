@@ -33,6 +33,18 @@ async def test_watch_loop_logs_a_stall_with_the_active_request(caplog):
 
 
 @pytest.mark.asyncio
+async def test_watch_loop_logs_the_blocking_stack(caplog):
+    with caplog.at_level(logging.WARNING, logger="gateway.loop_watch"):
+        async with watch_loop(threshold=0.1, refresh=0.02, dump_stacks=False):
+            time.sleep(0.25)  # noqa: ASYNC251 - intentionally blocks the loop
+            await asyncio.sleep(0.1)
+
+    stack_logs = [r for r in caplog.records if "stalled main-thread stack" in r.getMessage()]
+    assert stack_logs, "no sampled stack was logged"
+    assert "time.sleep" in stack_logs[0].getMessage()
+
+
+@pytest.mark.asyncio
 async def test_watch_loop_stays_quiet_when_the_loop_is_responsive(caplog):
     with caplog.at_level(logging.WARNING, logger="gateway.loop_watch"):
         async with watch_loop(threshold=0.5, refresh=0.02, dump_stacks=False):

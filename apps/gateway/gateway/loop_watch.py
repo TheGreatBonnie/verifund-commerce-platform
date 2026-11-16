@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import faulthandler
 import logging
+import sys
+import threading
+import traceback
 from contextlib import asynccontextmanager
 
 log = logging.getLogger(__name__)
@@ -18,6 +21,19 @@ log = logging.getLogger(__name__)
 # Keyed by task id: a watchdog task has its own contextvars context, so a
 # module-level registry is used to report which requests were in flight.
 _active_requests: dict[int, str] = {}
+
+# Latest main-thread stack sampled from a plain thread. Pure Python (no
+# faulthandler) so it cannot crash native extensions during a stall.
+_sampled_stack: list[str] = []
+
+
+def _sample_main_thread(stop: threading.Event) -> None:
+    global _sampled_stack
+    main_id = threading.main_thread().ident
+    while not stop.wait(0.05):
+        frame = sys._current_frames().get(main_id)
+        if frame is not None:
+            _sampled_stack = traceback.format_stack(frame, limit=25)
 
 
 def request_started(label: str) -> None:
@@ -38,10 +54,24 @@ def active_requests_snapshot() -> list[str]:
 
 @asynccontextmanager
 async def watch_loop(
-    *, threshold: float = 1.0, refresh: float = 0.25, dump_stacks: bool = True
+    *,
+    threshold: float = 1.0,
+    refresh: float = 0.25,
+    dump_stacks: bool = True,
+    sample_stacks: bool = True,
 ):
-    """Watch loop responsiveness; log and dump stacks when it stalls."""
+    """Watch loop responsiveness; log stacks when it stalls."""
     loop = asyncio.get_running_loop()
+    stop = threading.Event()
+    sampler = None
+    if sample_stacks:
+        sampler = threading.Thread(
+            target=_sample_main_thread,
+            args=(stop,),
+            name="loop-lag-sampler",
+            daemon=True,
+        )
+        sampler.start()
 
     async def monitor() -> None:
         last = loop.time()
@@ -62,6 +92,11 @@ async def watch_loop(
                     lag,
                     ", ".join(active_requests_snapshot()) or "-",
                 )
+                if sample_stacks and _sampled_stack:
+                    log.warning(
+                        "stalled main-thread stack:\n%s",
+                        "".join(_sampled_stack[-12:]),
+                    )
 
     task = asyncio.create_task(monitor())
     # Let the monitor take its first reading before the caller runs anything
@@ -75,5 +110,8 @@ async def watch_loop(
             await task
         except asyncio.CancelledError:
             pass
+        stop.set()
+        if sampler is not None:
+            await asyncio.to_thread(sampler.join, 1)
         if dump_stacks:
             faulthandler.cancel_dump_traceback_later()
