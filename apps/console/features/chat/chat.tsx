@@ -12,7 +12,7 @@ import {
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { ApprovalCard } from "@/features/chat/components/approval-card";
+import { AwardApproval } from "@/features/chat/components/award-approval";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import {
   AgreementReviewCard,
@@ -27,8 +27,9 @@ import {
   agreementApprovalArgsSchema,
   agreementReviewLink,
   bilateralReviewStatus,
-  fundingApprovalArgsSchema,
+  fundingHitlArgsSchema,
   fundingDecision,
+  normalizeFundingArgs,
   parseVerifundToolResult,
   PayPalCheckoutCard,
   paypalCheckoutArgsSchema,
@@ -225,11 +226,11 @@ export function Chat({
       agentId: "marketmesh_orchestrator",
       name: "request_award_approval",
       description:
-        "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the award and task ID from that Buyer response without changing them.",
+        "Show the buyer's structured award to the user and wait for an explicit approve or reject decision. Use only after the Buyer returns status approval_required. Pass the task_id and message from that Buyer response; the console loads the award from the Buyer, so never copy the award object into the arguments.",
       parameters: z.object({
         task_id: z.string(),
-        message: z.string(),
-        award: z.record(z.unknown()),
+        message: z.string().optional(),
+        award: z.record(z.unknown()).optional(),
         mandate: z.record(z.unknown()).optional(),
       }),
       render: ({ args, status, respond, result }) => {
@@ -244,7 +245,8 @@ export function Chat({
         if (status === "executing" && respond) {
           return (
             <div className="mm-chat-approval">
-              <ApprovalCard
+              <AwardApproval
+                taskId={args.task_id}
                 award={args.award as any}
                 mandate={args.mandate as any}
                 message={args.message}
@@ -302,22 +304,31 @@ export function Chat({
       description:
         "Show the canonical agreement and the Buyer/Seller review status, then wait for an explicit human funding decision.",
       available: verifundEnabled,
-      parameters: fundingApprovalArgsSchema,
+      parameters: fundingHitlArgsSchema,
       render: ({ args, status, respond }) => {
         if (status === "executing" && respond) {
+          const sharedAward = (
+            (agent.state as Record<string, any> | undefined)?.award as
+              | Record<string, any>
+              | undefined
+          );
+          const effectiveArgs = normalizeFundingArgs(
+            args as Record<string, unknown>,
+            sharedAward,
+          );
           return (
             <div className="mm-chat-approval">
               <FundingApprovalCard
-                args={args as any}
+                args={effectiveArgs}
                 onApprove={(note) => {
                   respond(
-                    fundingDecision(args as any, { approved: true, note }),
+                    fundingDecision(effectiveArgs, { approved: true, note }),
                   );
                   onVerifundAction?.();
                 }}
                 onReject={(note) => {
                   respond(
-                    fundingDecision(args as any, { approved: false, note }),
+                    fundingDecision(effectiveArgs, { approved: false, note }),
                   );
                   onVerifundAction?.();
                 }}
@@ -341,10 +352,20 @@ export function Chat({
       parameters: paypalCheckoutArgsSchema,
       render: ({ args, status, respond, result }) => {
         if (status === "executing" && respond) {
+          const sharedAward = (
+            (agent.state as Record<string, any> | undefined)?.award as
+              | Record<string, any>
+              | undefined
+          );
           return (
             <div className="mm-chat-approval">
               <PayPalCheckoutCard
-                args={args as any}
+                args={
+                  {
+                    ...args,
+                    agreement: sharedAward ?? args.agreement,
+                  } as any
+                }
                 respond={respond}
                 onVerifundAction={onVerifundAction}
               />
@@ -387,10 +408,22 @@ export function Chat({
           );
         }
         if (status === "executing" && respond) {
+          // The award now travels through CopilotKit shared state (agent → UI).
+          // Fall back to tool args only when shared state has not published it.
+          const sharedAward = (
+            (agent.state as Record<string, any> | undefined)?.award as
+              | Record<string, any>
+              | undefined
+          );
           return (
             <div className="mm-chat-approval">
               <AgreementApprovalHitlCard
-                args={args as any}
+                args={
+                  {
+                    ...args,
+                    agreement: sharedAward ?? (args as any).agreement,
+                  } as any
+                }
                 respond={respond}
                 onVerifundAction={onVerifundAction}
               />
@@ -420,10 +453,20 @@ export function Chat({
       parameters: releaseApprovalArgsSchema,
       render: ({ args, status, respond }) => {
         if (status === "executing" && respond) {
+          const sharedProjection = (
+            (agent.state as Record<string, any> | undefined)?.projection as
+              | Record<string, any>
+              | undefined
+          );
           return (
             <div className="mm-chat-approval">
               <ReleaseApprovalCard
-                args={args as any}
+                args={
+                  {
+                    ...args,
+                    projection: sharedProjection ?? args.projection,
+                  } as any
+                }
                 onDecision={(decision) => {
                   respond(decision);
                   onVerifundAction?.();
@@ -539,7 +582,6 @@ export function Chat({
     name: "verifund_create_agreement",
     parameters: z.object({
       run_id: z.string().optional(),
-      award: z.record(z.unknown()).optional(),
     }),
     render: ({ parameters, status, result }) => {
       const parsed = parseVerifundToolResult(result);

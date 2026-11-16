@@ -59,6 +59,15 @@ export function ApprovalCard({
       ? mandate.max_total_cents - award.winner.total_cents
       : null;
 
+  // The award reaches this card through the orchestrator's tool arguments, so a
+  // field can be missing or mangled. Never crash the approval, and never claim
+  // checks passed when the proposal did not carry them.
+  const mandateChecks = Array.isArray(award.mandate_checks)
+    ? award.mandate_checks.filter(
+        (check): check is string => typeof check === "string",
+      )
+    : [];
+
   const approve = async () => {
     setPending("approve");
     try {
@@ -112,14 +121,17 @@ export function ApprovalCard({
       </div>
 
       <ul className="mm-check-list" aria-label="Mandate checks">
-        {(award.mandate_checks.length > 0
-          ? award.mandate_checks
-          : ["All deterministic mandate checks passed"]
-        ).map((check) => (
-          <li key={check}>
-            <Check size={13} aria-hidden="true" /> {check}
+        {mandateChecks.length > 0 ? (
+          mandateChecks.map((check) => (
+            <li key={check}>
+              <Check size={13} aria-hidden="true" /> {check}
+            </li>
+          ))
+        ) : (
+          <li>
+            Mandate check details were not included in this proposal.
           </li>
-        ))}
+        )}
       </ul>
 
       <p className="mm-expiry-note">

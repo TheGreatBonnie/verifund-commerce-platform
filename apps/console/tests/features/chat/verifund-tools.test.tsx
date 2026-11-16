@@ -10,6 +10,9 @@ import {
   bilateralReviewStatus,
   fundingApprovalArgsSchema,
   fundingDecision,
+  fundingHitlArgsSchema,
+  normalizeFundingArgs,
+  releaseApprovalArgsSchema,
   releaseDecision,
   releaseGate,
   verifundStatusLabel,
@@ -75,7 +78,7 @@ describe("verifund chat tools", () => {
     expect(verifundToolsEnabled("sandbox")).toBe(true);
   });
 
-  it("requires both agents to accept the same version and hash", () => {
+  it("gates funding on acceptance and the authoritative binding, not on relayed review bindings", () => {
     expect(bilateralReviewStatus(fundingArgs())).toBe("ready");
     expect(
       bilateralReviewStatus(fundingArgs({ buyer_review: null })),
@@ -83,20 +86,39 @@ describe("verifund chat tools", () => {
     expect(
       bilateralReviewStatus(fundingArgs({ seller_decision: null })),
     ).toBe("seller_pending");
+    // The review copies are relayed by the orchestrator's LLM; stale or
+    // dropped binding fields on them must not block funding.
     expect(
       bilateralReviewStatus(
         fundingArgs({
           seller_decision: { ...accepted, agreement_hash: "b".repeat(64) },
         }),
       ),
-    ).toBe("mismatch");
+    ).toBe("ready");
     expect(
       bilateralReviewStatus(
         fundingArgs({
           buyer_review: { ...accepted, agreement_version: 2 },
         }),
       ),
-    ).toBe("mismatch");
+    ).toBe("ready");
+    expect(
+      bilateralReviewStatus(
+        fundingArgs({
+          seller_decision: { status: "accepted" },
+        }),
+      ),
+    ).toBe("ready");
+    // Without an authoritative binding there is nothing to fund against.
+    expect(
+      bilateralReviewStatus(
+        fundingArgs({
+          agreement_version: undefined,
+          agreement_hash: undefined,
+          agreement: undefined,
+        }),
+      ),
+    ).toBe("unbound");
   });
 
   it("stays ready when the LLM drops the nested agreement version but the top-level binding still matches both reviews", () => {
@@ -123,13 +145,106 @@ describe("verifund chat tools", () => {
     ).not.toThrow();
   });
 
-  it("still reports mismatch when a review is bound to different terms than the top-level binding", () => {
+  it("does not block funding when a lossy relay keeps stale review bindings", () => {
     const live = fundingArgs();
-    const tampered = {
+    const relayed = {
       ...live,
-      seller_decision: { ...live.seller_decision, agreement_hash: "b".repeat(64) },
+      buyer_review: {
+        ...live.buyer_review,
+        agreement_version: 2,
+        agreement_hash: "b".repeat(64),
+      },
+      seller_decision: { status: "accepted" },
     } as any;
-    expect(bilateralReviewStatus(tampered)).toBe("mismatch");
+    expect(bilateralReviewStatus(relayed)).toBe("ready");
+    expect(() =>
+      fundingDecision(relayed, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
+  it("accepts a minimal funding HITL call from the LLM relay", () => {
+    expect(() => fundingHitlArgsSchema.parse({})).not.toThrow();
+    expect(
+      fundingHitlArgsSchema.parse({ run_id: "run-1", extra: "ignored" }),
+    ).toMatchObject({ run_id: "run-1" });
+  });
+
+  it("normalizes relayed HITL args from the shared agreement", () => {
+    const normalized = normalizeFundingArgs(
+      { run_id: "run-1" },
+      { ...agreement, status: "AGREED" },
+    );
+
+    expect(fundingApprovalArgsSchema.safeParse(normalized).success).toBe(true);
+    expect(() =>
+      fundingDecision(normalized, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
+  it("prefers the shared agreement when the relay mangles line_items", () => {
+    // The LLM relay re-serializes nested arrays as {"item": ...}. The canonical
+    // agreement published to shared state must win over a mangled tool arg.
+    const mangled = {
+      ...agreement,
+      line_items: { item: agreement.line_items[0] },
+    };
+    const normalized = normalizeFundingArgs(
+      { ...fundingArgs(), agreement: mangled },
+      { ...agreement, status: "AGREED" },
+    );
+
+    expect(normalized.agreement?.line_items).toEqual(agreement.line_items);
+  });
+
+  it("unwraps a relayed single-item object into a line_items array", () => {
+    const mangled = {
+      ...agreement,
+      line_items: { item: agreement.line_items[0] },
+    };
+    const normalized = normalizeFundingArgs(
+      { ...fundingArgs(), agreement: mangled },
+      null,
+    );
+
+    expect(normalized.agreement?.line_items).toEqual(agreement.line_items);
+  });
+
+  it("renders the funding card without crashing on a malformed agreement", () => {
+    // Defense in depth: even a bad payload must not abort the agent run.
+    const badArgs = {
+      ...fundingArgs(),
+      agreement: {
+        ...agreement,
+        line_items: { item: agreement.line_items[0] },
+      },
+    } as unknown as Parameters<typeof FundingApprovalCard>[0]["args"];
+
+    const view = render(
+      <FundingApprovalCard
+        args={badArgs}
+        onApprove={() => {}}
+        onReject={() => {}}
+      />,
+    );
+
+    expect(view.getByTestId("verifund-funding")).toBeTruthy();
+  });
+
+  it("accepts funding approval args without an embedded agreement", () => {
+    // The award/agreement payload now arrives via CopilotKit shared state, so
+    // HITL tool args carry binding + review decisions without the payload.
+    const parsed = fundingApprovalArgsSchema.parse({
+      run_id: "run-1",
+      transaction_id: "vf_1",
+      agreement_version: 1,
+      agreement_hash: HASH,
+      buyer_review: accepted,
+      seller_decision: accepted,
+      message: "Approve funding for this agreement.",
+    });
+    expect(parsed.run_id).toBe("run-1");
+    expect(parsed.transaction_id).toBe("vf_1");
+    expect(parsed.buyer_review).toEqual(accepted);
   });
 
   it("accepts persisted funding payloads without line-item attributes", () => {
@@ -142,7 +257,21 @@ describe("verifund chat tools", () => {
       ...args,
       agreement: { ...args.agreement, line_items: [legacyLine] },
     });
-    expect(parsed.agreement.line_items[0].attributes).toEqual({});
+    expect(parsed.agreement?.line_items[0].attributes).toEqual({});
+  });
+
+  it("accepts release approval args without a projection payload", () => {
+    // The transaction projection now arrives via CopilotKit shared state, so
+    // release HITL args only need binding + decision inputs.
+    const parsed = releaseApprovalArgsSchema.parse({
+      run_id: "run-1",
+      transaction_id: "vf_1",
+      agreement_version: 1,
+      agreement_hash: HASH,
+      message: "Release this transaction.",
+    });
+    expect(parsed.run_id).toBe("run-1");
+    expect(parsed.transaction_id).toBe("vf_1");
   });
 
   it("labels every lifecycle checkpoint and terminal outcome", () => {

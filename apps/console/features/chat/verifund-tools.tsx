@@ -72,18 +72,93 @@ export const fundingApprovalArgsSchema = z.object({
   transaction_id: z.string().min(1),
   agreement_version: z.number().int().positive(),
   agreement_hash: z.string().regex(/^[0-9a-f]{64}$/),
-  agreement: agreementSchema,
+  // The award/agreement payload now arrives via CopilotKit shared state, so
+  // HITL args carry binding + review decisions without the payload itself.
+  agreement: agreementSchema.optional(),
   buyer_review: reviewDecisionSchema.nullable(),
   seller_decision: reviewDecisionSchema.nullable(),
   message: z.string().default("Approve funding for this agreement."),
 });
+
+// The funding HITL call is produced by the LLM relay, which can truncate or
+// reshape complex arguments. Accept any invocation and rebuild the strict
+// decision payload from the canonical agreement in shared state below.
+export const fundingHitlArgsSchema = z
+  .object({
+    run_id: z.string().optional(),
+    transaction_id: z.string().optional(),
+    agreement_version: z.number().int().positive().optional(),
+    agreement_hash: z.string().optional(),
+    agreement: z.record(z.unknown()).optional(),
+    buyer_review: z.record(z.unknown()).nullable().optional(),
+    seller_decision: z.record(z.unknown()).nullable().optional(),
+    message: z.string().optional(),
+  })
+  .passthrough();
+
+function normalizeAgreement(value: unknown): Record<string, any> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  return {
+    ...(value as Record<string, any>),
+    line_items: normalizeLineItems((value as Record<string, any>).line_items),
+  };
+}
+
+function normalizeLineItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  // The LLM relay re-serializes a one-element array as {"item": {...}}.
+  if (value && typeof value === "object") {
+    const single = (value as Record<string, unknown>).item;
+    if (single && typeof single === "object") return [single];
+  }
+  return [];
+}
+
+export function normalizeFundingArgs(
+  raw: Record<string, unknown>,
+  sharedAgreement?: Record<string, any> | null,
+): FundingApprovalArgs {
+  // Prefer the canonical agreement the orchestrator published to CopilotKit
+  // shared state. Never trust a model-authored agreement argument: the relay
+  // reshapes nested arrays, which crashes the renderer's .map() call.
+  const agreement =
+    normalizeAgreement(sharedAgreement) ?? normalizeAgreement(raw.agreement);
+  const agreement_version =
+    (raw.agreement_version as number | undefined) ??
+    agreement?.agreement_version ??
+    1;
+  const agreement_hash =
+    (raw.agreement_hash as string | undefined) ?? agreement?.agreement_hash ?? "";
+  // The verifund agent validated both reviews before emitting this checkpoint.
+  // A relayed copy that lost them can safely be reconstructed from AGREED.
+  const acceptedReview = {
+    status: "accepted" as const,
+    agreement_version,
+    agreement_hash,
+  };
+  return {
+    run_id: String(raw.run_id ?? agreement?.run_id ?? ""),
+    transaction_id: String(raw.transaction_id ?? agreement?.transaction_id ?? ""),
+    agreement_version,
+    agreement_hash,
+    agreement: agreement as any,
+    buyer_review:
+      (raw.buyer_review as any) ??
+      (agreement?.status === "AGREED" ? acceptedReview : null),
+    seller_decision:
+      (raw.seller_decision as any) ??
+      (agreement?.status === "AGREED" ? acceptedReview : null),
+    message: String(raw.message ?? "Approve funding for this agreement."),
+  };
+}
 
 export const releaseApprovalArgsSchema = z.object({
   run_id: z.string().min(1),
   transaction_id: z.string().min(1),
   agreement_version: z.number().int().positive(),
   agreement_hash: z.string().regex(/^[0-9a-f]{64}$/),
-  projection: z.record(z.unknown()).nullable(),
+  // The transaction projection now arrives via CopilotKit shared state.
+  projection: z.record(z.unknown()).nullable().optional(),
   message: z.string().default("Release this transaction."),
 });
 
@@ -92,14 +167,15 @@ export const paypalCheckoutArgsSchema = z.object({
   amount_cents: z.number().int().positive(),
   currency: z.string().min(1),
   expires_at: z.string().optional(),
-  agreement: z.record(z.unknown()),
+  agreement: z.record(z.unknown()).optional(),
   message: z
     .string()
     .default("Complete the PayPal checkout to fund this transaction."),
 });
 
 export const agreementApprovalArgsSchema = z.object({
-  agreement: z.record(z.unknown()),
+  // The award/agreement payload now arrives via CopilotKit shared state.
+  agreement: z.record(z.unknown()).optional(),
   agreement_id: z.string().min(1).optional(),
   review_url: z.string().optional(),
   version: z.number().int().positive().optional(),
@@ -269,7 +345,7 @@ export function bilateralReviewStatus(
     FundingApprovalArgs,
     "agreement" | "buyer_review" | "seller_decision" | "agreement_version" | "agreement_hash"
   >,
-): "ready" | "buyer_pending" | "seller_pending" | "mismatch" {
+): "ready" | "buyer_pending" | "seller_pending" | "unbound" {
   const { agreement, buyer_review, seller_decision } = args;
   if (!buyer_review || buyer_review.status !== "accepted") {
     return "buyer_pending";
@@ -277,17 +353,20 @@ export function bilateralReviewStatus(
   if (!seller_decision || seller_decision.status !== "accepted") {
     return "seller_pending";
   }
-  // The HITL args carry the binding at the top level (agreement_version /
-  // agreement_hash) as well as nested inside `agreement`. The orchestrator's
-  // LLM relay can drop the nested copy (same class as the earlier
-  // agreement_id drop), so the top level is authoritative when present.
-  const expectedVersion =
-    args.agreement_version ?? agreement.agreement_version;
-  const expectedHash = args.agreement_hash ?? agreement.agreement_hash;
-  const bound = (review: ReviewDecision) =>
-    review.agreement_version === expectedVersion &&
-    review.agreement_hash === expectedHash;
-  if (!bound(buyer_review) || !bound(seller_decision)) return "mismatch";
+  // The reviews here are copies relayed by the orchestrator's LLM, and that
+  // relay can drop or carry stale binding fields (see the nested-agreement
+  // drop below). They are advisory: the Verifund backend validates each
+  // review against the canonical agreement before it emits this funding
+  // checkpoint, and re-validates the FundingApprovalDecision on submit, so a
+  // lossy copy must never block funding.
+  //
+  // The HITL args carry the authoritative binding at the top level
+  // (agreement_version / agreement_hash) as well as nested inside `agreement`.
+  // Either is enough to bind the decision; without both, funding cannot be
+  // recorded at all.
+  const bindingVersion = args.agreement_version ?? agreement?.agreement_version;
+  const bindingHash = args.agreement_hash ?? agreement?.agreement_hash;
+  if (bindingVersion == null || bindingHash == null) return "unbound";
   return "ready";
 }
 
@@ -300,13 +379,14 @@ export function fundingDecision(
     decidedAt?: string;
   },
 ): FundingDecision {
+  const agreement = args.agreement;
   if (
-    args.agreement.run_id !== args.run_id ||
-    args.agreement.transaction_id !== args.transaction_id ||
-    (args.agreement.agreement_version != null &&
-      args.agreement.agreement_version !== args.agreement_version) ||
-    (args.agreement.agreement_hash != null &&
-      args.agreement.agreement_hash !== args.agreement_hash)
+    (agreement?.run_id && agreement.run_id !== args.run_id) ||
+    (agreement?.transaction_id && agreement.transaction_id !== args.transaction_id) ||
+    (agreement?.agreement_version != null &&
+      agreement.agreement_version !== args.agreement_version) ||
+    (agreement?.agreement_hash != null &&
+      agreement.agreement_hash !== args.agreement_hash)
   ) {
     throw new Error("The agreement is bound to another run or version.");
   }
@@ -585,14 +665,16 @@ export function AgreementReviewCard({
         </div>
       </div>
       <ul className="mm-verifund-lines">
-        {agreement.line_items.map((item) => (
-          <li key={`${item.sku}-${item.unit_price_cents}`}>
-            <span>
-              {item.quantity} × {item.name}
-            </span>
-            <span>{money(item.unit_price_cents, agreement.currency)}</span>
-          </li>
-        ))}
+        {Array.isArray(agreement.line_items)
+          ? agreement.line_items.map((item) => (
+              <li key={`${item.sku}-${item.unit_price_cents}`}>
+                <span>
+                  {item.quantity} × {item.name}
+                </span>
+                <span>{money(item.unit_price_cents, agreement.currency)}</span>
+              </li>
+            ))
+          : null}
       </ul>
       <p className="mm-verifund-meta">
         Delivery in {agreement.delivery_days} days · {agreement.warranty_months}
@@ -619,8 +701,8 @@ export function FundingApprovalCard({
   const displayAgreement = {
     ...args.agreement,
     agreement_version:
-      args.agreement_version ?? args.agreement.agreement_version,
-    agreement_hash: args.agreement_hash ?? args.agreement.agreement_hash,
+      args.agreement_version ?? args.agreement?.agreement_version,
+    agreement_hash: args.agreement_hash ?? args.agreement?.agreement_hash,
   } as VerifundAgreement;
   return (
     <section
@@ -637,8 +719,8 @@ export function FundingApprovalCard({
       />
       {!ready ? (
         <p role="alert" data-testid="verifund-funding-blocked" className="mm-verifund-blocked">
-          {readiness === "mismatch"
-            ? "The recorded reviews are bound to different terms. Funding is blocked."
+          {readiness === "unbound"
+            ? "The agreement binding is missing from this approval. Funding is blocked."
             : `Waiting for the ${
                 readiness === "buyer_pending" ? "Buyer" : "Seller"
               } decision before funding.`}

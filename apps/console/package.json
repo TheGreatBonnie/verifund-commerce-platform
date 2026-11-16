@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
@@ -30,6 +30,7 @@
     "next": "16.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "rxjs": "7.8.1",
     "zod": "^3.24.4"
   },
   "devDependencies": {
