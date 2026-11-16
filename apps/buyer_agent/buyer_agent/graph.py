@@ -1345,7 +1345,7 @@ async def await_seller_review(state: BuyerState, config: dict) -> dict:
 
 
 async def _record_escalated_decision(
-    services: Any, agreement_id: str, decision: Any
+    services: Any, agreement_id: str, decision: Any, run_id: str
 ) -> None:
     """Record an escalated seller decision on the control plane.
 
@@ -1359,6 +1359,12 @@ async def _record_escalated_decision(
         return
     try:
         await agreements.record_seller_decision(agreement_id, decision)
+        # The Verifund agent routes to the seller operator on the flag the
+        # control plane sets, so the buyer's cached agreement has to carry
+        # it too.
+        refreshed = await agreements.get_agreement(agreement_id)
+        if isinstance(refreshed, dict):
+            await services.store.settlement.save_agreement(run_id, refreshed)
     except Exception as exc:  # noqa: BLE001
         logging.getLogger(__name__).warning(
             "could not record the escalated seller decision for %s: %s",
@@ -1413,7 +1419,7 @@ async def report_seller_review(state: BuyerState, config: dict) -> dict:
         )
         agreement_status = None
         await _record_escalated_decision(
-            services, str(agreement.get("agreement_id") or ""), decision
+            services, str(agreement.get("agreement_id") or ""), decision, run_id
         )
     updated = {
         **settlement,

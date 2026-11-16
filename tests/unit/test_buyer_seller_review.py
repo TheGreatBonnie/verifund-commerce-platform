@@ -50,6 +50,13 @@ class Agreements:
         self.decisions.append({"agreement_id": agreement_id, "result": result})
         return {"status": "PENDING_SELLER", "version": 1}
 
+    async def get_agreement(self, agreement_id):
+        return {
+            "agreement_id": agreement_id,
+            "status": "PENDING_SELLER",
+            "seller_operator_required": True,
+        }
+
 
 class SettlementStore:
     def __init__(self) -> None:
@@ -121,7 +128,10 @@ async def test_escalation_keeps_the_agreement_pending():
         state("operator_required"), config(services)
     )
     assert result["settlement"]["state"] == "AWARDED"
-    assert services.store.settlement.saved == []
+    saved = services.store.settlement.saved
+    assert len(saved) == 1
+    assert saved[0]["agreement"]["status"] == "PENDING_SELLER"
+    assert saved[0]["agreement"]["seller_operator_required"] is True
 
 
 async def test_rejected_still_rejects_with_a_coerced_reason_code():
