@@ -64,6 +64,7 @@ class RegistryClient:
         self.trace = trace
         self.http = client or httpx.AsyncClient(timeout=10.0)
         self.fetch_calls = 0
+        self.last_error: Exception | None = None
         self._endpoints: dict[str, SellerEndpoint] = {}
         self._token_cache: dict[str, str] = {}
 
@@ -150,13 +151,28 @@ class RegistryClient:
         On registry failure (HTTP error, bad JSON) keep the last known map.
         """
         import logging
+        if not await self.refresh_registry():
+            logging.getLogger(__name__).warning(
+                "registry poll failed: %s", self.last_error
+            )
+        return self._endpoints
+
+    async def refresh_registry(self) -> bool:
+        """Poll the registry once and report whether it answered.
+
+        Returns True when the registry answered (even if some seller cards
+        failed to validate) and False when the poll failed, in which case the
+        last known endpoint map is kept. Unlike ``poll_registry`` this does
+        not log: a caller that retries on a schedule decides how loudly a
+        failure is worth.
+        """
         try:
             response = await self.http.get(f"{self.registry_url}/v1/sellers")
             response.raise_for_status()
             entries = response.json().get("sellers", [])
         except (httpx.HTTPError, ValueError) as exc:
-            logging.getLogger(__name__).warning("registry poll failed: %s", exc)
-            return self._endpoints
+            self.last_error = exc
+            return False
         new_endpoints: dict[str, SellerEndpoint] = {}
         for entry in entries:
             seller_id, card_url = entry["seller_id"], entry["card_url"]
@@ -176,7 +192,8 @@ class RegistryClient:
             )
         self._token_cache = {k: v for k, v in self._token_cache.items() if k in new_endpoints}
         self._endpoints = new_endpoints
-        return self._endpoints
+        self.last_error = None
+        return True
 
     async def discover(
         self, category: str, product_sku: str | None = None

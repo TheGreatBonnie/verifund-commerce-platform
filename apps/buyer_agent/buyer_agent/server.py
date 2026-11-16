@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
+from typing import Any
 
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import (
@@ -21,6 +24,37 @@ from buyer_agent.graph import build_buyer_graph
 from buyer_agent.planner import select_buyer_planner
 from buyer_agent.services import BuyerServicesLike, build_services
 from buyer_agent.settings import Settings
+
+
+async def run_registry_poller(
+    registry_client: Any,
+    *,
+    poll_interval: float,
+    sleep: Any = asyncio.sleep,
+) -> None:
+    """Poll the registry until it answers, then on the normal cadence.
+
+    The registry is served by this same process, so its socket is not bound
+    until the ASGI startup completes: the first poll cannot land and the
+    edge answers 502. Retry on a short backoff until the registry answers
+    instead of failing the poll outright.
+    """
+    logger = logging.getLogger(__name__)
+    delay = 1.0
+    failures = 0
+    while True:
+        if await registry_client.refresh_registry():
+            failures = 0
+            delay = 1.0
+            await sleep(poll_interval)
+            continue
+        failures += 1
+        if failures >= 3:
+            logger.warning("registry poll failed %d times in a row", failures)
+        else:
+            logger.info("registry not reachable yet; retrying in %.1fs", delay)
+        await sleep(delay)
+        delay = min(delay * 2, poll_interval)
 
 
 def create_app(
@@ -56,16 +90,13 @@ def create_app(
                 await store.create_schema()
             registry_client = getattr(services, "registry", None)
             if registry_client is not None:
-                await registry_client.poll_registry()
-                import asyncio
                 poll_interval = getattr(settings, "buyer_registry_poll_seconds", 30)
-
-                async def _poller():
-                    while True:
-                        await asyncio.sleep(poll_interval)
-                        await registry_client.poll_registry()
-
-                poll_task = asyncio.create_task(_poller())
+                poll_task = asyncio.create_task(
+                    run_registry_poller(
+                        registry_client,
+                        poll_interval=poll_interval,
+                    )
+                )
             yield
         finally:
             if poll_task is not None:
