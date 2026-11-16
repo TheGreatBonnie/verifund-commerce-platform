@@ -49,12 +49,59 @@ async function recordDecision(
     },
   );
   if (!decisionRes.ok) {
-    return {
-      error: await decisionErrorDetail(decisionRes),
-      decisionRecorded: false,
-    };
+    const detail = await decisionErrorDetail(decisionRes);
+    return await reconcileConflict(id, version, hash, decisionRes, detail);
   }
   return { decisionRecorded: true };
+}
+
+// The HITL card renders from the agent's cached view, which can lag the
+// control plane. A conflict therefore may mean the decision was already
+// recorded (e.g. on the review page) rather than that it failed. Verify
+// against the live agreement before deciding whether to resume the run.
+async function reconcileConflict(
+  id: string,
+  version: number,
+  hash: string,
+  response: Response,
+  detail: string,
+): Promise<AgreementDecisionResult> {
+  if (response.status !== 409 || !/invalid_state|terminal|PENDING_BUYER/.test(detail)) {
+    return { error: detail, decisionRecorded: false };
+  }
+  try {
+    const viewRes = await controlPlaneForUser(
+      `/agreements/${encodeURIComponent(id)}`,
+    );
+    if (viewRes.ok) {
+      const view = (await viewRes.json()) as {
+        status?: unknown;
+        current_version?: unknown;
+        version?: { agreement_hash?: unknown };
+      };
+      const status = typeof view.status === "string" ? view.status : "";
+      const viewHash =
+        typeof view.version?.agreement_hash === "string"
+          ? view.version.agreement_hash
+          : "";
+      if (
+        status === "AGREED" &&
+        view.current_version === version &&
+        viewHash === hash
+      ) {
+        return { decisionRecorded: true };
+      }
+      if (status) {
+        return {
+          error: `${detail} (agreement is ${status})`,
+          decisionRecorded: false,
+        };
+      }
+    }
+  } catch {
+    // Keep the original control plane detail when the view cannot be read.
+  }
+  return { error: detail, decisionRecorded: false };
 }
 
 async function errorDetail(

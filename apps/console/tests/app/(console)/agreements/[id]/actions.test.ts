@@ -37,8 +37,8 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe("agreement review actions", () => {
   beforeEach(() => {
-    controlPlaneForUserMock.mockClear();
-    protectMock.mockClear();
+    controlPlaneForUserMock.mockReset();
+    protectMock.mockReset();
     vi.stubGlobal("fetch", vi.fn());
     protectMock.mockResolvedValue({ userId: "user_1" });
   });
@@ -192,6 +192,84 @@ describe("agreement review actions", () => {
       resumeError: "missing_handle",
     });
     expect(controlPlaneForUserMock).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("resumes a stale card when the agreement was already agreed", async () => {
+    controlPlaneForUserMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: {
+              code: "invalid_state",
+              message: "buyer decision only in PENDING_BUYER",
+            },
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "AGREED",
+          current_version: 1,
+          version: { agreement_hash: HASH },
+        }),
+      );
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        status: "approval_required",
+        checkpoint: "funding_approval_required",
+      }),
+    );
+
+    const result = await approveAgreement(
+      "agr_1",
+      1,
+      HASH,
+      "",
+      "buyer-decision:vf_1:1",
+      HANDLE,
+    );
+
+    expect(result).toMatchObject({ decisionRecorded: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toMatch(
+      /\/verifund\/resume-agreement$/,
+    );
+  });
+
+  it("reports the real agreement status when approval is rejected", async () => {
+    controlPlaneForUserMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: {
+              code: "invalid_state",
+              message: "buyer decision only in PENDING_BUYER",
+            },
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "PENDING_SELLER",
+          current_version: 1,
+          version: { agreement_hash: HASH },
+        }),
+      );
+
+    const result = await approveAgreement(
+      "agr_1",
+      1,
+      HASH,
+      "",
+      "buyer-decision:vf_1:1",
+      HANDLE,
+    );
+
+    expect(result.decisionRecorded).toBe(false);
+    expect(result.error).toContain("PENDING_SELLER");
     expect(fetch).not.toHaveBeenCalled();
   });
 });
