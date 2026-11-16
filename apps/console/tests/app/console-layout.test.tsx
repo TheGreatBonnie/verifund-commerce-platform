@@ -113,4 +113,19 @@ describe("ConsoleLayout", () => {
     ).toBeInTheDocument();
     expect(document.querySelector("main")?.classList).toContain("chat-only");
   });
+
+  it("keeps the full-height frame in chat-only mode without threads", () => {
+    // threadsEnabled is false in this suite (and on Vercel, where the CPK key
+    // is unset). The chat still needs .mm-app-frame: the CSS rule that pins
+    // the viewport height and input depends on that class, not on threads.
+    nav.pathname = "/chat";
+    render(
+      <ConsoleLayout userId="user_1" orgId="org_1">
+        <div>content</div>
+      </ConsoleLayout>,
+    );
+
+    expect(document.querySelector(".mm-app-frame")).toBeInTheDocument();
+    expect(document.querySelector("main")?.classList).toContain("chat-only");
+  });
 });
