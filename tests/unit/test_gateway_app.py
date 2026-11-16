@@ -42,6 +42,24 @@ def test_build_app_mounts_every_prefix_and_runs_lifespans() -> None:
             assert subs[name].state.started is True
 
 
+def test_active_request_label_is_visible_during_a_request() -> None:
+    from gateway.loop_watch import active_requests_snapshot
+
+    sub = FastAPI()
+
+    @sub.get("/active")
+    async def active() -> dict:
+        return {"active": active_requests_snapshot()}
+
+    app = build_app({name: sub for name in MOUNT_PREFIXES.values()})
+
+    with TestClient(app) as client:
+        assert client.get("/buyer/active").json() == {
+            "active": ["GET /buyer/active"]
+        }
+    assert active_requests_snapshot() == []
+
+
 def test_sub_apps_see_prefix_stripped_paths() -> None:
     seen: list[str] = []
     sub = FastAPI()

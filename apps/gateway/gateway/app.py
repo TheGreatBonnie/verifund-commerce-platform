@@ -1,7 +1,13 @@
 from contextlib import AsyncExitStack, asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from starlette.routing import get_route_path
+
+from gateway.loop_watch import (
+    request_finished,
+    request_started,
+    watch_loop,
+)
 
 # Public path prefix -> key in the sub_apps dict passed to build_app().
 MOUNT_PREFIXES = {
@@ -42,7 +48,7 @@ def build_app(sub_apps: dict[str, FastAPI]) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        async with AsyncExitStack() as stack:
+        async with watch_loop(), AsyncExitStack() as stack:
             for name in MOUNT_PREFIXES.values():
                 sub_app = sub_apps[name]
                 await stack.enter_async_context(
@@ -51,6 +57,14 @@ def build_app(sub_apps: dict[str, FastAPI]) -> FastAPI:
             yield
 
     app = FastAPI(title="MarketMesh Gateway", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def label_active_request(request: Request, call_next):
+        request_started(f"{request.method} {request.url.path}")
+        try:
+            return await call_next(request)
+        finally:
+            request_finished()
     for prefix, name in MOUNT_PREFIXES.items():
         app.mount(prefix, _without_root_path(sub_apps[name]))
 
