@@ -240,20 +240,23 @@ class BuyerAgreementService:
             "agreement_hash": getattr(result, "agreement_hash", None),
             "decision": status_map.get(status_value, status_value),
             "actor_type": getattr(result, "actor_type", "SELLER_AGENT"),
-            "actor_id": getattr(result, "actor_id", None),
+            "actor_id": getattr(result, "actor_id", None)
+            or getattr(result, "seller_id", None)
+            or "seller-agent",
             "authority_ref": getattr(result, "authority_ref", None),
             "authority_snapshot": getattr(result, "authority_snapshot", {}) or {},
-            "verified_offer_hash": getattr(result, "offer_hash", None),
+            "offer_hash": getattr(result, "offer_hash", None),
             "verified_change_request_id": getattr(
                 result, "verified_change_request_id", None
             ),
             "note": getattr(result, "note", "") or "",
-            "task_id": getattr(result, "task_id", None),
-            "context_id": getattr(result, "context_id", None),
-            "idempotency_key": f"seller-decision:{agreement_id}:{getattr(result, 'agreement_version', 0)}",
         }
         return await self.client.record_seller_decision(
-            agreement_id, payload, seller_token=seller_token
+            agreement_id,
+            payload,
+            seller_token=seller_token,
+            idempotency_key=f"seller-decision:{agreement_id}:"
+            f"{getattr(result, 'agreement_version', 0)}",
         )
 
     async def precheck(self, transaction_id: str, agreement: Any) -> dict[str, Any]:

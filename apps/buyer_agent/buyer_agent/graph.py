@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import operator
 import uuid
 from collections.abc import Mapping
@@ -40,6 +41,7 @@ from verifund_contracts import (
     AgreementProjection,
     AgreementReviewDecision,
     AgreementReviewResult,
+    coerce_reject_reason,
 )
 
 from buyer_agent.engine_session import BuyerNegotiationSessionEngine
@@ -1342,6 +1344,29 @@ async def await_seller_review(state: BuyerState, config: dict) -> dict:
     }
 
 
+async def _record_escalated_decision(
+    services: Any, agreement_id: str, decision: Any
+) -> None:
+    """Record an escalated seller decision on the control plane.
+
+    Best effort: the escalation is already visible to the operator through
+    the Verifund agent, so a failure here must not abort the buyer run.
+    """
+    if not agreement_id:
+        return
+    agreements = getattr(services, "agreements", None)
+    if agreements is None:
+        return
+    try:
+        await agreements.record_seller_decision(agreement_id, decision)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "could not record the escalated seller decision for %s: %s",
+            agreement_id,
+            exc,
+        )
+
+
 async def report_seller_review(state: BuyerState, config: dict) -> dict:
     services = _services(config)
     settlement = state.get("settlement") or {}
@@ -1349,9 +1374,9 @@ async def report_seller_review(state: BuyerState, config: dict) -> dict:
     decision = AgreementReviewResult.model_validate(
         state.get("seller_decision") or {}
     )
-    accepted = decision.status == AgreementReviewDecision.ACCEPTED
     agreement = settlement.get("agreement") or {}
-    if accepted:
+    status = decision.status
+    if status == AgreementReviewDecision.ACCEPTED:
         projection = await services.settlement.accept(
             str(settlement.get("transaction_id") or ""),
             seller_id=str(agreement["seller_id"]),
@@ -1361,31 +1386,49 @@ async def report_seller_review(state: BuyerState, config: dict) -> dict:
             accepted_at=decision.reviewed_at.isoformat().replace("+00:00", "Z"),
         )
         stage = "agreed"
-    else:
+        agreement_status = "PENDING_BUYER"
+    elif status == AgreementReviewDecision.REJECTED:
         projection = await services.settlement.reject(
             str(settlement.get("transaction_id") or ""),
             seller_id=str(agreement["seller_id"]),
             agreement_hash=str(agreement["agreement_hash"]),
-            reason_code=str(decision.reason_code or "terms_mismatch"),
+            reason_code=coerce_reject_reason(decision.reason_code).value,
             note=str(decision.note or ""),
             seller_task_id=str(decision.task_id),
             rejected_at=decision.reviewed_at.isoformat().replace("+00:00", "Z"),
         )
         stage = "rejected"
+        agreement_status = "REJECTED"
+    else:
+        # OPERATOR_REQUIRED and CHANGES_REQUESTED are escalations, not
+        # rejections: the agreement stays PENDING_SELLER for a human. The
+        # control plane records the flag and keeps the agreement open, so
+        # rejecting here would cancel a transaction the seller only asked to
+        # escalate.
+        projection = {}
+        stage = (
+            "operator_required"
+            if status == AgreementReviewDecision.OPERATOR_REQUIRED
+            else "changes_requested"
+        )
+        agreement_status = None
+        await _record_escalated_decision(
+            services, str(agreement.get("agreement_id") or ""), decision
+        )
     updated = {
         **settlement,
         "state": projection.get("state") or settlement.get("state"),
-        "funding_state": projection.get("state") or settlement.get("state"),
+        "funding_state": projection.get("state") or settlement.get("funding_state"),
     }
     # Keep the buyer's cached agreement in sync with the control plane so the
     # Verifund agent's sync_agreement reads the post-review status instead of
     # the stale PENDING_SELLER value captured at agreement creation.
     agreement_dict = settlement.get("agreement")
-    if isinstance(agreement_dict, dict):
+    if isinstance(agreement_dict, dict) and agreement_status:
         with contextlib.suppress(Exception):
             await services.store.settlement.save_agreement(
                 run_id,
-                {**agreement_dict, "status": "PENDING_BUYER" if accepted else "REJECTED"},
+                {**agreement_dict, "status": agreement_status},
             )
     await _upsert(services, run_id, stage=stage)
     return {
