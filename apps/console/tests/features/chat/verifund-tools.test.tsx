@@ -181,6 +181,55 @@ describe("verifund chat tools", () => {
     ).not.toThrow();
   });
 
+  it("prefers the shared agreement when the relay mangles line_items", () => {
+    // The LLM relay re-serializes nested arrays as {"item": ...}. The canonical
+    // agreement published to shared state must win over a mangled tool arg.
+    const mangled = {
+      ...agreement,
+      line_items: { item: agreement.line_items[0] },
+    };
+    const normalized = normalizeFundingArgs(
+      { ...fundingArgs(), agreement: mangled },
+      { ...agreement, status: "AGREED" },
+    );
+
+    expect(normalized.agreement?.line_items).toEqual(agreement.line_items);
+  });
+
+  it("unwraps a relayed single-item object into a line_items array", () => {
+    const mangled = {
+      ...agreement,
+      line_items: { item: agreement.line_items[0] },
+    };
+    const normalized = normalizeFundingArgs(
+      { ...fundingArgs(), agreement: mangled },
+      null,
+    );
+
+    expect(normalized.agreement?.line_items).toEqual(agreement.line_items);
+  });
+
+  it("renders the funding card without crashing on a malformed agreement", () => {
+    // Defense in depth: even a bad payload must not abort the agent run.
+    const badArgs = {
+      ...fundingArgs(),
+      agreement: {
+        ...agreement,
+        line_items: { item: agreement.line_items[0] },
+      },
+    } as unknown as Parameters<typeof FundingApprovalCard>[0]["args"];
+
+    const view = render(
+      <FundingApprovalCard
+        args={badArgs}
+        onApprove={() => {}}
+        onReject={() => {}}
+      />,
+    );
+
+    expect(view.getByTestId("verifund-funding")).toBeTruthy();
+  });
+
   it("accepts funding approval args without an embedded agreement", () => {
     // The award/agreement payload now arrives via CopilotKit shared state, so
     // HITL tool args carry binding + review decisions without the payload.

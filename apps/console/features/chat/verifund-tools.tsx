@@ -96,12 +96,33 @@ export const fundingHitlArgsSchema = z
   })
   .passthrough();
 
+function normalizeAgreement(value: unknown): Record<string, any> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  return {
+    ...(value as Record<string, any>),
+    line_items: normalizeLineItems((value as Record<string, any>).line_items),
+  };
+}
+
+function normalizeLineItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  // The LLM relay re-serializes a one-element array as {"item": {...}}.
+  if (value && typeof value === "object") {
+    const single = (value as Record<string, unknown>).item;
+    if (single && typeof single === "object") return [single];
+  }
+  return [];
+}
+
 export function normalizeFundingArgs(
   raw: Record<string, unknown>,
   sharedAgreement?: Record<string, any> | null,
 ): FundingApprovalArgs {
+  // Prefer the canonical agreement the orchestrator published to CopilotKit
+  // shared state. Never trust a model-authored agreement argument: the relay
+  // reshapes nested arrays, which crashes the renderer's .map() call.
   const agreement =
-    (raw.agreement as Record<string, any> | undefined) ?? sharedAgreement ?? undefined;
+    normalizeAgreement(sharedAgreement) ?? normalizeAgreement(raw.agreement);
   const agreement_version =
     (raw.agreement_version as number | undefined) ??
     agreement?.agreement_version ??
@@ -644,14 +665,16 @@ export function AgreementReviewCard({
         </div>
       </div>
       <ul className="mm-verifund-lines">
-        {agreement.line_items.map((item) => (
-          <li key={`${item.sku}-${item.unit_price_cents}`}>
-            <span>
-              {item.quantity} × {item.name}
-            </span>
-            <span>{money(item.unit_price_cents, agreement.currency)}</span>
-          </li>
-        ))}
+        {Array.isArray(agreement.line_items)
+          ? agreement.line_items.map((item) => (
+              <li key={`${item.sku}-${item.unit_price_cents}`}>
+                <span>
+                  {item.quantity} × {item.name}
+                </span>
+                <span>{money(item.unit_price_cents, agreement.currency)}</span>
+              </li>
+            ))
+          : null}
       </ul>
       <p className="mm-verifund-meta">
         Delivery in {agreement.delivery_days} days · {agreement.warranty_months}
