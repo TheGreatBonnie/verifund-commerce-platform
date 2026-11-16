@@ -11,11 +11,11 @@ from verifund_contracts import (
     FlagReviewRequest,
     FundRequest,
     PurchaseOrderReport,
-    RejectReason,
     RejectRequest,
     ReleaseRequest,
     SellerTokenRequest,
     VerifundClient,
+    coerce_reject_reason,
 )
 
 
@@ -265,7 +265,7 @@ class BuyerSettlementClient:
             RejectRequest(
                 seller_id=seller_id,
                 agreement_hash=agreement_hash,
-                reason_code=RejectReason(reason_code),
+                reason_code=coerce_reject_reason(reason_code),
                 note=note,
                 seller_task_id=seller_task_id,
                 rejected_at=rejected_at,

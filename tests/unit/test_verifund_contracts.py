@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from verifund_contracts import (
     AwardRequest,
     CheckoutDecision,
+    RejectReason,
     RejectRequest,
     Requirement,
     RequirementCheck,
@@ -21,6 +22,7 @@ from verifund_contracts import (
     VerifundError,
     VerifundSkill,
     VerifundTaskResult,
+    coerce_reject_reason,
 )
 from verifund_contracts.terms import validate_requirements
 
@@ -411,3 +413,22 @@ def test_requirement_types_round_trip_json():
     )
     dumped = req.model_dump(mode="json")
     assert Requirement.model_validate(dumped) == req
+
+
+def test_coerce_reject_reason_maps_a_known_code():
+    assert coerce_reject_reason("out_of_stock") is RejectReason.OUT_OF_STOCK
+
+
+def test_coerce_reject_reason_maps_an_unknown_seller_code_to_other():
+    assert coerce_reject_reason("outside_mandate") is RejectReason.OTHER
+    assert coerce_reject_reason("auto_accept_disabled") is RejectReason.OTHER
+    assert coerce_reject_reason("version_provenance_failed") is RejectReason.OTHER
+
+
+def test_coerce_reject_reason_maps_a_missing_code_to_the_default():
+    assert coerce_reject_reason(None) is RejectReason.OTHER
+    assert coerce_reject_reason("  ") is RejectReason.OTHER
+    assert (
+        coerce_reject_reason(None, default=RejectReason.TERMS_MISMATCH)
+        is RejectReason.TERMS_MISMATCH
+    )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import respx
 from buyer_agent.settlement_client import BuyerSettlementClient
 from httpx import Response
@@ -126,3 +128,26 @@ async def test_seller_token_endpoint_requires_the_stored_transaction():
     )
     assert response["seller_token"] == "v1.new"
     assert route.calls[0].request.headers["authorization"] == "Bearer ops-token"
+
+
+@respx.mock
+async def test_reject_maps_an_unknown_seller_reason_code_to_other():
+    route = respx.post("http://control/transactions/vf_1/reject").mock(
+        return_value=Response(200, json={"state": "CANCELED"})
+    )
+    client = BuyerSettlementClient(
+        "http://control", ops_token="ops-token", actor="buyer-agent"
+    )
+    await client.reject(
+        "vf_1",
+        seller_id="northwind-audio",
+        agreement_hash="a" * 64,
+        reason_code="outside_mandate",
+        note="Outside the seller mandate.",
+        seller_task_id="seller-task-1",
+        rejected_at="2026-10-27T12:00:00Z",
+    )
+    body = json.loads(route.calls[0].request.content)
+    assert body["reason_code"] == "other"
+    assert body["seller_id"] == "northwind-audio"
+    assert body["agreement_hash"] == "a" * 64

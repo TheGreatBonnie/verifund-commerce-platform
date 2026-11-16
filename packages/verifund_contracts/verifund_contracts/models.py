@@ -87,6 +87,27 @@ class RejectReason(StrEnum):
     OTHER = "other"
 
 
+def coerce_reject_reason(
+    value: object, *, default: RejectReason = RejectReason.OTHER
+) -> RejectReason:
+    """Map a free-form rejection reason onto a known ``RejectReason``.
+
+    Sellers report their own reason codes (``outside_mandate``,
+    ``auto_accept_disabled``, ``version_provenance_failed``) and the control
+    plane only accepts the codes in ``RejectReason``. An unknown code must
+    never raise: it degrades to ``default``.
+    """
+    if isinstance(value, RejectReason):
+        return value
+    raw = str(value).strip() if value is not None else ""
+    if not raw:
+        return default
+    try:
+        return RejectReason(raw)
+    except ValueError:
+        return default
+
+
 class AgreementReviewDecision(StrEnum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"

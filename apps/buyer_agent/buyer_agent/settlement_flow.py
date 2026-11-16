@@ -19,6 +19,7 @@ from verifund_contracts import (
     ReleaseRequest,
     Requirement,
     RequirementCheck,
+    coerce_reject_reason,
 )
 
 
@@ -560,10 +561,9 @@ async def report_acceptance(
 def _reject_reason(error: dict[str, Any] | None) -> RejectReason:
     details = (error or {}).get("details") or {}
     raw = details.get("reason_code") or (error or {}).get("reason_code")
-    try:
-        return RejectReason(str(raw)) if raw else RejectReason.TERMS_MISMATCH
-    except ValueError:
-        return RejectReason.OTHER
+    if not raw:
+        return RejectReason.TERMS_MISMATCH
+    return coerce_reject_reason(raw)
 
 
 async def report_rejection(
