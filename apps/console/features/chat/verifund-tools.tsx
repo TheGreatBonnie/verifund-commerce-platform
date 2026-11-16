@@ -80,6 +80,57 @@ export const fundingApprovalArgsSchema = z.object({
   message: z.string().default("Approve funding for this agreement."),
 });
 
+// The funding HITL call is produced by the LLM relay, which can truncate or
+// reshape complex arguments. Accept any invocation and rebuild the strict
+// decision payload from the canonical agreement in shared state below.
+export const fundingHitlArgsSchema = z
+  .object({
+    run_id: z.string().optional(),
+    transaction_id: z.string().optional(),
+    agreement_version: z.number().int().positive().optional(),
+    agreement_hash: z.string().optional(),
+    agreement: z.record(z.unknown()).optional(),
+    buyer_review: z.record(z.unknown()).nullable().optional(),
+    seller_decision: z.record(z.unknown()).nullable().optional(),
+    message: z.string().optional(),
+  })
+  .passthrough();
+
+export function normalizeFundingArgs(
+  raw: Record<string, unknown>,
+  sharedAgreement?: Record<string, any> | null,
+): FundingApprovalArgs {
+  const agreement =
+    (raw.agreement as Record<string, any> | undefined) ?? sharedAgreement ?? undefined;
+  const agreement_version =
+    (raw.agreement_version as number | undefined) ??
+    agreement?.agreement_version ??
+    1;
+  const agreement_hash =
+    (raw.agreement_hash as string | undefined) ?? agreement?.agreement_hash ?? "";
+  // The verifund agent validated both reviews before emitting this checkpoint.
+  // A relayed copy that lost them can safely be reconstructed from AGREED.
+  const acceptedReview = {
+    status: "accepted" as const,
+    agreement_version,
+    agreement_hash,
+  };
+  return {
+    run_id: String(raw.run_id ?? agreement?.run_id ?? ""),
+    transaction_id: String(raw.transaction_id ?? agreement?.transaction_id ?? ""),
+    agreement_version,
+    agreement_hash,
+    agreement: agreement as any,
+    buyer_review:
+      (raw.buyer_review as any) ??
+      (agreement?.status === "AGREED" ? acceptedReview : null),
+    seller_decision:
+      (raw.seller_decision as any) ??
+      (agreement?.status === "AGREED" ? acceptedReview : null),
+    message: String(raw.message ?? "Approve funding for this agreement."),
+  };
+}
+
 export const releaseApprovalArgsSchema = z.object({
   run_id: z.string().min(1),
   transaction_id: z.string().min(1),

@@ -27,8 +27,9 @@ import {
   agreementApprovalArgsSchema,
   agreementReviewLink,
   bilateralReviewStatus,
-  fundingApprovalArgsSchema,
+  fundingHitlArgsSchema,
   fundingDecision,
+  normalizeFundingArgs,
   parseVerifundToolResult,
   PayPalCheckoutCard,
   paypalCheckoutArgsSchema,
@@ -303,7 +304,7 @@ export function Chat({
       description:
         "Show the canonical agreement and the Buyer/Seller review status, then wait for an explicit human funding decision.",
       available: verifundEnabled,
-      parameters: fundingApprovalArgsSchema,
+      parameters: fundingHitlArgsSchema,
       render: ({ args, status, respond }) => {
         if (status === "executing" && respond) {
           const sharedAward = (
@@ -311,24 +312,23 @@ export function Chat({
               | Record<string, any>
               | undefined
           );
+          const effectiveArgs = normalizeFundingArgs(
+            args as Record<string, unknown>,
+            sharedAward,
+          );
           return (
             <div className="mm-chat-approval">
               <FundingApprovalCard
-                args={
-                  {
-                    ...args,
-                    agreement: sharedAward ?? args.agreement,
-                  } as any
-                }
+                args={effectiveArgs}
                 onApprove={(note) => {
                   respond(
-                    fundingDecision(args as any, { approved: true, note }),
+                    fundingDecision(effectiveArgs, { approved: true, note }),
                   );
                   onVerifundAction?.();
                 }}
                 onReject={(note) => {
                   respond(
-                    fundingDecision(args as any, { approved: false, note }),
+                    fundingDecision(effectiveArgs, { approved: false, note }),
                   );
                   onVerifundAction?.();
                 }}

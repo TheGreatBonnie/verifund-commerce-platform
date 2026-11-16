@@ -10,6 +10,8 @@ import {
   bilateralReviewStatus,
   fundingApprovalArgsSchema,
   fundingDecision,
+  fundingHitlArgsSchema,
+  normalizeFundingArgs,
   releaseApprovalArgsSchema,
   releaseDecision,
   releaseGate,
@@ -157,6 +159,25 @@ describe("verifund chat tools", () => {
     expect(bilateralReviewStatus(relayed)).toBe("ready");
     expect(() =>
       fundingDecision(relayed, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
+  it("accepts a minimal funding HITL call from the LLM relay", () => {
+    expect(() => fundingHitlArgsSchema.parse({})).not.toThrow();
+    expect(
+      fundingHitlArgsSchema.parse({ run_id: "run-1", extra: "ignored" }),
+    ).toMatchObject({ run_id: "run-1" });
+  });
+
+  it("normalizes relayed HITL args from the shared agreement", () => {
+    const normalized = normalizeFundingArgs(
+      { run_id: "run-1" },
+      { ...agreement, status: "AGREED" },
+    );
+
+    expect(fundingApprovalArgsSchema.safeParse(normalized).success).toBe(true);
+    expect(() =>
+      fundingDecision(normalized, { approved: true, decidedAt: NOW }),
     ).not.toThrow();
   });
 
