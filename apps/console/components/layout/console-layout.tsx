@@ -26,7 +26,13 @@ export function ConsoleLayout({
   return (
     <CopilotProvider>
       <QueryProvider>
-        <div className={threadsEnabled ? "mm-app-frame" : undefined} suppressHydrationWarning>
+        {/* The chat-only route needs the full-height frame even when threads
+            are disabled (the CPK key is unset in production). The CSS rule
+            that pins the viewport height and the input depends on this class,
+            which must not be coupled to the threads feature flag. */}
+        <div
+          className={threadsEnabled || chatOnly ? "mm-app-frame" : undefined}
+          suppressHydrationWarning>
           <div className="mm-shell" style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "stretch" }} suppressHydrationWarning>
             <SkipLink />
             {!chatOnly && <Sidebar />}
