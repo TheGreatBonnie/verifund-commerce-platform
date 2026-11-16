@@ -1045,3 +1045,38 @@ def test_checkout_args_carry_the_agreement_projection() -> None:
     args = VerifundLifecycle._checkout_args(cast(Any, None), result)
     assert args["agreement"] == binding()["agreement"]
     assert args["amount_cents"] == AGREEMENT.amount_cents
+
+
+def test_review_summary_keeps_an_escalated_seller_decision() -> None:
+    from orchestrator_agent.verifund import _review_summary
+
+    summary = _review_summary(
+        {
+            "status": "operator_required",
+            "agreement_version": 1,
+            "agreement_hash": "a" * 64,
+        }
+    )
+    assert summary is not None
+    assert summary["status"] == "operator_required"
+
+
+def test_review_summary_keeps_a_change_request() -> None:
+    from orchestrator_agent.verifund import _review_summary
+
+    summary = _review_summary(
+        {
+            "status": "changes_requested",
+            "agreement_version": 1,
+            "agreement_hash": "a" * 64,
+        }
+    )
+    assert summary is not None
+    assert summary["status"] == "changes_requested"
+
+
+def test_review_summary_drops_an_unknown_seller_decision() -> None:
+    from orchestrator_agent.verifund import _review_summary
+
+    assert _review_summary({"status": "not_a_decision"}) is None
+    assert _review_summary({}) is None

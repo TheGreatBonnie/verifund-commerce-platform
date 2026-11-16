@@ -119,6 +119,8 @@ def _review_summary(value: Any) -> dict[str, Any] | None:
     if status not in {
         AgreementReviewDecision.ACCEPTED.value,
         AgreementReviewDecision.REJECTED.value,
+        AgreementReviewDecision.OPERATOR_REQUIRED.value,
+        AgreementReviewDecision.CHANGES_REQUESTED.value,
     }:
         return None
     return {
