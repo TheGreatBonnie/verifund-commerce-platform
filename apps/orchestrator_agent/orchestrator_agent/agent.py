@@ -512,6 +512,29 @@ def build_verifund_lifecycle(settings: Settings) -> VerifundLifecycle:
     )
 
 
+def _publish_shared_state(
+    view: dict[str, Any], tool_context: ToolContext | None
+) -> None:
+    """Publish canonical lifecycle payloads into CopilotKit full shared state.
+
+    HITL cards read ``agent.state.award`` and ``agent.state.projection``. The
+    LLM relay reshapes nested arrays in tool arguments (``line_items`` becomes
+    ``{"item": ...}``), so the payload must reach the UI through ADK state —
+    emitted as STATE_DELTA events — instead of through model-authored args.
+    """
+    if tool_context is None:
+        return
+    data = view.get("data") if isinstance(view, dict) else None
+    if not isinstance(data, dict):
+        return
+    agreement = data.get("agreement")
+    if isinstance(agreement, dict):
+        tool_context.state["award"] = agreement
+    projection = data.get("projection")
+    if isinstance(projection, dict):
+        tool_context.state["projection"] = projection
+
+
 def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
     lifecycle = build_verifund_lifecycle(settings)
 
@@ -526,9 +549,10 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         buyer_context_id: str,
         seller_card_url: str,
         seller_id: str,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Start the Verifund lifecycle and complete the bilateral review."""
-        return await lifecycle.start(
+        result = await lifecycle.start(
             run_id=run_id,
             buyer_task_id=buyer_task_id,
             buyer_context_id=buyer_context_id,
@@ -536,24 +560,34 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
             seller_id=seller_id,
             idempotency_key=f"agreement:{run_id}",
         )
+        _publish_shared_state(result, tool_context)
+        return result
 
     async def verifund_status(
-        task_id: str, context_id: str, run_id: str
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Return the current Verifund checkpoint without advancing it."""
-        return await lifecycle.status(handle(task_id, context_id, run_id))
+        result = await lifecycle.status(handle(task_id, context_id, run_id))
+        _publish_shared_state(result, tool_context)
+        return result
 
     async def verifund_fund(
         task_id: str,
         context_id: str,
         run_id: str,
         decision: dict,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Resume the funding checkpoint with a structured human decision."""
-        return await lifecycle.resume_funding(
+        result = await lifecycle.resume_funding(
             handle(task_id, context_id, run_id),
             FundingApprovalDecision.model_validate(decision),
         )
+        _publish_shared_state(result, tool_context)
+        return result
 
     async def verifund_checkout(
         task_id: str,
@@ -566,6 +600,7 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         projection: Optional[dict[str, Any]] = None,  # noqa: UP045
         order_id: Optional[str] = None,  # noqa: UP045
         capture_id: Optional[str] = None,  # noqa: UP045
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Resume the checkout checkpoint with the embedded card result."""
         decision = CheckoutDecision(
@@ -576,43 +611,57 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
             projection=projection or {},
             idempotency_key=idempotency_key,
         )
-        return await lifecycle.resume_checkout(
+        result = await lifecycle.resume_checkout(
             handle(task_id, context_id, run_id),
             decision,
         )
+        _publish_shared_state(result, tool_context)
+        return result
 
     async def verifund_evidence_review(
         task_id: str,
         context_id: str,
         run_id: str,
         seller_card_url: str,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Place the purchase order and poll funding, evidence, or release."""
-        return await lifecycle.advance(
+        result = await lifecycle.advance(
             handle(task_id, context_id, run_id),
             seller_card_url=seller_card_url,
         )
+        _publish_shared_state(result, tool_context)
+        return result
 
     async def verifund_release(
         task_id: str,
         context_id: str,
         run_id: str,
         decision: dict,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Resume the release checkpoint with a structured human decision."""
-        return await lifecycle.resume_release(
+        result = await lifecycle.resume_release(
             handle(task_id, context_id, run_id),
             ReleaseApprovalDecision.model_validate(decision),
         )
+        _publish_shared_state(result, tool_context)
+        return result
 
     async def verifund_receipt(
-        task_id: str, context_id: str, run_id: str, transaction_id: str
+        task_id: str,
+        context_id: str,
+        run_id: str,
+        transaction_id: str,
+        tool_context: ToolContext | None = None,
     ) -> dict:
         """Return the verified receipt after release."""
-        return await lifecycle.receipt(
+        result = await lifecycle.receipt(
             handle(task_id, context_id, run_id),
             transaction_id=transaction_id,
         )
+        _publish_shared_state(result, tool_context)
+        return result
 
     return [
         FunctionTool(verifund_create_agreement),

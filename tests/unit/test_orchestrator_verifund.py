@@ -1080,3 +1080,84 @@ def test_review_summary_drops_an_unknown_seller_decision() -> None:
 
     assert _review_summary({"status": "not_a_decision"}) is None
     assert _review_summary({}) is None
+
+
+async def test_verifund_status_publishes_the_agreement_to_shared_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The HITL card reads agent.state.award, so the tool must publish it.
+
+    The LLM relay mangles nested arrays in tool arguments. The canonical
+    agreement must reach the UI through ADK state, not through the tool call.
+    """
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    payload = AGREEMENT.model_dump(mode="json")
+    view = {
+        "status": "approval_required",
+        "checkpoint": "funding_approval_required",
+        "data": {"agreement": payload},
+        "hitl": {
+            "tool": "request_verifund_funding_approval",
+            "args": {},
+        },
+    }
+
+    async def fake_status(
+        self: Any, handle: VerifundTaskHandle
+    ) -> dict[str, Any]:
+        return view
+
+    monkeypatch.setattr(VerifundLifecycle, "status", fake_status)
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    tool = next(item for item in tools if item.name == "verifund_status")
+
+    class FakeToolContext:
+        def __init__(self) -> None:
+            self.state: dict[str, Any] = {}
+
+    context = FakeToolContext()
+    result = await tool.func("task-1", "ctx-1", "run-1", tool_context=context)
+
+    assert result is view
+    assert context.state["award"] == payload
+
+
+async def test_verifund_create_agreement_publishes_the_agreement_to_shared_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first funding HITL is produced by create_agreement, not status."""
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    payload = AGREEMENT.model_dump(mode="json")
+    view = {
+        "status": "approval_required",
+        "checkpoint": "funding_approval_required",
+        "data": {"agreement": payload},
+    }
+
+    async def fake_start(self: Any, **kwargs: Any) -> dict[str, Any]:
+        return view
+
+    monkeypatch.setattr(VerifundLifecycle, "start", fake_start)
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    tool = next(item for item in tools if item.name == "verifund_create_agreement")
+
+    class FakeToolContext:
+        def __init__(self) -> None:
+            self.state: dict[str, Any] = {}
+
+    context = FakeToolContext()
+    result = await tool.func(
+        "run-1",
+        "buyer-task-1",
+        "buyer-ctx-1",
+        "https://seller.example/card",
+        "seller-1",
+        tool_context=context,
+    )
+
+    assert result is view
+    assert context.state["award"] == payload
