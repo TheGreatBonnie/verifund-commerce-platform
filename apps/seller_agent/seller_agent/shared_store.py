@@ -544,7 +544,34 @@ class OrgScopedStore(SellerStore):
         return Offer.model_validate(json.loads(row.offer_json))
 
     async def load_mandate(self) -> SellerMandate:
-        return SellerMandate()
+        mandate = SellerMandate()
+        # A seller must not escalate an agreement for terms it lists in its
+        # own catalog. Widen the defaults to cover the catalog's range;
+        # otherwise 36/48-month warranties and 75-day returns are reported
+        # as outside_mandate and the agreement never reaches the buyer.
+        try:
+            products = await self.list_products()
+        except Exception:  # noqa: BLE001 - unbound tenant or missing catalog
+            return mandate
+        warranties = [
+            int(p["base_warranty_months"])
+            for p in products
+            if p.get("base_warranty_months") is not None
+        ]
+        returns = [
+            int(p["returns_days"])
+            for p in products
+            if p.get("returns_days") is not None
+        ]
+        if warranties:
+            mandate.max_warranty_months = max(
+                mandate.max_warranty_months, max(warranties)
+            )
+        if returns:
+            mandate.max_returns_days = max(
+                mandate.max_returns_days, max(returns)
+            )
+        return mandate
 
     async def record_task_ownership(self, task_id: str,
                                     context_id: str | None = None) -> None:

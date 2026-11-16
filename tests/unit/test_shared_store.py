@@ -38,6 +38,27 @@ async def test_create_and_get_config(engine):
     assert snap2.instructions == "hello" and snap2.config_version == 1
 
 
+async def test_mandate_accepts_terms_from_the_sellers_own_catalog(engine):
+    store = OrgScopedStore(engine, organization_id="orgA", agent_id="agent_a")
+    await store.import_products([
+        {
+            "sku": "SKU-36",
+            "list_unit_price_cents": 1000,
+            "initial_unit_price_cents": 1000,
+            "floor_unit_price_cents": 900,
+            "base_warranty_months": 36,
+            "returns_days": 75,
+        },
+    ], replace=True)
+
+    mandate = await store.load_mandate()
+
+    assert mandate.auto_accept is True
+    assert mandate.allows(
+        total_cents=1000, warranty_months=36, returns_days=75
+    )
+
+
 async def test_org_isolation(engine):
     a = OrgScopedStore(engine, organization_id="orgA")
     b = OrgScopedStore(engine, organization_id="orgB")
