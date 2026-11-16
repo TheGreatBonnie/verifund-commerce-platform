@@ -202,6 +202,7 @@ export function Chat({
   const [registryNames, setRegistryNames] = useState<Map<string, string>>(
     () => new Map(),
   );
+  const [fundingError, setFundingError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -316,22 +317,32 @@ export function Chat({
             args as Record<string, unknown>,
             sharedAward,
           );
+          const decide = (approved: boolean, note: string) => {
+            try {
+              const decision = fundingDecision(effectiveArgs, {
+                approved,
+                note,
+              });
+              setFundingError(null);
+              respond(decision);
+              onVerifundAction?.();
+            } catch (err) {
+              // A genuine binding conflict belongs in the card, not as an
+              // uncaught exception out of the click handler.
+              setFundingError(
+                err instanceof Error
+                  ? err.message
+                  : "Could not record this funding decision.",
+              );
+            }
+          };
           return (
             <div className="mm-chat-approval">
               <FundingApprovalCard
                 args={effectiveArgs}
-                onApprove={(note) => {
-                  respond(
-                    fundingDecision(effectiveArgs, { approved: true, note }),
-                  );
-                  onVerifundAction?.();
-                }}
-                onReject={(note) => {
-                  respond(
-                    fundingDecision(effectiveArgs, { approved: false, note }),
-                  );
-                  onVerifundAction?.();
-                }}
+                error={fundingError}
+                onApprove={(note) => decide(true, note)}
+                onReject={(note) => decide(false, note)}
               />
             </div>
           );
