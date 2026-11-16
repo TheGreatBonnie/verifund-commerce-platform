@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,6 +23,19 @@ from verifund_control_plane.settings import Settings as ControlPlaneSettings
 
 from gateway.app import build_app
 from gateway.settings import Settings
+
+
+def configure_adk_telemetry() -> None:
+    """Skip serializing full LLM requests into ADK trace spans.
+
+    ADK's _build_llm_request_for_trace model_dumps the entire conversation
+    and tool schemas on every LLM call. On the shared free-tier worker that
+    CPU work stalls the loop for seconds and grows with context length.
+    """
+    os.environ.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
+
+
+configure_adk_telemetry()
 
 
 @asynccontextmanager
