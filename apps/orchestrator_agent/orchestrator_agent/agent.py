@@ -6,8 +6,7 @@ from typing import Any, Literal, Optional
 # ADK imports litellm lazily on the first LLM call. That import takes seconds
 # on the free Render container and blocks the shared event loop, so pay the
 # cost here, while the gateway is still starting up.
-import litellm
-import litellm.llms.github_copilot.per_user_auth  # noqa: F401
+import litellm  # noqa: F401
 from ag_ui_adk import AGUIToolset
 from commerce_core.retrieval import NebiusEmbeddings, ProductRetriever
 from google.adk.agents import LlmAgent
