@@ -896,6 +896,18 @@ def test_orchestrator_instruction_describes_the_verifund_settlement_flow() -> No
     assert "request_award_approval" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
 
 
+def test_instruction_waits_for_evidence_then_surfaces_release() -> None:
+    assert "checkpoint evidence_pending" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert (
+        "verifund_status with the exact task_id, context_id, and run_id"
+        in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    )
+    assert (
+        "request_verifund_release_approval"
+        in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    )
+
+
 def test_orchestrator_instruction_blocks_funding_until_buyer_approval() -> None:
     instruction = MARKETMESH_ORCHESTRATOR_INSTRUCTION
     assert "request_verifund_agreement_approval" in instruction

@@ -270,9 +270,15 @@ protocol instead of the legacy order flow.
   resume on the next status refresh instead.
 - After funding, call verifund_evidence_review with the same
   task_id, context_id, run_id, and seller_card_url. It places
-  the purchase order with the Seller and polls funding and
-  evidence. Do not call the Seller or place the purchase order
-  yourself.
+  the purchase order with the Seller, then returns a working
+  result at checkpoint evidence_pending. Do not call the Seller
+  or place the purchase order yourself.
+- When a tool result has checkpoint evidence_pending, treat it as
+  a wait state, not success: the Seller is still submitting
+  fulfillment evidence. On the next status refresh, call
+  verifund_status with the exact task_id, context_id, and run_id;
+  its status check resumes the verifund agent when the evidence
+  projection is ready. Never invent a verified or released state.
 - When hitl.tool is request_verifund_release_approval, call that
   frontend tool with hitl.args unchanged, then call verifund_release
   with the structured ReleaseApprovalDecision. A rejected release
@@ -626,7 +632,7 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         seller_card_url: str,
         tool_context: ToolContext | None = None,
     ) -> dict:
-        """Place the purchase order and poll funding, evidence, or release."""
+        """Place the purchase order; evidence and release resume on status refresh."""
         try:
             result = await lifecycle.advance(
                 handle(task_id, context_id, run_id),
