@@ -195,3 +195,10 @@ def test_gitignore_excludes_evidence_and_coverage_artifacts():
     assert "data/evidence/" in text
     assert ".coverage" in text
 
+
+def test_render_blueprint_enables_embedded_checkout():
+    blueprint = yaml.safe_load((ROOT / "render.yaml").read_text())
+    groups = {g["name"]: g["envVars"] for g in blueprint["envVarGroups"]}
+    gateway = {e["key"]: e for e in groups["gateway-shared"]}
+    assert gateway["VERIFUND_CHECKOUT_MODE"]["value"] == "embedded"
+
