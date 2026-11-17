@@ -11,7 +11,12 @@ from commerce_core.a2a_parts import (
     first_envelope,
     make_artifact,
 )
-from commerce_core.contracts import Order, PurchaseOrderRequest
+from commerce_core.contracts import (
+    CommerceError,
+    CommerceErrorCode,
+    Order,
+    PurchaseOrderRequest,
+)
 from commerce_core.extension import wrap_payload
 from orchestrator_agent.agent import MARKETMESH_ORCHESTRATOR_INSTRUCTION
 from orchestrator_agent.settings import Settings
@@ -998,6 +1003,33 @@ async def test_checkout_decision_resumes_the_same_task() -> None:
     assert resume[3] == decision.model_dump(mode="json")
 
 
+def test_order_from_frames_surfaces_the_sellers_error_message() -> None:
+    frames = [
+        TaskArtifactUpdateEvent(
+            task_id="seller-task-1",
+            context_id="run-1",
+            artifact=make_artifact(
+                "commerce-error",
+                wrap_payload(
+                    "commerce_error",
+                    CommerceError(
+                        code=CommerceErrorCode.OFFER_EXPIRED,
+                        message="Offer has expired.",
+                        retryable=False,
+                        details={},
+                    ),
+                ),
+            ),
+        )
+    ]
+
+    with pytest.raises(VerifundProtocolError) as exc:
+        SellerA2AClient._order_from_frames(frames)
+
+    assert "offer_expired" in str(exc.value)
+    assert "Offer has expired." in str(exc.value)
+
+
 def test_the_checkout_tool_and_instruction_are_registered() -> None:
     from orchestrator_agent.agent import _build_verifund_tools
 
@@ -1122,6 +1154,29 @@ async def test_verifund_status_publishes_the_agreement_to_shared_state(
 
     assert result is view
     assert context.state["award"] == payload
+
+
+async def test_evidence_review_returns_a_structured_error_instead_of_crashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    async def failing_advance(self: Any, handle: Any, seller_card_url: str) -> dict:
+        raise VerifundProtocolError(
+            "Seller rejected the purchase order: OFFER_EXPIRED: Offer has expired."
+        )
+
+    monkeypatch.setattr(VerifundLifecycle, "advance", failing_advance)
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    tool = next(item for item in tools if item.name == "verifund_evidence_review")
+
+    result = await tool.func(
+        "task-1", "ctx-1", "run-1", "https://seller.example/card"
+    )
+
+    assert result["status"] == "error"
+    assert "OFFER_EXPIRED" in result["message"]
 
 
 async def test_verifund_create_agreement_publishes_the_agreement_to_shared_state(

@@ -9,6 +9,7 @@ from commerce_core.a2a_parts import first_envelope, make_message
 from commerce_core.contracts import (
     AcceptOffer,
     ApprovalReceipt,
+    CommerceErrorCode,
     Offer,
     OfferLineItem,
     OfferStatus,
@@ -381,3 +382,45 @@ async def test_order_service_skips_validation_for_an_idempotent_retry(
 
     assert second.order_id == first.order_id
     assert (await store.get_stock("NC-700")).on_hand == 8
+
+
+async def test_order_service_allows_expired_offer_when_settlement_is_funded(
+    store, northwind_policy
+):
+    """A funded agreement outlives the 30-minute quote TTL."""
+    await store.set_stock("NC-700", 20, 0)
+    expired = offer().model_copy(
+        update={"valid_until": datetime.now(UTC) - timedelta(minutes=1)}
+    )
+    await store.save_offer(expired, task_id="task-1", context_id="ctx-1")
+
+    async def funded_validator(po):
+        return {"state": "FUNDED"}
+
+    created = await OrderService(store).create_order(
+        purchase_order(), settlement_validator=funded_validator
+    )
+
+    assert created.offer_id == expired.offer_id
+    assert (await store.get_stock("NC-700")).on_hand == 8
+
+
+async def test_order_service_still_rejects_expired_offer_without_funding(
+    store, northwind_policy
+):
+    await store.set_stock("NC-700", 20, 0)
+    expired = offer().model_copy(
+        update={"valid_until": datetime.now(UTC) - timedelta(minutes=1)}
+    )
+    await store.save_offer(expired, task_id="task-1", context_id="ctx-1")
+
+    async def unfunded_validator(po):
+        return {"state": "AWARDED"}
+
+    with pytest.raises(OrderError) as exc:
+        await OrderService(store).create_order(
+            purchase_order(), settlement_validator=unfunded_validator
+        )
+
+    assert exc.value.code == CommerceErrorCode.OFFER_EXPIRED
+    assert (await store.get_stock("NC-700")).on_hand == 20

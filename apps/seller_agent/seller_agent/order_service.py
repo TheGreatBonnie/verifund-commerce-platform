@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from commerce_core.contracts import (
     CommerceErrorCode,
@@ -16,7 +17,9 @@ from commerce_core.contracts import (
 
 from seller_agent.store import SellerStore
 
-SettlementValidator = Callable[[PurchaseOrderRequest], Awaitable[None]]
+SettlementValidator = Callable[
+    [PurchaseOrderRequest], Awaitable[dict[str, Any] | None]
+]
 
 
 class OrderError(Exception):
@@ -43,7 +46,13 @@ class OrderService:
     def __init__(self, store: SellerStore) -> None:
         self.store = store
 
-    def _validate(self, po: PurchaseOrderRequest, offer: Offer) -> None:
+    def _validate(
+        self,
+        po: PurchaseOrderRequest,
+        offer: Offer,
+        *,
+        settlement_confirmed: bool = False,
+    ) -> None:
         if offer.seller_id != po.seller_id:
             raise OrderError(
                 CommerceErrorCode.INVALID_REQUEST,
@@ -69,7 +78,12 @@ class OrderService:
                 CommerceErrorCode.INVALID_REQUEST,
                 "Human approval is required.",
             )
-        if _is_expired(offer.valid_until, datetime.now(UTC)):
+        # A funded agreement has already passed human approval and payment, so
+        # the original quote's short TTL must not block fulfilment. Only a
+        # settlement validator confirming FUNDED grants this exemption.
+        if not settlement_confirmed and _is_expired(
+            offer.valid_until, datetime.now(UTC)
+        ):
             raise OrderError(
                 CommerceErrorCode.OFFER_EXPIRED,
                 "Offer has expired.",
@@ -91,10 +105,14 @@ class OrderService:
                 raise OrderError(
                     CommerceErrorCode.INVALID_REQUEST, "Offer not found."
                 )
-            self._validate(po, offer)
+            settlement_confirmed = False
             if settlement_validator is not None:
                 try:
-                    await settlement_validator(po)
+                    projection = await settlement_validator(po)
+                    settlement_confirmed = (
+                        isinstance(projection, dict)
+                        and projection.get("state") == "FUNDED"
+                    )
                 except OrderError:
                     raise
                 except Exception as exc:
@@ -102,6 +120,9 @@ class OrderService:
                         CommerceErrorCode.CONFLICT,
                         str(exc) or "Settlement validation failed.",
                     ) from exc
+            self._validate(
+                po, offer, settlement_confirmed=settlement_confirmed
+            )
             try:
                 reservation = await tx.reserve(
                     offer.line_items[0].sku,

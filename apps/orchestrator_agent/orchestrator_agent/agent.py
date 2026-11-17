@@ -31,6 +31,7 @@ from orchestrator_agent.verifund import (
     SellerA2AClient,
     VerifundA2AClient,
     VerifundLifecycle,
+    VerifundProtocolError,
     VerifundTaskHandle,
 )
 
@@ -626,10 +627,19 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         tool_context: ToolContext | None = None,
     ) -> dict:
         """Place the purchase order and poll funding, evidence, or release."""
-        result = await lifecycle.advance(
-            handle(task_id, context_id, run_id),
-            seller_card_url=seller_card_url,
-        )
+        try:
+            result = await lifecycle.advance(
+                handle(task_id, context_id, run_id),
+                seller_card_url=seller_card_url,
+            )
+        except VerifundProtocolError as exc:
+            # A rejected seller order is a business outcome, not a crash. Let
+            # the chat explain it instead of failing the whole AG-UI run.
+            result = {
+                "status": "error",
+                "error": {"code": "seller_order_failed", "message": str(exc)},
+                "message": str(exc),
+            }
         _publish_shared_state(result, tool_context)
         return result
 

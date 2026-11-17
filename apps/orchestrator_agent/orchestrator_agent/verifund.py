@@ -556,6 +556,7 @@ class SellerA2AClient:
 
     @staticmethod
     def _order_from_frames(frames: list) -> dict[str, Any]:
+        seller_errors: list[str] = []
         for frame in frames:
             artifacts = []
             # Unwrap ClientEvent-style payloads
@@ -587,6 +588,18 @@ class SellerA2AClient:
                     candidate = payload if isinstance(payload, dict) else value
                     if isinstance(candidate, dict) and candidate.get("order_id"):
                         return candidate
+                    if isinstance(candidate, dict) and str(
+                        value.get("schema", "")
+                    ).endswith("commerce-error.json"):
+                        code = candidate.get("code", "commerce_error")
+                        message = candidate.get(
+                            "message", "Seller rejected the purchase order"
+                        )
+                        seller_errors.append(f"{code}: {message}")
+        if seller_errors:
+            raise VerifundProtocolError(
+                "Seller rejected the purchase order: " + "; ".join(seller_errors)
+            )
         raise VerifundProtocolError("Seller returned no order")
 
 
