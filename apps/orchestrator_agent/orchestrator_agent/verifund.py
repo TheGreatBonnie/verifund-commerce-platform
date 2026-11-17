@@ -1121,10 +1121,11 @@ class VerifundLifecycle:
         handle: VerifundTaskHandle, result: VerifundTaskResult
     ) -> dict[str, Any]:
         data = result.data or {}
+        version = data.get("agreement_version")
         return {
             "run_id": data.get("run_id") or handle.run_id,
             "transaction_id": data.get("transaction_id"),
-            "agreement_version": data.get("agreement_version"),
+            "agreement_version": int(version) if version is not None else None,
             "agreement_hash": data.get("agreement_hash"),
             "projection": data.get("projection"),
             "message": result.message or "Release this transaction.",

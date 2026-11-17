@@ -687,6 +687,16 @@ async def test_advance_exposes_the_release_hitl_with_the_exact_args() -> None:
     assert args["transaction_id"] == AGREEMENT.transaction_id
 
 
+async def test_release_hitl_args_keep_agreement_version_an_integer() -> None:
+    result = release_result()
+    result.data["agreement_version"] = 1.0
+    view = VerifundLifecycle._release_args(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"), result
+    )
+    assert isinstance(view["agreement_version"], int)
+    assert view["agreement_version"] == 1
+
+
 async def test_release_decision_resumes_the_same_task_and_returns_the_receipt() -> None:
     receipt = {
         "payload": {
