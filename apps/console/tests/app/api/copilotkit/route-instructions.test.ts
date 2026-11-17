@@ -36,6 +36,13 @@ describe("orchestrator sourcing mandate instructions", () => {
     expect(source).toMatch(/export const maxDuration\s*=\s*\d+/);
   });
 
+  it("keeps the Intelligence run alive past the join response", () => {
+    // The Intelligence handler returns its join credentials before the agent
+    // finishes; without `after` the function is frozen and the run drops.
+    expect(source).toContain("keepIntelligenceRunsAlive(runtime.runner, keepRunAlive)");
+    expect(source).toMatch(/after\(work\)/);
+  });
+
   it("keeps the award out of the approval tool arguments", () => {
     expect(source).not.toMatch(/Extract the exact task_id, message, award/i);
     expect(source).toMatch(/never copy the award/i);
