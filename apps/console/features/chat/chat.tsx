@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import { AwardApproval } from "@/features/chat/components/award-approval";
+import { EvidenceWaitCard } from "@/features/chat/components/evidence-wait-card";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import {
   AgreementReviewCard,
@@ -700,6 +701,13 @@ export function Chat({
       const response = parsed.status
         ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
         : undefined;
+      if (parsed.checkpoint === "evidence_pending") {
+        return (
+          <VerifundA2AExchange status={status} task={task} response={response}>
+            <EvidenceWaitCard checkpoint={parsed.checkpoint} />
+          </VerifundA2AExchange>
+        );
+      }
       return (
         <VerifundA2AExchange status={status} task={task} response={response}>
           <VerifundStatusCard
@@ -725,6 +733,13 @@ export function Chat({
       const response = parsed.status
         ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
         : undefined;
+      if (parsed.checkpoint === "evidence_pending") {
+        return (
+          <VerifundA2AExchange status={status} task={task} response={response}>
+            <EvidenceWaitCard checkpoint={parsed.checkpoint} />
+          </VerifundA2AExchange>
+        );
+      }
       return (
         <VerifundA2AExchange status={status} task={task} response={response}>
           <EvidenceSummaryCard

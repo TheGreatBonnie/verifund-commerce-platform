@@ -412,3 +412,33 @@ describe("chat sourcing mandate", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/no order/i);
   });
 });
+
+describe("chat evidence wait", () => {
+  beforeEach(() => {
+    hooks.useRenderTool.mockClear();
+    hooks.addMessage.mockClear();
+    hooks.runAgent.mockClear();
+  });
+
+  it("renders the waiting card for an evidence_pending tool result", () => {
+    renderChat();
+    const renderer = hooks.useRenderTool.mock.calls.find(
+      ([tool]) => tool.name === "verifund_evidence_review",
+    )?.[0].render;
+
+    expect(renderer).toBeTruthy();
+    render(
+      renderer!({
+        parameters: { run_id: "run-1" },
+        status: "complete",
+        result: {
+          status: "working",
+          checkpoint: "evidence_pending",
+          data: { run_id: "run-1" },
+        },
+      }),
+    );
+
+    expect(screen.getByTestId("verifund-evidence-wait")).toBeTruthy();
+  });
+});
