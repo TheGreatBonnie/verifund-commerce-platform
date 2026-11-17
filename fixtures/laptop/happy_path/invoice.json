@@ -1,9 +1,9 @@
 {
-  "invoice_id": "INV-happy_path",
-  "seller_id": "northwind-audio",
-  "total_cents": 123400,
+  "invoice_id": "INV-vf_2dd942e4521a43c5a0b498c6eb148d7b",
+  "seller_id": "0aea969b2bbc4badbecc3114bba11a63",
+  "total_cents": 102599,
   "currency": "USD",
   "line_items": [
-    "NC-700 x12"
+    "EX-MACBOOK-AIR x1"
   ]
 }
