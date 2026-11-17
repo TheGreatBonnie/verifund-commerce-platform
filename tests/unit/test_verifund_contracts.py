@@ -345,6 +345,15 @@ def test_requirement_floor_allows_missing_expected_value_when_ai_derived():
     assert validate_requirements([requirement, _delivery_requirement()]) is None
 
 
+def test_requirement_floor_rejects_extraction_verification_method():
+    requirement = _requirement(
+        checks=[_check(check_id="serial_readable", verification_method="extraction",
+                       ai_derived=True)]
+    )
+    with pytest.raises(ValueError):
+        validate_requirements([requirement, _delivery_requirement()])
+
+
 def test_requirement_floor_allows_falsy_expected_value():
     requirement = _requirement(
         checks=[_check(check_id="min_ram", operator="gte", expected_value=0,

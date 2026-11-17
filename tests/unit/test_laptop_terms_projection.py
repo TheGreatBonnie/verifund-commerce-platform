@@ -4,7 +4,6 @@ from verifund_contracts.models import (
     ActionOwner,
     CarrierEventStatus,
     DisputeClaimType,
-    Requirement,
 )
 from verifund_contracts.terms import project_requirements
 
@@ -15,6 +14,25 @@ def test_project_requirements_defaults_for_legacy_terms() -> None:
     assert serial.stage is None
     assert serial.min_items == 1
     assert serial.required_views == []
+
+
+def test_projected_laptop_catalog_only_requires_a_submission() -> None:
+    reqs = project_requirements(
+        {
+            "product": {"category": "electronics.laptop.refurbished"},
+            "evidence_required": ["serial", "invoice"],
+        }
+    )
+    value_checks = [
+        (requirement.requirement_id, check.check_id)
+        for requirement in reqs
+        for check in requirement.checks
+        if check.operator != "exists"
+        or check.verification_method != "deterministic"
+        or check.expected_value is not None
+        or check.ai_derived
+    ]
+    assert value_checks == []
 
 
 def test_project_requirements_laptop_category_emits_staged_catalog() -> None:
@@ -43,8 +61,8 @@ def test_project_requirements_laptop_category_emits_staged_catalog() -> None:
 
     photos = next(r for r in reqs if r.requirement_id == "product_photos")
     assert photos.stage == "product_condition"
-    assert photos.min_items == 7
-    assert "serial" in photos.required_views
+    assert photos.min_items == 1
+    assert photos.required_views == []
 
     decl = next(r for r in reqs if r.requirement_id == "condition_declaration")
     assert decl.source == "declaration"
