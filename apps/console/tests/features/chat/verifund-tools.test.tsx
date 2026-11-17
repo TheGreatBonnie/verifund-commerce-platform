@@ -209,6 +209,57 @@ describe("verifund chat tools", () => {
     expect(normalized.agreement?.line_items).toEqual(agreement.line_items);
   });
 
+  it("binds the decision to the canonical agreement, not relayed top-level fields", () => {
+    const canonical = {
+      ...agreement,
+      status: "AGREED",
+      run_id: "run-3",
+      transaction_id: "vf_3",
+      agreement_version: 3,
+      agreement_hash: "c".repeat(64),
+    };
+    const normalized = normalizeFundingArgs(
+      {
+        ...fundingArgs(),
+        run_id: "run-1",
+        transaction_id: "vf_1",
+        agreement_version: 1,
+        agreement_hash: "a".repeat(64),
+      },
+      canonical,
+    );
+
+    expect(normalized.run_id).toBe("run-3");
+    expect(normalized.transaction_id).toBe("vf_3");
+    expect(normalized.agreement_version).toBe(3);
+    expect(normalized.agreement_hash).toBe("c".repeat(64));
+    expect(() =>
+      fundingDecision(normalized, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
+  it("coerces a relayed string version to a number", () => {
+    const normalized = normalizeFundingArgs(
+      { agreement_version: "1" },
+      { ...agreement, status: "AGREED" },
+    );
+
+    expect(normalized.agreement_version).toBe(1);
+    expect(() =>
+      fundingDecision(normalized, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
+  it("does not throw when the relay only changes the binding's value type", () => {
+    const live = fundingArgs();
+    expect(() =>
+      fundingDecision(
+        { ...live, agreement_version: "1" } as any,
+        { approved: true, decidedAt: NOW },
+      ),
+    ).not.toThrow();
+  });
+
   it("renders the funding card without crashing on a malformed agreement", () => {
     // Defense in depth: even a bad payload must not abort the agent run.
     const badArgs = {
@@ -228,6 +279,21 @@ describe("verifund chat tools", () => {
     );
 
     expect(view.getByTestId("verifund-funding")).toBeTruthy();
+  });
+
+  it("shows a decision error inside the card instead of throwing from the click handler", () => {
+    const view = render(
+      <FundingApprovalCard
+        args={fundingArgs()}
+        error="The agreement changed. Refresh this run before deciding."
+        onApprove={() => {}}
+        onReject={() => {}}
+      />,
+    );
+
+    expect(view.getByRole("alert")).toHaveTextContent(
+      "The agreement changed. Refresh this run before deciding.",
+    );
   });
 
   it("accepts funding approval args without an embedded agreement", () => {

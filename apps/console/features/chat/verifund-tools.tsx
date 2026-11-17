@@ -123,12 +123,16 @@ export function normalizeFundingArgs(
   // reshapes nested arrays, which crashes the renderer's .map() call.
   const agreement =
     normalizeAgreement(sharedAgreement) ?? normalizeAgreement(raw.agreement);
-  const agreement_version =
-    (raw.agreement_version as number | undefined) ??
-    agreement?.agreement_version ??
-    1;
-  const agreement_hash =
-    (raw.agreement_hash as string | undefined) ?? agreement?.agreement_hash ?? "";
+  // The canonical agreement is the single source of truth for the binding.
+  // The top-level fields are an LLM-authored copy of the same data; the relay
+  // can echo a stale run/version or re-type a number as a string. Mixing the
+  // two sources made the fundingDecision guard reject valid approvals.
+  const versionValue = agreement?.agreement_version ?? raw.agreement_version ?? 1;
+  const parsedVersion = Number(versionValue);
+  const agreement_version = Number.isFinite(parsedVersion) ? parsedVersion : 1;
+  const agreement_hash = String(
+    agreement?.agreement_hash ?? raw.agreement_hash ?? "",
+  );
   // The verifund agent validated both reviews before emitting this checkpoint.
   // A relayed copy that lost them can safely be reconstructed from AGREED.
   const acceptedReview = {
@@ -137,8 +141,8 @@ export function normalizeFundingArgs(
     agreement_hash,
   };
   return {
-    run_id: String(raw.run_id ?? agreement?.run_id ?? ""),
-    transaction_id: String(raw.transaction_id ?? agreement?.transaction_id ?? ""),
+    run_id: String(agreement?.run_id ?? raw.run_id ?? ""),
+    transaction_id: String(agreement?.transaction_id ?? raw.transaction_id ?? ""),
     agreement_version,
     agreement_hash,
     agreement: agreement as any,
@@ -380,13 +384,16 @@ export function fundingDecision(
   },
 ): FundingDecision {
   const agreement = args.agreement;
+  // The binding copies are relayed by the orchestrator's LLM, which can
+  // re-type a number as a string ("1" vs 1). Compare by value, not by JS
+  // type, so a relay artifact cannot masquerade as a different agreement.
+  const sameBinding = (a: unknown, b: unknown) =>
+    a == null || b == null || String(a) === String(b);
   if (
-    (agreement?.run_id && agreement.run_id !== args.run_id) ||
-    (agreement?.transaction_id && agreement.transaction_id !== args.transaction_id) ||
-    (agreement?.agreement_version != null &&
-      agreement.agreement_version !== args.agreement_version) ||
-    (agreement?.agreement_hash != null &&
-      agreement.agreement_hash !== args.agreement_hash)
+    !sameBinding(agreement?.run_id, args.run_id) ||
+    !sameBinding(agreement?.transaction_id, args.transaction_id) ||
+    !sameBinding(agreement?.agreement_version, args.agreement_version) ||
+    !sameBinding(agreement?.agreement_hash, args.agreement_hash)
   ) {
     throw new Error("The agreement is bound to another run or version.");
   }
@@ -688,10 +695,12 @@ export function FundingApprovalCard({
   args,
   onApprove,
   onReject,
+  error,
 }: {
   args: FundingApprovalArgs;
   onApprove: (note: string) => void;
   onReject: (note: string) => void;
+  error?: string | null;
 }) {
   const [note, setNote] = useState("");
   const readiness = bilateralReviewStatus(args);
@@ -724,6 +733,11 @@ export function FundingApprovalCard({
             : `Waiting for the ${
                 readiness === "buyer_pending" ? "Buyer" : "Seller"
               } decision before funding.`}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" data-testid="verifund-funding-error" className="mm-verifund-blocked">
+          {error}
         </p>
       ) : null}
       <label className="mm-note-field">
