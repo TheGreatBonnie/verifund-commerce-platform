@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 # on the free Render container and blocks the shared event loop, so pay the
 # cost here, while the gateway is still starting up.
 import litellm  # noqa: F401
+from a2a.utils.errors import TaskNotFoundError
 from ag_ui_adk import AGUIToolset
 from commerce_core.retrieval import NebiusEmbeddings, ProductRetriever
 from google.adk.agents import LlmAgent
@@ -589,10 +590,22 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         tool_context: ToolContext | None = None,
     ) -> dict:
         """Resume the funding checkpoint with a structured human decision."""
-        result = await lifecycle.resume_funding(
-            handle(task_id, context_id, run_id),
-            FundingApprovalDecision.model_validate(decision),
-        )
+        try:
+            result = await lifecycle.resume_funding(
+                handle(task_id, context_id, run_id),
+                FundingApprovalDecision.model_validate(decision),
+            )
+        except TaskNotFoundError as exc:
+            # A stale funding card is a business outcome, not a crash. Tell the
+            # chat to refresh status instead of failing the whole AG-UI run.
+            result = {
+                "status": "error",
+                "error": {"code": "stale_funding_task", "message": str(exc)},
+                "message": (
+                    f"Funding checkpoint is no longer available: {exc}. "
+                    "Refresh Verifund status before approving again."
+                ),
+            }
         _publish_shared_state(result, tool_context)
         return result
 

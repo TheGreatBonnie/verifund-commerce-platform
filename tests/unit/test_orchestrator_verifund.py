@@ -1191,6 +1191,57 @@ async def test_evidence_review_returns_a_structured_error_instead_of_crashing(
     assert "OFFER_EXPIRED" in result["message"]
 
 
+def test_funding_hitl_args_carry_the_resume_handle() -> None:
+    """The funding card must expose the ids verifund_fund needs to resume."""
+    result = VerifundTaskResult(
+        skill=VerifundSkill.TRANSACTION_STATUS,
+        status="approval_required",
+        checkpoint=VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+        approval_type="funding",
+        task_id="task-1",
+        run_id="run-1",
+    )
+
+    args = VerifundLifecycle._funding_args(
+        VerifundTaskHandle("task-1", "ctx-1", "run-1"), result
+    )
+
+    assert args["task_id"] == "task-1"
+    assert args["context_id"] == "ctx-1"
+    assert args["run_id"] == "run-1"
+
+
+async def test_funding_tool_returns_structured_error_for_a_stale_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from a2a.utils.errors import TaskNotFoundError
+
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    async def failing_resume(self: Any, handle: Any, decision: Any) -> dict:
+        raise TaskNotFoundError("Task run-1 not found")
+
+    monkeypatch.setattr(VerifundLifecycle, "resume_funding", failing_resume)
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    tool = next(item for item in tools if item.name == "verifund_fund")
+    decision = {
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": "a" * 64,
+        "approved": True,
+        "approved_by": "buyer@example.com",
+        "decided_at": "2026-11-17T04:00:00Z",
+        "idempotency_key": "fund-1",
+    }
+
+    result = await tool.func("run-1", "ctx-1", "run-1", decision)
+
+    assert result["status"] == "error"
+    assert "not found" in result["message"]
+
+
 async def test_verifund_create_agreement_publishes_the_agreement_to_shared_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

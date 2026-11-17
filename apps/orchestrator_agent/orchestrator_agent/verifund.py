@@ -1084,6 +1084,11 @@ class VerifundLifecycle:
     ) -> dict[str, Any]:
         data = result.data or {}
         return {
+            # The funding HITL must carry the exact ids verifund_fund needs.
+            # Without them the model falls back to the run_id as task_id and
+            # the A2A resume fails with TASK_NOT_FOUND.
+            "task_id": handle.task_id,
+            "context_id": handle.context_id,
             "run_id": data.get("run_id") or handle.run_id,
             "transaction_id": data.get("transaction_id"),
             "agreement_version": data.get("agreement_version"),
