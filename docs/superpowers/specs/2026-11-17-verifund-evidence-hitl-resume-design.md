@@ -1,7 +1,7 @@
 # Verifund: orchestrator-driven evidence wait and resume
 
 **Date:** 2026-11-17
-**Status:** Proposed (awaiting review before implementation)
+**Status:** Implemented (orchestrator on `deploy/render`, console on `deploy/console`)
 
 ## 1. Problem
 
