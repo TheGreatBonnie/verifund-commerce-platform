@@ -1,6 +1,7 @@
 "use client";
 
-import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
+import { useAgent } from "@copilotkit/react-core/v2";
+import { useRunLaunch } from "@/features/chat/use-run-launch";
 
 export function EvidenceWaitCard({
   checkpoint,
@@ -8,16 +9,16 @@ export function EvidenceWaitCard({
   checkpoint?: string | null;
 }) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
-  const { copilotkit } = useCopilotKit();
+  const { runOnActiveThread } = useRunLaunch();
 
   const checkStatus = () => {
-    if (agent.isRunning) return;
-    agent.addMessage({
-      id: crypto.randomUUID(),
-      role: "user",
-      content: "Check Verifund status",
+    void runOnActiveThread(() => {
+      agent.addMessage({
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "Check Verifund status",
+      });
     });
-    void copilotkit.runAgent({ agent });
   };
 
   return (

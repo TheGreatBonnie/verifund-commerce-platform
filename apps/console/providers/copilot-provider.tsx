@@ -4,14 +4,22 @@ import {
   CopilotChatConfigurationProvider,
   CopilotKitProvider,
 } from "@copilotkit/react-core/v2";
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
+import { ThreadLockNotice } from "@/features/chat/components/thread-lock-notice";
 
 const threadsEnabled =
   process.env.NEXT_PUBLIC_COPILOTKIT_THREADS_ENABLED === "true";
 
 export function CopilotProvider({ children }: { children: ReactNode }) {
+  const [threadLocked, setThreadLocked] = useState(false);
+
   return (
-    <CopilotKitProvider runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
+    <CopilotKitProvider
+      runtimeUrl="/api/copilotkit"
+      useSingleEndpoint={false}
+      onError={(event) => {
+        if (event.code === "agent_thread_locked") setThreadLocked(true);
+      }}>
       <CopilotChatConfigurationProvider
         agentId="marketmesh_orchestrator"
         labels={{
@@ -23,6 +31,9 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
           chatDisclaimerText:
             "Buyer agent · every order requires a human decision.",
         }}>
+        {threadLocked ? (
+          <ThreadLockNotice onDismiss={() => setThreadLocked(false)} />
+        ) : null}
         {children}
       </CopilotChatConfigurationProvider>
     </CopilotKitProvider>

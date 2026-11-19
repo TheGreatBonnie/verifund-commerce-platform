@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,12 @@ vi.mock("@clerk/nextjs", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
+}));
+
+const copilot = vi.hoisted(() => ({ startNewRun: vi.fn() }));
+
+vi.mock("@/features/chat/use-start-new-run", () => ({
+  useStartNewRun: () => ({ startNewRun: copilot.startNewRun }),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -45,12 +51,32 @@ function renderHome() {
 describe("Home page (public)", () => {
   beforeEach(() => {
     clerk.isSignedIn = false;
+    copilot.startNewRun.mockClear();
   });
 
   it("hides recent activity for signed-out visitors", async () => {
     renderHome();
     expect(await screen.findByText("Nimbus NC-700")).toBeInTheDocument();
     expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
+  });
+
+  it("starts a fresh thread when a new shopping brief is launched", () => {
+    renderHome();
+
+    fireEvent.click(screen.getByRole("button", { name: /start shopping/i }));
+
+    expect(copilot.startNewRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a fresh thread when a product brief is launched", async () => {
+    renderHome();
+    const button = await screen.findByRole("button", {
+      name: /ask agent to negotiate/i,
+    });
+
+    fireEvent.click(button);
+
+    expect(copilot.startNewRun).toHaveBeenCalledTimes(1);
   });
 
   it("shows recent activity and transactions link for signed-in visitors", async () => {

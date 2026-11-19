@@ -14,11 +14,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { fetchMarketplaceProducts } from "@/lib/api";
 import type { MarketplaceProduct } from "@/lib/types";
+import { useStartNewRun } from "@/features/chat/use-start-new-run";
 
 type SortOrder = "Recommended" | "Price: low to high" | "Price: high to low";
 
 export default function MarketplacePage() {
   const router = useRouter();
+  const { startNewRun } = useStartNewRun();
   const catalogQuery = useQuery({
     queryKey: ["marketplace-products"],
     queryFn: fetchMarketplaceProducts,
@@ -54,6 +56,7 @@ export default function MarketplacePage() {
   }, [products, category, highlyRatedOnly, query, sort]);
 
   const startProductRun = (product: MarketplaceProduct) => {
+    startNewRun();
     const brief = [
       `Find and negotiate the best terms for ${product.name}.`,
       `Product SKU: ${product.sku}.`,

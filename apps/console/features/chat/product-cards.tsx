@@ -2,9 +2,10 @@
 
 import { useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Handshake, Star } from "lucide-react";
-import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2";
+import { useAgent } from "@copilotkit/react-core/v2";
 import { Button } from "@/components/ui/button";
 import { parseVerifundToolResult } from "./verifund-tools";
+import { useRunLaunch } from "./use-run-launch";
 
 type ProductOffer = {
   seller_id?: string;
@@ -210,7 +211,7 @@ export function ProductSearchCards({
   result,
 }: ProductSearchCardsProps) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
-  const { copilotkit } = useCopilotKit();
+  const { runOnActiveThread } = useRunLaunch();
   const [isDispatching, setIsDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Hooks must run on every render, before the early returns below —
@@ -249,12 +250,18 @@ export function ProductSearchCards({
     setIsDispatching(true);
     setError(null);
     try {
-      agent.addMessage({
-        id: messageId(),
-        role: "user",
-        content: negotiateIntent(product),
+      const dispatched = await runOnActiveThread(() => {
+        agent.addMessage({
+          id: messageId(),
+          role: "user",
+          content: negotiateIntent(product),
+        });
       });
-      await copilotkit.runAgent({ agent });
+      if (!dispatched) {
+        setError(
+          "The agent is busy on this conversation. Try again when it finishes.",
+        );
+      }
     } catch (dispatchError) {
       setError(
         dispatchError instanceof Error

@@ -17,7 +17,8 @@ import { EvidenceWaitCard } from "@/features/chat/components/evidence-wait-card"
 describe("EvidenceWaitCard", () => {
   beforeEach(() => {
     hooks.addMessage.mockClear();
-    hooks.runAgent.mockClear();
+    hooks.runAgent.mockReset();
+    hooks.runAgent.mockResolvedValue(undefined);
     hooks.agent.isRunning = false;
     vi.useRealTimers();
   });
@@ -50,6 +51,25 @@ describe("EvidenceWaitCard", () => {
       }),
     );
     expect(hooks.runAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a second status check while the first is still in flight", () => {
+    let resolveRun: (() => void) | undefined;
+    hooks.runAgent.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        }),
+    );
+    render(<EvidenceWaitCard checkpoint="evidence_pending" />);
+
+    const button = screen.getByRole("button", { name: /check status/i });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(hooks.addMessage).toHaveBeenCalledTimes(1);
+    expect(hooks.runAgent).toHaveBeenCalledTimes(1);
+    resolveRun?.();
   });
 
   it("does not start a check while the agent is running", () => {

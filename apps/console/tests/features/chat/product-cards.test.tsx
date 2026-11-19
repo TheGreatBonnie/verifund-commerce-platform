@@ -2,12 +2,15 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const hooks = vi.hoisted(() => ({
+  agent: { isRunning: false },
   addMessage: vi.fn(),
   runAgent: vi.fn(),
 }));
 
 vi.mock("@copilotkit/react-core/v2", () => ({
-  useAgent: () => ({ agent: { addMessage: hooks.addMessage } }),
+  useAgent: () => ({
+    agent: { ...hooks.agent, addMessage: hooks.addMessage },
+  }),
   useCopilotKit: () => ({ copilotkit: { runAgent: hooks.runAgent } }),
 }));
 
@@ -70,6 +73,7 @@ const PAYLOAD = {
 
 describe("product search cards", () => {
   beforeEach(() => {
+    hooks.agent.isRunning = false;
     hooks.addMessage.mockClear();
     hooks.runAgent.mockReset();
     hooks.runAgent.mockResolvedValue(undefined);
@@ -126,6 +130,21 @@ describe("product search cards", () => {
       "MM-MACBOOK-AIR-M4-13",
     );
     await waitFor(() => expect(hooks.runAgent).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not start a negotiate run while the agent is already running", async () => {
+    hooks.agent.isRunning = true;
+    render(<ProductSearchCards status="complete" result={PAYLOAD} />);
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /ask agent to negotiate/i })[0],
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(/busy/i),
+    );
+    expect(hooks.addMessage).not.toHaveBeenCalled();
+    expect(hooks.runAgent).not.toHaveBeenCalled();
   });
 
   it("renders marketplace-aligned art, price, and action layout", () => {

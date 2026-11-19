@@ -18,6 +18,7 @@ import { Panel } from "@/components/ui/panel";
 import { orders } from "@/lib/data";
 import { fetchMarketplaceProducts } from "@/lib/api";
 import type { MarketplaceProduct } from "@/lib/types";
+import { useStartNewRun } from "@/features/chat/use-start-new-run";
 
 const SAMPLE_BRIEF =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
@@ -83,6 +84,7 @@ const capabilities = [
 export default function Home() {
   const router = useRouter();
   const { isSignedIn } = useAuth();
+  const { startNewRun } = useStartNewRun();
 
   const catalogQuery = useQuery({
     queryKey: ["marketplace-products"],
@@ -93,6 +95,7 @@ export default function Home() {
   const categories = Array.from(new Set(products.map((product) => product.category)));
 
   const runSample = () => {
+    startNewRun();
     try {
       window.sessionStorage.setItem("marketmesh:pendingBrief", SAMPLE_BRIEF);
     } catch {
@@ -102,6 +105,7 @@ export default function Home() {
   };
 
   const runProductBrief = (product: (typeof products)[number]) => {
+    startNewRun();
     const brief = [
       `Find and negotiate the best terms for one ${product.name}.`,
       `Product details: ${product.desc}.`,
