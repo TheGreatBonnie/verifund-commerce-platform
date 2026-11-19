@@ -1,6 +1,20 @@
 import { EventType, type BaseEvent } from "@ag-ui/core";
 import { Observable } from "rxjs";
 
+export interface SingleTerminalStreamOptions {
+  /**
+   * Tool names whose `TOOL_CALL_END` ends the run.
+   *
+   * CopilotKit's frontend HITL tools are stateless: the agent emits the tool
+   * call and its run is expected to finish before the user responds. When the
+   * run stays open across the HITL wait, Intelligence keeps the thread locked
+   * and the follow-up run dispatched by `respond()` is rejected with a 409
+   * `agent_thread_locked`. Ending the stream at the tool-call boundary lets the
+   * runtime release the lock before the follow-up starts.
+   */
+  terminateOnToolCallNames?: ReadonlySet<string>;
+}
+
 /**
  * Normalizes an AG-UI event stream so it contains exactly one RUN_STARTED
  * and one terminal event.
@@ -17,14 +31,23 @@ import { Observable } from "rxjs";
  * as soon as another event arrives, and only the final held finish is emitted
  * when the stream completes. RUN_ERROR is forwarded immediately and
  * suppresses any held finish.
+ *
+ * When `terminateOnToolCallNames` is supplied, the stream is completed as soon
+ * as one of those frontend HITL tools finishes its tool call. The synthetic
+ * RUN_FINISHED carries the original run's ids so the runtime can settle the
+ * run, and completing the observable tears down the upstream subscription so
+ * the agent stops streaming.
  */
 export function singleTerminalStream(
   source: Observable<BaseEvent>,
+  options?: SingleTerminalStreamOptions,
 ): Observable<BaseEvent> {
   return new Observable<BaseEvent>((subscriber) => {
     let sawRunStarted = false;
     let heldFinish: BaseEvent | null = null;
     let terminal = false;
+    let startedEvent: BaseEvent | null = null;
+    const toolNamesById = new Map<string, string>();
 
     const subscription = source.subscribe({
       next(event) {
@@ -38,8 +61,50 @@ export function singleTerminalStream(
               return;
             }
             sawRunStarted = true;
+            startedEvent = event;
             subscriber.next(event);
             return;
+
+          case EventType.TOOL_CALL_START: {
+            const { toolCallId, toolCallName } = event as BaseEvent & {
+              toolCallId?: string;
+              toolCallName?: string;
+            };
+            if (toolCallId && toolCallName) {
+              toolNamesById.set(toolCallId, toolCallName);
+            }
+            // A tool call after a held finish proves the run continues.
+            heldFinish = null;
+            subscriber.next(event);
+            return;
+          }
+
+          case EventType.TOOL_CALL_END: {
+            // A tool call after a held finish proves the run continues.
+            heldFinish = null;
+            subscriber.next(event);
+            const { toolCallId } = event as BaseEvent & { toolCallId?: string };
+            const toolCallName = toolCallId
+              ? toolNamesById.get(toolCallId)
+              : undefined;
+            if (
+              toolCallName &&
+              options?.terminateOnToolCallNames?.has(toolCallName)
+            ) {
+              const { threadId, runId } = (startedEvent ?? {}) as {
+                threadId?: string;
+                runId?: string;
+              };
+              terminal = true;
+              subscriber.next({
+                type: EventType.RUN_FINISHED,
+                threadId,
+                runId,
+              } as BaseEvent);
+              subscriber.complete();
+            }
+            return;
+          }
 
           case EventType.RUN_FINISHED:
             // Hold the finish until we know no further sub-run follows.
