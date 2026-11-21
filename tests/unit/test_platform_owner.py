@@ -34,3 +34,37 @@ async def test_transaction_is_stamped_with_platform_email(client):
         body["transaction_id"]
     )
     assert txn.platform_account_email == "platform@example.com"
+
+
+async def test_platform_owner_accepts_matching_email(client):
+    from verifund_control_plane.api.platform_auth import authorize_platform_transaction
+
+    body = await _award_a_transaction(client)
+    txn = await client._transport.app.state.repo.get_transaction(
+        body["transaction_id"]
+    )
+    assert authorize_platform_transaction(txn, "platform@example.com") is txn
+
+
+async def test_platform_owner_mismatch_raises_404(client):
+    from verifund_control_plane.api.platform_auth import authorize_platform_transaction
+
+    body = await _award_a_transaction(client)
+    txn = await client._transport.app.state.repo.get_transaction(
+        body["transaction_id"]
+    )
+    with pytest.raises(Exception) as exc:
+        authorize_platform_transaction(txn, "other@example.com")
+    assert getattr(exc.value, "status_code", None) == 404
+
+
+async def test_platform_owner_blank_email_raises_404(client):
+    from verifund_control_plane.api.platform_auth import authorize_platform_transaction
+
+    body = await _award_a_transaction(client)
+    txn = await client._transport.app.state.repo.get_transaction(
+        body["transaction_id"]
+    )
+    with pytest.raises(Exception) as exc:
+        authorize_platform_transaction(txn, "")
+    assert getattr(exc.value, "status_code", None) == 404
