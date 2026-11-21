@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
+from verifund_control_plane.admin import routes as admin_routes
 from verifund_control_plane.agents import routes as agent_routes
 from verifund_control_plane.agreements import routes as agreement_routes
 from verifund_control_plane.agreements.models import AgreementError, to_verifund_error
@@ -250,4 +251,5 @@ def create_app(
     app.include_router(tenancy_routes.router)
     app.include_router(onboarding_routes.router)
     app.include_router(agent_routes.router)
+    app.include_router(admin_routes.router)
     return app

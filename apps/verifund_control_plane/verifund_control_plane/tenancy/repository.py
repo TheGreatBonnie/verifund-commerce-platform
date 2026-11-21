@@ -942,6 +942,19 @@ class TenancyRepository:
             await conn.execute(self.seller_verifications.insert().values(**row))
         return row
 
+    async def list_seller_verifications(
+        self, status: str | None = None
+    ) -> list[dict]:
+        statement = select(self.seller_verifications)
+        if status is not None:
+            statement = statement.where(
+                self.seller_verifications.c.status == status
+            )
+        statement = statement.order_by(self.seller_verifications.c.created_at)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [dict(row._mapping) for row in rows]
+
     async def decide_verification_row(
         self,
         organization_id: str,
