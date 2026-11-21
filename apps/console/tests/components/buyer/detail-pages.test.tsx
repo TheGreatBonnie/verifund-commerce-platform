@@ -45,7 +45,16 @@ describe("TransactionDetail", () => {
       seller_name: "Acme Supply",
       agreed_amount_cents: 12550,
       currency: "USD",
-      agreement: { agreement_id: "agr_1", version: 2 },
+      agreement: {
+        agreement_id: "agr_1",
+        agreement_version: 2,
+        status: "AGREED",
+        currency: "USD",
+        terms: {
+          items: [{ name: "Acme Widget", quantity: 1 }],
+          totals: { total_cents: 12550, currency: "USD" },
+        },
+      },
       payment: { payment_id: "pay_1", status: "captured" },
       timeline: [{ type: "agreement_created", status: "complete", at: "2026-01-01T00:00:00Z" }],
       fulfillment: {
@@ -57,9 +66,12 @@ describe("TransactionDetail", () => {
 
     render(<TransactionDetail transactionId="tx_1" />);
 
-    expect(await screen.findByText("USD 125.50")).toBeInTheDocument();
+    expect((await screen.findAllByText("USD 125.50"))[0]).toHaveClass(
+      "mm-buyer-detail-amount",
+    );
     expect(screen.getByText("Funded")).toHaveClass("mm-buyer-status-pill");
-    expect(screen.getByText("Agreement Id")).toBeInTheDocument();
+    expect(screen.getByText("Acme Widget")).toBeInTheDocument();
+    expect(screen.getByTestId("buyer-agreement-card")).toBeInTheDocument();
     expect(screen.getByText("View raw agreement").closest("details")).toBeInTheDocument();
     expect(screen.getAllByText(/next: submit evidence/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/evidence is required/i)).toBeInTheDocument();

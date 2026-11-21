@@ -15,6 +15,7 @@ import {
   BuyerPageSkeleton,
 } from "../shared/buyer-page-states";
 import { StructuredDataPanel } from "../shared/structured-data-panel";
+import { BuyerAgreementCard } from "./agreement-card";
 import { FulfillmentSummary } from "./fulfillment-summary";
 
 export function TransactionDetail({ transactionId }: { transactionId: string }) {
@@ -90,11 +91,13 @@ export function TransactionDetail({ transactionId }: { transactionId: string }) 
       </section>
 
       {detail.agreement ? (
-        <StructuredDataPanel
-          title="Agreement"
-          data={detail.agreement}
-          rawLabel="View raw agreement"
-        />
+        <section className="mm-panel" aria-label="Agreement">
+          <h2>Agreement</h2>
+          <BuyerAgreementCard
+            agreement={detail.agreement}
+            transactionId={transactionId}
+          />
+        </section>
       ) : (
         <section className="mm-panel" aria-label="Agreement">
           <h2>Agreement</h2>

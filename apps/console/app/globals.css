@@ -7563,6 +7563,35 @@ paypal-button {
   margin-bottom: 10px;
 }
 
+/* Agreement card reuses the chat dossier styles without nested card chrome. */
+.mm-panel .mm-buyer-agreement {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mm-buyer-agreement .mm-buyer-agreement-actions {
+  margin-top: 14px;
+}
+
+.mm-buyer-agreement > .mm-buyer-raw {
+  margin-top: 12px;
+}
+
+.mm-panel .mm-buyer-agreement .mm-money-label,
+.mm-panel .mm-buyer-agreement .mm-inspection-grid dt,
+.mm-panel .mm-buyer-agreement .mm-verifund-detail .mm-kicker {
+  font-size: 10px;
+}
+
+.mm-panel .mm-buyer-agreement .mm-money-row,
+.mm-panel .mm-buyer-agreement .mm-inspection-grid dd,
+.mm-panel .mm-buyer-agreement .mm-check-list li,
+.mm-panel .mm-buyer-agreement .mm-acceptance-row {
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .mm-page-header h1 {
     font-size: 28px;
@@ -7600,5 +7629,9 @@ paypal-button {
 
   .mm-buyer-settlement-body {
     gap: 4px 8px;
+  }
+
+  .mm-panel .mm-buyer-agreement .mm-money-total {
+    flex-wrap: wrap;
   }
 }
