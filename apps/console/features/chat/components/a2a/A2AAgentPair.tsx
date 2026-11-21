@@ -12,7 +12,7 @@ export type A2AAgentSide = {
 
 export type A2AAgentPairProps = {
   left?: { label: string; meta?: string; icon?: string; name?: string };
-  right?: { label: string; meta?: string; name?: string };
+  right?: { label: string; meta?: string; name?: string; icon?: string };
   /** When inbound, agent is on the left and Orchestrator on the right. */
   direction?: "outbound" | "inbound";
 };
@@ -43,19 +43,11 @@ export function A2AAgentPair({ left, right, direction = "outbound" }: A2AAgentPa
   const agentName =
     direction === "inbound"
       ? left?.label ?? left?.name ?? "Agent"
-      : (right as A2AAgentSide | undefined)?.name ?? (left as { name?: string } | undefined)?.name ?? "Agent";
+      : right?.label ?? right?.name ?? left?.name ?? left?.label ?? "Agent";
 
   const agentStyle = getAgentStyle(agentName);
-  const agentIcon =
-    direction === "inbound"
-      ? left?.icon ?? agentStyle.icon
-      : (right as A2AAgentSide | undefined)?.icon ?? agentStyle.icon;
-  const agentFramework =
-    direction === "inbound"
-      ? left?.meta && left.meta !== orchestratorMeta
-        ? left.meta
-        : agentStyle.framework
-      : agentStyle.framework;
+  const agentIcon = direction === "inbound" ? left?.icon ?? agentStyle.icon : right?.icon ?? agentStyle.icon;
+  const agentFramework = agentStyle.framework;
 
   const leftLabel = direction === "inbound" ? agentName : orchestratorLabel;
   const leftMeta = direction === "inbound" ? agentFramework : orchestratorMeta;
