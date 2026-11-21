@@ -500,6 +500,22 @@ class TenancyRepository:
             )
             return result.first() is not None
 
+    async def remove_platform_admin(self, user_id: str) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.platform_admins.delete().where(
+                    self.platform_admins.c.user_id == user_id
+                )
+            )
+
+    async def reconcile_platform_admin(
+        self, user_id: str, is_admin: bool, granted_by: str | None = None
+    ) -> None:
+        if is_admin:
+            await self.add_platform_admin(user_id, granted_by=granted_by)
+        else:
+            await self.remove_platform_admin(user_id)
+
     async def unique_seller_id(self, base: str | None) -> str:
         slug = (base or "seller").lower().strip()
         slug = "".join(c if c.isalnum() or c == "-" else "-" for c in slug)
