@@ -11,12 +11,13 @@ export type A2AAgentSide = {
 };
 
 export type A2AAgentPairProps = {
-  left?: { label: string; meta?: string };
-  right: A2AAgentSide;
+  left?: { label: string; meta?: string; icon?: string; name?: string };
+  right?: { label: string; meta?: string; name?: string };
+  /** When inbound, agent is on the left and Orchestrator on the right. */
+  direction?: "outbound" | "inbound";
 };
 
 function avatarToneClasses(bgColor: string): string {
-  // Map gradient/bg utility classes to a soft solid tone for the avatar circle.
   if (bgColor.includes("indigo") || bgColor.includes("purple")) {
     return "bg-indigo-100 text-indigo-700";
   }
@@ -35,23 +36,42 @@ function avatarToneClasses(bgColor: string): string {
   return "bg-slate-100 text-slate-700";
 }
 
-export function A2AAgentPair({ left, right }: A2AAgentPairProps) {
-  const agentStyle = getAgentStyle(right.name);
-  const icon = right.icon ?? agentStyle.icon;
-  const framework = right.framework ?? agentStyle.framework;
+export function A2AAgentPair({ left, right, direction = "outbound" }: A2AAgentPairProps) {
+  const orchestratorLabel = direction === "inbound" ? right?.label ?? "Orchestrator" : left?.label ?? "Orchestrator";
+  const orchestratorMeta = direction === "inbound" ? right?.meta ?? "ADK" : left?.meta ?? "ADK";
 
-  const leftLabel = left?.label ?? "Orchestrator";
-  const leftMeta = left?.meta ?? "ADK";
+  const agentName =
+    direction === "inbound"
+      ? left?.label ?? left?.name ?? "Agent"
+      : (right as A2AAgentSide | undefined)?.name ?? (left as { name?: string } | undefined)?.name ?? "Agent";
 
-  // Orchestrator is fixed (Verifund/ADK context in this app) — use slate/neutral tone.
-  const leftAvatarTone = "bg-slate-100 text-slate-700";
-  const rightAvatarTone = avatarToneClasses(agentStyle.bgColor);
+  const agentStyle = getAgentStyle(agentName);
+  const agentIcon =
+    direction === "inbound"
+      ? left?.icon ?? agentStyle.icon
+      : (right as A2AAgentSide | undefined)?.icon ?? agentStyle.icon;
+  const agentFramework =
+    direction === "inbound"
+      ? left?.meta && left.meta !== orchestratorMeta
+        ? left.meta
+        : agentStyle.framework
+      : agentStyle.framework;
+
+  const leftLabel = direction === "inbound" ? agentName : orchestratorLabel;
+  const leftMeta = direction === "inbound" ? agentFramework : orchestratorMeta;
+  const leftIcon = direction === "inbound" ? agentIcon : "🤖";
+  const leftAvatarTone = direction === "inbound" ? avatarToneClasses(agentStyle.bgColor) : "bg-slate-100 text-slate-700";
+
+  const rightLabel = direction === "inbound" ? orchestratorLabel : agentName;
+  const rightMeta = direction === "inbound" ? orchestratorMeta : agentFramework;
+  const rightIcon = direction === "inbound" ? "🤖" : agentIcon;
+  const rightAvatarTone = direction === "inbound" ? "bg-slate-100 text-slate-700" : avatarToneClasses(agentStyle.bgColor);
 
   return (
     <div className="a2a-message-route">
       <div className="flex min-w-0 items-center gap-2.5">
         <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm ${leftAvatarTone}`} aria-hidden="true">
-          🤖
+          {leftIcon}
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-slate-900">{leftLabel}</div>
@@ -65,11 +85,11 @@ export function A2AAgentPair({ left, right }: A2AAgentPairProps) {
 
       <div className="flex min-w-0 items-center gap-2.5">
         <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-base ${rightAvatarTone}`} aria-hidden="true">
-          {icon}
+          {rightIcon}
         </div>
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-slate-900">{right.name}</div>
-          {framework ? <div className="text-xs text-slate-500">{framework}</div> : null}
+          <div className="truncate text-sm font-semibold text-slate-900">{rightLabel}</div>
+          {rightMeta ? <div className="text-xs text-slate-500">{rightMeta}</div> : null}
         </div>
       </div>
     </div>

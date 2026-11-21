@@ -79,8 +79,9 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
       onToggleExpanded={() => setCardExpanded((v) => !v)}
     >
       <A2AAgentPair
+        direction="outbound"
         left={{ label: orchestratorLabel ?? "Orchestrator", meta: orchestratorMeta ?? "ADK" }}
-        right={{ name: displayName ?? args.agentName }}
+        right={{ label: displayName ?? args.agentName ?? "Agent" }}
       />
 
       <div className="mt-3 a2a-message-content">
