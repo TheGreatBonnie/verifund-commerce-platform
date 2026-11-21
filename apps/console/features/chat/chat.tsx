@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import { useUser } from "@clerk/nextjs";
 import { approverDisplayName } from "@/lib/clerk-display-name";
 import {
@@ -69,10 +75,35 @@ type ChatProps = {
   variant?: "rail" | "embedded";
   verifundMode?: string;
   onVerifundAction?: () => void;
+  prefilledPrompt?: string | null;
 };
 
 const SAMPLE_PROMPT =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
+
+type ChatViewProps = ComponentProps<typeof CopilotChat.View>;
+
+/**
+ * Seeds CopilotKit's internally-managed input with a handoff prompt from a
+ * buyer workspace deep link. We keep the human in the loop: the prompt is only
+ * placed in the composer, it is never auto-sent to the agent.
+ */
+function createPrefilledChatView(prefilledPrompt: string) {
+  function PrefilledChatView(props: ChatViewProps) {
+    const seeded = useRef(false);
+    const { onInputChange } = props;
+
+    useEffect(() => {
+      if (seeded.current) return;
+      seeded.current = true;
+      onInputChange?.(prefilledPrompt);
+    }, [onInputChange, prefilledPrompt]);
+
+    return <CopilotChat.View {...props} />;
+  }
+
+  return PrefilledChatView;
+}
 
 function sellerName(
   sellerId?: string,
@@ -196,8 +227,14 @@ export function Chat({
   variant = "rail",
   verifundMode,
   onVerifundAction,
+  prefilledPrompt,
 }: ChatProps) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
+  const chatView = useMemo(
+    () =>
+      prefilledPrompt ? createPrefilledChatView(prefilledPrompt) : undefined,
+    [prefilledPrompt],
+  );
   const { user } = useUser();
   const approver = approverDisplayName(user);
   const [registryNames, setRegistryNames] = useState<Map<string, string>>(
@@ -998,6 +1035,7 @@ export function Chat({
         <CopilotChat
           agentId="marketmesh_orchestrator"
           threadId={threadId}
+          chatView={chatView}
           className="mm-copilot-chat"
           labels={{
             welcomeMessageText:

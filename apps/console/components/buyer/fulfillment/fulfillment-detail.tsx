@@ -2,38 +2,60 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+
 import {
+  type ApiError,
   acceptBuyerTransaction,
   confirmBuyerDelivery,
   getBuyerFulfillment,
   getBuyerInspection,
-  type ApiError,
+  getBuyerTransaction,
 } from "@/lib/buyer-transaction-api";
-import type { BuyerFulfillmentProjection, BuyerInspection } from "@/lib/buyer-transaction-types";
-import { BlockersPanel } from "../shared/blockers-panel";
+import type {
+  BuyerFulfillmentProjection,
+  BuyerInspection,
+  BuyerTransactionDetail,
+} from "@/lib/buyer-transaction-types";
+import { ActionBar } from "./action-bar";
 import { BuyerEvidenceDialog } from "./buyer-evidence-dialog";
 import { BuyerInspectionPanel } from "./buyer-inspection-panel";
 import { DisputePanel } from "./dispute-panel";
+import { DisputesPanel } from "./disputes-panel";
+import { SettlementRail } from "./settlement-rail";
 import { TransactionReference } from "./transaction-reference";
+import { VerificationPanel } from "./verification-panel";
+import { BlockersPanel } from "../shared/blockers-panel";
+import { BuyerStatusPill } from "../shared/buyer-status-pill";
+import { ChatHandoffLink } from "../shared/chat-handoff-link";
+import { formatMoney, labelize } from "../shared/format";
+import {
+  BuyerErrorState,
+  BuyerPageSkeleton,
+} from "../shared/buyer-page-states";
+import { StructuredDataPanel } from "../shared/structured-data-panel";
 
 export function FulfillmentDetail({ transactionId }: { transactionId: string }) {
   const [fulfillment, setFulfillment] = useState<BuyerFulfillmentProjection | null>(null);
   const [inspection, setInspection] = useState<BuyerInspection | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [transaction, setTransaction] = useState<BuyerTransactionDetail | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const [f, i] = await Promise.all([
+      const [f, i, t] = await Promise.all([
         getBuyerFulfillment(transactionId),
-        getBuyerInspection(transactionId).catch((e: ApiError) => (e?.status === 404 ? null : Promise.reject(e))),
+        getBuyerInspection(transactionId).catch((e: ApiError) =>
+          e?.status === 404 ? null : Promise.reject(e),
+        ),
+        getBuyerTransaction(transactionId).catch(() => null),
       ]);
       setFulfillment(f);
       setInspection(i as BuyerInspection | null);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load fulfillment");
+      setTransaction(t as BuyerTransactionDetail | null);
+    } catch (e) {
+      setError(e as ApiError);
     } finally {
       setLoading(false);
     }
@@ -43,59 +65,121 @@ export function FulfillmentDetail({ transactionId }: { transactionId: string }) 
     void refresh();
   }, [refresh]);
 
-  const allowed = fulfillment?.allowed_actions ?? [];
-  const runAction = async (fn: () => Promise<any>) => {
-    setActionError(null);
-    try {
-      await fn();
-      await refresh();
-    } catch (e: any) {
-      setActionError(e?.message ?? "Action failed");
-    }
-  };
-
-  if (loading) return <main className="mm-page"><p className="mm-muted">Loading fulfillment…</p></main>;
+  if (loading) {
+    return <BuyerPageSkeleton label="Loading fulfillment" cards={2} rows={5} />;
+  }
   if (error || !fulfillment) {
+    const notFound = error?.status === 404;
     return (
-      <main className="mm-page">
-        <p role="alert">{error ?? "Fulfillment not found"}</p>
-        <Link href="/fulfillment">Back to fulfillment</Link>
-      </main>
+      <BuyerErrorState
+        notFound={notFound}
+        message={error?.message ?? "Fulfillment not found"}
+        backHref="/fulfillment"
+        onRetry={notFound ? undefined : () => void refresh()}
+      />
     );
   }
 
+  const allowed = fulfillment.allowed_actions ?? [];
+  const status = fulfillment.status ?? "unknown";
+  const carrierEvents = (fulfillment.carrier_events ?? []).map((event) => ({
+    type: event?.status ?? event?.event ?? "carrier_event",
+    status: event?.status,
+    at: event?.occurred_at,
+  }));
+
+  const accept = async () => {
+    await acceptBuyerTransaction(transactionId);
+    await refresh();
+  };
+  const confirmDelivery = async () => {
+    await confirmBuyerDelivery(transactionId, {});
+    await refresh();
+  };
+
   return (
     <main className="mm-page" aria-label="Fulfillment detail">
-      <header className="mm-page-header">
+      <header className="mm-page-header mm-buyer-detail-head">
         <div>
           <p className="mm-kicker">Fulfillment</p>
           <h1>Fulfillment for {transactionId}</h1>
-          <p className="mm-muted">Status: {fulfillment.status ?? "unknown"}{fulfillment.next_action ? ` · Next: ${fulfillment.next_action}` : ""}</p>
+          <div className="mm-buyer-inline-actions">
+            <BuyerStatusPill value={status} label={labelize(status)} />
+            {fulfillment.next_action ? (
+              <span>Next: {labelize(fulfillment.next_action)}</span>
+            ) : null}
+          </div>
         </div>
-        <TransactionReference transactionId={transactionId} />
+        <TransactionReference
+          transactionId={transactionId}
+          status={transaction?.status ?? transaction?.transaction_status}
+          paymentStatus={transaction?.payment_status}
+          amount={formatMoney(transaction?.agreed_amount_cents, transaction?.currency)}
+        />
       </header>
+
+      <section className="mm-panel" aria-label="Release decision">
+        <div className="mm-buyer-panel-head">
+          <h2>Release decision</h2>
+        </div>
+        <p className="mm-muted">
+          Funds are released only through the chat approval flow, where the signed
+          agreement is bound to the request. These links open that flow for this
+          transaction.
+        </p>
+        <div className="mm-buyer-inline-actions">
+          <ChatHandoffLink transactionId={transactionId} intent="release">
+            Review &amp; release in chat
+          </ChatHandoffLink>
+          <ChatHandoffLink transactionId={transactionId} intent="reject">
+            Reject in chat
+          </ChatHandoffLink>
+          <ChatHandoffLink transactionId={transactionId} intent="review">
+            Open in chat
+          </ChatHandoffLink>
+        </div>
+      </section>
 
       <BlockersPanel blockers={fulfillment.blockers ?? []} />
 
+      <section className="mm-panel" aria-label="Carrier timeline">
+        <div className="mm-buyer-panel-head">
+          <h2>Carrier timeline</h2>
+        </div>
+        <SettlementRail
+          events={carrierEvents}
+          nextAction={fulfillment.next_action ?? null}
+        />
+      </section>
+
       <section className="mm-panel" aria-label="Requirements and evidence">
         <div className="mm-buyer-panel-head">
-          <h2>Requirements & evidence</h2>
+          <h2>Requirements &amp; evidence</h2>
           <div className="mm-buyer-inline-actions">
-            <BuyerEvidenceDialog transactionId={transactionId} requirements={fulfillment.requirements ?? []} onSubmitted={refresh} />
+            <BuyerEvidenceDialog
+              transactionId={transactionId}
+              requirements={fulfillment.requirements ?? []}
+              onSubmitted={refresh}
+            />
           </div>
         </div>
         {(fulfillment.requirements ?? []).length === 0 ? (
           <p className="mm-muted">No requirement details available.</p>
         ) : (
           <ul className="mm-buyer-list">
-            {(fulfillment.requirements ?? []).map((r: any) => (
-              <li key={r.requirement_id ?? r.id ?? JSON.stringify(r)} className="mm-buyer-list-item" style={{ gridTemplateColumns: "1fr" }}>
+            {(fulfillment.requirements ?? []).map((requirement) => (
+              <li
+                key={requirement?.requirement_id ?? requirement?.id ?? JSON.stringify(requirement)}
+                className="mm-buyer-list-item mm-buyer-list-item-full"
+              >
                 <div className="mm-buyer-row-main">
-                  <div className="mm-buyer-row-title">{r.title ?? r.requirement_id ?? r.id}</div>
+                  <div className="mm-buyer-row-title">
+                    {requirement?.title ?? requirement?.requirement_id ?? requirement?.id}
+                  </div>
                   <div className="mm-buyer-meta">
-                    <span>Status: {r.status ?? "unknown"}</span>
-                    {r.owner ? <span>Owner: {r.owner}</span> : null}
-                    {r.kind ? <span>Kind: {r.kind}</span> : null}
+                    <span>Status: {labelize(String(requirement?.status ?? "unknown"))}</span>
+                    {requirement?.owner ? <span>Owner: {requirement.owner}</span> : null}
+                    {requirement?.kind ? <span>Kind: {requirement.kind}</span> : null}
                   </div>
                 </div>
               </li>
@@ -103,17 +187,26 @@ export function FulfillmentDetail({ transactionId }: { transactionId: string }) 
           </ul>
         )}
         {(fulfillment.evidence ?? []).length > 0 ? (
-          <div className="mm-buyer-section-stack" style={{ marginTop: 12 }}>
+          <div className="mm-buyer-section-stack mm-buyer-subsection">
             <h3>Evidence</h3>
             <ul className="mm-buyer-list">
-              {(fulfillment.evidence ?? []).map((e: any, idx: number) => (
-                <li key={e.evidence_id ?? idx} className="mm-buyer-list-item" style={{ gridTemplateColumns: "1fr" }}>
+              {(fulfillment.evidence ?? []).map((evidence, index) => (
+                <li
+                  key={evidence?.evidence_id ?? index}
+                  className="mm-buyer-list-item mm-buyer-list-item-full"
+                >
                   <div className="mm-buyer-row-main">
-                    <div className="mm-buyer-row-title">{e.title ?? e.kind ?? e.evidence_id ?? "Evidence item"}</div>
+                    <div className="mm-buyer-row-title">
+                      {evidence?.title ?? evidence?.kind ?? evidence?.evidence_id ?? "Evidence item"}
+                    </div>
                     <div className="mm-buyer-meta">
-                      {e.scan_status ? <span>Scan: {e.scan_status}</span> : null}
-                      {e.view_label ? <span>View: {e.view_label}</span> : null}
-                      {e.requirement_id ? <span>Requirement: {e.requirement_id}</span> : null}
+                      {evidence?.scan_status ? (
+                        <span>Scan: {labelize(String(evidence.scan_status))}</span>
+                      ) : null}
+                      {evidence?.view_label ? <span>View: {evidence.view_label}</span> : null}
+                      {evidence?.requirement_id ? (
+                        <span>Requirement: {evidence.requirement_id}</span>
+                      ) : null}
                     </div>
                   </div>
                 </li>
@@ -123,31 +216,49 @@ export function FulfillmentDetail({ transactionId }: { transactionId: string }) 
         ) : null}
       </section>
 
+      {fulfillment.shipment ? (
+        <StructuredDataPanel
+          title="Shipment"
+          data={fulfillment.shipment}
+          rawLabel="View raw shipment"
+        />
+      ) : (
+        <section className="mm-panel" aria-label="Shipment">
+          <h2>Shipment</h2>
+          <p className="mm-muted">No shipment data available.</p>
+        </section>
+      )}
+
       <section className="mm-panel" aria-label="Shipment and tracking">
         <div className="mm-buyer-panel-head">
-          <h2>Shipment & carrier timeline</h2>
+          <h2>Shipment &amp; carrier details</h2>
         </div>
-        {fulfillment.shipment ? (
-          <pre>{JSON.stringify(fulfillment.shipment, null, 2)}</pre>
-        ) : (
-          <p className="mm-muted">No shipment data available.</p>
-        )}
         {(fulfillment.carrier_events ?? []).length > 0 ? (
-          <ul className="mm-buyer-list" style={{ marginTop: 10 }}>
-            {(fulfillment.carrier_events ?? []).map((ev: any, idx: number) => (
-              <li key={idx} className="mm-buyer-list-item" style={{ gridTemplateColumns: "1fr" }}>
+          <ul className="mm-buyer-list">
+            {(fulfillment.carrier_events ?? []).map((event, index) => (
+              <li
+                key={index}
+                className="mm-buyer-list-item mm-buyer-list-item-full"
+              >
                 <div className="mm-buyer-row-main">
-                  <div className="mm-buyer-row-title">{ev.status ?? ev.event ?? "Carrier event"}</div>
+                  <div className="mm-buyer-row-title">
+                    {labelize(String(event?.status ?? event?.event ?? "carrier event"))}
+                  </div>
                   <div className="mm-buyer-meta">
-                    {ev.occurred_at ? <span>{ev.occurred_at}</span> : null}
-                    {ev.location ? <span>{ev.location}</span> : null}
+                    {event?.occurred_at ? <span>{event.occurred_at}</span> : null}
+                    {event?.location ? <span>{event.location}</span> : null}
                   </div>
                 </div>
               </li>
             ))}
           </ul>
-        ) : null}
+        ) : (
+          <p className="mm-muted">No carrier events available.</p>
+        )}
       </section>
+
+      <VerificationPanel verification={fulfillment.verification ?? null} />
+      <DisputesPanel disputes={fulfillment.disputes} />
 
       <BuyerInspectionPanel inspection={inspection ?? fulfillment.inspection ?? null} />
 
@@ -157,20 +268,18 @@ export function FulfillmentDetail({ transactionId }: { transactionId: string }) 
         onChanged={refresh}
       />
 
-      <section className="mm-panel" aria-label="Fulfillment actions">
-        <div className="mm-buyer-panel-head">
-          <h2>Actions</h2>
-        </div>
-        <p className="mm-muted">Actions are enabled only when allowed by authoritative transaction state. Fulfillment completion does not imply payout authorization.</p>
-        <div className="mm-buyer-inline-actions">
-          <button disabled={!allowed.includes("accept")} onClick={() => runAction(() => acceptBuyerTransaction(transactionId))}>Accept</button>
-          <button disabled={!(allowed.includes("delivery_confirmed") || allowed.includes("confirm_delivery"))} onClick={() => runAction(() => confirmBuyerDelivery(transactionId, {}))}>Confirm delivery</button>
-        </div>
-        {actionError ? <p role="alert">{actionError}</p> : null}
-      </section>
+      <ActionBar
+        allowedActions={allowed}
+        blockers={fulfillment.blockers}
+        nextAction={fulfillment.next_action}
+        onAccept={accept}
+        onConfirmDelivery={confirmDelivery}
+      />
 
       <div className="mm-buyer-inline-actions">
-        <Link href={`/transactions/${encodeURIComponent(transactionId)}`}>View transaction details</Link>
+        <Link href={`/transactions/${encodeURIComponent(transactionId)}`}>
+          View transaction details
+        </Link>
       </div>
     </main>
   );
