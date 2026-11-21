@@ -1,6 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
 
-export type UserRole = "buyer" | "seller";
+export type UserRole = "buyer" | "seller" | "admin";
 
 export async function promoteUserRole(userId: string, role: UserRole): Promise<void> {
   const client = await clerkClient();

@@ -84,6 +84,12 @@ describe("PostAuthPage", () => {
     expect(hoisted.redirect).not.toHaveBeenCalled();
   });
 
+  it("redirects admins to /admin", async () => {
+    hoisted.currentUser.mockResolvedValue(makeUser({ publicMetadata: { role: "admin" } }));
+    await expect(PostAuthPage()).rejects.toThrow("REDIRECT:/admin");
+    expect(hoisted.redirect).toHaveBeenCalledWith("/admin");
+  });
+
   it("redirects to /sign-in when unauthenticated", async () => {
     hoisted.authProtect.mockRejectedValue(new Error("unauthenticated"));
     hoisted.authFn.mockResolvedValue({ userId: null });

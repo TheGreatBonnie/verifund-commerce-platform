@@ -6,7 +6,7 @@ import { SellerActivator } from "./seller-activator";
 export const dynamic = "force-dynamic";
 
 function isRole(value: unknown): value is UserRole {
-  return value === "buyer" || value === "seller";
+  return value === "buyer" || value === "seller" || value === "admin";
 }
 
 export default async function PostAuthPage() {
@@ -38,6 +38,8 @@ export default async function PostAuthPage() {
   }
 
   if (!role) redirect("/choose-role");
+
+  if (role === "admin") redirect("/admin");
 
   if (role === "seller") {
     // Org activation must happen client-side so Clerk can set the new org as
