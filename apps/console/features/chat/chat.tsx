@@ -463,7 +463,7 @@ export function Chat({
         "Show the evidence/verification summary and wait for an explicit human release decision.",
       available: verifundEnabled,
       parameters: releaseApprovalArgsSchema,
-      render: ({ args, status, respond }) => {
+      render: ({ args, status, respond, result }) => {
         if (status === "executing" && respond) {
           const sharedProjection = (
             (agent.state as Record<string, any> | undefined)?.projection as
@@ -485,6 +485,26 @@ export function Chat({
                 }}
               />
             </div>
+          );
+        }
+        if (status === "complete") {
+          let decision: { approved?: boolean } | null = null;
+          try {
+            decision =
+              typeof result === "string"
+                ? JSON.parse(result)
+                : (result as { approved?: boolean } | null);
+          } catch {
+            // Keep a recorded decision visible if the result is malformed.
+          }
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              {decision?.approved === true
+                ? "Release approved — continuing…"
+                : decision?.approved === false
+                  ? "Release rejected — sent to manual review."
+                  : "Your release decision was recorded. Continuing…"}
+            </p>
           );
         }
         return null;
@@ -704,7 +724,15 @@ export function Chat({
       if (parsed.checkpoint === "evidence_pending") {
         return (
           <VerifundA2AExchange status={status} task={task} response={response}>
-            <EvidenceWaitCard checkpoint={parsed.checkpoint} />
+            <EvidenceWaitCard
+              checkpoint={parsed.checkpoint}
+              projection={
+                (parsed.data?.projection ?? {
+                  evidence: parsed.evidence,
+                  verification: parsed.verification,
+                }) as any
+              }
+            />
           </VerifundA2AExchange>
         );
       }
@@ -736,7 +764,15 @@ export function Chat({
       if (parsed.checkpoint === "evidence_pending") {
         return (
           <VerifundA2AExchange status={status} task={task} response={response}>
-            <EvidenceWaitCard checkpoint={parsed.checkpoint} />
+            <EvidenceWaitCard
+              checkpoint={parsed.checkpoint}
+              projection={
+                (parsed.data?.projection ?? {
+                  evidence: parsed.evidence,
+                  verification: parsed.verification,
+                }) as any
+              }
+            />
           </VerifundA2AExchange>
         );
       }

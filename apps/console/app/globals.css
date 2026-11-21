@@ -2900,6 +2900,10 @@ paypal-button {
   border-top-color: var(--amber);
 }
 
+.mm-approval.is-waiting {
+  border-top-color: var(--amber);
+}
+
 .mm-approval-head {
   display: flex;
   align-items: flex-start;
@@ -3126,6 +3130,18 @@ paypal-button {
 .mm-approval .mm-verifund-head .mm-kicker {
   color: var(--signal);
   font-size: 9px;
+}
+
+.mm-approval.is-waiting .mm-kicker {
+  color: var(--amber);
+}
+
+.mm-approval .mm-evidence-summary p {
+  margin: 4px 0 0;
+}
+
+.mm-approval .mm-verifund-head + .mm-approval-prompt {
+  margin-top: 0;
 }
 
 .mm-approval .mm-verifund-head h3 {

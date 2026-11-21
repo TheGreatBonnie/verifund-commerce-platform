@@ -83,4 +83,49 @@ describe("EvidenceWaitCard", () => {
     expect(hooks.addMessage).not.toHaveBeenCalled();
     expect(hooks.runAgent).not.toHaveBeenCalled();
   });
+
+  it("uses the waiting dossier shell with an amber pill and styled button", () => {
+    render(<EvidenceWaitCard checkpoint="evidence_pending" />);
+
+    expect(screen.getByTestId("verifund-evidence-wait")).toHaveClass(
+      "mm-approval",
+      "is-waiting",
+    );
+    expect(screen.getByText("Evidence pending")).toHaveClass(
+      "mm-status-pill",
+      "is-amber",
+    );
+    expect(screen.getByRole("button", { name: /check status/i })).toHaveClass(
+      "mm-button",
+      "mm-button-signal",
+    );
+  });
+
+  it("renders evidence progress when a projection is supplied", () => {
+    render(
+      <EvidenceWaitCard
+        checkpoint="evidence_pending"
+        projection={
+          {
+            evidence: {
+              required: ["serial", "provenance"],
+              received: ["serial"],
+            },
+          } as any
+        }
+      />,
+    );
+
+    expect(
+      screen.getByText("1/2 required evidence items received"),
+    ).toBeInTheDocument();
+  });
+
+  it("omits evidence progress when no projection is supplied", () => {
+    render(<EvidenceWaitCard checkpoint="evidence_pending" />);
+
+    expect(
+      screen.queryByText(/required evidence items received/i),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -441,4 +441,120 @@ describe("chat evidence wait", () => {
 
     expect(screen.getByTestId("verifund-evidence-wait")).toBeTruthy();
   });
+
+  it("passes the status tool projection into the waiting card", () => {
+    renderChat();
+    const renderer = hooks.useRenderTool.mock.calls.find(
+      ([tool]) => tool.name === "verifund_status",
+    )?.[0].render;
+
+    expect(renderer).toBeTruthy();
+    render(
+      renderer!({
+        parameters: { run_id: "run-1" },
+        status: "complete",
+        result: {
+          status: "working",
+          checkpoint: "evidence_pending",
+          data: {
+            run_id: "run-1",
+            projection: {
+              evidence: {
+                required: ["serial", "provenance"],
+                received: ["serial"],
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(screen.getByTestId("verifund-evidence-wait")).toBeTruthy();
+    expect(
+      screen.getByText("1/2 required evidence items received"),
+    ).toBeTruthy();
+  });
+
+  it("passes the evidence review projection into the waiting card", () => {
+    renderChat();
+    const renderer = hooks.useRenderTool.mock.calls.find(
+      ([tool]) => tool.name === "verifund_evidence_review",
+    )?.[0].render;
+
+    expect(renderer).toBeTruthy();
+    render(
+      renderer!({
+        parameters: { run_id: "run-1" },
+        status: "complete",
+        result: {
+          status: "working",
+          checkpoint: "evidence_pending",
+          data: {
+            run_id: "run-1",
+            projection: {
+              evidence: {
+                required: ["serial", "provenance", "packaging"],
+                received: ["serial", "provenance"],
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(
+      screen.getByText("2/3 required evidence items received"),
+    ).toBeTruthy();
+  });
+});
+
+describe("chat release completion", () => {
+  beforeEach(() => {
+    hooks.useHumanInTheLoop.mockClear();
+  });
+
+  async function releaseRenderer() {
+    await act(async () => {
+      renderChat();
+    });
+    return hooks.useHumanInTheLoop.mock.calls.find(
+      ([tool]) => tool.name === "request_verifund_release_approval",
+    )?.[0].render;
+  }
+
+  it("reports an approved release as continuing", async () => {
+    const renderer = await releaseRenderer();
+    expect(renderer).toBeTruthy();
+
+    await act(async () => {
+      render(
+        renderer!({
+          args: {},
+          status: "complete",
+          result: JSON.stringify({ approved: true }),
+        }),
+      );
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/release approved/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/continuing/i);
+  });
+
+  it("reports a rejected release as a manual review outcome", async () => {
+    const renderer = await releaseRenderer();
+    expect(renderer).toBeTruthy();
+
+    await act(async () => {
+      render(
+        renderer!({
+          args: {},
+          status: "complete",
+          result: JSON.stringify({ approved: false }),
+        }),
+      );
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/release rejected/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/manual review/i);
+  });
 });
