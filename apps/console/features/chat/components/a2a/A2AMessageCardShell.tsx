@@ -42,20 +42,26 @@ export function A2AMessageCardShell({
       ? "bg-red-100 text-red-800"
       : "bg-blue-100 text-blue-800";
 
-  const statusPillClass = isFailedTone
-    ? "bg-white/70 text-red-700 border-red-100"
-    : isOutbound
-      ? "bg-white/70 text-slate-600 border-emerald-100"
-      : "bg-white/70 text-slate-600 border-blue-100";
-
   const containerClass = isOutbound
-    ? "bg-emerald-50/70 border-emerald-200 a2a-message-card-outgoing"
+    ? "bg-emerald-50/60 border-emerald-200 a2a-message-card-outgoing"
     : isFailedTone
-      ? "bg-red-50/70 border-red-200 a2a-message-card-incoming"
-      : "bg-blue-50/70 border-blue-200 a2a-message-card-incoming";
+      ? "bg-red-50/60 border-red-200 a2a-message-card-incoming"
+      : "bg-blue-50/60 border-blue-200 a2a-message-card-incoming";
 
-  const detailsBorderClass = isOutbound ? "border-emerald-100" : isFailedTone ? "border-red-100" : "border-blue-100";
-  const detailsBgClass = "bg-white/80";
+  const detailsBorderClass = isOutbound ? "border-emerald-200/70" : isFailedTone ? "border-red-200/70" : "border-blue-200/70";
+  const detailsBgClass = isOutbound
+    ? "bg-emerald-50/40"
+    : isFailedTone
+      ? "bg-red-50/40"
+      : "bg-blue-50/40";
+  const headerBorderClass = detailsBorderClass;
+  const footerTextClass = isFailedTone ? "text-red-700/80" : isOutbound ? "text-emerald-900/70" : "text-blue-900/70";
+
+  const statusPillClass = isFailedTone
+    ? "bg-white/60 text-red-700 border-red-200/70"
+    : isOutbound
+      ? "bg-white/60 text-emerald-900/80 border-emerald-200/70"
+      : "bg-white/60 text-blue-900/80 border-blue-200/70";
 
   const metaLeft =
     footerMetaLeft ??
@@ -65,16 +71,14 @@ export function A2AMessageCardShell({
 
   return (
     <div
-      className={`my-2 overflow-hidden rounded-2xl border bg-white px-4 py-3 shadow-sm a2a-message-enter a2a-message-card ${containerClass}`}
+      className={`my-2 overflow-hidden rounded-2xl border shadow-sm px-4 py-3 a2a-message-enter a2a-message-card ${containerClass}`}
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3 mb-3">
+      <div className={`flex flex-wrap items-center gap-2 border-b pb-3 mb-3 ${headerBorderClass}`}>
         <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide ${directionBadgeClass}`}>
           {isOutbound ? "OUTBOUND" : "INBOUND"}
         </span>
         {label ? (
-          <span
-            className={`rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-slate-600 border border-slate-200`}
-          >
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-wide border ${statusPillClass}`}>
             {label}
           </span>
         ) : null}
@@ -122,9 +126,9 @@ export function A2AMessageCardShell({
         </div>
       ) : null}
 
-      <div className={`mt-4 border-t pt-2.5 flex items-center justify-between gap-2 text-[11px] text-slate-400 ${detailsBorderClass}`}>
+      <div className={`mt-4 border-t pt-2.5 flex items-center justify-between gap-2 text-[11px] ${detailsBorderClass} ${footerTextClass}`}>
         <span className="truncate">{metaLeft}</span>
-        <span className="shrink-0 font-medium text-slate-600">{statusText}</span>
+        <span className="shrink-0 font-medium">{statusText}</span>
       </div>
     </div>
   );
