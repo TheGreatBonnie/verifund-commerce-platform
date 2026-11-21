@@ -1080,7 +1080,7 @@ paypal-button {
 .a2a-message-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px 12px;
+  gap: 10px 14px;
   min-width: 0;
 }
 
@@ -1088,7 +1088,12 @@ paypal-button {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px 14px;
+  min-width: 0;
+}
+
+.a2a-message-content {
+  display: block;
   min-width: 0;
 }
 
@@ -1096,12 +1101,13 @@ paypal-button {
   display: block;
   min-width: 0;
   overflow-wrap: anywhere;
+  line-height: 1.6;
 }
 
 @container (min-width: 560px) {
   .a2a-message-layout {
     grid-template-columns: max-content minmax(0, 1fr);
-    align-items: center;
+    align-items: start;
   }
 }
 
