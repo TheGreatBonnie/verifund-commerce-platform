@@ -55,7 +55,13 @@ describe("TransactionDetail", () => {
           totals: { total_cents: 12550, currency: "USD" },
         },
       },
-      payment: { payment_id: "pay_1", status: "captured" },
+      payment: {
+        status: "captured",
+        provider_order_id: "ORDER-123",
+        capture_id: "CAP-456",
+        capture_amount_cents: 12550,
+        capture_currency: "USD",
+      },
       timeline: [{ type: "agreement_created", status: "complete", at: "2026-01-01T00:00:00Z" }],
       fulfillment: {
         status: "in_progress",
@@ -73,6 +79,8 @@ describe("TransactionDetail", () => {
     expect(screen.getByText("Acme Widget")).toBeInTheDocument();
     expect(screen.getByTestId("buyer-agreement-card")).toBeInTheDocument();
     expect(screen.getByText("View raw agreement").closest("details")).toBeInTheDocument();
+    expect(screen.getByTestId("buyer-payment-card")).toBeInTheDocument();
+    expect(screen.getByText("View raw payment").closest("details")).toBeInTheDocument();
     expect(screen.getAllByText(/next: submit evidence/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/evidence is required/i)).toBeInTheDocument();
     expect(

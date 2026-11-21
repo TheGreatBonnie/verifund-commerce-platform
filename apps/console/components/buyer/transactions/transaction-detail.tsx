@@ -14,8 +14,8 @@ import {
   BuyerErrorState,
   BuyerPageSkeleton,
 } from "../shared/buyer-page-states";
-import { StructuredDataPanel } from "../shared/structured-data-panel";
 import { BuyerAgreementCard } from "./agreement-card";
+import { BuyerPaymentCard } from "./payment-card";
 import { FulfillmentSummary } from "./fulfillment-summary";
 
 export function TransactionDetail({ transactionId }: { transactionId: string }) {
@@ -108,11 +108,16 @@ export function TransactionDetail({ transactionId }: { transactionId: string }) 
       )}
 
       {detail.payment ? (
-        <StructuredDataPanel
-          title="Payment"
-          data={detail.payment}
-          rawLabel="View raw payment"
-        />
+        <section className="mm-panel" aria-label="Payment">
+          <h2>Payment</h2>
+          <BuyerPaymentCard
+            payment={detail.payment}
+            transactionId={transactionId}
+            agreedAmountCents={detail.agreed_amount_cents}
+            currency={detail.currency}
+            paymentStatus={detail.payment_status}
+          />
+        </section>
       ) : (
         <section className="mm-panel" aria-label="Payment">
           <h2>Payment</h2>

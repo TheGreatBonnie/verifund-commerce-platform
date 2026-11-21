@@ -7592,6 +7592,75 @@ paypal-button {
   font-size: 12px;
 }
 
+/* Payment card reuses the same dossier styles with the same page chrome reset. */
+.mm-panel .mm-buyer-payment {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mm-buyer-payment .mm-buyer-payment-actions {
+  margin-top: 14px;
+}
+
+.mm-buyer-payment > .mm-buyer-raw {
+  margin-top: 12px;
+}
+
+.mm-buyer-payment .mm-acceptance {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+
+.mm-buyer-payment .mm-approval-prompt {
+  margin-top: 12px;
+}
+
+.mm-buyer-payment .mm-approval-prompt a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--signal);
+  color: var(--signal-deep);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mm-buyer-payment .mm-approval-prompt a:hover {
+  background: var(--signal);
+  color: #fff;
+  text-decoration: none;
+}
+
+.mm-buyer-payment [role="alert"] {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--red);
+  background: #fbeeea;
+  color: var(--red);
+  font-size: 12px;
+}
+
+.mm-buyer-payment [data-testid="buyer-payment-captured"],
+.mm-buyer-payment [data-testid="buyer-payment-reversal"] {
+  margin-top: 10px;
+}
+
+.mm-panel .mm-buyer-payment .mm-money-label,
+.mm-panel .mm-buyer-payment .mm-verifund-detail .mm-kicker {
+  font-size: 10px;
+}
+
+.mm-panel .mm-buyer-payment .mm-money-row,
+.mm-panel .mm-buyer-payment .mm-acceptance-row,
+.mm-panel .mm-buyer-payment .mm-trust-head {
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .mm-page-header h1 {
     font-size: 28px;
@@ -7631,7 +7700,8 @@ paypal-button {
     gap: 4px 8px;
   }
 
-  .mm-panel .mm-buyer-agreement .mm-money-total {
+  .mm-panel .mm-buyer-agreement .mm-money-total,
+  .mm-panel .mm-buyer-payment .mm-money-total {
     flex-wrap: wrap;
   }
 }
