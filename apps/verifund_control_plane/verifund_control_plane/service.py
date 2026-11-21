@@ -520,6 +520,7 @@ class VerifundService:
                 updated_at=now,
                 buyer_organization_id=buyer_org_id,
                 seller_organization_id=seller_org_id,
+                platform_account_email=self.settings.paypal_platform_email,
             )
             issued = self.tokens.issue(
                 transaction_id, request.seller_id, digest

@@ -177,6 +177,7 @@ class TransactionRecord:
     updated_at: datetime
     buyer_organization_id: str | None = None
     seller_organization_id: str | None = None
+    platform_account_email: str | None = None
 
 
 def assert_transition(current: TransactionState, target: TransactionState) -> None:
