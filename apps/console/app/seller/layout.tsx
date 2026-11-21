@@ -4,6 +4,7 @@ import { LogOut, ShieldCheck } from "lucide-react";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { SellerNav } from "@/components/seller/seller-nav";
 import { MarketplaceLink } from "@/components/layout/marketplace-link";
+import { AdminLink } from "@/components/layout/admin-link";
 import { consoleSession } from "@/lib/console-session";
 import { sellerAccess } from "@/lib/seller-access";
 import { signOutAction } from "./actions";
@@ -60,6 +61,7 @@ export default async function SellerLayout({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <MarketplaceLink />
+            <AdminLink />
             <OrganizationSwitcher
               afterCreateOrganizationUrl="/seller/dashboard"
               afterSelectOrganizationUrl="/seller/dashboard"

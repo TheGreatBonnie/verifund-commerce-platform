@@ -47,6 +47,10 @@ vi.mock("@/providers/query-provider", () => ({
   QueryProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+vi.mock("@/components/layout/admin-link", () => ({
+  AdminLink: () => <div data-testid="admin-link" />,
+}));
+
 vi.mock("@/components/layout/sidebar", () => ({
   Sidebar: () => <div data-testid="sidebar" />,
 }));
