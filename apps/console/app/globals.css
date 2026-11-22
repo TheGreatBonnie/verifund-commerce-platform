@@ -7708,3 +7708,223 @@ paypal-button {
     flex-wrap: wrap;
   }
 }
+
+/* ---------- Admin workspace structured views ---------- */
+
+.mm-admin-content {
+  display: grid;
+  gap: 14px;
+  max-width: 1180px;
+}
+
+.mm-admin-content .mm-panel {
+  padding: 16px 18px;
+}
+
+.mm-admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.mm-admin-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  background: var(--panel-green);
+}
+
+.mm-admin-kpi strong {
+  font-family: var(--font-instrument-serif), Georgia, serif;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.mm-admin-kpi small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mm-admin-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.mm-admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.mm-admin-table caption {
+  padding: 0 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.mm-admin-table th,
+.mm-admin-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mm-admin-table th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mm-admin-table tbody tr:hover {
+  background: var(--panel-green);
+}
+
+.mm-admin-table td a {
+  color: var(--signal-deep);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mm-admin-table td a:hover {
+  text-decoration: underline;
+}
+
+.mm-admin-table td form {
+  margin: 0;
+}
+
+.mm-admin-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 18px;
+  margin: 0;
+}
+
+.mm-admin-fields.is-compact {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.mm-admin-field {
+  min-width: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--rule);
+}
+
+.mm-admin-field dt {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mm-admin-field dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mm-admin-id {
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 12px;
+}
+
+.mm-admin-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mm-admin-chips li {
+  padding: 2px 7px;
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.mm-admin-nested {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.mm-admin-empty,
+.mm-admin-empty-value,
+.mm-admin-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mm-admin-empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--rule);
+}
+
+.mm-admin-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mm-admin-links a {
+  color: var(--signal-deep);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mm-admin-links a:hover {
+  text-decoration: underline;
+}
+
+.mm-admin-raw {
+  margin-top: 4px;
+}
+
+.mm-admin-raw summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mm-admin-raw pre {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  background: #faf8f3;
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .mm-admin-content .mm-panel {
+    padding: 12px;
+  }
+
+  .mm-admin-fields,
+  .mm-admin-kpis {
+    grid-template-columns: 1fr;
+  }
+}
