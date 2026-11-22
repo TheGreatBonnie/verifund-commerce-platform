@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -30,12 +31,31 @@ def _redact_email(email: str) -> str:
     return f"{local[:2]}***@{domain}"
 
 
-def _serialize(txn) -> dict[str, Any]:
+def _participant_name(party: Any) -> str | None:
+    if not isinstance(party, dict):
+        return None
+    return party.get("display_name") or party.get("name") or None
+
+
+async def _serialize(txn, agreement_service) -> dict[str, Any]:
+    buyer_name = None
+    seller_name = None
+    with suppress(Exception):
+        agreement = await agreement_service.get_by_transaction(txn.transaction_id)
+        if agreement is not None:
+            projection = await agreement_service.build_projection(agreement)
+            terms = projection.terms if isinstance(projection.terms, dict) else {}
+            parties = terms.get("parties") if isinstance(terms, dict) else {}
+            if isinstance(parties, dict):
+                buyer_name = _participant_name(parties.get("buyer"))
+                seller_name = _participant_name(parties.get("seller"))
     return {
         "transaction_id": txn.transaction_id,
         "state": txn.state.value if hasattr(txn.state, "value") else txn.state,
         "buyer_id": txn.buyer_id,
         "seller_id": txn.seller_id,
+        "buyer_name": buyer_name,
+        "seller_name": seller_name,
         "amount_cents": txn.amount_cents,
         "currency": txn.currency,
         "platform_account_email": txn.platform_account_email,
@@ -81,7 +101,9 @@ async def list_platform_transactions(
         buyer_id=buyer_id,
         limit=limit,
     )
-    return [_serialize(txn) for txn in txns]
+    return [
+        await _serialize(txn, request.app.state.agreement_service) for txn in txns
+    ]
 
 
 @router.get("/transactions/{transaction_id}")
@@ -92,7 +114,7 @@ async def get_platform_transaction(transaction_id: str, request: Request) -> dic
     authorize_platform_transaction(txn, _platform_email(request))
     evidence = await repo.list_evidence(transaction_id)
     return {
-        **_serialize(txn),
+        **await _serialize(txn, request.app.state.agreement_service),
         "ledger": await repo.ledger_entries(transaction_id),
         "events": await repo.events(transaction_id),
         "evidence": [item.model_dump(mode="json") for item in evidence],
