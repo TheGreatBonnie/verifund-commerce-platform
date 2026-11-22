@@ -93,7 +93,7 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
         right={{ label: orchestratorLabel ?? "Orchestrator", meta: orchestratorMeta ?? "ADK" }}
       />
 
-      <div className="mt-3 a2a-message-content">
+      <div className="a2a-message-content a2a-message-body-indent">
         <p className="text-sm leading-6 text-slate-600 a2a-message-copy">
           {textExpanded || !isLongText ? baseText : `${baseText.slice(0, 120)}…`}
         </p>
@@ -110,7 +110,7 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
         ) : null}
       </div>
 
-      <div className="a2a-message-content">
+      <div className="a2a-message-content a2a-message-body-indent">
         <A2APayload type={payloadType} data={payload} />
       </div>
     </A2AMessageCardShell>

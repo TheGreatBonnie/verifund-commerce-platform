@@ -84,7 +84,7 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
         right={{ label: displayName ?? args.agentName ?? "Agent" }}
       />
 
-      <div className="mt-3 a2a-message-content">
+      <div className="a2a-message-content a2a-message-body-indent">
         <p className="text-sm leading-6 text-slate-600 a2a-message-copy" title={task}>
           {textExpanded || !isLongTask ? task : truncateTask(task)}
         </p>
@@ -99,7 +99,7 @@ export const MessageToA2A: React.FC<MessageActionRenderProps> = ({
         ) : null}
       </div>
 
-      <div className="a2a-message-content">
+      <div className="a2a-message-content a2a-message-body-indent">
         <A2APayload type={payloadType} data={payload} />
       </div>
     </A2AMessageCardShell>

@@ -1078,8 +1078,8 @@ paypal-button {
 }
 
 .a2a-message-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 10px 14px;
   min-width: 0;
 }
@@ -1097,18 +1097,15 @@ paypal-button {
   min-width: 0;
 }
 
+.a2a-message-body-indent {
+  padding-left: 46px;
+}
+
 .a2a-message-copy {
   display: block;
   min-width: 0;
   overflow-wrap: anywhere;
   line-height: 1.6;
-}
-
-@container (min-width: 560px) {
-  .a2a-message-layout {
-    grid-template-columns: max-content minmax(0, 1fr);
-    align-items: start;
-  }
 }
 
 /* ---------- Shared panel language ---------- */
