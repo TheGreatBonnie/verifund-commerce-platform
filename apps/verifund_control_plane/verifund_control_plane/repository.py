@@ -103,6 +103,7 @@ class Repository:
             Column("seller_id", String, nullable=False, index=True),
             Column("buyer_organization_id", String, nullable=True, index=True),
             Column("seller_organization_id", String, nullable=True, index=True),
+            Column("platform_account_email", String, nullable=True, index=True),
             Column("offer_id", String, nullable=False),
             Column("state", String, nullable=False, index=True),
             Column("version", Integer, nullable=False),
@@ -481,6 +482,9 @@ class Repository:
                 await conn.exec_driver_sql(
                     "ALTER TABLE transactions ADD COLUMN tracker JSON"
                 )
+            await self._ensure_column(
+                conn, "transactions", "platform_account_email", "TEXT"
+            )
             # webhook_events.source for existing DBs
             wh_names = await _reflected_column_names(conn, "webhook_events")
             if "source" not in wh_names:
@@ -553,6 +557,7 @@ class Repository:
             offer_id=row.offer_id,
             buyer_organization_id=getattr(row, "buyer_organization_id", None),
             seller_organization_id=getattr(row, "seller_organization_id", None),
+            platform_account_email=getattr(row, "platform_account_email", None),
             state=TransactionState(row.state),
             version=row.version,
             last_seq=row.last_seq,
@@ -621,6 +626,31 @@ class Repository:
             statement = statement.where(self.transactions.c.seller_id == seller_id)
         if buyer_id:
             statement = statement.where(self.transactions.c.buyer_id == buyer_id)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [self._record(row) for row in rows]
+
+    async def list_platform_transactions(
+        self,
+        platform_email: str,
+        *,
+        state: str | None = None,
+        seller_id: str | None = None,
+        buyer_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TransactionRecord]:
+        statement = select(self.transactions).where(
+            self.transactions.c.platform_account_email == platform_email
+        )
+        if state:
+            statement = statement.where(self.transactions.c.state == state)
+        if seller_id:
+            statement = statement.where(self.transactions.c.seller_id == seller_id)
+        if buyer_id:
+            statement = statement.where(self.transactions.c.buyer_id == buyer_id)
+        statement = statement.order_by(
+            self.transactions.c.created_at.desc()
+        ).limit(max(1, min(limit, 500)))
         async with self.engine.connect() as conn:
             rows = (await conn.execute(statement)).all()
         return [self._record(row) for row in rows]
@@ -739,6 +769,7 @@ class Repository:
                 seller_id=txn.seller_id,
                 buyer_organization_id=txn.buyer_organization_id,
                 seller_organization_id=txn.seller_organization_id,
+                platform_account_email=txn.platform_account_email,
                 offer_id=txn.offer_id,
                 state=txn.state.value,
                 version=txn.version,

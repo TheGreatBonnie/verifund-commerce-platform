@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -263,7 +264,7 @@ class Buyer:
         }
 
     async def get_settlement(self, run_id, *, refresh=False):
-        self.calls.append(("get_settlement", run_id))
+        self.calls.append(("get_settlement", run_id, refresh))
         self._sync_count += 1
         if self._sync_count == 1:
             status = "PENDING_SELLER"
@@ -291,6 +292,15 @@ def service() -> tuple[VerifundAgentService, Buyer]:
     buyer = Buyer()
     graph = build_graph(MemorySaver())
     return VerifundAgentService(graph=graph, buyer=cast(BuyerInternalClient, buyer)), buyer
+
+
+async def test_status_projection_refreshes_the_buyer_view() -> None:
+    value, buyer = service()
+    snapshot = SimpleNamespace(
+        values={"run_id": "run-1", "transaction_id": "vf_1"}
+    )
+    await value._settlement_projection(snapshot, request=status_request())
+    assert buyer.calls[-1] == ("get_settlement", "run-1", True)
 
 
 async def test_agreement_create_stops_at_the_seller_review() -> None:

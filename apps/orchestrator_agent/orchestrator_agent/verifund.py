@@ -556,6 +556,7 @@ class SellerA2AClient:
 
     @staticmethod
     def _order_from_frames(frames: list) -> dict[str, Any]:
+        seller_errors: list[str] = []
         for frame in frames:
             artifacts = []
             # Unwrap ClientEvent-style payloads
@@ -587,6 +588,18 @@ class SellerA2AClient:
                     candidate = payload if isinstance(payload, dict) else value
                     if isinstance(candidate, dict) and candidate.get("order_id"):
                         return candidate
+                    if isinstance(candidate, dict) and str(
+                        value.get("schema", "")
+                    ).endswith("commerce-error.json"):
+                        code = candidate.get("code", "commerce_error")
+                        message = candidate.get(
+                            "message", "Seller rejected the purchase order"
+                        )
+                        seller_errors.append(f"{code}: {message}")
+        if seller_errors:
+            raise VerifundProtocolError(
+                "Seller rejected the purchase order: " + "; ".join(seller_errors)
+            )
         raise VerifundProtocolError("Seller returned no order")
 
 
@@ -1071,6 +1084,11 @@ class VerifundLifecycle:
     ) -> dict[str, Any]:
         data = result.data or {}
         return {
+            # The funding HITL must carry the exact ids verifund_fund needs.
+            # Without them the model falls back to the run_id as task_id and
+            # the A2A resume fails with TASK_NOT_FOUND.
+            "task_id": handle.task_id,
+            "context_id": handle.context_id,
             "run_id": data.get("run_id") or handle.run_id,
             "transaction_id": data.get("transaction_id"),
             "agreement_version": data.get("agreement_version"),
@@ -1103,10 +1121,11 @@ class VerifundLifecycle:
         handle: VerifundTaskHandle, result: VerifundTaskResult
     ) -> dict[str, Any]:
         data = result.data or {}
+        version = data.get("agreement_version")
         return {
             "run_id": data.get("run_id") or handle.run_id,
             "transaction_id": data.get("transaction_id"),
-            "agreement_version": data.get("agreement_version"),
+            "agreement_version": int(version) if version is not None else None,
             "agreement_hash": data.get("agreement_hash"),
             "projection": data.get("projection"),
             "message": result.message or "Release this transaction.",

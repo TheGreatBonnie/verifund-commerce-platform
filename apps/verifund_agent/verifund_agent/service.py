@@ -345,7 +345,7 @@ class VerifundAgentService:
         self, snapshot: Any, *, request: VerifundTaskRequest
     ) -> dict[str, Any]:
         view = await self.buyer.get_settlement(
-            str(snapshot.values.get("run_id") or request.run_id)
+            str(snapshot.values.get("run_id") or request.run_id), refresh=True
         )
         projection = view.get("projection") or {}
         expected = snapshot.values.get("transaction_id") or request.transaction_id

@@ -21,6 +21,7 @@ from verifund_contracts import (
     RequirementCheck,
     coerce_reject_reason,
 )
+from verifund_contracts.terms import presence_only_catalog
 
 
 def settlement_enabled(services: Any) -> bool:
@@ -67,7 +68,7 @@ def _requirement_catalog(
     )
     image_formats = ["image/jpeg", "image/png", "image/webp"]
     diag_formats = ["application/json", "application/pdf", "text/csv", "image/jpeg", "image/png", "image/webp"]
-    return [
+    return presence_only_catalog([
         Requirement(
             requirement_id="serial",
             title="Serial number",
@@ -362,7 +363,7 @@ def _requirement_catalog(
                 ),
             ],
         ),
-    ]
+    ])
 
 
 def build_award_request(

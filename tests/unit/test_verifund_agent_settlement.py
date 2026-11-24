@@ -320,7 +320,7 @@ class Buyer:
             "expires_at": "2026-10-27T12:30:00Z",
         }
 
-    async def get_settlement(self, run_id):
+    async def get_settlement(self, run_id, *, refresh=False):
         self.calls.append(("get_settlement", run_id))
         self._sync_count = getattr(self, "_sync_count", 0) + 1
         if self._sync_count == 1:

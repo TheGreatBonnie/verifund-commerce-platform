@@ -131,6 +131,8 @@ envVarGroups:
         sync: false
       - key: VERIFUND_MODE
         value: sandbox
+      - key: VERIFUND_CHECKOUT_MODE
+        value: embedded
       - key: VERIFUND_OPS_TOKEN
         sync: false
       - key: VERIFUND_SELLER_TOKEN_SECRET

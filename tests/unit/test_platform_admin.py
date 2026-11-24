@@ -73,3 +73,13 @@ async def test_platform_admin_can_verify_and_is_audited(client, identities):
         organization_id=identities["org_id"]
     )
     assert audit[-1]["action"] == "seller.verification.approved"
+
+
+async def test_reconcile_platform_admin_grants_and_revokes(client):
+    store = client._transport.app.state.tenancy
+    user = await store.upsert_user("role_user", "r@example.com", "R")
+    assert await store.is_platform_admin(user["id"]) is False
+    await store.reconcile_platform_admin(user["id"], True, granted_by="clerk-webhook")
+    assert await store.is_platform_admin(user["id"]) is True
+    await store.reconcile_platform_admin(user["id"], False, granted_by="clerk-webhook")
+    assert await store.is_platform_admin(user["id"]) is False

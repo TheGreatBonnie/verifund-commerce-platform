@@ -16,6 +16,7 @@ from verifund_contracts import (
     BuyerOrderReportRequest,
     BuyerPurchaseOrderRequest,
     ReleaseApprovalDecision,
+    VerifundError,
 )
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -625,3 +626,32 @@ async def test_receipt_and_evidence_are_proxied(api):
     assert evidence.status_code == 200
     assert evidence.content == b"manifest"
     assert "manifest.txt" in evidence.headers["content-disposition"]
+
+
+async def test_internal_receipt_preserves_control_plane_404_for_pending_payout():
+    """A receipt that is not available yet must stay a 404, not become a 500.
+
+    The verifund graph tolerates a 404 from this endpoint and continues as
+    RELEASED. Collapsing it to 500 kills the run after the payout committed.
+    """
+    app, services = build()
+
+    async def receipt_not_available(run_id):
+        raise VerifundError(
+            "not_found", "receipt not available", status_code=404
+        )
+
+    services.agreements.receipt = receipt_not_available
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://buyer") as http:
+        response = await http.get(
+            "/internal/runs/run-1/settlement/receipt", headers=HEADERS
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "not_found",
+        "message": "receipt not available",
+        "retryable": False,
+        "details": {},
+    }

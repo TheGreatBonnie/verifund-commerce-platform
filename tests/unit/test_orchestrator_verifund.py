@@ -11,7 +11,12 @@ from commerce_core.a2a_parts import (
     first_envelope,
     make_artifact,
 )
-from commerce_core.contracts import Order, PurchaseOrderRequest
+from commerce_core.contracts import (
+    CommerceError,
+    CommerceErrorCode,
+    Order,
+    PurchaseOrderRequest,
+)
 from commerce_core.extension import wrap_payload
 from orchestrator_agent.agent import MARKETMESH_ORCHESTRATOR_INSTRUCTION
 from orchestrator_agent.settings import Settings
@@ -682,6 +687,16 @@ async def test_advance_exposes_the_release_hitl_with_the_exact_args() -> None:
     assert args["transaction_id"] == AGREEMENT.transaction_id
 
 
+async def test_release_hitl_args_keep_agreement_version_an_integer() -> None:
+    result = release_result()
+    result.data["agreement_version"] = 1.0
+    view = VerifundLifecycle._release_args(
+        VerifundTaskHandle("vf-task-1", "vf-context-1", "run-1"), result
+    )
+    assert isinstance(view["agreement_version"], int)
+    assert view["agreement_version"] == 1
+
+
 async def test_release_decision_resumes_the_same_task_and_returns_the_receipt() -> None:
     receipt = {
         "payload": {
@@ -891,6 +906,18 @@ def test_orchestrator_instruction_describes_the_verifund_settlement_flow() -> No
     assert "request_award_approval" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
 
 
+def test_instruction_waits_for_evidence_then_surfaces_release() -> None:
+    assert "checkpoint evidence_pending" in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    assert (
+        "verifund_status with the exact task_id, context_id, and run_id"
+        in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    )
+    assert (
+        "request_verifund_release_approval"
+        in MARKETMESH_ORCHESTRATOR_INSTRUCTION
+    )
+
+
 def test_orchestrator_instruction_blocks_funding_until_buyer_approval() -> None:
     instruction = MARKETMESH_ORCHESTRATOR_INSTRUCTION
     assert "request_verifund_agreement_approval" in instruction
@@ -996,6 +1023,33 @@ async def test_checkout_decision_resumes_the_same_task() -> None:
     resume = next(call for call in verifund.calls if call[0] == "resume")
     assert resume[2] is VerifundCheckpoint.FUNDING_CHECKOUT_REQUIRED
     assert resume[3] == decision.model_dump(mode="json")
+
+
+def test_order_from_frames_surfaces_the_sellers_error_message() -> None:
+    frames = [
+        TaskArtifactUpdateEvent(
+            task_id="seller-task-1",
+            context_id="run-1",
+            artifact=make_artifact(
+                "commerce-error",
+                wrap_payload(
+                    "commerce_error",
+                    CommerceError(
+                        code=CommerceErrorCode.OFFER_EXPIRED,
+                        message="Offer has expired.",
+                        retryable=False,
+                        details={},
+                    ),
+                ),
+            ),
+        )
+    ]
+
+    with pytest.raises(VerifundProtocolError) as exc:
+        SellerA2AClient._order_from_frames(frames)
+
+    assert "offer_expired" in str(exc.value)
+    assert "Offer has expired." in str(exc.value)
 
 
 def test_the_checkout_tool_and_instruction_are_registered() -> None:
@@ -1122,6 +1176,80 @@ async def test_verifund_status_publishes_the_agreement_to_shared_state(
 
     assert result is view
     assert context.state["award"] == payload
+
+
+async def test_evidence_review_returns_a_structured_error_instead_of_crashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    async def failing_advance(self: Any, handle: Any, seller_card_url: str) -> dict:
+        raise VerifundProtocolError(
+            "Seller rejected the purchase order: OFFER_EXPIRED: Offer has expired."
+        )
+
+    monkeypatch.setattr(VerifundLifecycle, "advance", failing_advance)
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    tool = next(item for item in tools if item.name == "verifund_evidence_review")
+
+    result = await tool.func(
+        "task-1", "ctx-1", "run-1", "https://seller.example/card"
+    )
+
+    assert result["status"] == "error"
+    assert "OFFER_EXPIRED" in result["message"]
+
+
+def test_funding_hitl_args_carry_the_resume_handle() -> None:
+    """The funding card must expose the ids verifund_fund needs to resume."""
+    result = VerifundTaskResult(
+        skill=VerifundSkill.TRANSACTION_STATUS,
+        status="approval_required",
+        checkpoint=VerifundCheckpoint.FUNDING_APPROVAL_REQUIRED,
+        approval_type="funding",
+        task_id="task-1",
+        run_id="run-1",
+    )
+
+    args = VerifundLifecycle._funding_args(
+        VerifundTaskHandle("task-1", "ctx-1", "run-1"), result
+    )
+
+    assert args["task_id"] == "task-1"
+    assert args["context_id"] == "ctx-1"
+    assert args["run_id"] == "run-1"
+
+
+async def test_funding_tool_returns_structured_error_for_a_stale_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from a2a.utils.errors import TaskNotFoundError
+
+    from orchestrator_agent.agent import _build_verifund_tools
+
+    async def failing_resume(self: Any, handle: Any, decision: Any) -> dict:
+        raise TaskNotFoundError("Task run-1 not found")
+
+    monkeypatch.setattr(VerifundLifecycle, "resume_funding", failing_resume)
+
+    tools = _build_verifund_tools(Settings(_env_file=None))
+    tool = next(item for item in tools if item.name == "verifund_fund")
+    decision = {
+        "run_id": "run-1",
+        "transaction_id": "vf_1",
+        "agreement_version": 1,
+        "agreement_hash": "a" * 64,
+        "approved": True,
+        "approved_by": "buyer@example.com",
+        "decided_at": "2026-11-17T04:00:00Z",
+        "idempotency_key": "fund-1",
+    }
+
+    result = await tool.func("run-1", "ctx-1", "run-1", decision)
+
+    assert result["status"] == "error"
+    assert "not found" in result["message"]
 
 
 async def test_verifund_create_agreement_publishes_the_agreement_to_shared_state(

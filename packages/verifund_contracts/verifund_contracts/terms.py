@@ -28,6 +28,35 @@ _DIAGNOSTIC_FORMATS = list(_LEGACY_FILE_FORMATS)
 _LAPTOP_CATEGORY = "electronics.laptop.refurbished"
 
 
+def presence_only_catalog(requirements: list[Requirement]) -> list[Requirement]:
+    """Return a catalog satisfied by any usable submission.
+
+    Field extraction and value comparisons are disabled for every check: a
+    SHA-verified, scan-clean artifact (or declaration) passes regardless of
+    its contents. Multi-item and multi-view gates are relaxed as well.
+    """
+    relaxed: list[Requirement] = []
+    for requirement in requirements:
+        checks = [
+            check.model_copy(
+                update={
+                    "operator": "exists",
+                    "verification_method": "deterministic",
+                    "expected_value": None,
+                    "ai_derived": False,
+                    "unit": None,
+                }
+            )
+            for check in requirement.checks
+        ]
+        relaxed.append(
+            requirement.model_copy(
+                update={"checks": checks, "min_items": 1, "required_views": []}
+            )
+        )
+    return relaxed
+
+
 def _category_of(terms: dict[str, Any]) -> str | None:
     product = terms.get("product") or {}
     category = product.get("category") or terms.get("category")
@@ -80,7 +109,7 @@ def _legacy_requirement(requirement_id: str) -> Requirement:
 
 
 def _laptop_requirement_catalog() -> list[Requirement]:
-    return [
+    return presence_only_catalog([
         Requirement(
             requirement_id="serial",
             title="Serial number",
@@ -356,7 +385,7 @@ def _laptop_requirement_catalog() -> list[Requirement]:
             ],
             required=True,
         ),
-    ]
+    ])
 
 
 def project_requirements(terms: dict[str, Any]) -> list[Requirement]:
@@ -422,6 +451,8 @@ def validate_requirements(requirements: list[Requirement]) -> None:
             if check.check_id in seen_checks:
                 raise ValueError("invalid_requirements")
             seen_checks.add(check.check_id)
+            if check.verification_method != "deterministic":
+                raise ValueError("invalid_requirements")
             if (
                 check.operator != "exists"
                 and not check.ai_derived

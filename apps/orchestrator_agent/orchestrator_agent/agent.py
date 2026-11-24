@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 # on the free Render container and blocks the shared event loop, so pay the
 # cost here, while the gateway is still starting up.
 import litellm  # noqa: F401
+from a2a.utils.errors import TaskNotFoundError
 from ag_ui_adk import AGUIToolset
 from commerce_core.retrieval import NebiusEmbeddings, ProductRetriever
 from google.adk.agents import LlmAgent
@@ -31,6 +32,7 @@ from orchestrator_agent.verifund import (
     SellerA2AClient,
     VerifundA2AClient,
     VerifundLifecycle,
+    VerifundProtocolError,
     VerifundTaskHandle,
 )
 
@@ -269,9 +271,15 @@ protocol instead of the legacy order flow.
   resume on the next status refresh instead.
 - After funding, call verifund_evidence_review with the same
   task_id, context_id, run_id, and seller_card_url. It places
-  the purchase order with the Seller and polls funding and
-  evidence. Do not call the Seller or place the purchase order
-  yourself.
+  the purchase order with the Seller, then returns a working
+  result at checkpoint evidence_pending. Do not call the Seller
+  or place the purchase order yourself.
+- When a tool result has checkpoint evidence_pending, treat it as
+  a wait state, not success: the Seller is still submitting
+  fulfillment evidence. On the next status refresh, call
+  verifund_status with the exact task_id, context_id, and run_id;
+  its status check resumes the verifund agent when the evidence
+  projection is ready. Never invent a verified or released state.
 - When hitl.tool is request_verifund_release_approval, call that
   frontend tool with hitl.args unchanged, then call verifund_release
   with the structured ReleaseApprovalDecision. A rejected release
@@ -582,10 +590,22 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         tool_context: ToolContext | None = None,
     ) -> dict:
         """Resume the funding checkpoint with a structured human decision."""
-        result = await lifecycle.resume_funding(
-            handle(task_id, context_id, run_id),
-            FundingApprovalDecision.model_validate(decision),
-        )
+        try:
+            result = await lifecycle.resume_funding(
+                handle(task_id, context_id, run_id),
+                FundingApprovalDecision.model_validate(decision),
+            )
+        except TaskNotFoundError as exc:
+            # A stale funding card is a business outcome, not a crash. Tell the
+            # chat to refresh status instead of failing the whole AG-UI run.
+            result = {
+                "status": "error",
+                "error": {"code": "stale_funding_task", "message": str(exc)},
+                "message": (
+                    f"Funding checkpoint is no longer available: {exc}. "
+                    "Refresh Verifund status before approving again."
+                ),
+            }
         _publish_shared_state(result, tool_context)
         return result
 
@@ -625,11 +645,20 @@ def _build_verifund_tools(settings: Settings) -> list[FunctionTool]:
         seller_card_url: str,
         tool_context: ToolContext | None = None,
     ) -> dict:
-        """Place the purchase order and poll funding, evidence, or release."""
-        result = await lifecycle.advance(
-            handle(task_id, context_id, run_id),
-            seller_card_url=seller_card_url,
-        )
+        """Place the purchase order; evidence and release resume on status refresh."""
+        try:
+            result = await lifecycle.advance(
+                handle(task_id, context_id, run_id),
+                seller_card_url=seller_card_url,
+            )
+        except VerifundProtocolError as exc:
+            # A rejected seller order is a business outcome, not a crash. Let
+            # the chat explain it instead of failing the whole AG-UI run.
+            result = {
+                "status": "error",
+                "error": {"code": "seller_order_failed", "message": str(exc)},
+                "message": str(exc),
+            }
         _publish_shared_state(result, tool_context)
         return result
 

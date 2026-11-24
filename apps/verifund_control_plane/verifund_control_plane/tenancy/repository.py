@@ -500,6 +500,22 @@ class TenancyRepository:
             )
             return result.first() is not None
 
+    async def remove_platform_admin(self, user_id: str) -> None:
+        async with self.engine.begin() as conn:
+            await conn.execute(
+                self.platform_admins.delete().where(
+                    self.platform_admins.c.user_id == user_id
+                )
+            )
+
+    async def reconcile_platform_admin(
+        self, user_id: str, is_admin: bool, granted_by: str | None = None
+    ) -> None:
+        if is_admin:
+            await self.add_platform_admin(user_id, granted_by=granted_by)
+        else:
+            await self.remove_platform_admin(user_id)
+
     async def unique_seller_id(self, base: str | None) -> str:
         slug = (base or "seller").lower().strip()
         slug = "".join(c if c.isalnum() or c == "-" else "-" for c in slug)
@@ -925,6 +941,19 @@ class TenancyRepository:
         async with self.engine.begin() as conn:
             await conn.execute(self.seller_verifications.insert().values(**row))
         return row
+
+    async def list_seller_verifications(
+        self, status: str | None = None
+    ) -> list[dict]:
+        statement = select(self.seller_verifications)
+        if status is not None:
+            statement = statement.where(
+                self.seller_verifications.c.status == status
+            )
+        statement = statement.order_by(self.seller_verifications.c.created_at)
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(statement)).all()
+        return [dict(row._mapping) for row in rows]
 
     async def decide_verification_row(
         self,

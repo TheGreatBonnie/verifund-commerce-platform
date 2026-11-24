@@ -546,6 +546,8 @@ async def internal_receipt(run_id: str, request: Request) -> dict[str, Any]:
         return await _agreements(request).receipt(run_id)
     except AgreementBindingError as exc:
         raise _binding_error(exc) from exc
+    except VerifundError as exc:
+        raise _verifund_error(exc) from exc
 
 
 @router.get("/internal/runs/{run_id}/settlement/evidence/{evidence_id}")

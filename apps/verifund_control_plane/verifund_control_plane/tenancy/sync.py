@@ -5,12 +5,19 @@ async def apply_clerk_event(store, event: dict) -> None:
     kind = event["type"]
     data = event.get("data") or {}
     if kind in {"user.created", "user.updated"}:
-        await store.upsert_user(
+        user = await store.upsert_user(
             data["id"],
             (data.get("email_addresses") or [{}])[0].get("email_address"),
             " ".join(filter(None, [data.get("first_name"), data.get("last_name")])) or None,
         )
+        role = (data.get("public_metadata") or {}).get("role")
+        await store.reconcile_platform_admin(
+            user["id"], role == "admin", granted_by="clerk-webhook"
+        )
     elif kind == "user.deleted":
+        user = await store.get_user_by_clerk_id(data["id"])
+        if user is not None:
+            await store.remove_platform_admin(user["id"])
         await store.anonymize_user(data["id"])
     elif kind == "organization.created":
         await store.upsert_organization(data["id"], data.get("name", ""), data.get("slug"))

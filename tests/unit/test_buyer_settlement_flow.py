@@ -263,7 +263,7 @@ def test_buyer_authors_laptop_requirement_catalog():
     assert shipping.source == "reference"
     assert shipping.accepted_formats == []
     shipping_checks = {c.check_id: c.operator for c in shipping.checks}
-    assert shipping_checks["tracking_matches_po"] == "eq"
+    assert shipping_checks["tracking_matches_po"] == "exists"
     assert shipping_checks["carrier_present"] == "exists"
 
     delivery = by_id["delivery_confirmation"]
@@ -276,15 +276,17 @@ def test_buyer_authors_laptop_requirement_catalog():
     assert invoice.source == "file"
     assert {"application/json", "text/csv"} & set(invoice.accepted_formats)
     invoice_checks = {c.check_id: c for c in invoice.checks}
-    assert invoice_checks["invoice_total_matches"].expected_value == 123400
-    assert invoice_checks["currency_matches"].expected_value == "USD"
-    assert invoice_checks["seller_matches"].expected_value == "northwind-audio"
-    assert "NC-700" in str(invoice_checks["line_items_match"].expected_value)
+    assert set(invoice_checks) == {
+        "invoice_total_matches",
+        "currency_matches",
+        "seller_matches",
+        "line_items_match",
+    }
 
     assert by_id["condition_declaration"].source == "declaration"
     assert by_id["carrier_acceptance"].owner == "system"
-    assert by_id["product_photos"].min_items == 7
-    assert "serial" in by_id["product_photos"].required_views
+    assert by_id["product_photos"].min_items == 1
+    assert by_id["product_photos"].required_views == []
     assert [c.check_id for c in by_id["hardware"].checks] == ["ram_gte_32gb", "storage_gte_1tb"]
 
 
@@ -297,6 +299,20 @@ def test_catalog_checks_are_all_deterministic():
         if check.verification_method != "deterministic"
     ]
     assert extraction == []
+
+
+def test_buyer_catalog_checks_only_require_a_submission():
+    request = build_award_request("run-1", {"buyer_id": "demo-buyer"}, award_payload())
+    value_checks = [
+        (requirement.requirement_id, check.check_id)
+        for requirement in request.requirements
+        for check in requirement.checks
+        if check.operator != "exists"
+        or check.verification_method != "deterministic"
+        or check.expected_value is not None
+        or check.ai_derived
+    ]
+    assert value_checks == []
 
 
 def test_requirements_needing_a_parsed_value_accept_a_parseable_format():
