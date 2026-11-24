@@ -5,10 +5,12 @@ import {
   InMemoryAgentRunner,
 } from "@copilotkit/runtime/v2";
 import { HttpAgent } from "@ag-ui/client";
+import { after } from "next/server";
 import { handle } from "hono/vercel";
 import { createDefaultAgent } from "../../../agent";
 import { auth } from "@clerk/nextjs/server";
 import { identifyCopilotUser } from "@/lib/copilot-user";
+import { keepIntelligenceRunsAlive } from "@/lib/copilot-run-keepalive";
 import {
   isSellerAgentUrl,
   normalizeAgentBaseUrl,
@@ -345,10 +347,37 @@ async function getA2AMiddlewareAgent(): Promise<MarketMeshA2AMiddlewareAgent> {
 
 let runtimePromise: Promise<CopilotRuntime> | null = null;
 
+/**
+ * Keep the Vercel invocation alive until an Intelligence run settles.
+ *
+ * The Intelligence mode returns its join credentials as soon as the runner
+ * channel is joined, then executes the agent in the background of the same
+ * invocation. Without `after` the sandbox is frozen when the response is sent,
+ * the ingestion socket closes, and Intelligence publishes RUN_ERROR with
+ * `RUNNER_CONNECTION_DROPPED` to the thread channel: the chat never answers.
+ *
+ * The work is still bounded by the route's `maxDuration`; a run longer than
+ * that needs a long-lived runtime host instead of a serverless function.
+ */
+function keepRunAlive(work: Promise<void>): void {
+  try {
+    after(work);
+  } catch (error) {
+    // `after` only exists inside a Next request scope (unit tests, scripts).
+    // Locally the Node process outlives the response anyway, so the run still
+    // finishes; on a serverless platform this would surface as the original
+    // RUNNER_CONNECTION_DROPPED, hence the warning.
+    console.warn(
+      "[copilotkit] could not keep the Intelligence run alive:",
+      error,
+    );
+  }
+}
+
 async function getRuntime(): Promise<CopilotRuntime> {
   if (!runtimePromise) {
-    runtimePromise = (async () =>
-      new CopilotRuntime({
+    runtimePromise = (async () => {
+      const runtime = new CopilotRuntime({
         agents: {
           marketmesh_orchestrator: await getA2AMiddlewareAgent(),
         },
@@ -368,7 +397,10 @@ async function getRuntime(): Promise<CopilotRuntime> {
             }
           : { runner: new InMemoryAgentRunner() }),
         // --- /copilotkit:intelligence ---
-      }))();
+      });
+      keepIntelligenceRunsAlive(runtime.runner, keepRunAlive);
+      return runtime;
+    })();
   }
   return runtimePromise;
 }

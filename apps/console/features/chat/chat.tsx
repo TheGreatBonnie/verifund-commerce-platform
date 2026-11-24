@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import { useUser } from "@clerk/nextjs";
 import { approverDisplayName } from "@/lib/clerk-display-name";
 import {
@@ -13,6 +19,7 @@ import {
 import { z } from "zod";
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import { AwardApproval } from "@/features/chat/components/award-approval";
+import { EvidenceWaitCard } from "@/features/chat/components/evidence-wait-card";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
 import {
   AgreementReviewCard,
@@ -68,10 +75,35 @@ type ChatProps = {
   variant?: "rail" | "embedded";
   verifundMode?: string;
   onVerifundAction?: () => void;
+  prefilledPrompt?: string | null;
 };
 
 const SAMPLE_PROMPT =
   "Buy 12 Nimbus NC-700 ANC headsets for our team. Budget $3,400, delivery within 14 days, 24-month warranty, 30-day returns. Prefer a sustainability-certified seller.";
+
+type ChatViewProps = ComponentProps<typeof CopilotChat.View>;
+
+/**
+ * Seeds CopilotKit's internally-managed input with a handoff prompt from a
+ * buyer workspace deep link. We keep the human in the loop: the prompt is only
+ * placed in the composer, it is never auto-sent to the agent.
+ */
+function createPrefilledChatView(prefilledPrompt: string) {
+  function PrefilledChatView(props: ChatViewProps) {
+    const seeded = useRef(false);
+    const { onInputChange } = props;
+
+    useEffect(() => {
+      if (seeded.current) return;
+      seeded.current = true;
+      onInputChange?.(prefilledPrompt);
+    }, [onInputChange, prefilledPrompt]);
+
+    return <CopilotChat.View {...props} />;
+  }
+
+  return PrefilledChatView;
+}
 
 function sellerName(
   sellerId?: string,
@@ -195,8 +227,14 @@ export function Chat({
   variant = "rail",
   verifundMode,
   onVerifundAction,
+  prefilledPrompt,
 }: ChatProps) {
   const { agent } = useAgent({ agentId: "marketmesh_orchestrator" });
+  const chatView = useMemo(
+    () =>
+      prefilledPrompt ? createPrefilledChatView(prefilledPrompt) : undefined,
+    [prefilledPrompt],
+  );
   const { user } = useUser();
   const approver = approverDisplayName(user);
   const [registryNames, setRegistryNames] = useState<Map<string, string>>(
@@ -462,7 +500,7 @@ export function Chat({
         "Show the evidence/verification summary and wait for an explicit human release decision.",
       available: verifundEnabled,
       parameters: releaseApprovalArgsSchema,
-      render: ({ args, status, respond }) => {
+      render: ({ args, status, respond, result }) => {
         if (status === "executing" && respond) {
           const sharedProjection = (
             (agent.state as Record<string, any> | undefined)?.projection as
@@ -484,6 +522,26 @@ export function Chat({
                 }}
               />
             </div>
+          );
+        }
+        if (status === "complete") {
+          let decision: { approved?: boolean } | null = null;
+          try {
+            decision =
+              typeof result === "string"
+                ? JSON.parse(result)
+                : (result as { approved?: boolean } | null);
+          } catch {
+            // Keep a recorded decision visible if the result is malformed.
+          }
+          return (
+            <p className="mm-chat-approval-result" role="status">
+              {decision?.approved === true
+                ? "Release approved — continuing…"
+                : decision?.approved === false
+                  ? "Release rejected — sent to manual review."
+                  : "Your release decision was recorded. Continuing…"}
+            </p>
           );
         }
         return null;
@@ -700,6 +758,21 @@ export function Chat({
       const response = parsed.status
         ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
         : undefined;
+      if (parsed.checkpoint === "evidence_pending") {
+        return (
+          <VerifundA2AExchange status={status} task={task} response={response}>
+            <EvidenceWaitCard
+              checkpoint={parsed.checkpoint}
+              projection={
+                (parsed.data?.projection ?? {
+                  evidence: parsed.evidence,
+                  verification: parsed.verification,
+                }) as any
+              }
+            />
+          </VerifundA2AExchange>
+        );
+      }
       return (
         <VerifundA2AExchange status={status} task={task} response={response}>
           <VerifundStatusCard
@@ -725,6 +798,21 @@ export function Chat({
       const response = parsed.status
         ? `${parsed.status}${parsed.checkpoint ? ` · ${parsed.checkpoint}` : ""}`
         : undefined;
+      if (parsed.checkpoint === "evidence_pending") {
+        return (
+          <VerifundA2AExchange status={status} task={task} response={response}>
+            <EvidenceWaitCard
+              checkpoint={parsed.checkpoint}
+              projection={
+                (parsed.data?.projection ?? {
+                  evidence: parsed.evidence,
+                  verification: parsed.verification,
+                }) as any
+              }
+            />
+          </VerifundA2AExchange>
+        );
+      }
       return (
         <VerifundA2AExchange status={status} task={task} response={response}>
           <EvidenceSummaryCard
@@ -947,6 +1035,7 @@ export function Chat({
         <CopilotChat
           agentId="marketmesh_orchestrator"
           threadId={threadId}
+          chatView={chatView}
           className="mm-copilot-chat"
           labels={{
             welcomeMessageText:

@@ -12,6 +12,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./tests/setup.ts"],
+    // CopilotKit's package entry imports a stylesheet; inline it so Vite,
+    // rather than Node's ESM loader, resolves that import in tests. Vitest 3+
+    // replaces this with deps.optimizer.{web,ssr}.include.
+    server: { deps: { inline: ["@copilotkit/react-core"] } },
     include: ["**/*.{test,spec}.{ts,tsx}"],
     exclude: ["node_modules", ".next", "e2e"],
     coverage: {

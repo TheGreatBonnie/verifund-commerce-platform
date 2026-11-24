@@ -1,11 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   fetchMarketplaceProducts: vi.fn(),
+}));
+
+const copilot = vi.hoisted(() => ({ startNewRun: vi.fn() }));
+
+vi.mock("@/features/chat/use-start-new-run", () => ({
+  useStartNewRun: () => ({ startNewRun: copilot.startNewRun }),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -86,6 +92,18 @@ describe("MarketplacePage", () => {
   beforeEach(() => {
     mocks.fetchMarketplaceProducts.mockReset();
     mocks.fetchMarketplaceProducts.mockResolvedValue(products);
+    copilot.startNewRun.mockClear();
+  });
+
+  it("starts a fresh thread when asking the agent about a product", async () => {
+    render(<MarketplacePage />, { wrapper: createWrapper() });
+
+    const buttons = await screen.findAllByRole("button", {
+      name: /ask agent to negotiate/i,
+    });
+    fireEvent.click(buttons[0]);
+
+    expect(copilot.startNewRun).toHaveBeenCalledTimes(1);
   });
 
   it("renders products after the catalog resolves", async () => {

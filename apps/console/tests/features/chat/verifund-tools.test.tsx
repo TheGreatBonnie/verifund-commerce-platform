@@ -181,6 +181,20 @@ describe("verifund chat tools", () => {
     ).not.toThrow();
   });
 
+  it("preserves the resume ids through funding HITL normalization", () => {
+    const normalized = normalizeFundingArgs(
+      { ...fundingArgs(), task_id: "task-1", context_id: "ctx-1" },
+      { ...agreement, status: "AGREED" },
+    );
+
+    expect(normalized.task_id).toBe("task-1");
+    expect(normalized.context_id).toBe("ctx-1");
+    expect(fundingApprovalArgsSchema.safeParse(normalized).success).toBe(true);
+    expect(() =>
+      fundingDecision(normalized, { approved: true, decidedAt: NOW }),
+    ).not.toThrow();
+  });
+
   it("prefers the shared agreement when the relay mangles line_items", () => {
     // The LLM relay re-serializes nested arrays as {"item": ...}. The canonical
     // agreement published to shared state must win over a mangled tool arg.

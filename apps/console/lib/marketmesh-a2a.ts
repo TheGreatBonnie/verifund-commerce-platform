@@ -10,6 +10,7 @@ import {
   type SellerAgent,
 } from "@/lib/a2a-agents";
 import { singleTerminalStream } from "@/lib/single-terminal-stream";
+import { FRONTEND_HITL_TOOL_NAMES } from "@/lib/hitl-tool-names";
 
 /**
  * MarketMesh sellers expose A2A agent cards at their well-known card path.
@@ -182,7 +183,14 @@ export class MarketMeshA2AMiddlewareAgent extends A2AMiddlewareAgent {
   // Intelligence rejects the second terminal event as
   // `terminal_event_already_received` and aborts the run, so normalize the
   // stream to a single start and a single terminal event.
+  //
+  // A frontend HITL tool call is the end of the agent's turn: the run must
+  // finish there so Intelligence releases the thread lock before the HITL
+  // response dispatches the follow-up run. Otherwise that follow-up is
+  // rejected with `agent_thread_locked` (409).
   run(input: RunAgentInput) {
-    return singleTerminalStream(super.run(input));
+    return singleTerminalStream(super.run(input), {
+      terminateOnToolCallNames: FRONTEND_HITL_TOOL_NAMES,
+    });
   }
 }

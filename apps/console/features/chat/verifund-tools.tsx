@@ -23,6 +23,7 @@ import {
   pollFundingAction,
 } from "@/app/actions";
 import { AgreementApprovalCard } from "@/features/agreements/AgreementApprovalCard";
+import { EvidenceSummaryLines } from "@/features/chat/components/evidence-summary-lines";
 import type { SettlementProjection, SettlementReceipt } from "@/lib/types";
 import { evidenceCounts } from "@/lib/format";
 export { evidenceCounts };
@@ -68,6 +69,11 @@ export const agreementSchema = z.object({
 });
 
 export const fundingApprovalArgsSchema = z.object({
+  // Exact ids the orchestrator needs to resume funding. Without these in the
+  // HITL args the model substitutes the run_id for task_id and the A2A resume
+  // fails with TASK_NOT_FOUND.
+  task_id: z.string().optional(),
+  context_id: z.string().optional(),
   run_id: z.string().min(1),
   transaction_id: z.string().min(1),
   agreement_version: z.number().int().positive(),
@@ -85,6 +91,8 @@ export const fundingApprovalArgsSchema = z.object({
 // decision payload from the canonical agreement in shared state below.
 export const fundingHitlArgsSchema = z
   .object({
+    task_id: z.string().optional(),
+    context_id: z.string().optional(),
     run_id: z.string().optional(),
     transaction_id: z.string().optional(),
     agreement_version: z.number().int().positive().optional(),
@@ -141,6 +149,8 @@ export function normalizeFundingArgs(
     agreement_hash,
   };
   return {
+    task_id: typeof raw.task_id === "string" ? raw.task_id : undefined,
+    context_id: typeof raw.context_id === "string" ? raw.context_id : undefined,
     run_id: String(agreement?.run_id ?? raw.run_id ?? ""),
     transaction_id: String(agreement?.transaction_id ?? raw.transaction_id ?? ""),
     agreement_version,
@@ -778,18 +788,37 @@ export function ReleaseApprovalCard({
 }) {
   const [note, setNote] = useState("");
   const [override, setOverride] = useState(false);
-  const gate = releaseGate(
-    (args.projection ?? null) as Partial<SettlementProjection> | null,
-  );
+  const projection = (args.projection ?? null) as
+    | Partial<SettlementProjection>
+    | null;
+  const gate = releaseGate(projection);
   const blocked = !gate.enabled || (override && !note.trim());
+  const reviewRequired = projection?.state === "REVIEW_REQUIRED";
+  const releasePermitted = projection?.state === "RELEASE_PERMITTED";
   return (
     <section
       className="mm-approval"
       data-testid="verifund-release"
       aria-labelledby="verifund-release-title"
     >
-      <p className="mm-kicker">Verifund · human release approval</p>
-      <h3 id="verifund-release-title">{args.message}</h3>
+      <div className="mm-verifund-head">
+        <div>
+          <p className="mm-kicker">Verifund · human release approval</p>
+          <h3 id="verifund-release-title">{args.message}</h3>
+        </div>
+        {releasePermitted ? (
+          <span className="mm-status-pill">Verified</span>
+        ) : reviewRequired ? (
+          <span className="mm-status-pill is-amber">Review required</span>
+        ) : null}
+      </div>
+      {typeof projection?.amount_cents === "number" ? (
+        <p className="mm-approval-prompt">
+          Releasing {money(projection.amount_cents, projection.currency ?? "USD")} for transaction{" "}
+          {args.transaction_id}.
+        </p>
+      ) : null}
+      <EvidenceSummaryLines projection={projection} />
       {!gate.enabled ? (
         <p role="alert" className="mm-verifund-blocked">{gate.reason}</p>
       ) : null}
@@ -854,23 +883,10 @@ export function EvidenceSummaryCard({
   projection: Partial<SettlementProjection> | null;
 }) {
   if (!projection) return null;
-  const evidence = projection.evidence;
-  const counts = evidenceCounts(evidence);
-  const reasons = (projection.verification?.reasons ?? []) as string[];
   return (
     <section className="mm-approval" data-testid="verifund-evidence">
       <p className="mm-kicker">Verifund · evidence review</p>
-      <p>
-        {counts
-          ? `${counts.received}/${counts.required} required evidence items received`
-          : "No evidence has been reported."}
-      </p>
-      {projection.verification ? (
-        <p>
-          Verification: {projection.verification.status}
-          {reasons.length ? ` · ${reasons.join(", ")}` : ""}
-        </p>
-      ) : null}
+      <EvidenceSummaryLines projection={projection} />
     </section>
   );
 }

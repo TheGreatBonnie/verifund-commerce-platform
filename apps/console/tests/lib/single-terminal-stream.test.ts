@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { from, lastValueFrom, toArray } from "rxjs";
+import { from, lastValueFrom, Observable, toArray } from "rxjs";
 import { EventType, type BaseEvent } from "@ag-ui/core";
 import { singleTerminalStream } from "@/lib/single-terminal-stream";
 
@@ -25,8 +25,52 @@ const textContent = (messageId = "message-1"): BaseEvent =>
 const textEnd = (messageId = "message-1"): BaseEvent =>
   ({ type: EventType.TEXT_MESSAGE_END, messageId }) as BaseEvent;
 
+const toolCallStart = (
+  toolCallId: string,
+  toolCallName: string,
+): BaseEvent =>
+  ({
+    type: EventType.TOOL_CALL_START,
+    toolCallId,
+    toolCallName,
+  }) as BaseEvent;
+
+const toolCallArgs = (toolCallId: string): BaseEvent =>
+  ({
+    type: EventType.TOOL_CALL_ARGS,
+    toolCallId,
+    delta: "{}",
+  }) as BaseEvent;
+
+const toolCallEnd = (toolCallId: string): BaseEvent =>
+  ({ type: EventType.TOOL_CALL_END, toolCallId }) as BaseEvent;
+
+const toolCallResult = (toolCallId: string): BaseEvent =>
+  ({
+    type: EventType.TOOL_CALL_RESULT,
+    toolCallId,
+    messageId: "tool-message-1",
+    content: "ok",
+  }) as BaseEvent;
+
+const HITL_TOOL_NAMES = new Set(["request_verifund_agreement_approval"]);
+
 async function collect(events: BaseEvent[]): Promise<BaseEvent[]> {
   return lastValueFrom(from(events).pipe(singleTerminalStream, toArray()));
+}
+
+async function collectWithHitlNames(
+  events: BaseEvent[],
+): Promise<BaseEvent[]> {
+  return lastValueFrom(
+    from(events).pipe(
+      (source) =>
+        singleTerminalStream(source, {
+          terminateOnToolCallNames: HITL_TOOL_NAMES,
+        }),
+      toArray(),
+    ),
+  );
 }
 
 describe("singleTerminalStream", () => {
@@ -111,6 +155,100 @@ describe("singleTerminalStream", () => {
     expect(result.map((event) => event.type)).toEqual([
       EventType.RUN_STARTED,
       EventType.RUN_ERROR,
+    ]);
+  });
+
+  it("terminates the run as soon as a frontend HITL tool call ends", async () => {
+    // The orchestrator keeps streaming after emitting the HITL tool call (a
+    // text turn and its own RUN_FINISHED). The run must still terminate at the
+    // tool-call boundary so the Intelligence thread lock is released before
+    // the HITL response dispatches the follow-up run.
+    const events = [
+      runStarted(),
+      toolCallStart("call-1", "request_verifund_agreement_approval"),
+      toolCallArgs("call-1"),
+      toolCallEnd("call-1"),
+      textStart(),
+      textContent(),
+      textEnd(),
+      runFinished(),
+    ];
+
+    const result = await collectWithHitlNames(events);
+
+    expect(result.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_FINISHED,
+    ]);
+    expect(result.at(-1)).toMatchObject({
+      threadId: "thread-1",
+      runId: "run-1",
+    });
+  });
+
+  it("does not terminate for a non-HITL backend tool call", async () => {
+    const events = [
+      runStarted(),
+      toolCallStart("call-1", "search_marketplace_products"),
+      toolCallArgs("call-1"),
+      toolCallEnd("call-1"),
+      toolCallResult("call-1"),
+      runFinished(),
+    ];
+
+    expect(await collectWithHitlNames(events)).toEqual(events);
+  });
+
+  it("drops a held finish when a tool call proves the run continues", async () => {
+    // A stale sub-run finish before a backend tool call must not be emitted;
+    // TOOL_CALL_START/END are ordinary continuation events for non-HITL tools.
+    const events = [
+      runStarted(),
+      runFinished(),
+      toolCallStart("call-1", "search_marketplace_products"),
+      toolCallEnd("call-1"),
+      toolCallResult("call-1"),
+    ];
+
+    const result = await collectWithHitlNames(events);
+
+    expect(result.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_END,
+      EventType.TOOL_CALL_RESULT,
+    ]);
+  });
+
+  it("unsubscribes from the source when a HITL tool call terminates the run", async () => {
+    let tornDown = false;
+    const source = new Observable<BaseEvent>((subscriber) => {
+      subscriber.next(runStarted());
+      subscriber.next(
+        toolCallStart("call-1", "request_verifund_agreement_approval"),
+      );
+      subscriber.next(toolCallEnd("call-1"));
+      // The source never completes on its own while the HITL is outstanding.
+      return () => {
+        tornDown = true;
+      };
+    });
+
+    const result = await lastValueFrom(
+      singleTerminalStream(source, {
+        terminateOnToolCallNames: HITL_TOOL_NAMES,
+      }).pipe(toArray()),
+    );
+
+    expect(tornDown).toBe(true);
+    expect(result.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_FINISHED,
     ]);
   });
 });

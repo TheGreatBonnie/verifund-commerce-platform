@@ -1,8 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useFrontendTool, CopilotThreadsDrawer } from "@copilotkit/react-core/v2";
 import { Chat } from "@/features/chat/chat";
+import { buildChatHandoffPrompt } from "@/lib/chat-handoff";
 import { config } from "@/lib/config";
 
 const LAST_APP_PATH_KEY = "marketmesh:lastAppPath";
@@ -10,6 +11,11 @@ const LAST_APP_PATH_KEY = "marketmesh:lastAppPath";
 /** Chat-only surface: the buyer chat full-screen, no app chrome. */
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const prefilledPrompt = buildChatHandoffPrompt(
+    searchParams.get("transaction_id"),
+    searchParams.get("intent"),
+  );
 
   const lastAppPath = () => {
     try {
@@ -46,6 +52,7 @@ export default function ChatPage() {
           onRunSample={() => {}}
           isRunning={false}
           isReady
+          prefilledPrompt={prefilledPrompt}
           verifundMode={config.verifundMode}
         />
       </div>

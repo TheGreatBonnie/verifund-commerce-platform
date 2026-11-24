@@ -1078,9 +1078,9 @@ paypal-button {
 }
 
 .a2a-message-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px 14px;
   min-width: 0;
 }
 
@@ -1088,21 +1088,24 @@ paypal-button {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px 14px;
   min-width: 0;
+}
+
+.a2a-message-content {
+  display: block;
+  min-width: 0;
+}
+
+.a2a-message-body-indent {
+  padding-left: 46px;
 }
 
 .a2a-message-copy {
   display: block;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-@container (min-width: 560px) {
-  .a2a-message-layout {
-    grid-template-columns: max-content minmax(0, 1fr);
-    align-items: center;
-  }
+  line-height: 1.6;
 }
 
 /* ---------- Shared panel language ---------- */
@@ -2900,6 +2903,10 @@ paypal-button {
   border-top-color: var(--amber);
 }
 
+.mm-approval.is-waiting {
+  border-top-color: var(--amber);
+}
+
 .mm-approval-head {
   display: flex;
   align-items: flex-start;
@@ -3126,6 +3133,18 @@ paypal-button {
 .mm-approval .mm-verifund-head .mm-kicker {
   color: var(--signal);
   font-size: 9px;
+}
+
+.mm-approval.is-waiting .mm-kicker {
+  color: var(--amber);
+}
+
+.mm-approval .mm-evidence-summary p {
+  margin: 4px 0 0;
+}
+
+.mm-approval .mm-verifund-head + .mm-approval-prompt {
+  margin-top: 0;
 }
 
 .mm-approval .mm-verifund-head h3 {
@@ -7232,6 +7251,419 @@ paypal-button {
   min-height: 84px;
 }
 
+/* Buyer workspace — status language, settlement rail and dossier details. */
+.mm-buyer-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mm-buyer-status-pill.is-signal {
+  border-color: var(--signal);
+  background: #e6efe6;
+  color: var(--signal-deep);
+}
+
+.mm-buyer-status-pill.is-amber {
+  border-color: var(--amber);
+  background: #f5ead6;
+  color: var(--amber);
+}
+
+.mm-buyer-status-pill.is-danger {
+  border-color: var(--red);
+  background: #f6e2df;
+  color: var(--red);
+}
+
+.mm-buyer-settlement-rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mm-buyer-settlement-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  padding: 0 0 18px;
+}
+
+.mm-buyer-settlement-node:last-child {
+  padding-bottom: 0;
+}
+
+.mm-buyer-settlement-node::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 14px;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule);
+}
+
+.mm-buyer-settlement-node:last-child::before {
+  display: none;
+}
+
+.mm-buyer-settlement-marker {
+  position: relative;
+  z-index: 1;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  border: 2px solid var(--signal);
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+.mm-buyer-settlement-node.is-next .mm-buyer-settlement-marker {
+  border-color: var(--amber);
+  border-style: dashed;
+}
+
+.mm-buyer-settlement-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.mm-buyer-settlement-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mm-buyer-settlement-node.is-next .mm-buyer-settlement-title {
+  color: var(--amber);
+}
+
+.mm-buyer-detail-head {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.mm-buyer-detail-amount {
+  margin: 4px 0 8px;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.mm-buyer-ref-amount {
+  margin: 2px 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.mm-buyer-amount {
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mm-buyer-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 16px;
+}
+
+.mm-buyer-filter {
+  display: grid;
+  gap: 4px;
+}
+
+.mm-buyer-filter-label {
+  color: var(--muted);
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mm-buyer-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 16px;
+  margin: 0 0 12px;
+}
+
+.mm-buyer-field {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mm-buyer-field dt {
+  color: var(--muted);
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mm-buyer-field dd {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mm-buyer-raw {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+}
+
+.mm-buyer-raw summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mm-buyer-raw summary:hover {
+  color: var(--ink);
+}
+
+.mm-buyer-raw pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-deep);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.mm-buyer-reason-list {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.mm-buyer-verification {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.mm-buyer-dispute-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.mm-buyer-dispute-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.mm-buyer-dispute-list li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.mm-buyer-dispute-claim {
+  flex: 1 1 240px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.mm-buyer-list-item-full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mm-buyer-subsection {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.mm-page a.mm-buyer-chat-link:not(.mm-button):not(.mm-nav-item) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius);
+  color: var(--signal-deep);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mm-page a.mm-buyer-chat-link:not(.mm-button):not(.mm-nav-item)::before {
+  content: "↗";
+  font-size: 11px;
+}
+
+.mm-page a.mm-buyer-chat-link:not(.mm-button):not(.mm-nav-item):hover {
+  background: var(--signal);
+  color: #fff;
+  text-decoration: none;
+}
+
+.mm-buyer-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(23, 26, 22, 0.55);
+}
+
+.mm-buyer-confirm {
+  width: min(420px, 100%);
+  box-shadow: 0 12px 40px rgba(23, 26, 22, 0.25);
+}
+
+.mm-buyer-action-success {
+  color: var(--signal-deep);
+  font-weight: 600;
+}
+
+.mm-buyer-skeleton-title {
+  width: 40%;
+  height: 28px;
+}
+
+.mm-buyer-skeleton-card {
+  height: 72px;
+}
+
+.mm-buyer-skeleton-row {
+  height: 16px;
+  margin-bottom: 10px;
+}
+
+/* Agreement card reuses the chat dossier styles without nested card chrome. */
+.mm-panel .mm-buyer-agreement {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mm-buyer-agreement .mm-buyer-agreement-actions {
+  margin-top: 14px;
+}
+
+.mm-buyer-agreement > .mm-buyer-raw {
+  margin-top: 12px;
+}
+
+.mm-panel .mm-buyer-agreement .mm-money-label,
+.mm-panel .mm-buyer-agreement .mm-inspection-grid dt,
+.mm-panel .mm-buyer-agreement .mm-verifund-detail .mm-kicker {
+  font-size: 10px;
+}
+
+.mm-panel .mm-buyer-agreement .mm-money-row,
+.mm-panel .mm-buyer-agreement .mm-inspection-grid dd,
+.mm-panel .mm-buyer-agreement .mm-check-list li,
+.mm-panel .mm-buyer-agreement .mm-acceptance-row {
+  font-size: 12px;
+}
+
+/* Payment card reuses the same dossier styles with the same page chrome reset. */
+.mm-panel .mm-buyer-payment {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mm-buyer-payment .mm-buyer-payment-actions {
+  margin-top: 14px;
+}
+
+.mm-buyer-payment > .mm-buyer-raw {
+  margin-top: 12px;
+}
+
+.mm-buyer-payment .mm-acceptance {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+
+.mm-buyer-payment .mm-approval-prompt {
+  margin-top: 12px;
+}
+
+.mm-buyer-payment .mm-approval-prompt a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--signal);
+  color: var(--signal-deep);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mm-buyer-payment .mm-approval-prompt a:hover {
+  background: var(--signal);
+  color: #fff;
+  text-decoration: none;
+}
+
+.mm-buyer-payment [role="alert"] {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--red);
+  background: #fbeeea;
+  color: var(--red);
+  font-size: 12px;
+}
+
+.mm-buyer-payment [data-testid="buyer-payment-captured"],
+.mm-buyer-payment [data-testid="buyer-payment-reversal"] {
+  margin-top: 10px;
+}
+
+.mm-panel .mm-buyer-payment .mm-money-label,
+.mm-panel .mm-buyer-payment .mm-verifund-detail .mm-kicker {
+  font-size: 10px;
+}
+
+.mm-panel .mm-buyer-payment .mm-money-row,
+.mm-panel .mm-buyer-payment .mm-acceptance-row,
+.mm-panel .mm-buyer-payment .mm-trust-head {
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .mm-page-header h1 {
     font-size: 28px;
@@ -7253,5 +7685,246 @@ paypal-button {
   .mm-buyer-transaction-ref {
     min-width: 0;
     width: 100%;
+  }
+
+  .mm-buyer-detail-amount {
+    font-size: 22px;
+  }
+
+  .mm-buyer-filter {
+    flex: 1 1 140px;
+  }
+
+  .mm-buyer-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .mm-buyer-settlement-body {
+    gap: 4px 8px;
+  }
+
+  .mm-panel .mm-buyer-agreement .mm-money-total,
+  .mm-panel .mm-buyer-payment .mm-money-total {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- Admin workspace structured views ---------- */
+
+.mm-admin-content {
+  display: grid;
+  gap: 14px;
+  max-width: 1180px;
+}
+
+.mm-admin-content .mm-panel {
+  padding: 16px 18px;
+}
+
+.mm-admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.mm-admin-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  background: var(--panel-green);
+}
+
+.mm-admin-kpi strong {
+  font-family: var(--font-instrument-serif), Georgia, serif;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.mm-admin-kpi small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mm-admin-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.mm-admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.mm-admin-table caption {
+  padding: 0 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.mm-admin-table th,
+.mm-admin-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mm-admin-table th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mm-admin-table tbody tr:hover {
+  background: var(--panel-green);
+}
+
+.mm-admin-table td a {
+  color: var(--signal-deep);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mm-admin-table td a:hover {
+  text-decoration: underline;
+}
+
+.mm-admin-table td form {
+  margin: 0;
+}
+
+.mm-admin-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 18px;
+  margin: 0;
+}
+
+.mm-admin-fields.is-compact {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.mm-admin-field {
+  min-width: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--rule);
+}
+
+.mm-admin-field dt {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mm-admin-field dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mm-admin-id {
+  font-family: var(--font-spline-sans-mono), monospace;
+  font-size: 12px;
+}
+
+.mm-admin-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mm-admin-chips li {
+  padding: 2px 7px;
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.mm-admin-nested {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.mm-admin-empty,
+.mm-admin-empty-value,
+.mm-admin-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mm-admin-empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--rule);
+}
+
+.mm-admin-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mm-admin-links a {
+  color: var(--signal-deep);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mm-admin-links a:hover {
+  text-decoration: underline;
+}
+
+.mm-admin-raw {
+  margin-top: 4px;
+}
+
+.mm-admin-raw summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mm-admin-raw pre {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  background: #faf8f3;
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .mm-admin-content .mm-panel {
+    padding: 12px;
+  }
+
+  .mm-admin-fields,
+  .mm-admin-kpis {
+    grid-template-columns: 1fr;
   }
 }

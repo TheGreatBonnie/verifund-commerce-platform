@@ -5,12 +5,24 @@
 
 "use client";
 
-import React from "react";
-import { getAgentStyle } from "./agent-styles";
+import React, { useState } from "react";
 import { useResolvedAgentName } from "./use-resolved-agent-name";
+import { A2AAgentPair } from "./A2AAgentPair";
+import { A2AMessageCardShell } from "./A2AMessageCardShell";
+import { A2APayload, type A2APayloadType } from "./A2APayload";
 
 type MessageActionRenderProps = {
   status?: string;
+  timestamp?: string;
+  label?: string;
+  statusLabel?: string;
+  messageId?: string;
+  taskId?: string;
+  contextId?: string;
+  payloadType?: A2APayloadType;
+  payload?: Record<string, unknown>;
+  orchestratorLabel?: string;
+  orchestratorMeta?: string;
   args?: {
     agentName?: string;
   };
@@ -20,12 +32,24 @@ type MessageActionRenderProps = {
 
 export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
   status,
+  timestamp,
+  label,
+  statusLabel,
+  messageId,
+  taskId,
+  contextId,
+  payloadType,
+  payload,
+  orchestratorLabel,
+  orchestratorMeta,
   args,
   response,
   failed = false,
 }) => {
   // Hook must be unconditionally called before any early return.
   const displayName = useResolvedAgentName(args?.agentName) ?? args?.agentName;
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const [textExpanded, setTextExpanded] = useState(false);
 
   switch (status) {
     case "complete":
@@ -37,42 +61,58 @@ export const MessageFromA2A: React.FC<MessageActionRenderProps> = ({
   if (!args?.agentName) {
     return null;
   }
-  const agentStyle = getAgentStyle(displayName ?? args.agentName);
+
+  const baseText = failed
+    ? response || "Seller call failed"
+    : response || "Response received";
+  const isLongText = baseText.length > 120;
+  const statusText = failed
+    ? statusLabel
+      ? `⚠ ${statusLabel}`
+      : "⚠ Failed"
+    : statusLabel
+      ? `✓ ${statusLabel}`
+      : "✓ Received";
 
   return (
-    <div className="my-2 a2a-message-card a2a-message-card-incoming">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-        <div className="a2a-message-layout">
-          <div className="a2a-message-route">
-            <div className="flex flex-col items-center">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold border-2 ${agentStyle.bgColor} ${agentStyle.textColor} ${agentStyle.borderColor} flex items-center gap-1`}
-              >
-                <span>{agentStyle.icon}</span>
-                <span>{displayName}</span>
-              </span>
-              {agentStyle.framework && (
-                <span className="text-[9px] text-gray-500 mt-0.5">
-                  {agentStyle.framework}
-                </span>
-              )}
-            </div>
+    <A2AMessageCardShell
+      direction="inbound"
+      label={label}
+      timestamp={timestamp}
+      statusText={statusText}
+      statusTone={failed ? "danger" : "neutral"}
+      messageId={messageId}
+      taskId={taskId}
+      contextId={contextId}
+      expanded={cardExpanded}
+      onToggleExpanded={() => setCardExpanded((v) => !v)}
+    >
+      <A2AAgentPair
+        direction="inbound"
+        left={{ label: displayName ?? args.agentName ?? "Agent", meta: undefined }}
+        right={{ label: orchestratorLabel ?? "Orchestrator", meta: orchestratorMeta ?? "ADK" }}
+      />
 
-            <span className="text-gray-400 text-sm">→</span>
-
-            <div className="flex flex-col items-center">
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-700 text-white">
-                Orchestrator
-              </span>
-              <span className="text-[9px] text-gray-500 mt-0.5">ADK</span>
-            </div>
-          </div>
-
-          <span className="text-xs text-gray-600 a2a-message-copy">
-            {failed ? `⚠ ${response || "Seller call failed"}` : `✓ ${response || "Response received"}`}
-          </span>
-        </div>
+      <div className="a2a-message-content a2a-message-body-indent">
+        <p className="text-sm leading-6 text-slate-600 a2a-message-copy">
+          {textExpanded || !isLongText ? baseText : `${baseText.slice(0, 120)}…`}
+        </p>
+        {isLongText ? (
+          <button
+            type="button"
+            onClick={() => setTextExpanded((v) => !v)}
+            className={`mt-1 text-[11px] font-medium ${
+              failed ? "text-red-800 hover:text-red-900" : "text-blue-800 hover:text-blue-900"
+            }`}
+          >
+            {textExpanded ? "Show less" : "Show more"}
+          </button>
+        ) : null}
       </div>
-    </div>
+
+      <div className="a2a-message-content a2a-message-body-indent">
+        <A2APayload type={payloadType} data={payload} />
+      </div>
+    </A2AMessageCardShell>
   );
 };

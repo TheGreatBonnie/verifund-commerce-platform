@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const hooks = vi.hoisted(() => ({
   useFrontendTool: vi.fn(),
   push: vi.fn(),
+  searchParams: new URLSearchParams(),
 }));
 
 vi.mock("@copilotkit/react-core/v2", () => ({
@@ -14,11 +15,24 @@ vi.mock("@copilotkit/react-core/v2", () => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => "/chat",
   useRouter: () => ({ push: hooks.push }),
+  useSearchParams: () => hooks.searchParams,
 }));
 
 vi.mock("@/features/chat/chat", () => ({
-  Chat: ({ variant, onRunSample }: { variant?: string; onRunSample: () => void }) => (
-    <div data-testid="chat" data-variant={variant ?? "rail"}>
+  Chat: ({
+    variant,
+    onRunSample,
+    prefilledPrompt,
+  }: {
+    variant?: string;
+    onRunSample: () => void;
+    prefilledPrompt?: string | null;
+  }) => (
+    <div
+      data-testid="chat"
+      data-variant={variant ?? "rail"}
+      data-prefilled-prompt={prefilledPrompt ?? ""}
+    >
       <button type="button" onClick={onRunSample}>
         Run sample brief
       </button>
@@ -31,6 +45,7 @@ import ChatPage from "@/app/(console)/chat/page";
 describe("chat-only page", () => {
   beforeEach(() => {
     hooks.useFrontendTool.mockClear();
+    hooks.searchParams = new URLSearchParams();
   });
 
   it("renders the chat full-screen without the deal room", () => {
@@ -53,6 +68,31 @@ describe("chat-only page", () => {
     expect(screen.getByTestId("chat")).toHaveAttribute(
       "data-variant",
       "embedded",
+    );
+  });
+
+  it("prefills the chat from a transaction handoff deep link", () => {
+    hooks.searchParams = new URLSearchParams({
+      transaction_id: "tx_123",
+      intent: "release",
+    });
+
+    render(<ChatPage />);
+
+    expect(screen.getByTestId("chat")).toHaveAttribute(
+      "data-prefilled-prompt",
+      expect.stringContaining("tx_123"),
+    );
+  });
+
+  it("ignores a deep link that has no transaction id", () => {
+    hooks.searchParams = new URLSearchParams({ intent: "release" });
+
+    render(<ChatPage />);
+
+    expect(screen.getByTestId("chat")).toHaveAttribute(
+      "data-prefilled-prompt",
+      "",
     );
   });
 

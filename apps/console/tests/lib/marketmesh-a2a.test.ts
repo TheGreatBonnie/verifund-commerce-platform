@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { lastValueFrom, Observable, toArray } from "rxjs";
+import { EventType, type BaseEvent, type RunAgentInput } from "@ag-ui/core";
 import {
   MarketMeshA2AClient,
   MarketMeshA2AMiddlewareAgent,
@@ -219,6 +221,84 @@ describe("MarketMeshA2AMiddlewareAgent", () => {
     expect(cards.map((card) => card.name)).toEqual(["Northwind Audio"]);
     // The client list stays index-aligned with the cards.
     expect(state.agentClients).toHaveLength(1);
+  });
+
+  it("ends the run at a frontend HITL tool call so the thread lock is released", async () => {
+    const orchestrationAgent = {
+      run: () =>
+        new Observable<BaseEvent>((subscriber) => {
+          subscriber.next({
+            type: EventType.RUN_STARTED,
+            threadId: "thread-1",
+            runId: "run-1",
+          } as BaseEvent);
+          subscriber.next({
+            type: EventType.TOOL_CALL_START,
+            toolCallId: "call-1",
+            toolCallName: "request_verifund_agreement_approval",
+          } as BaseEvent);
+          subscriber.next({
+            type: EventType.TOOL_CALL_ARGS,
+            toolCallId: "call-1",
+            delta: "{}",
+          } as BaseEvent);
+          subscriber.next({
+            type: EventType.TOOL_CALL_END,
+            toolCallId: "call-1",
+          } as BaseEvent);
+          // The orchestrator keeps streaming after the HITL tool call.
+          subscriber.next({
+            type: EventType.TEXT_MESSAGE_START,
+            messageId: "message-1",
+            role: "assistant",
+          } as BaseEvent);
+          subscriber.next({
+            type: EventType.RUN_FINISHED,
+            threadId: "thread-1",
+            runId: "run-1",
+          } as BaseEvent);
+          subscriber.complete();
+        }),
+      addMessage: () => {},
+      clone() {
+        return this;
+      },
+    };
+
+    const agent = new MarketMeshA2AMiddlewareAgent({
+      agentName: "marketmesh_orchestrator",
+      description: "test orchestrator",
+      agents: [],
+      orchestrationAgent: orchestrationAgent as never,
+      instructions: "",
+      tokens: new Map(),
+    });
+
+    const result = await lastValueFrom(
+      agent.run({
+        threadId: "thread-1",
+        runId: "run-1",
+        messages: [{ id: "message-0", role: "user", content: "approve" }],
+        tools: [],
+        context: [],
+        state: {},
+        forwardedProps: {},
+      } as unknown as RunAgentInput).pipe(toArray()),
+    );
+
+    // The second text turn and the orchestrator's own RUN_FINISHED must not
+    // leak past the HITL boundary: the runtime sees one terminal event here.
+    expect(result.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_FINISHED,
+    ]);
+    expect(result.at(-1)).toMatchObject({
+      threadId: "thread-1",
+      runId: "run-1",
+    });
   });
 });
 
